@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <section className="w-full">
@@ -9,9 +11,12 @@ export default function Home() {
           DEKEZ Rental Management System
         </h1>
         <p className="mt-5 text-lg text-gray-600">System setup successful.</p>
-        <button className="mt-8 rounded-md bg-[#126b5f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f5a50] focus:outline-none focus:ring-2 focus:ring-[#126b5f] focus:ring-offset-2">
+        <Link
+          href="/login"
+          className="mt-8 inline-flex rounded-md bg-[#126b5f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f5a50] focus:outline-none focus:ring-2 focus:ring-[#126b5f] focus:ring-offset-2"
+        >
           Admin Login
-        </button>
+        </Link>
       </div>
     </section>
   );
