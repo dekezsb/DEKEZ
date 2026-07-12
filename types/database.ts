@@ -273,6 +273,133 @@ export type Database = {
           },
         ];
       };
+      tenants: {
+        Row: {
+          id: string;
+          company_id: string;
+          profile_id: string | null;
+          full_name: string;
+          email: string | null;
+          phone: string | null;
+          identity_number: string | null;
+          emergency_contact_name: string | null;
+          emergency_contact_phone: string | null;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          profile_id?: string | null;
+          full_name: string;
+          email?: string | null;
+          phone?: string | null;
+          identity_number?: string | null;
+          emergency_contact_name?: string | null;
+          emergency_contact_phone?: string | null;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          profile_id?: string | null;
+          full_name?: string;
+          email?: string | null;
+          phone?: string | null;
+          identity_number?: string | null;
+          emergency_contact_name?: string | null;
+          emergency_contact_phone?: string | null;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "tenants_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tenants_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      tenancies: {
+        Row: {
+          id: string;
+          company_id: string;
+          tenant_id: string;
+          room_id: string;
+          monthly_rent: number;
+          deposit: number;
+          start_date: string;
+          end_date: string | null;
+          due_day: number;
+          status: "draft" | "active" | "ended" | "cancelled";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          tenant_id: string;
+          room_id: string;
+          monthly_rent: number;
+          deposit?: number;
+          start_date: string;
+          end_date?: string | null;
+          due_day: number;
+          status?: "draft" | "active" | "ended" | "cancelled";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          tenant_id?: string;
+          room_id?: string;
+          monthly_rent?: number;
+          deposit?: number;
+          start_date?: string;
+          end_date?: string | null;
+          due_day?: number;
+          status?: "draft" | "active" | "ended" | "cancelled";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "tenancies_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tenancies_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tenancies_room_id_fkey";
+            columns: ["room_id"];
+            isOneToOne: false;
+            referencedRelation: "rooms";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
