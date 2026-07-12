@@ -1,7 +1,14 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import "./globals.css";
 
-const navigation = ["Dashboard", "Properties", "Rooms", "Tenants", "Settings"];
+const navigation = [
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Properties", href: "/properties" },
+  { label: "Rooms", href: "/rooms" },
+  { label: "Tenants", href: "/tenants" },
+  { label: "Settings", href: "/settings" },
+];
 
 export const metadata: Metadata = {
   title: "DEKEZ",
@@ -27,13 +34,13 @@ export default function RootLayout({
               </div>
               <nav aria-label="Main navigation" className="flex gap-1 overflow-x-auto lg:mt-8 lg:flex-col lg:overflow-visible">
                 {navigation.map((item) => (
-                  <a
-                    key={item}
-                    href="#"
+                  <Link
+                    key={item.href}
+                    href={item.href}
                     className="whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-[#e8f3f1] hover:text-[#126b5f] focus:outline-none focus:ring-2 focus:ring-[#126b5f] focus:ring-offset-2 lg:px-4"
                   >
-                    {item}
-                  </a>
+                    {item.label}
+                  </Link>
                 ))}
               </nav>
             </div>
