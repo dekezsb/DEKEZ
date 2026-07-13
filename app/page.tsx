@@ -28,10 +28,28 @@ const loginCards: Array<{
   },
 ];
 
-export default function Home() {
+type HomeProps = {
+  searchParams: Promise<{
+    verified?: string;
+  }>;
+};
+
+export default async function Home({ searchParams }: HomeProps) {
+  const { verified } = await searchParams;
+
   return (
     <section className="flex min-h-screen items-center bg-[#f4f6f8] px-4 py-10">
       <div className="mx-auto w-full max-w-5xl">
+        {verified === "1" ? (
+          <div className="mb-6 rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
+            Email verified successfully. Please choose your category and login.
+          </div>
+        ) : null}
+        {verified === "0" ? (
+          <div className="mb-6 rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+            Email verification failed or expired. Please try signing up again.
+          </div>
+        ) : null}
         <div className="mb-8">
           <p className="text-sm font-semibold uppercase text-[#126b5f]">
             DEKEZ Rental Management System

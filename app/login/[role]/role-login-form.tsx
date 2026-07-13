@@ -80,10 +80,12 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
     }
 
     const supabase = createClient();
+    const emailRedirectTo = `${window.location.origin}/auth/callback`;
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo,
         data: {
           role: expectedRole,
           full_name: fullName,
@@ -107,7 +109,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       setMode("login");
       setPassword("");
       setConfirmPassword("");
-      setMessage("Account created. Please check your email to confirm, then login.");
+      setMessage("Account created. Please check your email and click the verification link before logging in.");
       return;
     }
 
