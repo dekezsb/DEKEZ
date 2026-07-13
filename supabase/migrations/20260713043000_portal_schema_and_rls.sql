@@ -362,6 +362,16 @@ alter table public.properties
   add column if not exists location text,
   add column if not exists status text not null default 'active';
 
+alter table public.property_owners
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists owner_id uuid references auth.users(id) on delete cascade,
+  add column if not exists ownership_percentage numeric(5, 2) not null default 100,
+  add column if not exists start_date date not null default current_date,
+  add column if not exists end_date date,
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 alter table public.units
   add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
   add column if not exists property_id uuid references public.properties(id) on delete cascade,
@@ -378,22 +388,147 @@ alter table public.rooms
   add column if not exists description text;
 
 alter table public.tenancies
-  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists tenant_id uuid references auth.users(id) on delete cascade,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists unit_id uuid references public.units(id) on delete set null,
+  add column if not exists room_id uuid references public.rooms(id) on delete cascade,
+  add column if not exists monthly_rental numeric(12, 2) not null default 0,
+  add column if not exists deposit numeric(12, 2) not null default 0,
+  add column if not exists contract_start date,
+  add column if not exists contract_end date,
+  add column if not exists due_day integer not null default 1,
+  add column if not exists status text not null default 'active',
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 alter table public.rent_bills
-  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists tenancy_id uuid references public.tenancies(id) on delete cascade,
+  add column if not exists tenant_id uuid references auth.users(id) on delete cascade,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists unit_id uuid references public.units(id) on delete set null,
+  add column if not exists room_id uuid references public.rooms(id) on delete cascade,
+  add column if not exists bill_month date,
+  add column if not exists due_date date,
+  add column if not exists amount numeric(12, 2) not null default 0,
+  add column if not exists paid_amount numeric(12, 2) not null default 0,
+  add column if not exists status public.bill_status not null default 'unpaid',
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 alter table public.utility_bills
-  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists tenant_id uuid references auth.users(id) on delete set null,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists unit_id uuid references public.units(id) on delete set null,
+  add column if not exists room_id uuid references public.rooms(id) on delete set null,
+  add column if not exists utility_type text not null default 'other',
+  add column if not exists bill_month date,
+  add column if not exists amount numeric(12, 2) not null default 0,
+  add column if not exists paid_amount numeric(12, 2) not null default 0,
+  add column if not exists status public.bill_status not null default 'unpaid',
+  add column if not exists notes text,
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 alter table public.payments
-  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists tenant_id uuid references auth.users(id) on delete set null,
+  add column if not exists tenancy_id uuid references public.tenancies(id) on delete set null,
+  add column if not exists property_id uuid references public.properties(id) on delete set null,
+  add column if not exists unit_id uuid references public.units(id) on delete set null,
+  add column if not exists room_id uuid references public.rooms(id) on delete set null,
+  add column if not exists category text not null default 'other',
+  add column if not exists amount numeric(12, 2) not null default 0,
+  add column if not exists payment_date date not null default current_date,
+  add column if not exists payment_method text not null default 'cash',
+  add column if not exists reference_number text,
+  add column if not exists notes text,
+  add column if not exists status public.payment_status not null default 'confirmed',
+  add column if not exists recorded_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 alter table public.wallet_transactions
-  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists tenant_id uuid references auth.users(id) on delete cascade,
+  add column if not exists transaction_type text not null default 'top_up',
+  add column if not exists amount numeric(12, 2) not null default 0,
+  add column if not exists reference_number text,
+  add column if not exists notes text,
+  add column if not exists recorded_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now();
 
 alter table public.maintenance_tickets
-  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+  add column if not exists ticket_number text,
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists tenant_id uuid references auth.users(id) on delete cascade,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists unit_id uuid references public.units(id) on delete set null,
+  add column if not exists room_id uuid references public.rooms(id) on delete set null,
+  add column if not exists ticket_type public.ticket_type not null default 'maintenance',
+  add column if not exists category text,
+  add column if not exists description text,
+  add column if not exists urgency public.ticket_urgency not null default 'normal',
+  add column if not exists status public.ticket_status not null default 'submitted',
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now(),
+  add column if not exists completed_at timestamptz;
+
+alter table public.maintenance_ticket_assignments
+  add column if not exists ticket_id uuid references public.maintenance_tickets(id) on delete cascade,
+  add column if not exists assigned_to uuid references auth.users(id) on delete cascade,
+  add column if not exists assigned_by uuid references auth.users(id) on delete set null,
+  add column if not exists assigned_at timestamptz not null default now(),
+  add column if not exists required_completion_date date,
+  add column if not exists status text not null default 'assigned';
+
+alter table public.maintenance_updates
+  add column if not exists ticket_id uuid references public.maintenance_tickets(id) on delete cascade,
+  add column if not exists updated_by uuid references auth.users(id) on delete cascade,
+  add column if not exists status public.ticket_status,
+  add column if not exists notes text,
+  add column if not exists labour_cost numeric(12, 2) not null default 0,
+  add column if not exists material_cost numeric(12, 2) not null default 0,
+  add column if not exists created_at timestamptz not null default now();
+
+alter table public.maintenance_attachments
+  add column if not exists ticket_id uuid references public.maintenance_tickets(id) on delete cascade,
+  add column if not exists uploaded_by uuid references auth.users(id) on delete cascade,
+  add column if not exists attachment_type text not null default 'problem',
+  add column if not exists bucket_name text not null default 'maintenance-attachments',
+  add column if not exists file_path text,
+  add column if not exists content_type text,
+  add column if not exists created_at timestamptz not null default now();
+
+alter table public.claims
+  add column if not exists ticket_id uuid references public.maintenance_tickets(id) on delete cascade,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists owner_id uuid references auth.users(id) on delete cascade,
+  add column if not exists submitted_by uuid references auth.users(id) on delete cascade,
+  add column if not exists labour_cost numeric(12, 2) not null default 0,
+  add column if not exists material_cost numeric(12, 2) not null default 0,
+  add column if not exists description text,
+  add column if not exists status public.claim_status not null default 'pending_owner_approval',
+  add column if not exists submitted_at timestamptz not null default now(),
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists reviewed_by uuid references auth.users(id) on delete set null,
+  add column if not exists rejection_reason text,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table public.claim_attachments
+  add column if not exists claim_id uuid references public.claims(id) on delete cascade,
+  add column if not exists uploaded_by uuid references auth.users(id) on delete cascade,
+  add column if not exists bucket_name text not null default 'claim-attachments',
+  add column if not exists file_path text,
+  add column if not exists content_type text,
+  add column if not exists created_at timestamptz not null default now();
 
 insert into storage.buckets (id, name, public)
 values
