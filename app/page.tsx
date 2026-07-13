@@ -38,6 +38,7 @@ type HomeProps = {
 
 export default async function Home({ searchParams }: HomeProps) {
   const { verified } = await searchParams;
+  let signedInHome: string | null = null;
 
   try {
     const supabase = await createClient();
@@ -57,10 +58,14 @@ export default async function Home({ searchParams }: HomeProps) {
         role = normalizeRole(profile?.role);
       }
 
-      redirect(roleHome[role ?? "tenant"]);
+      signedInHome = roleHome[role ?? "tenant"];
     }
   } catch {
     // Public home should still render if Supabase is not configured yet.
+  }
+
+  if (signedInHome) {
+    redirect(signedInHome);
   }
 
   return (
