@@ -85,6 +85,14 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+alter table public.profiles
+  add column if not exists full_name text,
+  add column if not exists phone text,
+  add column if not exists role text not null default 'tenant',
+  add column if not exists organization_id uuid,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -96,11 +104,20 @@ create table if not exists public.organizations (
   updated_at timestamptz not null default now()
 );
 
-alter table public.profiles
-  add constraint profiles_organization_id_fkey
-  foreign key (organization_id)
-  references public.organizations(id)
-  on delete set null;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'profiles_organization_id_fkey'
+  ) then
+    alter table public.profiles
+      add constraint profiles_organization_id_fkey
+      foreign key (organization_id)
+      references public.organizations(id)
+      on delete set null;
+  end if;
+end $$;
 
 create table if not exists public.organization_members (
   id uuid primary key default gen_random_uuid(),
