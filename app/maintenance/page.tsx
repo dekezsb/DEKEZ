@@ -5,7 +5,15 @@ import { maintenance } from "@/lib/dummy-data";
 import { requireRole } from "@/lib/auth/session";
 
 export default async function MaintenancePage() {
-  await requireRole(["super_admin", "owner", "admin", "technician", "tenant"]);
+  await requireRole([
+    "super_admin",
+    "owner",
+    "admin",
+    "technician",
+    "maintenance_staff",
+    "cleaning_staff",
+    "tenant",
+  ]);
 
   return (
     <section className="space-y-6">

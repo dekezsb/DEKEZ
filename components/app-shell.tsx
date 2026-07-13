@@ -135,9 +135,34 @@ export function AppShell({ children, role }: AppShellProps) {
         </header>
 
         <main className="min-h-[calc(100vh-64px)] px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">{children}</div>
+          <div className="mx-auto max-w-7xl pb-20 lg:pb-0">{children}</div>
         </main>
       </div>
+
+      {navigation.length ? (
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d7dde5] bg-white lg:hidden">
+          <div className="grid grid-cols-4">
+            {navigation.slice(0, 4).map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname.startsWith(item.href);
+
+              return (
+                <Link
+                  className={cn(
+                    "flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium",
+                    isActive ? "text-[#126b5f]" : "text-gray-500",
+                  )}
+                  href={item.href}
+                  key={item.href}
+                >
+                  <Icon className="h-5 w-5" />
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      ) : null}
     </div>
   );
 }

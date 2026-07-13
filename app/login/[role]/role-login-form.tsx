@@ -12,6 +12,7 @@ type LoginFormProps = {
 type AuthMode = "login" | "signup";
 
 const selfSignupRoles: AppRole[] = ["owner", "tenant"];
+const staffRoles: AppRole[] = ["technician", "maintenance_staff", "cleaning_staff"];
 
 export function LoginForm({ expectedRole }: LoginFormProps) {
   const router = useRouter();
@@ -59,7 +60,10 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       return;
     }
 
-    if (actualRole !== expectedRole) {
+    const isExpectedStaffLogin =
+      expectedRole === "technician" && staffRoles.includes(actualRole);
+
+    if (actualRole !== expectedRole && !isExpectedStaffLogin) {
       await supabase.auth.signOut();
       setIsLoading(false);
       setError(
