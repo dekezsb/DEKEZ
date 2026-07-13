@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { protectedRoutes } from "@/lib/auth/roles";
+import { normalizeSupabaseUrl } from "./config";
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -11,7 +12,7 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
-  const supabase = createServerClient(url, anonKey, {
+  const supabase = createServerClient(normalizeSupabaseUrl(url), anonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();

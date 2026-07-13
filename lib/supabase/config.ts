@@ -1,4 +1,4 @@
-function normalizeSupabaseUrl(url: string) {
+export function normalizeSupabaseUrl(url: string) {
   return url.trim().replace(/\/rest\/v1\/?$/, "");
 }
 

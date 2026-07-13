@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeRole, roleHome, roleLabels, type AppRole } from "@/lib/auth/roles";
 
@@ -15,7 +14,6 @@ const selfSignupRoles: AppRole[] = ["owner", "tenant"];
 const staffRoles: AppRole[] = ["technician", "maintenance_staff", "cleaning_staff"];
 
 export function LoginForm({ expectedRole }: LoginFormProps) {
-  const router = useRouter();
   const canSignUp = selfSignupRoles.includes(expectedRole);
   const [mode, setMode] = useState<AuthMode>("login");
   const [fullName, setFullName] = useState("");
@@ -67,8 +65,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
     actualRole = actualRole ?? "tenant";
 
     if (actualRole === "super_admin") {
-      router.push(roleHome.super_admin);
-      router.refresh();
+      window.location.assign(roleHome.super_admin);
       return;
     }
 
@@ -84,8 +81,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       return;
     }
 
-    router.push(roleHome[actualRole]);
-    router.refresh();
+    window.location.assign(roleHome[actualRole]);
   }
 
   async function handleSignUp() {
@@ -135,8 +131,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       return;
     }
 
-    router.push(roleHome[expectedRole]);
-    router.refresh();
+    window.location.assign(roleHome[expectedRole]);
   }
 
   function switchMode(nextMode: AuthMode) {
