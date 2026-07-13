@@ -4,7 +4,7 @@ import { payments } from "@/lib/dummy-data";
 import { requireRole } from "@/lib/auth/session";
 
 export default async function PaymentsPage() {
-  await requireRole(["owner", "admin", "tenant"]);
+  await requireRole(["super_admin", "owner", "admin", "tenant"]);
 
   return (
     <section className="space-y-6">

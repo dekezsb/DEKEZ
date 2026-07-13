@@ -4,13 +4,14 @@ import {
   ClipboardList,
   CreditCard,
   LayoutDashboard,
+  ShieldCheck,
   Settings,
   Users,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
 
-export const appRoles = ["owner", "admin", "technician", "tenant"] as const;
+export const appRoles = ["super_admin", "owner", "admin", "technician", "tenant"] as const;
 
 export type AppRole = (typeof appRoles)[number];
 
@@ -32,6 +33,7 @@ const adminNavigation: NavigationItem[] = [
 ];
 
 export const roleLabels: Record<AppRole, string> = {
+  super_admin: "Super Admin",
   owner: "Owner",
   admin: "Admin Team",
   technician: "Technician Team",
@@ -39,6 +41,7 @@ export const roleLabels: Record<AppRole, string> = {
 };
 
 export const roleHome: Record<AppRole, string> = {
+  super_admin: "/super-admin",
   owner: "/dashboard",
   admin: "/dashboard",
   technician: "/maintenance",
@@ -46,6 +49,10 @@ export const roleHome: Record<AppRole, string> = {
 };
 
 export const roleNavigation: Record<AppRole, NavigationItem[]> = {
+  super_admin: [
+    { label: "Super Admin", href: "/super-admin", icon: ShieldCheck },
+    ...adminNavigation,
+  ],
   owner: adminNavigation,
   admin: adminNavigation.filter((item) => item.href !== "/settings"),
   technician: [
@@ -67,6 +74,8 @@ export const protectedRoutes = [
   "/maintenance",
   "/reports",
   "/settings",
+  "/setup",
+  "/super-admin",
 ];
 
 export function normalizeRole(value: unknown): AppRole | null {

@@ -11,7 +11,7 @@ const settings = [
 ];
 
 export default async function SettingsPage() {
-  await requireRole(["owner"]);
+  await requireRole(["super_admin", "owner"]);
 
   return (
     <section className="space-y-6">

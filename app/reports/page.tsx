@@ -4,7 +4,7 @@ import { reports } from "@/lib/dummy-data";
 import { requireRole } from "@/lib/auth/session";
 
 export default async function ReportsPage() {
-  await requireRole(["owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"]);
 
   return (
     <section className="space-y-6">
