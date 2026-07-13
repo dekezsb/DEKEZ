@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { roleLabels, type AppRole } from "@/lib/auth/roles";
+import { redirect } from "next/navigation";
+import { normalizeRole, roleHome, roleLabels, type AppRole } from "@/lib/auth/roles";
+import { createClient } from "@/lib/supabase/server";
 
 const loginCards: Array<{
   role: AppRole;
@@ -36,6 +38,30 @@ type HomeProps = {
 
 export default async function Home({ searchParams }: HomeProps) {
   const { verified } = await searchParams;
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user && verified !== "1" && verified !== "0") {
+      let role = normalizeRole(user.user_metadata?.role);
+
+      if (!role) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
+        role = normalizeRole(profile?.role);
+      }
+
+      redirect(roleHome[role ?? "tenant"]);
+    }
+  } catch {
+    // Public home should still render if Supabase is not configured yet.
+  }
 
   return (
     <section className="flex min-h-screen items-center bg-[#f4f6f8] px-4 py-10">
