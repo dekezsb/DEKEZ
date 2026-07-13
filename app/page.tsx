@@ -4,22 +4,27 @@ import { roleLabels, type AppRole } from "@/lib/auth/roles";
 const loginCards: Array<{
   role: AppRole;
   description: string;
+  action: string;
 }> = [
   {
     role: "owner",
-    description: "Access portfolio, rooms, rent collection and reports.",
+    description: "Create or access your owner account for portfolio operations.",
+    action: "Login or sign up",
   },
   {
     role: "admin",
     description: "Manage daily room-rental operations and tenant activity.",
+    action: "Continue to login",
   },
   {
     role: "technician",
     description: "View assigned repair work and update maintenance status.",
+    action: "Continue to login",
   },
   {
     role: "tenant",
-    description: "View rental details, payment history and maintenance requests.",
+    description: "Create or access your tenant account for rental information.",
+    action: "Login or sign up",
   },
 ];
 
@@ -54,7 +59,7 @@ export default function Home() {
                 {card.description}
               </p>
               <p className="mt-4 text-sm font-semibold text-[#126b5f]">
-                Continue to login
+                {card.action}
               </p>
             </Link>
           ))}
