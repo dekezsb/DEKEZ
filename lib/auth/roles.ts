@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ShieldCheck,
   Settings,
+  UserCog,
   Users,
   Wrench,
   type LucideIcon,
@@ -32,6 +33,7 @@ export type NavigationItem = {
 
 const adminNavigation: NavigationItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Admin Setup", href: "/admin-setup", icon: UserCog },
   { label: "Properties", href: "/properties", icon: Building2 },
   { label: "Units", href: "/units", icon: Building2 },
   { label: "Rooms", href: "/rooms", icon: ClipboardList },
@@ -96,6 +98,7 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
 
 export const protectedRoutes = [
   "/dashboard",
+  "/admin-setup",
   "/properties",
   "/units",
   "/rooms",
