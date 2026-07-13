@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { normalizeRole, roleHome, roleLabels, type AppRole } from "@/lib/auth/roles";
+import { roleHome, roleLabels, type AppRole } from "@/lib/auth/roles";
 
 type LoginFormProps = {
   expectedRole: AppRole;
@@ -11,7 +11,6 @@ type LoginFormProps = {
 type AuthMode = "login" | "signup";
 
 const selfSignupRoles: AppRole[] = ["owner", "tenant"];
-const staffRoles: AppRole[] = ["technician", "maintenance_staff", "cleaning_staff"];
 
 export function LoginForm({ expectedRole }: LoginFormProps) {
   const canSignUp = selfSignupRoles.includes(expectedRole);
@@ -38,50 +37,27 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       return;
     }
 
-    const supabase = createClient();
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const response = await fetch("/auth/sign-in", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        expectedRole,
+      }),
     });
 
-    if (signInError || !data.user) {
+    const result = await response.json();
+
+    if (!response.ok) {
       setIsLoading(false);
-      setError(signInError?.message ?? "Unable to login.");
+      setError(result.error ?? "Unable to login.");
       return;
     }
 
-    let actualRole = normalizeRole(data.user.user_metadata?.role);
-
-    if (!actualRole) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      actualRole = normalizeRole(profile?.role);
-    }
-
-    actualRole = actualRole ?? "tenant";
-
-    if (actualRole === "super_admin") {
-      window.location.assign(roleHome.super_admin);
-      return;
-    }
-
-    const isExpectedStaffLogin =
-      expectedRole === "technician" && staffRoles.includes(actualRole);
-
-    if (actualRole !== expectedRole && !isExpectedStaffLogin) {
-      await supabase.auth.signOut();
-      setIsLoading(false);
-      setError(
-        `This account is registered as ${roleLabels[actualRole]}, not ${roleLabels[expectedRole]}.`,
-      );
-      return;
-    }
-
-    window.location.assign(roleHome[actualRole]);
+    window.location.assign(result.redirectTo ?? "/dashboard");
   }
 
   async function handleSignUp() {
