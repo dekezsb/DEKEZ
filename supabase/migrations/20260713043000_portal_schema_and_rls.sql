@@ -348,6 +348,53 @@ create table if not exists public.claim_attachments (
   created_at timestamptz not null default now()
 );
 
+alter table public.organization_members
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists role text not null default 'tenant',
+  add column if not exists status text not null default 'active',
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table public.properties
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists location text,
+  add column if not exists status text not null default 'active';
+
+alter table public.units
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
+  add column if not exists name text,
+  add column if not exists floor text,
+  add column if not exists notes text,
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+alter table public.rooms
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists unit_id uuid references public.units(id) on delete set null,
+  add column if not exists description text;
+
+alter table public.tenancies
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+
+alter table public.rent_bills
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+
+alter table public.utility_bills
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+
+alter table public.payments
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+
+alter table public.wallet_transactions
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+
+alter table public.maintenance_tickets
+  add column if not exists organization_id uuid references public.organizations(id) on delete cascade;
+
 insert into storage.buckets (id, name, public)
 values
   ('maintenance-attachments', 'maintenance-attachments', false),
