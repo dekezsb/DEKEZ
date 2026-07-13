@@ -175,8 +175,15 @@ create table if not exists public.units (
 
 alter table public.rooms
   add column if not exists organization_id uuid references public.organizations(id) on delete cascade,
+  add column if not exists property_id uuid references public.properties(id) on delete cascade,
   add column if not exists unit_id uuid references public.units(id) on delete set null,
-  add column if not exists description text;
+  add column if not exists name text,
+  add column if not exists status public.room_status not null default 'vacant',
+  add column if not exists monthly_rent numeric(12, 2) not null default 0,
+  add column if not exists description text,
+  add column if not exists created_by uuid references auth.users(id) on delete set null,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
 
 create table if not exists public.tenancies (
   id uuid primary key default gen_random_uuid(),
