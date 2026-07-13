@@ -53,6 +53,12 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
 
     const actualRole = normalizeRole(data.user.user_metadata?.role) ?? "tenant";
 
+    if (actualRole === "super_admin") {
+      router.push(roleHome.super_admin);
+      router.refresh();
+      return;
+    }
+
     if (actualRole !== expectedRole) {
       await supabase.auth.signOut();
       setIsLoading(false);

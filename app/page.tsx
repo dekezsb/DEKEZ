@@ -82,6 +82,14 @@ export default async function Home({ searchParams }: HomeProps) {
             </Link>
           ))}
         </div>
+        <div className="mt-6 text-center">
+          <Link
+            className="text-sm font-semibold text-[#126b5f] underline-offset-4 hover:underline"
+            href="/login/super_admin"
+          >
+            Backend access
+          </Link>
+        </div>
       </div>
     </section>
   );
