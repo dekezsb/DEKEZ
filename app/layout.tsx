@@ -30,6 +30,15 @@ async function RootLayoutContent({
       data: { user },
     } = await supabase.auth.getUser();
     role = normalizeRole(user?.user_metadata?.role);
+
+    if (user && !role) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      role = normalizeRole(profile?.role);
+    }
   } catch {
     role = null;
   }

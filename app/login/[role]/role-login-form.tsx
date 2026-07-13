@@ -52,7 +52,19 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       return;
     }
 
-    const actualRole = normalizeRole(data.user.user_metadata?.role) ?? "tenant";
+    let actualRole = normalizeRole(data.user.user_metadata?.role);
+
+    if (!actualRole) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      actualRole = normalizeRole(profile?.role);
+    }
+
+    actualRole = actualRole ?? "tenant";
 
     if (actualRole === "super_admin") {
       router.push(roleHome.super_admin);
