@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { requireRole } from "@/lib/auth/session";
 
 const settings = [
   "Company profile",
@@ -9,7 +10,9 @@ const settings = [
   "Notification preferences",
 ];
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  await requireRole(["owner"]);
+
   return (
     <section className="space-y-6">
       <div>

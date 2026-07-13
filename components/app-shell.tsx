@@ -1,43 +1,34 @@
 "use client";
 
-import {
-  BarChart3,
-  Building2,
-  ClipboardList,
-  CreditCard,
-  LayoutDashboard,
-  Menu,
-  Settings,
-  Users,
-  Wrench,
-  X,
-} from "lucide-react";
+import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  roleLabels,
+  roleNavigation,
+  type AppRole,
+  type NavigationItem,
+} from "@/lib/auth/roles";
 import { cn } from "@/lib/utils";
-
-const navigation = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Properties", href: "/properties", icon: Building2 },
-  { label: "Rooms", href: "/rooms", icon: ClipboardList },
-  { label: "Tenants", href: "/tenants", icon: Users },
-  { label: "Payments", href: "/payments", icon: CreditCard },
-  { label: "Maintenance", href: "/maintenance", icon: Wrench },
-  { label: "Reports", href: "/reports", icon: BarChart3 },
-  { label: "Settings", href: "/settings", icon: Settings },
-];
 
 type AppShellProps = {
   children: ReactNode;
+  role: AppRole | null;
 };
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, role }: AppShellProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const navigation: NavigationItem[] = role ? roleNavigation[role] : [];
   const currentPage =
-    navigation.find((item) => pathname.startsWith(item.href))?.label ?? "Dashboard";
+    navigation.find((item) => pathname.startsWith(item.href))?.label ?? "DEKEZ";
+  const isPublicPage = pathname === "/" || pathname.startsWith("/login");
+
+  if (isPublicPage) {
+    return <>{children}</>;
+  }
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] text-gray-950">
@@ -55,7 +46,9 @@ export function AppShell({ children }: AppShellProps) {
               </span>
               <span>
                 <span className="block text-lg font-bold">DEKEZ</span>
-                <span className="block text-xs text-gray-500">Rental SaaS</span>
+                <span className="block text-xs text-gray-500">
+                  {role ? roleLabels[role] : "Rental SaaS"}
+                </span>
               </span>
             </Link>
             <Button
@@ -95,9 +88,9 @@ export function AppShell({ children }: AppShellProps) {
 
           <div className="border-t border-[#d7dde5] p-4">
             <div className="rounded-lg bg-[#f4f6f8] p-4">
-              <p className="text-sm font-semibold">Phase 1 UI</p>
+              <p className="text-sm font-semibold">Phase 2 Auth</p>
               <p className="mt-1 text-xs leading-5 text-gray-500">
-                Dummy data only. No auth or database connected.
+                Protected routes with role-aware navigation.
               </p>
             </div>
           </div>
@@ -133,7 +126,11 @@ export function AppShell({ children }: AppShellProps) {
                 <p className="font-semibold">{currentPage}</p>
               </div>
             </div>
-            <Button variant="outline">Demo Mode</Button>
+            <form action="/logout" method="post">
+              <Button type="submit" variant="outline">
+                Logout
+              </Button>
+            </form>
           </div>
         </header>
 

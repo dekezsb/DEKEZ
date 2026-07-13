@@ -2,8 +2,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { properties } from "@/lib/dummy-data";
+import { requireRole } from "@/lib/auth/session";
 
-export default function PropertiesPage() {
+export default async function PropertiesPage() {
+  await requireRole(["owner", "admin"]);
+
   return (
     <section className="space-y-6">
       <div>

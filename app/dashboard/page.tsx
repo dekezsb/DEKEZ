@@ -16,8 +16,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { dashboardStats, maintenance, payments, tenants } from "@/lib/dummy-data";
+import { requireRole } from "@/lib/auth/session";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  await requireRole(["owner", "admin", "tenant"]);
+
   return (
     <section className="space-y-6">
       <div>

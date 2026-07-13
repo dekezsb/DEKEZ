@@ -1,8 +1,11 @@
 import { FileBarChart } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { reports } from "@/lib/dummy-data";
+import { requireRole } from "@/lib/auth/session";
 
-export default function ReportsPage() {
+export default async function ReportsPage() {
+  await requireRole(["owner", "admin"]);
+
   return (
     <section className="space-y-6">
       <div>
