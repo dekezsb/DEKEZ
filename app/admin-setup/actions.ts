@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
-import { getCurrentUser } from "@/lib/data/organization";
+import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -27,11 +27,12 @@ function numberValue(formData: FormData, key: string, fallback = 0) {
 }
 
 async function assertAdmin() {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"]);
 }
 
 export async function createPortalUser(formData: FormData) {
   await assertAdmin();
+  const [currentUser, company] = await Promise.all([getCurrentUser(), getFirstCompany()]);
 
   const fullName = textValue(formData, "fullName");
   const email = textValue(formData, "email").toLowerCase();
@@ -71,6 +72,16 @@ export async function createPortalUser(formData: FormData) {
     phone: phone || null,
     role,
   });
+
+  if (company && currentUser) {
+    await admin.from("company_users").upsert({
+      company_id: company.id,
+      user_id: data.user.id,
+      role,
+      status: "active",
+      created_by: currentUser.id,
+    });
+  }
 
   revalidatePath("/admin-setup");
   redirect("/admin-setup?created=user");

@@ -1,16 +1,33 @@
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
+import { createTenant } from "./actions";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
   currency: "MYR",
 });
 
-export default async function TenantsPage() {
+type TenantsPageProps = {
+  searchParams: Promise<{
+    created?: string;
+    error?: string;
+    message?: string;
+  }>;
+};
+
+const errorMessages: Record<string, string> = {
+  missing: "Please enter tenant name, email and temporary password.",
+  service_key: "Missing Supabase service role key. Add SUPABASE_SERVICE_ROLE_KEY in Vercel first.",
+  create: "Tenant account could not be created.",
+};
+
+export default async function TenantsPage({ searchParams }: TenantsPageProps) {
   await requireRole(["super_admin", "owner", "admin"]);
+  const params = await searchParams;
   const supabase = await createClient();
   const [profilesResult, tenanciesResult, roomsResult] = await Promise.all([
     supabase
@@ -42,6 +59,49 @@ export default async function TenantsPage() {
           Real tenant profiles and tenancy assignments from Supabase.
         </p>
       </div>
+
+      {params.created === "1" ? (
+        <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
+          Tenant account created successfully.
+        </div>
+      ) : null}
+      {params.error ? (
+        <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+          {errorMessages[params.error] ?? "Tenant account could not be created."}
+          {params.message ? ` ${params.message}` : ""}
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Add Tenant</CardTitle>
+          <CardDescription>
+            Create a tenant login first. You can assign the room and tenancy after this.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={createTenant} className="grid gap-4 lg:grid-cols-4">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Full name</span>
+              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="fullName" required />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Email</span>
+              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="email" type="email" required />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Phone</span>
+              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="phone" />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Temporary password</span>
+              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="password" type="password" required />
+            </label>
+            <Button className="lg:col-span-4" type="submit">Create tenant</Button>
+          </form>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Tenant Overview</CardTitle>

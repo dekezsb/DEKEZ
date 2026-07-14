@@ -42,7 +42,7 @@ const errorMessages: Record<string, string> = {
 };
 
 export default async function AdminSetupPage({ searchParams }: AdminSetupPageProps) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"]);
   const params = await searchParams;
   const supabase = await createClient();
   const [properties, rooms, profilesResult, unitsResult, tenanciesResult] = await Promise.all([
