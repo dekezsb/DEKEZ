@@ -1,15 +1,11 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/server";
+import { getUnits } from "@/lib/data/organization";
 
 export default async function UnitsPage() {
   await requireRole(["super_admin", "owner", "admin"]);
-  const supabase = await createClient();
-  const { data: units } = await supabase
-    .from("units")
-    .select("id, name, floor, notes")
-    .order("created_at", { ascending: false });
+  const units = await getUnits();
 
   return (
     <section className="space-y-6">
@@ -26,7 +22,7 @@ export default async function UnitsPage() {
           <CardDescription>Unit records under your allowed properties.</CardDescription>
         </CardHeader>
         <CardContent>
-          {units?.length ? (
+          {units.length ? (
             <Table>
               <TableHeader>
                 <TableRow>
