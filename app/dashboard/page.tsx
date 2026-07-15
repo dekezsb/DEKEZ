@@ -234,7 +234,9 @@ async function AdminDashboard() {
         <ModuleCard title="Full Property Management" description="Create and manage properties and ownership setup." href="/properties" icon={Building2} badge={summary.totalProperties} />
         <ModuleCard title="Room Management" description="Create rooms, set rent, and monitor room status." href="/rooms" icon={DoorOpen} badge={summary.totalRooms} />
         <ModuleCard title="Tenant Management" description="Create tenants and assign them to rooms through Admin Setup." href="/tenants" icon={BriefcaseBusiness} />
+        <ModuleCard title="Tenant Verification" description="Review tenant applications and identity documents." href="/tenant-verification" icon={ClipboardCheck} />
         <ModuleCard title="Payment Management" description="View rent collections and tenant payment records." href="/payments" icon={CreditCard} />
+        <ModuleCard title="Payment Verification" description="Verify tenant uploaded rent and check-in receipts." href="/payment-verification" icon={ReceiptText} />
         <ModuleCard title="Maintenance Management" description="Create tickets and coordinate work with staff." href="/maintenance" icon={Wrench} />
         <ModuleCard title="Reports" description="Review portfolio, rental, bill and maintenance reports." href="/reports" icon={BarChart3} />
       </div>
@@ -292,6 +294,7 @@ async function TenantDashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <ModuleCard title="My Room" description="View your assigned room once Admin creates your tenancy." href="/rooms" icon={DoorOpen} />
+        <ModuleCard title="Onboarding" description="Submit your tenant application, IC documents and check-in payment proof." href="/onboarding" icon={ClipboardCheck} />
         <ModuleCard title="My Rental" description="Check monthly rent, due date and outstanding balance." href="/payments" icon={Banknote} />
         <ModuleCard title="My Bills" description="View water, electricity and other utility bills." href="/utility-bills" icon={ReceiptText} />
         <ModuleCard title="Top Up" description="Review account balance and top-up history." href="/payments" icon={WalletCards} />
