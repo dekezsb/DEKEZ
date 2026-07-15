@@ -1,5 +1,18 @@
 create extension if not exists "pgcrypto";
 
+do $$
+begin
+  if exists (select 1 from pg_type where typname = 'app_role') then
+    alter type public.app_role add value if not exists 'super_admin';
+    alter type public.app_role add value if not exists 'owner';
+    alter type public.app_role add value if not exists 'admin';
+    alter type public.app_role add value if not exists 'technician';
+    alter type public.app_role add value if not exists 'maintenance_staff';
+    alter type public.app_role add value if not exists 'cleaning_staff';
+    alter type public.app_role add value if not exists 'tenant';
+  end if;
+end $$;
+
 alter table if exists public.company_users
   add column if not exists company_id uuid references public.companies(id) on delete cascade,
   add column if not exists profile_id uuid references public.profiles(id) on delete cascade,
@@ -74,7 +87,7 @@ select
 from public.properties properties
 join public.company_users company_users
   on company_users.company_id = properties.company_id
-where company_users.role = 'owner'
+where company_users.role::text = 'owner'
   and company_users.status = 'active'
   and coalesce(company_users.user_id, company_users.profile_id) is not null
   and not exists (
@@ -131,7 +144,7 @@ as $$
       where company_users.company_id = target_company_id
         and coalesce(company_users.user_id, company_users.profile_id) = auth.uid()
         and company_users.status = 'active'
-        and company_users.role in ('owner', 'admin')
+        and company_users.role::text in ('owner', 'admin')
     );
 $$;
 
@@ -155,7 +168,7 @@ as $$
     where properties.id = target_property_id
       and coalesce(company_users.user_id, company_users.profile_id) = auth.uid()
       and company_users.status = 'active'
-      and company_users.role = 'owner'
+      and company_users.role::text = 'owner'
   );
 $$;
 
