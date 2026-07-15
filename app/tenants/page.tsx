@@ -31,7 +31,7 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
   await requireRole(["super_admin", "owner", "admin"]);
   const params = await searchParams;
   const supabase = await createClient();
-  const [profilesResult, tenanciesResult, roomsResult, tenantRecords, properties] = await Promise.all([
+  const [profilesResult, tenanciesResult, rooms, tenantRecords, properties] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, full_name, phone, role")
@@ -41,16 +41,12 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
       .from("tenancies")
       .select("id, tenant_id, room_id, monthly_rental, deposit, contract_start, contract_end, due_day, status")
       .order("created_at", { ascending: false }),
-    supabase
-      .from("rooms")
-      .select("id, name")
-      .order("name", { ascending: true }),
+    getRooms(),
     getTenantRecords(),
     getProperties(),
   ]);
   const tenants = profilesResult.data ?? [];
   const tenancies = tenanciesResult.data ?? [];
-  const rooms = roomsResult.data ?? [];
   const roomById = new Map(rooms.map((room) => [room.id, room.name]));
   const propertyById = new Map(properties.map((property) => [property.id, property.name]));
   const tenancyByTenantId = new Map(tenancies.map((tenancy) => [tenancy.tenant_id, tenancy]));
