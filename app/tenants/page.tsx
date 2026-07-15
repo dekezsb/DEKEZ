@@ -3,6 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { getProperties, getRooms, getTenantRecords } from "@/lib/data/organization";
+import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
 import { createTenant } from "./actions";
 
@@ -29,7 +31,7 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
   await requireRole(["super_admin", "owner", "admin"]);
   const params = await searchParams;
   const supabase = await createClient();
-  const [profilesResult, tenanciesResult, roomsResult] = await Promise.all([
+  const [profilesResult, tenanciesResult, roomsResult, tenantRecords, properties] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, full_name, phone, role")
@@ -43,11 +45,14 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
       .from("rooms")
       .select("id, name")
       .order("name", { ascending: true }),
+    getTenantRecords(),
+    getProperties(),
   ]);
   const tenants = profilesResult.data ?? [];
   const tenancies = tenanciesResult.data ?? [];
   const rooms = roomsResult.data ?? [];
   const roomById = new Map(rooms.map((room) => [room.id, room.name]));
+  const propertyById = new Map(properties.map((property) => [property.id, property.name]));
   const tenancyByTenantId = new Map(tenancies.map((tenancy) => [tenancy.tenant_id, tenancy]));
 
   return (
@@ -56,7 +61,7 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
         <p className="text-xs font-semibold uppercase text-[#126b5f]">People</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Tenants</h1>
         <p className="mt-2 text-sm text-gray-600">
-          Real tenant profiles and tenancy assignments from Supabase.
+          Tenant records from Supabase, including imported tenants without login accounts.
         </p>
       </div>
 
@@ -104,8 +109,53 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Tenant Overview</CardTitle>
-          <CardDescription>Create tenants and assign rooms in Admin Setup.</CardDescription>
+          <CardTitle>Imported Tenant Records</CardTitle>
+          <CardDescription>Tenants from your Excel list. These do not need login emails.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {tenantRecords.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>IC / Passport</TableHead>
+                  <TableHead>Property</TableHead>
+                  <TableHead>Room</TableHead>
+                  <TableHead>Monthly Rent</TableHead>
+                  <TableHead>Deposit</TableHead>
+                  <TableHead>Contract</TableHead>
+                  <TableHead>Due Day</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tenantRecords.map((tenant) => (
+                  <TableRow key={tenant.id}>
+                    <TableCell className="font-medium text-gray-950">{tenant.full_name}</TableCell>
+                    <TableCell>{tenant.phone ?? "-"}</TableCell>
+                    <TableCell>{tenant.identification_number ?? "-"}</TableCell>
+                    <TableCell>{propertyById.get(tenant.property_id) ?? "-"}</TableCell>
+                    <TableCell>{tenant.room_id ? roomById.get(tenant.room_id) ?? "-" : "-"}</TableCell>
+                    <TableCell>{ringgitFormatter.format(tenant.monthly_rent)}</TableCell>
+                    <TableCell>{ringgitFormatter.format(tenant.deposit)}</TableCell>
+                    <TableCell>{tenant.contract_start ?? "-"} to {tenant.contract_end ?? "-"}</TableCell>
+                    <TableCell>{tenant.due_day ? `Day ${tenant.due_day}` : "-"}</TableCell>
+                    <TableCell><Badge className={statusBadgeClass(tenant.status)}>{tenant.status}</Badge></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-sm text-gray-500">No imported tenant records yet. Run the tenant import SQL first.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tenant Login Accounts</CardTitle>
+          <CardDescription>Tenant accounts that can log in to the portal.</CardDescription>
         </CardHeader>
         <CardContent>
           {tenants.length ? (
@@ -131,7 +181,7 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
                       <TableCell>{tenancy ? roomById.get(tenancy.room_id) ?? "-" : "Not assigned"}</TableCell>
                       <TableCell>{ringgitFormatter.format(Number(tenancy?.monthly_rental ?? 0))}</TableCell>
                       <TableCell>{tenancy?.due_day ? `Day ${tenancy.due_day}` : "-"}</TableCell>
-                      <TableCell><Badge>{tenancy?.status ?? "unassigned"}</Badge></TableCell>
+                      <TableCell><Badge className={statusBadgeClass(tenancy?.status ?? "unassigned")}>{tenancy?.status ?? "unassigned"}</Badge></TableCell>
                     </TableRow>
                   );
                 })}

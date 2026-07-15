@@ -38,6 +38,25 @@ export type UnitSummary = {
   notes: string | null;
 };
 
+export type TenantRecordSummary = {
+  id: string;
+  company_id: string | null;
+  property_id: string;
+  unit_id: string | null;
+  room_id: string | null;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  identification_number: string | null;
+  monthly_rent: number;
+  deposit: number;
+  contract_start: string | null;
+  contract_end: string | null;
+  due_day: number | null;
+  status: string;
+  notes: string | null;
+};
+
 export async function getCurrentUser() {
   const supabase = await createClient();
   const {
@@ -260,6 +279,34 @@ export async function getRooms() {
     ...room,
     monthly_rent: Number(room.monthly_rent ?? 0),
   })) as RoomSummary[];
+}
+
+export async function getTenantRecords() {
+  const propertyIds = await getAccessiblePropertyIds();
+  const supabase = await getDataClient();
+  let query = supabase
+    .from("tenant_records")
+    .select("id, company_id, property_id, unit_id, room_id, full_name, email, phone, identification_number, monthly_rent, deposit, contract_start, contract_end, due_day, status, notes")
+    .order("full_name", { ascending: true });
+
+  if (propertyIds !== null) {
+    if (!propertyIds.length) {
+      return [];
+    }
+    query = query.in("property_id", propertyIds);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return [];
+  }
+
+  return (data ?? []).map((tenant) => ({
+    ...tenant,
+    monthly_rent: Number(tenant.monthly_rent ?? 0),
+    deposit: Number(tenant.deposit ?? 0),
+  })) as TenantRecordSummary[];
 }
 
 export async function getDashboardSummary() {

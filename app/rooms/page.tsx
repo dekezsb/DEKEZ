@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { getProperties, getRooms } from "@/lib/data/organization";
+import { statusBadgeClass } from "@/lib/status-styles";
 import { createRoom } from "./actions";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
@@ -150,7 +151,7 @@ export default async function RoomsPage({ searchParams }: RoomsPageProps) {
                     <TableCell className="font-medium text-gray-950">{room.name}</TableCell>
                     <TableCell>{propertyById.get(room.property_id) ?? "-"}</TableCell>
                     <TableCell>
-                      <Badge>{room.status}</Badge>
+                      <Badge className={statusBadgeClass(room.status)}>{room.status}</Badge>
                     </TableCell>
                     <TableCell>{ringgitFormatter.format(room.monthly_rent)}</TableCell>
                     <TableCell className="max-w-sm text-xs text-gray-500">{room.description ?? "-"}</TableCell>
