@@ -5,6 +5,7 @@ build/
 dist/
 .env*
 !.env.example
+supabase/imports/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

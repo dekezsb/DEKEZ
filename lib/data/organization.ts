@@ -24,6 +24,7 @@ export type RoomSummary = {
   name: string;
   status: "vacant" | "occupied" | "maintenance" | "reserved";
   monthly_rent: number;
+  description: string | null;
 };
 
 export async function getCurrentUser() {
@@ -72,7 +73,7 @@ export async function getRooms() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("rooms")
-    .select("id, company_id, property_id, name, status, monthly_rent")
+    .select("id, company_id, property_id, name, status, monthly_rent, description")
     .order("created_at", { ascending: true });
 
   if (error) {

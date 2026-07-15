@@ -141,6 +141,7 @@ export default async function RoomsPage({ searchParams }: RoomsPageProps) {
                   <TableHead>Property</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Monthly Rent</TableHead>
+                  <TableHead>Notes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -152,6 +153,7 @@ export default async function RoomsPage({ searchParams }: RoomsPageProps) {
                       <Badge>{room.status}</Badge>
                     </TableCell>
                     <TableCell>{ringgitFormatter.format(room.monthly_rent)}</TableCell>
+                    <TableCell className="max-w-sm text-xs text-gray-500">{room.description ?? "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
