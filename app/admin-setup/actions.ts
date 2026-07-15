@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
+import { addMonths } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -168,10 +169,11 @@ export async function assignTenantTenancy(formData: FormData) {
   const monthlyRental = numberValue(formData, "monthlyRental");
   const deposit = numberValue(formData, "deposit");
   const contractStart = textValue(formData, "contractStart");
-  const contractEnd = textValue(formData, "contractEnd");
+  const contractDurationMonths = numberValue(formData, "contractDurationMonths", 12);
+  const contractEnd = textValue(formData, "contractEnd") || addMonths(contractStart, contractDurationMonths);
   const dueDay = numberValue(formData, "dueDay", 1);
 
-  if (!user || !tenantId || !roomId || !contractStart || dueDay < 1 || dueDay > 31) {
+  if (!user || !tenantId || !roomId || !contractStart || ![6, 12].includes(contractDurationMonths) || dueDay < 1 || dueDay > 31) {
     redirect("/admin-setup?error=tenancy_missing");
   }
 
@@ -196,6 +198,9 @@ export async function assignTenantTenancy(formData: FormData) {
     deposit,
     contract_start: contractStart,
     contract_end: contractEnd || null,
+    tenancy_start_date: contractStart,
+    tenancy_end_date: contractEnd || null,
+    contract_duration_months: contractDurationMonths,
     due_day: dueDay,
     status: "active",
     created_by: user.id,

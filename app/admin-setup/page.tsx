@@ -245,7 +245,14 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="contractStart" type="date" required />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">Contract end</span>
+                <span className="text-sm font-medium text-gray-700">Contract duration</span>
+                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="contractDurationMonths" defaultValue="12">
+                  <option value="6">6 months</option>
+                  <option value="12">12 months</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Contract end optional override</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="contractEnd" type="date" />
               </label>
               <label className="block sm:col-span-2">
