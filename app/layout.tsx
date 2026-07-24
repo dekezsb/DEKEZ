@@ -23,6 +23,7 @@ async function RootLayoutContent({
   children: React.ReactNode;
 }>) {
   let role = null;
+  let userName = null;
 
   try {
     const supabase = await createClient();
@@ -30,14 +31,16 @@ async function RootLayoutContent({
       data: { user },
     } = await supabase.auth.getUser();
     role = normalizeRole(user?.user_metadata?.role);
+    userName = user?.user_metadata?.full_name ?? user?.email ?? user?.phone ?? null;
 
     if (user && !role) {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, full_name")
         .eq("id", user.id)
         .maybeSingle();
       role = normalizeRole(profile?.role);
+      userName = profile?.full_name ?? userName;
     }
   } catch {
     role = null;
@@ -46,7 +49,7 @@ async function RootLayoutContent({
   return (
     <html lang="en">
       <body>
-        <AppShell role={role}>{children}</AppShell>
+        <AppShell role={role} userName={userName}>{children}</AppShell>
       </body>
     </html>
   );

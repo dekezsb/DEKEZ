@@ -208,51 +208,90 @@ async function OwnerDashboard() {
 
 async function AdminDashboard() {
   const summary = await getDashboardSummary();
+  const occupancyRate = summary.totalRooms
+    ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
+    : 0;
+  const propertyRows = summary.properties.map((property) => {
+    const propertyRooms = summary.rooms.filter((room) => room.property_id === property.id);
+    const occupiedRooms = propertyRooms.filter((room) => room.status === "occupied").length;
+    const rate = propertyRooms.length ? Math.round((occupiedRooms / propertyRooms.length) * 100) : 0;
+
+    return {
+      id: property.id,
+      name: property.name,
+      totalRooms: propertyRooms.length,
+      occupiedRooms,
+      rate,
+    };
+  });
 
   return (
     <section className="space-y-6">
-      <div>
-        <p className="text-xs font-semibold uppercase text-[#126b5f]">Admin Portal</p>
-        <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Admin Dashboard</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          Full daily management for properties, rooms, tenants, payments, maintenance and reports.
-        </p>
+      <div className="flex justify-end">
+        <Button asChild className="bg-[#b98a2c] text-white hover:bg-[#9d7424]">
+          <Link href="/tenants">+ Register new tenant</Link>
+        </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Properties" value={summary.totalProperties} detail="Managed properties" />
-        <StatCard label="Rooms" value={summary.totalRooms} detail="All managed rooms" />
-        <StatCard label="Occupied Rooms" value={summary.occupiedRooms} detail="Rooms currently occupied" />
+      <Card className="mx-auto max-w-4xl rounded-xl border-[#d7dde5] bg-white shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xl">Overview</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-8">
+          <div className="grid gap-8 sm:grid-cols-2">
+            <div>
+              <p className="text-sm text-[#496386]">Total Rooms</p>
+              <p className="mt-2 text-4xl font-bold tracking-tight text-[#07142f]">{summary.totalRooms}</p>
+            </div>
+            <div>
+              <p className="text-sm text-[#496386]">Occupancy Rate</p>
+              <p className="mt-2 text-4xl font-bold tracking-tight text-[#07142f]">{occupancyRate}%</p>
+              <p className="mt-1 text-sm text-[#496386]">
+                {summary.occupiedRooms} out of {summary.totalRooms} rooms occupied
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <p className="font-medium text-[#07142f]">Occupancy</p>
+              <p className="text-[#496386]">
+                {summary.occupiedRooms} / {summary.totalRooms} - {occupancyRate}%
+              </p>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-[#eef2f6]">
+              <div
+                className="h-full rounded-full bg-[#b98a2c]"
+                style={{ width: `${Math.min(occupancyRate, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="border-t border-[#e3e8ef] pt-6">
+            <p className="mb-4 text-sm font-medium text-[#07142f]">By property</p>
+            <div className="space-y-3">
+              {propertyRows.map((property) => (
+                <div className="grid gap-2 text-sm sm:grid-cols-[1fr_auto]" key={property.id}>
+                  <p className="font-medium text-[#214066]">{property.name}</p>
+                  <p className="text-[#496386]">
+                    {property.occupiedRooms} / {property.totalRooms} - {property.rate}%
+                  </p>
+                </div>
+              ))}
+              {!propertyRows.length ? (
+                <p className="text-sm text-[#496386]">No properties have been created yet.</p>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Vacant Rooms" value={summary.vacantRooms} detail="Rooms available now" />
         <StatCard label="Reserved Rooms" value={summary.reservedRooms} detail="Rooms reserved" />
         <StatCard label="Maintenance Rooms" value={summary.maintenanceRooms} detail="Rooms under maintenance" />
-        <StatCard label="Companies" value={summary.companies.length} detail="Visible organizations" />
-        <StatCard label="Setup Status" value="Ready" detail="Use Admin Setup to connect records" />
+        <StatCard label="Properties" value={summary.totalProperties} detail="Managed properties" />
       </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <ModuleCard title="Full Property Management" description="Create and manage properties and ownership setup." href="/properties" icon={Building2} badge={summary.totalProperties} />
-        <ModuleCard title="Room Management" description="Create rooms, set rent, and monitor room status." href="/rooms" icon={DoorOpen} badge={summary.totalRooms} />
-        <ModuleCard title="Tenant Management" description="Create tenants and assign them to rooms through Admin Setup." href="/tenants" icon={BriefcaseBusiness} />
-        <ModuleCard title="Tenant Verification" description="Review tenant applications and identity documents." href="/tenant-verification" icon={ClipboardCheck} />
-        <ModuleCard title="Payment Management" description="View rent collections and tenant payment records." href="/payments" icon={CreditCard} />
-        <ModuleCard title="Payment Verification" description="Verify tenant uploaded rent and check-in receipts." href="/payment-verification" icon={ReceiptText} />
-        <ModuleCard title="Maintenance Management" description="Create tickets and coordinate work with staff." href="/maintenance" icon={Wrench} />
-        <ModuleCard title="Reports" description="Review portfolio, rental, bill and maintenance reports." href="/reports" icon={BarChart3} />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Admin Setup Flow</CardTitle>
-          <CardDescription>Create the minimum data needed before tenant and maintenance workflows.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <Button asChild variant="outline"><Link href="/admin-setup">Create users</Link></Button>
-          <Button asChild variant="outline"><Link href="/admin-setup">Assign owner</Link></Button>
-          <Button asChild variant="outline"><Link href="/admin-setup">Assign tenant</Link></Button>
-          <Button asChild variant="outline"><Link href="/maintenance">Create ticket</Link></Button>
-        </CardContent>
-      </Card>
     </section>
   );
 }
