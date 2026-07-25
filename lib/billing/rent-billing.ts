@@ -70,11 +70,15 @@ function targetBillingMonths(input: {
   endDate?: string | null;
   dueDay: number;
   currentDate: string;
+  includeStartMonth?: boolean;
 }) {
   const startMonth = billMonthForDate(input.startDate);
   const currentMonth = billMonthForDate(input.currentDate);
   const currentDueDate = dueDateForBillMonth(currentMonth, input.dueDay);
-  const candidates = new Set([startMonth, currentMonth]);
+  const candidates = new Set([currentMonth]);
+  if (input.includeStartMonth !== false) {
+    candidates.add(startMonth);
+  }
   if (input.currentDate >= currentDueDate) {
     candidates.add(addMonthsToBillMonth(currentMonth, 1));
   }
@@ -218,6 +222,7 @@ export async function generateRecurringRentBills(
         endDate: tenant.contract_end,
         dueDay,
         currentDate,
+        includeStartMonth: false,
       });
       const missingBills = targetMonths
         .filter((month) => !existingMonths.has(month))
