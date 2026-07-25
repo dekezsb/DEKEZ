@@ -154,7 +154,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           <p className="text-xs font-semibold uppercase text-[#b98a2c]">Rent Reminder</p>
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Rent Due Tracker</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Track upcoming, due today and overdue rent from real rent bills. Uploaded slips stay pending until verified.
+            Track upcoming, due today and overdue rent from rent bills and imported tenant records. Uploaded slips stay pending until verified.
           </p>
         </div>
         <div className="grid gap-2 rounded-lg border border-[#d7dde5] bg-white p-4 text-sm shadow-sm sm:grid-cols-3 lg:min-w-[520px]">
@@ -303,20 +303,24 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                         </TableCell>
                         <TableCell className="font-semibold text-gray-950">{money(bill.outstandingAmount)}</TableCell>
                         <TableCell>
-                          <RentDueActions
-                            amountDue={money(bill.amount)}
-                            billId={bill.id}
-                            billMonth={bill.bill_month}
-                            latestSubmissionId={bill.latestSubmissionId}
-                            latestSubmissionStatus={bill.latestSubmissionStatus}
-                            outstandingAmount={money(bill.outstandingAmount)}
-                            paidDateDefault={malaysiaDateString()}
-                            propertyName={bill.propertyName}
-                            receiptUrl={bill.latestSubmissionId ? receiptUrls.get(bill.latestSubmissionId) : null}
-                            reminderMessage={reminderMessage(bill)}
-                            roomName={bill.roomName}
-                            tenantName={bill.tenantName}
-                          />
+                          {bill.source === "rent_bill" ? (
+                            <RentDueActions
+                              amountDue={money(bill.amount)}
+                              billId={bill.id}
+                              billMonth={bill.bill_month}
+                              latestSubmissionId={bill.latestSubmissionId}
+                              latestSubmissionStatus={bill.latestSubmissionStatus}
+                              outstandingAmount={money(bill.outstandingAmount)}
+                              paidDateDefault={malaysiaDateString()}
+                              propertyName={bill.propertyName}
+                              receiptUrl={bill.latestSubmissionId ? receiptUrls.get(bill.latestSubmissionId) : null}
+                              reminderMessage={reminderMessage(bill)}
+                              roomName={bill.roomName}
+                              tenantName={bill.tenantName}
+                            />
+                          ) : (
+                            <p className="max-w-48 text-xs text-gray-500">Imported tenant record. Generate a rent bill before payment actions.</p>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -346,20 +350,24 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                       <p>Paid: {money(bill.paid_amount)}</p>
                     </div>
                     <div className="mt-4">
-                      <RentDueActions
-                        amountDue={money(bill.amount)}
-                        billId={bill.id}
-                        billMonth={bill.bill_month}
-                        latestSubmissionId={bill.latestSubmissionId}
-                        latestSubmissionStatus={bill.latestSubmissionStatus}
-                        outstandingAmount={money(bill.outstandingAmount)}
-                        paidDateDefault={malaysiaDateString()}
-                        propertyName={bill.propertyName}
-                        receiptUrl={bill.latestSubmissionId ? receiptUrls.get(bill.latestSubmissionId) : null}
-                        reminderMessage={reminderMessage(bill)}
-                        roomName={bill.roomName}
-                        tenantName={bill.tenantName}
-                      />
+                      {bill.source === "rent_bill" ? (
+                        <RentDueActions
+                          amountDue={money(bill.amount)}
+                          billId={bill.id}
+                          billMonth={bill.bill_month}
+                          latestSubmissionId={bill.latestSubmissionId}
+                          latestSubmissionStatus={bill.latestSubmissionStatus}
+                          outstandingAmount={money(bill.outstandingAmount)}
+                          paidDateDefault={malaysiaDateString()}
+                          propertyName={bill.propertyName}
+                          receiptUrl={bill.latestSubmissionId ? receiptUrls.get(bill.latestSubmissionId) : null}
+                          reminderMessage={reminderMessage(bill)}
+                          roomName={bill.roomName}
+                          tenantName={bill.tenantName}
+                        />
+                      ) : (
+                        <p className="text-sm text-gray-500">Imported tenant record. Generate a rent bill before payment actions.</p>
+                      )}
                     </div>
                   </div>
                 ))}

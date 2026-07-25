@@ -22,8 +22,10 @@ export type RentDueBucket =
 
 export type RentDueBill = {
   id: string;
-  tenant_id: string;
-  tenancy_id: string;
+  source: "rent_bill" | "tenant_record";
+  tenant_id: string | null;
+  tenancy_id: string | null;
+  tenant_record_id?: string | null;
   property_id: string;
   unit_id: string | null;
   room_id: string;
@@ -146,6 +148,16 @@ function single<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function lastDayOfMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate();
+}
+
+function dueDateForMonth(month: string, dueDay: number) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const safeDay = Math.min(Math.max(dueDay, 1), lastDayOfMonth(year, monthNumber));
+  return `${month}-${String(safeDay).padStart(2, "0")}`;
+}
+
 export async function getRentDueSummary(filters?: {
   bucket?: string;
   property?: string;
@@ -184,8 +196,26 @@ export async function getRentDueSummary(filters?: {
     billsQuery = billsQuery.gte("bill_month", `${filters.month}-01`).lt("bill_month", nextMonth(filters.month));
   }
 
-  const [billsResult, profilesResult, submissionsResult, paymentsResult] = await Promise.all([
+  let tenantRecordsQuery = supabase
+    .from("tenant_records")
+    .select("id, property_id, unit_id, room_id, full_name, phone, monthly_rent, contract_start, contract_end, due_day, status, properties(name), units(name), rooms(name, room_number)")
+    .eq("status", "active")
+    .not("due_day", "is", null)
+    .order("full_name", { ascending: true });
+
+  if (filters?.property) {
+    tenantRecordsQuery = tenantRecordsQuery.eq("property_id", filters.property);
+  }
+  if (filters?.unit) {
+    tenantRecordsQuery = tenantRecordsQuery.eq("unit_id", filters.unit);
+  }
+  if (filters?.room) {
+    tenantRecordsQuery = tenantRecordsQuery.eq("room_id", filters.room);
+  }
+
+  const [billsResult, tenantRecordsResult, profilesResult, submissionsResult, paymentsResult] = await Promise.all([
     billsQuery,
+    tenantRecordsQuery,
     supabase.from("profiles").select("id, full_name, phone, role"),
     supabase
       .from("payment_submissions")
@@ -201,6 +231,9 @@ export async function getRentDueSummary(filters?: {
   ]);
 
   const profileById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
+  const realBillKeys = new Set(
+    (billsResult.data ?? []).map((bill) => `${bill.property_id}:${bill.room_id}:${String(bill.bill_month).slice(0, 7)}`),
+  );
   const latestSubmissionByBill = new Map<string, {
     id: string;
     verification_status: string;
@@ -232,8 +265,10 @@ export async function getRentDueSummary(filters?: {
 
     return {
       id: bill.id,
+      source: "rent_bill",
       tenant_id: bill.tenant_id,
       tenancy_id: bill.tenancy_id,
+      tenant_record_id: null,
       property_id: bill.property_id,
       unit_id: bill.unit_id,
       room_id: bill.room_id,
@@ -258,6 +293,59 @@ export async function getRentDueSummary(filters?: {
       paymentStatus,
     };
   });
+
+  const importedTenantBills: RentDueBill[] = (tenantRecordsResult.data ?? [])
+    .filter((tenant) => {
+      if (!tenant.property_id || !tenant.room_id || !tenant.due_day) {
+        return false;
+      }
+      if (filters?.month) {
+        return true;
+      }
+      return !realBillKeys.has(`${tenant.property_id}:${tenant.room_id}:${currentMonth}`);
+    })
+    .map((tenant) => {
+      const billMonth = `${filters?.month ?? currentMonth}-01`;
+      const dueDate = dueDateForMonth(filters?.month ?? currentMonth, Number(tenant.due_day));
+      const property = single(tenant.properties);
+      const unit = single(tenant.units);
+      const room = single(tenant.rooms);
+      const amount = Number(tenant.monthly_rent ?? 0);
+      const daysUntilDue = dayDifference(dueDate, currentDate);
+      const bucket = rentDueBucket(daysUntilDue);
+
+      return {
+        id: `tenant-record:${tenant.id}:${billMonth}`,
+        source: "tenant_record",
+        tenant_id: null,
+        tenancy_id: null,
+        tenant_record_id: tenant.id,
+        property_id: tenant.property_id,
+        unit_id: tenant.unit_id,
+        room_id: tenant.room_id,
+        bill_month: billMonth,
+        due_date: dueDate,
+        amount,
+        paid_amount: 0,
+        status: "unpaid",
+        tenantName: tenant.full_name,
+        tenantPhone: tenant.phone ?? null,
+        propertyName: property?.name ?? "-",
+        unitName: unit?.name ?? "-",
+        roomName: room?.room_number ?? room?.name ?? "-",
+        latestSubmissionId: null,
+        latestSubmissionStatus: null,
+        latestReceiptUrl: null,
+        latestPaymentReference: null,
+        outstandingAmount: amount,
+        daysUntilDue,
+        bucket,
+        dueStatus: dueStatus(daysUntilDue),
+        paymentStatus: "unpaid",
+      };
+    });
+
+  bills = [...bills, ...importedTenantBills];
 
   if (filters?.bucket && filters.bucket !== "all") {
     bills = bills.filter((bill) => bill.bucket === filters.bucket);
