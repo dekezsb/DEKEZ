@@ -204,7 +204,7 @@ async function TenantPayments({ params }: { params: Awaited<PaymentsPageProps["s
       .order("bill_month", { ascending: false }),
     supabase
       .from("payment_submissions")
-      .select("id, rent_bill_id, bill_month, bill_type, amount, payment_date, payment_method, verification_status, verified_at")
+      .select("id, rent_bill_id, bill_month, bill_type, amount, payment_date, payment_method, verification_status, verified_at, rejection_reason")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -315,7 +315,16 @@ async function TenantPayments({ params }: { params: Awaited<PaymentsPageProps["s
                     <TableCell>{submission.bill_type}</TableCell>
                     <TableCell>{ringgitFormatter.format(Number(submission.amount ?? 0))}</TableCell>
                     <TableCell>{submission.payment_date ?? "-"}</TableCell>
-                    <TableCell><Badge className={statusBadgeClass(submission.verification_status)}>{submission.verification_status}</Badge></TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <Badge className={statusBadgeClass(submission.verification_status)}>{submission.verification_status}</Badge>
+                        {submission.verification_status === "rejected" ? (
+                          <p className="text-xs leading-5 text-red-600">
+                            Payment proof rejected{submission.rejection_reason ? `: ${submission.rejection_reason}` : "."}
+                          </p>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell>{submission.verified_at ? new Date(submission.verified_at).toLocaleDateString("en-MY") : "-"}</TableCell>
                   </TableRow>
                 ))}

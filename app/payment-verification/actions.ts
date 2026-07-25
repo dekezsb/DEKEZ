@@ -189,17 +189,43 @@ async function ensureTenancyAndAgreement(
 }
 
 export async function reviewPaymentSubmission(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  const role = await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const submissionId = textValue(formData, "submissionId");
   const decision = textValue(formData, "decision");
   const notes = textValue(formData, "notes");
 
-  if (!user || !submissionId || !["verified", "rejected", "more_information_required"].includes(decision)) {
+  if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
     redirect("/payment-verification?error=missing");
   }
 
+  if (decision === "rejected" && !notes) {
+    redirect("/payment-verification?error=reason");
+  }
+
   const supabase = await getAdmin();
+  const { data: currentSubmission } = await supabase
+    .from("payment_submissions")
+    .select("id, verification_status")
+    .eq("id", submissionId)
+    .single();
+
+  if (!currentSubmission) {
+    redirect("/payment-verification?error=review");
+  }
+
+  if (currentSubmission.verification_status === "verified" && role !== "super_admin") {
+    redirect("/payment-verification?error=already_verified");
+  }
+
+  if (currentSubmission.verification_status === "verified" && role === "super_admin" && decision !== "verified" && !notes) {
+    redirect("/payment-verification?error=reason");
+  }
+
+  if (currentSubmission.verification_status === "verified" && decision === "verified") {
+    redirect("/payment-verification?error=already_verified");
+  }
+
   const { data: submission, error } = await supabase
     .from("payment_submissions")
     .update({
@@ -216,6 +242,15 @@ export async function reviewPaymentSubmission(formData: FormData) {
   if (error || !submission) {
     redirect("/payment-verification?error=review");
   }
+
+  await supabase.from("payment_verification_audit_logs").insert({
+    payment_submission_id: submission.id,
+    action: currentSubmission.verification_status === "verified" && decision !== "verified" ? "reversed" : decision,
+    performed_by: user.id,
+    old_status: currentSubmission.verification_status,
+    new_status: decision,
+    reason: notes || null,
+  });
 
   if (decision === "verified") {
     if (submission.rent_bill_id) {
@@ -254,11 +289,24 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
       await ensureTenancyAndAgreement(supabase, submission.tenant_application_id, user.id);
     }
-  } else if (submission.tenant_application_id) {
-    await supabase
-      .from("tenant_applications")
-      .update({ payment_status: decision, updated_at: new Date().toISOString() })
-      .eq("id", submission.tenant_application_id);
+  } else {
+    if (submission.rent_bill_id) {
+      await supabase
+        .from("rent_bills")
+        .update({
+          status: "rejected",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", submission.rent_bill_id)
+        .neq("status", "paid");
+    }
+
+    if (submission.tenant_application_id) {
+      await supabase
+        .from("tenant_applications")
+        .update({ payment_status: decision, updated_at: new Date().toISOString() })
+        .eq("id", submission.tenant_application_id);
+    }
   }
 
   revalidatePath("/payment-verification");

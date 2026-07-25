@@ -1,26 +1,57 @@
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
+import { CheckCircle2, Clock, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { money } from "@/lib/e-tenancy";
-import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { reviewPaymentSubmission } from "./actions";
+import { PaymentRecordActions } from "./payment-record-actions";
 
 type PageProps = {
   searchParams: Promise<{
     reviewed?: string;
     error?: string;
     status?: string;
+    property?: string;
+    tenant?: string;
+    month?: string;
+    method?: string;
   }>;
+};
+
+type SubmissionRecord = {
+  id: string;
+  tenant_id: string;
+  tenant_application_id: string | null;
+  tenancy_id: string | null;
+  rent_bill_id: string | null;
+  property_id: string | null;
+  room_id: string | null;
+  bill_month: string | null;
+  bill_type: string;
+  payment_type: string;
+  amount: number | string | null;
+  payment_date: string | null;
+  payment_method: string;
+  reference_number: string | null;
+  receipt_url: string | null;
+  verification_status: string;
+  verified_by: string | null;
+  verified_at: string | null;
+  created_at: string;
+  rejection_reason: string | null;
+  properties?: { name: string } | { name: string }[] | null;
+  rooms?: { name: string; room_number: string | null } | { name: string; room_number: string | null }[] | null;
+  rent_bills?: { bill_month: string | null; due_date: string | null; amount: number | string | null; status: string } | { bill_month: string | null; due_date: string | null; amount: number | string | null; status: string }[] | null;
 };
 
 const errorMessages: Record<string, string> = {
   missing: "Choose a payment and action.",
+  reason: "Please enter a rejection or reversal reason.",
   review: "Payment could not be updated.",
+  already_verified: "This payment has already been verified.",
 };
 
 async function getAdmin() {
@@ -31,28 +62,56 @@ async function getAdmin() {
   }
 }
 
+function single<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isImagePath(path: string | null | undefined) {
+  return Boolean(path?.match(/\.(png|jpg|jpeg|webp|gif)$/i));
+}
+
 export default async function PaymentVerificationPage({ searchParams }: PageProps) {
   await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
   const supabase = await getAdmin();
   const statusFilter = params.status || "pending_verification";
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const monthFilter = params.month ?? "";
 
   let query = supabase
     .from("payment_submissions")
-    .select("id, tenant_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, status)")
+    .select("id, tenant_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, status)")
     .order("created_at", { ascending: false });
 
   if (statusFilter !== "all") {
     query = query.eq("verification_status", statusFilter);
   }
+  if (params.property) {
+    query = query.eq("property_id", params.property);
+  }
+  if (params.tenant) {
+    query = query.eq("tenant_id", params.tenant);
+  }
+  if (params.method) {
+    query = query.eq("payment_method", params.method);
+  }
+  if (monthFilter) {
+    query = query.gte("payment_date", `${monthFilter}-01`).lt("payment_date", nextMonth(monthFilter));
+  }
 
-  const [submissionsResult, profilesResult] = await Promise.all([
+  const [submissionsResult, profilesResult, propertiesResult, allSubmissionsResult] = await Promise.all([
     query,
     supabase.from("profiles").select("id, full_name, phone"),
+    supabase.from("properties").select("id, name").order("name", { ascending: true }),
+    supabase
+      .from("payment_submissions")
+      .select("id, amount, verification_status, verified_at, payment_date"),
   ]);
 
+  const submissions = (submissionsResult.data ?? []) as SubmissionRecord[];
+  const allSubmissions = allSubmissionsResult.data ?? [];
   const profiles = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
-  const submissions = submissionsResult.data ?? [];
+  const properties = propertiesResult.data ?? [];
   const signedUrls = new Map<string, string>();
 
   for (const submission of submissions) {
@@ -64,13 +123,21 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
     }
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+  const pendingPayments = allSubmissions.filter((submission) => submission.verification_status === "pending_verification");
+  const verifiedPayments = allSubmissions.filter((submission) => submission.verification_status === "verified");
+  const verifiedToday = verifiedPayments.filter((submission) => submission.verified_at?.slice(0, 10) === today).length;
+  const verifiedThisMonth = verifiedPayments.filter((submission) => submission.verified_at?.slice(0, 7) === currentMonth);
+  const totalAmountPending = pendingPayments.reduce((total, submission) => total + Number(submission.amount ?? 0), 0);
+  const totalAmountVerified = verifiedThisMonth.reduce((total, submission) => total + Number(submission.amount ?? 0), 0);
+
   return (
     <section className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase text-[#126b5f]">Admin Review</p>
+        <p className="text-xs font-semibold uppercase text-[#b98a2c]">Bank In Records</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Payment Verification</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          Verify tenant uploaded receipts before payment is counted as paid.
+          Check uploaded bank-in slips before rent bills are marked paid and rental totals are counted.
         </p>
       </div>
 
@@ -85,93 +152,230 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <Button asChild size="sm" variant={statusFilter === "pending_verification" ? "default" : "outline"}><Link href="/payment-verification?status=pending_verification">Pending verification</Link></Button>
-        <Button asChild size="sm" variant={statusFilter === "verified" ? "default" : "outline"}><Link href="/payment-verification?status=verified">Verified</Link></Button>
-        <Button asChild size="sm" variant={statusFilter === "rejected" ? "default" : "outline"}><Link href="/payment-verification?status=rejected">Rejected</Link></Button>
-        <Button asChild size="sm" variant={statusFilter === "all" ? "default" : "outline"}><Link href="/payment-verification?status=all">All</Link></Button>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard icon={Clock} label="Pending Payments" value={pendingPayments.length} />
+        <MetricCard icon={CheckCircle2} label="Verified Today" value={verifiedToday} />
+        <MetricCard icon={CheckCircle2} label="Verified This Month" value={verifiedThisMonth.length} />
+        <MetricCard icon={ReceiptText} label="Total Amount Pending" value={money(totalAmountPending)} />
+        <MetricCard icon={ReceiptText} label="Total Amount Verified" value={money(totalAmountVerified)} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Verification Queue</CardTitle>
-          <CardDescription>For monthly rent, every submission is linked to a specific rent bill.</CardDescription>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Default view shows pending verification first.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="grid gap-4 lg:grid-cols-6" method="get">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Status</span>
+              <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="status" defaultValue={statusFilter}>
+                <option value="pending_verification">Pending Verification</option>
+                <option value="verified">Verified</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Property</span>
+              <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="property" defaultValue={params.property ?? ""}>
+                <option value="">All</option>
+                {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Tenant</span>
+              <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="tenant" defaultValue={params.tenant ?? ""}>
+                <option value="">All</option>
+                {Array.from(profiles.values()).map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name ?? profile.phone ?? profile.id}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Month</span>
+              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="month" type="month" defaultValue={monthFilter} />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Payment Method</span>
+              <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="method" defaultValue={params.method ?? ""}>
+                <option value="">All</option>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="duitnow">DuitNow</option>
+                <option value="online_payment">Online payment</option>
+                <option value="cash">Cash</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <div className="flex items-end">
+              <Button className="w-full" type="submit" variant="outline">Apply</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bank In Records</CardTitle>
+          <CardDescription>
+            Uploading a slip does not mark rent as paid. Only Admin verification does.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {submissions.length ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tenant</TableHead>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Room</TableHead>
-                    <TableHead>Bill</TableHead>
-                    <TableHead>Due</TableHead>
-                    <TableHead>Submitted</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Receipt</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {submissions.map((submission) => {
-                    const tenant = profiles.get(submission.tenant_id);
-                    const property = Array.isArray(submission.properties) ? submission.properties[0] : submission.properties;
-                    const room = Array.isArray(submission.rooms) ? submission.rooms[0] : submission.rooms;
-                    const bill = Array.isArray(submission.rent_bills) ? submission.rent_bills[0] : submission.rent_bills;
-                    const signedUrl = signedUrls.get(submission.id);
-
-                    return (
-                      <TableRow key={submission.id}>
-                        <TableCell className="min-w-48 font-medium text-gray-950">{tenant?.full_name ?? submission.tenant_id}</TableCell>
-                        <TableCell>{property?.name ?? "-"}</TableCell>
-                        <TableCell>{room?.room_number ?? room?.name ?? "-"}</TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <p>{submission.bill_type}</p>
-                            <p className="text-xs text-gray-500">{bill?.bill_month ?? submission.bill_month ?? "-"}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{money(bill?.amount ?? submission.amount)}</TableCell>
-                        <TableCell>{money(submission.amount)}</TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
+            <>
+              <div className="hidden overflow-x-auto lg:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Tenant / Staff</TableHead>
+                      <TableHead>Property</TableHead>
+                      <TableHead>Room</TableHead>
+                      <TableHead>Amount Due</TableHead>
+                      <TableHead>Amount Submitted</TableHead>
+                      <TableHead>Payment Method</TableHead>
+                      <TableHead>Slip</TableHead>
+                      <TableHead className="min-w-48">Verify</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {submissions.map((submission) => {
+                      const row = buildRow(submission, profiles, signedUrls);
+                      return (
+                        <TableRow key={submission.id}>
+                          <TableCell className="min-w-40">
+                            <p>{submission.payment_date ?? "-"}</p>
+                            <p className="text-xs text-gray-500">{new Date(submission.created_at).toLocaleTimeString("en-MY")}</p>
+                          </TableCell>
+                          <TableCell className="min-w-48 font-medium text-gray-950">{row.tenantName}</TableCell>
+                          <TableCell>{row.propertyName}</TableCell>
+                          <TableCell>{row.roomName}</TableCell>
+                          <TableCell>{row.amountDue}</TableCell>
+                          <TableCell className="font-semibold text-gray-950">{row.amountSubmitted}</TableCell>
+                          <TableCell>
                             <p>{submission.payment_method}</p>
                             <p className="text-xs text-gray-500">{submission.reference_number ?? "-"}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {signedUrl ? (
-                            <Button asChild size="sm" variant="outline">
-                              <Link href={signedUrl} target="_blank">View slip</Link>
-                            </Button>
-                          ) : "-"}
-                        </TableCell>
-                        <TableCell><Badge className={statusBadgeClass(submission.verification_status)}>{submission.verification_status}</Badge></TableCell>
-                        <TableCell className="min-w-64">
-                          <form action={reviewPaymentSubmission} className="space-y-2">
-                            <input name="submissionId" type="hidden" value={submission.id} />
-                            <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Reason if rejected or more info" defaultValue={submission.rejection_reason ?? ""} />
-                            <div className="grid gap-2 sm:grid-cols-3">
-                              <Button name="decision" size="sm" type="submit" value="verified">Verify</Button>
-                              <Button name="decision" size="sm" type="submit" value="more_information_required" variant="outline">More info</Button>
-                              <Button className="border-red-200 text-red-700 hover:bg-red-50" name="decision" size="sm" type="submit" value="rejected" variant="outline">Reject</Button>
-                            </div>
-                          </form>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                          </TableCell>
+                          <TableCell>
+                            <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
+                          </TableCell>
+                          <TableCell>
+                            <PaymentRecordActions {...row} />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="grid gap-4 lg:hidden">
+                {submissions.map((submission) => {
+                  const row = buildRow(submission, profiles, signedUrls);
+                  return (
+                    <div className="rounded-lg border border-[#d7dde5] bg-white p-4" key={submission.id}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-semibold text-gray-950">{row.tenantName}</p>
+                          <p className="mt-1 text-sm text-gray-600">{row.propertyName} / {row.roomName}</p>
+                          <p className="mt-2 text-xl font-bold">{row.amountSubmitted}</p>
+                          <p className="text-xs text-gray-500">{submission.payment_date ?? "-"} {new Date(submission.created_at).toLocaleTimeString("en-MY")}</p>
+                        </div>
+                        <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
+                      </div>
+                      <div className="mt-4">
+                        <PaymentRecordActions {...row} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           ) : (
-            <p className="text-sm text-gray-500">No payment submissions for this filter.</p>
+            <p className="text-sm text-gray-500">No bank-in records for this filter.</p>
           )}
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+function nextMonth(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function buildRow(
+  submission: SubmissionRecord,
+  profiles: Map<string, { id: string; full_name: string | null; phone: string | null }>,
+  signedUrls: Map<string, string>,
+) {
+  const tenant = profiles.get(submission.tenant_id);
+  const property = single(submission.properties);
+  const room = single(submission.rooms);
+  const bill = single(submission.rent_bills);
+  const receiptUrl = signedUrls.get(submission.id) ?? null;
+
+  return {
+    submissionId: submission.id,
+    status: submission.verification_status,
+    tenantName: tenant?.full_name ?? tenant?.phone ?? submission.tenant_id,
+    propertyName: property?.name ?? "-",
+    roomName: room?.room_number ?? room?.name ?? "-",
+    billMonth: bill?.bill_month ?? submission.bill_month ?? "-",
+    amountDue: money(bill?.amount ?? submission.amount),
+    amountSubmitted: money(submission.amount),
+    referenceNumber: submission.reference_number ?? "",
+    receiptUrl,
+    receiptIsImage: isImagePath(submission.receipt_url),
+    verifiedBy: profiles.get(submission.verified_by ?? "")?.full_name ?? submission.verified_by,
+    verifiedAt: submission.verified_at,
+    rejectionReason: submission.rejection_reason,
+  };
+}
+
+function ReceiptThumb({
+  receiptUrl,
+  receiptIsImage,
+}: {
+  receiptUrl?: string | null;
+  receiptIsImage: boolean;
+}) {
+  if (!receiptUrl) {
+    return <span className="text-sm text-gray-500">No slip</span>;
+  }
+
+  if (!receiptIsImage) {
+    return (
+      <Button asChild size="sm" variant="outline">
+        <Link href={receiptUrl} target="_blank">Open slip</Link>
+      </Button>
+    );
+  }
+
+  return (
+    <a className="block h-16 w-16 overflow-hidden rounded-md border border-[#d7dde5] bg-[#f4f6f8]" href={receiptUrl} target="_blank">
+      <img alt="Payment slip thumbnail" className="h-full w-full object-cover" src={receiptUrl} />
+    </a>
+  );
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Clock;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <Icon className="h-5 w-5 text-[#b98a2c]" />
+        <CardDescription>{label}</CardDescription>
+        <CardTitle className="text-2xl">{value}</CardTitle>
+      </CardHeader>
+    </Card>
   );
 }
