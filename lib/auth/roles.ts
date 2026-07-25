@@ -6,6 +6,7 @@ import {
   CreditCard,
   FileSignature,
   LayoutDashboard,
+  ReceiptText,
   ShieldCheck,
   Settings,
   UserCog,
@@ -44,6 +45,7 @@ const adminNavigation: NavigationItem[] = [
   { label: "Payment Verification", href: "/payment-verification", icon: ClipboardList },
   { label: "Generate Tenancy Agreement", href: "/e-tenancy", icon: FileSignature },
   { label: "Utility Bills", href: "/utility-bills", icon: Droplets },
+  { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
   { label: "Maintenance", href: "/maintenance", icon: Wrench },
   { label: "Claims", href: "/claims", icon: ClipboardList },
   { label: "Reports", href: "/reports", icon: BarChart3 },
@@ -80,16 +82,19 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
   technician: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
     { label: "Claims", href: "/claims", icon: ClipboardList },
   ],
   maintenance_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
     { label: "Claims", href: "/claims", icon: ClipboardList },
   ],
   cleaning_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
     { label: "Claims", href: "/claims", icon: ClipboardList },
   ],
   tenant: [
@@ -115,6 +120,7 @@ export const protectedRoutes = [
   "/onboarding",
   "/e-tenancy",
   "/utility-bills",
+  "/expenses",
   "/maintenance",
   "/claims",
   "/reports",
