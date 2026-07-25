@@ -173,7 +173,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
 
   await supabase
     .from("rent_bills")
-    .update({ status: "submitted", updated_at: new Date().toISOString() })
+    .update({ status: "payment_submitted", updated_at: new Date().toISOString() })
     .eq("id", bill.id);
 
   revalidatePath("/payments");

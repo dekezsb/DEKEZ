@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Building2,
+  CalendarClock,
   Droplets,
   ClipboardList,
   CreditCard,
@@ -43,6 +44,7 @@ const adminNavigation: NavigationItem[] = [
   { label: "Verification", href: "/tenant-verification", icon: ShieldCheck },
   { label: "Payments", href: "/payments", icon: CreditCard },
   { label: "Payment Verification", href: "/payment-verification", icon: ClipboardList },
+  { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock },
   { label: "Generate Tenancy Agreement", href: "/e-tenancy", icon: FileSignature },
   { label: "Utility Bills", href: "/utility-bills", icon: Droplets },
   { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
@@ -117,6 +119,7 @@ export const protectedRoutes = [
   "/tenant-verification",
   "/payments",
   "/payment-verification",
+  "/rent-due-tracker",
   "/onboarding",
   "/e-tenancy",
   "/utility-bills",

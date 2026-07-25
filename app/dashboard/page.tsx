@@ -23,6 +23,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireRole } from "@/lib/auth/session";
 import { getDashboardSummary } from "@/lib/data/organization";
 import { getOwnerPortalSummary, getStaffPortalSummary, getTenantPortalSummary } from "@/lib/data/portal";
+import { getRentDueSummary } from "@/lib/data/rent-due";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -207,7 +208,10 @@ async function OwnerDashboard() {
 }
 
 async function AdminDashboard() {
-  const summary = await getDashboardSummary();
+  const [summary, rentDueSummary] = await Promise.all([
+    getDashboardSummary(),
+    getRentDueSummary(),
+  ]);
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
     : 0;
@@ -291,6 +295,26 @@ async function AdminDashboard() {
         <StatCard label="Reserved Rooms" value={summary.reservedRooms} detail="Rooms reserved" />
         <StatCard label="Maintenance Rooms" value={summary.maintenanceRooms} detail="Rooms under maintenance" />
         <StatCard label="Properties" value={summary.totalProperties} detail="Managed properties" />
+      </div>
+
+      <div className="mx-auto max-w-4xl space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-[#b98a2c]">Rent Due</p>
+            <h2 className="text-xl font-semibold text-[#07142f]">Rent Due Tracker</h2>
+          </div>
+          <Button asChild variant="outline">
+            <Link href="/rent-due-tracker">Open tracker</Link>
+          </Button>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard label="Due Today" value={rentDueSummary.dueToday} detail="Bills due today" />
+          <StatCard label="Coming Up in 7 Days" value={rentDueSummary.comingUpIn7Days} detail="Upcoming unpaid bills" />
+          <StatCard label="Overdue Tenants" value={rentDueSummary.overdueTenants} detail="Bills past due date" />
+          <StatCard label="Total Outstanding" value={money(rentDueSummary.totalOutstanding)} detail="Unpaid rent balance" />
+          <StatCard label="Payment Slips Pending Verification" value={rentDueSummary.pendingPaymentSlips} detail="Uploaded but not counted as paid" />
+          <StatCard label="Rent Collected This Month" value={money(rentDueSummary.rentCollectedThisMonth)} detail="Verified rent payments only" />
+        </div>
       </div>
     </section>
   );

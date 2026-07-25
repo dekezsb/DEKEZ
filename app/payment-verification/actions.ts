@@ -254,17 +254,39 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (decision === "verified") {
     if (submission.rent_bill_id) {
+      const { data: bill } = await supabase
+        .from("rent_bills")
+        .select("id, amount, paid_amount, status")
+        .eq("id", submission.rent_bill_id)
+        .single();
+      const oldPaidAmount = Number(bill?.paid_amount ?? 0);
+      const billAmount = Number(bill?.amount ?? 0);
+      const newPaidAmount = Math.min(oldPaidAmount + Number(submission.amount ?? 0), billAmount);
+      const newStatus = newPaidAmount >= billAmount ? "paid" : "partially_paid";
+
       await supabase
         .from("rent_bills")
         .update({
-          paid_amount: submission.amount,
-          status: "paid",
+          paid_amount: newPaidAmount,
+          status: newStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", submission.rent_bill_id);
+
+      await supabase.from("rent_bill_audit_logs").insert({
+        bill_id: submission.rent_bill_id,
+        action: "verify_payment_submission",
+        performed_by: user.id,
+        old_status: bill?.status ?? null,
+        new_status: newStatus,
+        old_paid_amount: oldPaidAmount,
+        new_paid_amount: newPaidAmount,
+        reason: submission.reference_number || "Tenant payment proof verified",
+      });
     }
 
     await supabase.from("payments").insert({
+      rent_bill_id: submission.rent_bill_id,
       organization_id: null,
       tenant_id: submission.tenant_id,
       tenancy_id: submission.tenancy_id,
@@ -291,10 +313,16 @@ export async function reviewPaymentSubmission(formData: FormData) {
     }
   } else {
     if (submission.rent_bill_id) {
+      const { data: bill } = await supabase
+        .from("rent_bills")
+        .select("paid_amount")
+        .eq("id", submission.rent_bill_id)
+        .single();
+
       await supabase
         .from("rent_bills")
         .update({
-          status: "rejected",
+          status: Number(bill?.paid_amount ?? 0) > 0 ? "partially_paid" : "unpaid",
           updated_at: new Date().toISOString(),
         })
         .eq("id", submission.rent_bill_id)
@@ -310,6 +338,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   }
 
   revalidatePath("/payment-verification");
+  revalidatePath("/rent-due-tracker");
   revalidatePath("/payments");
   revalidatePath("/dashboard");
   revalidatePath("/e-tenancy");
