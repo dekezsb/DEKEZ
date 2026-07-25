@@ -301,6 +301,8 @@ export async function reviewPaymentSubmission(formData: FormData) {
       notes: "Verified tenant uploaded payment proof",
       status: "confirmed",
       recorded_by: user.id,
+      verified_by: user.id,
+      verified_at: new Date().toISOString(),
     });
 
     if (submission.tenant_application_id) {
