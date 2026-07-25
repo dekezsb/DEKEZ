@@ -36,7 +36,7 @@ const errorMessages: Record<string, string> = {
   property_missing: "Selected property was not found.",
   owner_missing: "Please choose a property and owner.",
   owner_assign: "Owner could not be assigned to this property.",
-  tenancy_missing: "Please choose tenant, room, contract start date and due day.",
+  tenancy_missing: "Please choose tenant, room and contract start date.",
   room_missing: "Selected room was not found.",
   tenancy_create: "Tenancy could not be created.",
 };
@@ -257,7 +257,8 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
               </label>
               <label className="block sm:col-span-2">
                 <span className="text-sm font-medium text-gray-700">Monthly due day</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="dueDay" type="number" min="1" max="31" defaultValue="1" required />
+                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="dueDay" type="number" min="1" max="31" placeholder="Auto from check-in date" />
+                <span className="mt-1 block text-xs text-gray-500">Leave blank to use the contract start/check-in day.</span>
               </label>
               <Button className="sm:col-span-2" type="submit">Create tenancy</Button>
             </form>

@@ -176,7 +176,7 @@ export async function getRentDueSummary(filters?: {
 
   let billsQuery = supabase
     .from("rent_bills")
-    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
+    .select("id, tenancy_id, tenant_id, tenant_record_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
     .not("status", "in", "(paid,cancelled,waived)")
     .order("due_date", { ascending: true });
 
@@ -213,10 +213,11 @@ export async function getRentDueSummary(filters?: {
     tenantRecordsQuery = tenantRecordsQuery.eq("room_id", filters.room);
   }
 
-  const [billsResult, tenantRecordsResult, profilesResult, submissionsResult, paymentsResult] = await Promise.all([
+  const [billsResult, tenantRecordsResult, profilesResult, billTenantRecordsResult, submissionsResult, paymentsResult] = await Promise.all([
     billsQuery,
     tenantRecordsQuery,
     supabase.from("profiles").select("id, full_name, phone, role"),
+    supabase.from("tenant_records").select("id, full_name, phone"),
     supabase
       .from("payment_submissions")
       .select("id, tenant_id, rent_bill_id, verification_status, receipt_url, reference_number, created_at")
@@ -231,6 +232,7 @@ export async function getRentDueSummary(filters?: {
   ]);
 
   const profileById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
+  const tenantRecordById = new Map((billTenantRecordsResult.data ?? []).map((tenant) => [tenant.id, tenant]));
   const realBillKeys = new Set(
     (billsResult.data ?? []).map((bill) => `${bill.property_id}:${bill.room_id}:${String(bill.bill_month).slice(0, 7)}`),
   );
@@ -248,7 +250,8 @@ export async function getRentDueSummary(filters?: {
   }
 
   let bills: RentDueBill[] = (billsResult.data ?? []).map((bill) => {
-    const tenant = profileById.get(bill.tenant_id);
+    const tenant = bill.tenant_id ? profileById.get(bill.tenant_id) : null;
+    const tenantRecord = bill.tenant_record_id ? tenantRecordById.get(bill.tenant_record_id) : null;
     const property = single(bill.properties);
     const unit = single(bill.units);
     const room = single(bill.rooms);
@@ -266,9 +269,9 @@ export async function getRentDueSummary(filters?: {
     return {
       id: bill.id,
       source: "rent_bill",
-      tenant_id: bill.tenant_id,
+      tenant_id: bill.tenant_id ?? null,
       tenancy_id: bill.tenancy_id,
-      tenant_record_id: null,
+      tenant_record_id: bill.tenant_record_id ?? null,
       property_id: bill.property_id,
       unit_id: bill.unit_id,
       room_id: bill.room_id,
@@ -277,8 +280,8 @@ export async function getRentDueSummary(filters?: {
       amount,
       paid_amount: paidAmount,
       status: bill.status,
-      tenantName: tenant?.full_name ?? tenant?.phone ?? bill.tenant_id,
-      tenantPhone: tenant?.phone ?? null,
+      tenantName: tenant?.full_name ?? tenantRecord?.full_name ?? tenant?.phone ?? tenantRecord?.phone ?? "Tenant",
+      tenantPhone: tenant?.phone ?? tenantRecord?.phone ?? null,
       propertyName: property?.name ?? "-",
       unitName: unit?.name ?? "-",
       roomName: room?.room_number ?? room?.name ?? "-",
@@ -299,10 +302,7 @@ export async function getRentDueSummary(filters?: {
       if (!tenant.property_id || !tenant.room_id || !tenant.due_day) {
         return false;
       }
-      if (filters?.month) {
-        return true;
-      }
-      return !realBillKeys.has(`${tenant.property_id}:${tenant.room_id}:${currentMonth}`);
+      return !realBillKeys.has(`${tenant.property_id}:${tenant.room_id}:${filters?.month ?? currentMonth}`);
     })
     .map((tenant) => {
       const billMonth = `${filters?.month ?? currentMonth}-01`;

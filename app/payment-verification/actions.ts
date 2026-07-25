@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
+import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { getCurrentUser } from "@/lib/data/organization";
 import {
   defaultAgreementTemplate,
@@ -23,11 +24,6 @@ async function getAdmin() {
   } catch {
     return createClient();
   }
-}
-
-function monthlyBillDate(dateText: string | null | undefined) {
-  const date = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 async function ensureTenancyAndAgreement(
@@ -54,6 +50,7 @@ async function ensureTenancyAndAgreement(
     .maybeSingle();
 
   let tenancyId = existingTenancy?.id;
+  const dueDay = Number(application.proposed_start_date.slice(8, 10));
 
   if (!tenancyId) {
     const { data: tenancy } = await supabase
@@ -71,7 +68,11 @@ async function ensureTenancyAndAgreement(
         tenancy_start_date: application.proposed_start_date,
         tenancy_end_date: application.proposed_end_date,
         contract_duration_months: application.contract_duration_months,
-        due_day: 1,
+        due_day: dueDay,
+        rent_due_day: dueDay,
+        check_in_date: application.proposed_start_date,
+        checkout_date: null,
+        billing_status: "active",
         status: "active",
         created_by: adminUserId,
       })
@@ -94,20 +95,11 @@ async function ensureTenancyAndAgreement(
     .update({ status: "converted_to_tenancy", updated_at: new Date().toISOString() })
     .eq("id", application.id);
 
-  await supabase.from("rent_bills").upsert({
-    tenancy_id: tenancyId,
-    tenant_id: application.tenant_id,
-    property_id: application.property_id,
-    unit_id: application.unit_id,
-    room_id: application.room_id,
-    bill_month: monthlyBillDate(application.proposed_start_date),
-    due_date: application.proposed_start_date,
-    amount: application.monthly_rent,
-    paid_amount: 0,
-    status: "unpaid",
-    created_by: adminUserId,
-  }, {
-    onConflict: "tenancy_id,bill_month",
+  await generateRecurringRentBills(supabase, {
+    currentDate: application.proposed_start_date,
+    createdBy: adminUserId,
+    tenancyId,
+    includeTenantRecords: false,
   });
 
   const { data: existingAgreement } = await supabase

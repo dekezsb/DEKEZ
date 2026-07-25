@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
+import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { addMonths } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -171,7 +172,9 @@ export async function assignTenantTenancy(formData: FormData) {
   const contractStart = textValue(formData, "contractStart");
   const contractDurationMonths = numberValue(formData, "contractDurationMonths", 12);
   const contractEnd = textValue(formData, "contractEnd") || addMonths(contractStart, contractDurationMonths);
-  const dueDay = numberValue(formData, "dueDay", 1);
+  const requestedDueDay = numberValue(formData, "dueDay", 0);
+  const checkInDay = Number(contractStart.slice(8, 10));
+  const dueDay = requestedDueDay >= 1 && requestedDueDay <= 31 ? requestedDueDay : checkInDay;
 
   if (!user || !tenantId || !roomId || !contractStart || ![6, 12].includes(contractDurationMonths) || dueDay < 1 || dueDay > 31) {
     redirect("/admin-setup?error=tenancy_missing");
@@ -188,7 +191,7 @@ export async function assignTenantTenancy(formData: FormData) {
     redirect("/admin-setup?error=room_missing");
   }
 
-  const { error: tenancyError } = await supabase.from("tenancies").insert({
+  const { data: tenancy, error: tenancyError } = await supabase.from("tenancies").insert({
     tenant_id: tenantId,
     room_id: room.id,
     property_id: room.property_id,
@@ -202,18 +205,31 @@ export async function assignTenantTenancy(formData: FormData) {
     tenancy_end_date: contractEnd || null,
     contract_duration_months: contractDurationMonths,
     due_day: dueDay,
+    rent_due_day: dueDay,
+    check_in_date: contractStart,
+    checkout_date: null,
+    billing_status: "active",
     status: "active",
     created_by: user.id,
-  });
+  }).select("id").single();
 
   if (tenancyError) {
     redirect("/admin-setup?error=tenancy_create");
   }
 
   await supabase.from("rooms").update({ status: "occupied" }).eq("id", room.id);
+  if (tenancy?.id) {
+    await generateRecurringRentBills(supabase, {
+      currentDate: contractStart,
+      createdBy: user.id,
+      tenancyId: tenancy.id,
+      includeTenantRecords: false,
+    });
+  }
 
   revalidatePath("/admin-setup");
   revalidatePath("/tenants");
   revalidatePath("/rooms");
+  revalidatePath("/rent-due-tracker");
   redirect("/admin-setup?created=tenancy");
 }
