@@ -198,8 +198,9 @@ export async function getRentDueSummary(filters?: {
 
   let tenantRecordsQuery = supabase
     .from("tenant_records")
-    .select("id, property_id, unit_id, room_id, full_name, phone, monthly_rent, contract_start, contract_end, due_day, status, properties(name), units(name), rooms(name, room_number)")
+    .select("id, property_id, unit_id, room_id, full_name, phone, monthly_rent, contract_start, contract_end, due_day, status, properties(name), units(name), rooms!inner(name, room_number, status)")
     .eq("status", "active")
+    .eq("rooms.status", "occupied")
     .not("due_day", "is", null)
     .order("full_name", { ascending: true });
 
@@ -213,8 +214,26 @@ export async function getRentDueSummary(filters?: {
     tenantRecordsQuery = tenantRecordsQuery.eq("room_id", filters.room);
   }
 
-  const [billsResult, tenantRecordsResult, profilesResult, billTenantRecordsResult, submissionsResult, paymentsResult] = await Promise.all([
+  let allBillKeysQuery = supabase
+    .from("rent_bills")
+    .select("tenant_record_id, bill_month");
+
+  if (filters?.property) {
+    allBillKeysQuery = allBillKeysQuery.eq("property_id", filters.property);
+  }
+  if (filters?.unit) {
+    allBillKeysQuery = allBillKeysQuery.eq("unit_id", filters.unit);
+  }
+  if (filters?.room) {
+    allBillKeysQuery = allBillKeysQuery.eq("room_id", filters.room);
+  }
+  if (filters?.month) {
+    allBillKeysQuery = allBillKeysQuery.gte("bill_month", `${filters.month}-01`).lt("bill_month", nextMonth(filters.month));
+  }
+
+  const [billsResult, allBillKeysResult, tenantRecordsResult, profilesResult, billTenantRecordsResult, submissionsResult, paymentsResult] = await Promise.all([
     billsQuery,
+    allBillKeysQuery,
     tenantRecordsQuery,
     supabase.from("profiles").select("id, full_name, phone, role"),
     supabase.from("tenant_records").select("id, full_name, phone"),
@@ -233,8 +252,10 @@ export async function getRentDueSummary(filters?: {
 
   const profileById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
   const tenantRecordById = new Map((billTenantRecordsResult.data ?? []).map((tenant) => [tenant.id, tenant]));
-  const realBillKeys = new Set(
-    (billsResult.data ?? []).map((bill) => `${bill.property_id}:${bill.room_id}:${String(bill.bill_month).slice(0, 7)}`),
+  const existingTenantRecordBillKeys = new Set(
+    (allBillKeysResult.data ?? [])
+      .filter((bill) => bill.tenant_record_id)
+      .map((bill) => `${bill.tenant_record_id}:${String(bill.bill_month).slice(0, 7)}`),
   );
   const latestSubmissionByBill = new Map<string, {
     id: string;
@@ -302,7 +323,15 @@ export async function getRentDueSummary(filters?: {
       if (!tenant.property_id || !tenant.room_id || !tenant.due_day) {
         return false;
       }
-      return !realBillKeys.has(`${tenant.property_id}:${tenant.room_id}:${filters?.month ?? currentMonth}`);
+      const billMonth = filters?.month ?? currentMonth;
+      const dueDate = dueDateForMonth(billMonth, Number(tenant.due_day));
+      if (tenant.contract_start && dueDate < tenant.contract_start) {
+        return false;
+      }
+      if (tenant.contract_end && dueDate > tenant.contract_end) {
+        return false;
+      }
+      return !existingTenantRecordBillKeys.has(`${tenant.id}:${billMonth}`);
     })
     .map((tenant) => {
       const billMonth = `${filters?.month ?? currentMonth}-01`;

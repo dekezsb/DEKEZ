@@ -23,7 +23,8 @@ type PageProps = {
 
 type SubmissionRecord = {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;
+  tenant_record_id: string | null;
   tenant_application_id: string | null;
   tenancy_id: string | null;
   rent_bill_id: string | null;
@@ -80,7 +81,7 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
 
   let query = supabase
     .from("payment_submissions")
-    .select("id, tenant_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, status)")
+    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, status)")
     .order("created_at", { ascending: false });
 
   if (statusFilter !== "all") {
@@ -99,9 +100,10 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
     query = query.gte("payment_date", `${monthFilter}-01`).lt("payment_date", nextMonth(monthFilter));
   }
 
-  const [submissionsResult, profilesResult, propertiesResult, allSubmissionsResult] = await Promise.all([
+  const [submissionsResult, profilesResult, tenantRecordsResult, propertiesResult, allSubmissionsResult] = await Promise.all([
     query,
     supabase.from("profiles").select("id, full_name, phone"),
+    supabase.from("tenant_records").select("id, full_name, phone"),
     supabase.from("properties").select("id, name").order("name", { ascending: true }),
     supabase
       .from("payment_submissions")
@@ -111,6 +113,7 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
   const submissions = (submissionsResult.data ?? []) as SubmissionRecord[];
   const allSubmissions = allSubmissionsResult.data ?? [];
   const profiles = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
+  const tenantRecords = new Map((tenantRecordsResult.data ?? []).map((tenant) => [tenant.id, tenant]));
   const properties = propertiesResult.data ?? [];
   const signedUrls = new Map<string, string>();
 
@@ -239,7 +242,7 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
                   </TableHeader>
                   <TableBody>
                     {submissions.map((submission) => {
-                      const row = buildRow(submission, profiles, signedUrls);
+                      const row = buildRow(submission, profiles, tenantRecords, signedUrls);
                       return (
                         <TableRow key={submission.id}>
                           <TableCell className="min-w-40">
@@ -270,7 +273,7 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
 
               <div className="grid gap-4 lg:hidden">
                 {submissions.map((submission) => {
-                  const row = buildRow(submission, profiles, signedUrls);
+                  const row = buildRow(submission, profiles, tenantRecords, signedUrls);
                   return (
                     <div className="rounded-lg border border-[#d7dde5] bg-white p-4" key={submission.id}>
                       <div className="flex items-start justify-between gap-4">
@@ -308,9 +311,11 @@ function nextMonth(month: string) {
 function buildRow(
   submission: SubmissionRecord,
   profiles: Map<string, { id: string; full_name: string | null; phone: string | null }>,
+  tenantRecords: Map<string, { id: string; full_name: string; phone: string | null }>,
   signedUrls: Map<string, string>,
 ) {
-  const tenant = profiles.get(submission.tenant_id);
+  const tenant = submission.tenant_id ? profiles.get(submission.tenant_id) : null;
+  const tenantRecord = submission.tenant_record_id ? tenantRecords.get(submission.tenant_record_id) : null;
   const property = single(submission.properties);
   const room = single(submission.rooms);
   const bill = single(submission.rent_bills);
@@ -319,7 +324,7 @@ function buildRow(
   return {
     submissionId: submission.id,
     status: submission.verification_status,
-    tenantName: tenant?.full_name ?? tenant?.phone ?? submission.tenant_id,
+    tenantName: tenant?.full_name ?? tenantRecord?.full_name ?? tenant?.phone ?? tenantRecord?.phone ?? "Tenant",
     propertyName: property?.name ?? "-",
     roomName: room?.room_number ?? room?.name ?? "-",
     billMonth: bill?.bill_month ?? submission.bill_month ?? "-",

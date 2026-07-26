@@ -330,7 +330,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                               tenantName={bill.tenantName}
                             />
                           ) : (
-                            <p className="max-w-48 text-xs text-gray-500">Imported tenant record. Generate a rent bill before payment actions.</p>
+                            <p className="max-w-48 text-xs text-gray-500">No active rent bill is available for this month.</p>
                           )}
                         </TableCell>
                       </TableRow>
@@ -378,7 +378,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                           tenantName={bill.tenantName}
                         />
                       ) : (
-                        <p className="text-sm text-gray-500">Imported tenant record. Generate a rent bill before payment actions.</p>
+                        <p className="text-sm text-gray-500">No active rent bill is available for this month.</p>
                       )}
                     </div>
                   </div>

@@ -55,7 +55,7 @@ function reminderStage(daysUntilDue: number) {
 
 async function createOrUpdateConversation(
   supabase: Awaited<ReturnType<typeof getAdmin>>,
-  tenantId: string,
+  tenantId: string | null,
   phoneNumber: string,
 ) {
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
@@ -80,7 +80,7 @@ async function logWhatsAppMessage(
   supabase: Awaited<ReturnType<typeof getAdmin>>,
   input: {
     conversationId: string | null;
-    tenantId: string;
+    tenantId: string | null;
     phoneNumber: string;
     message: string;
     providerMessageId?: string | null;
@@ -105,7 +105,7 @@ async function logWhatsAppMessage(
 async function getBillContext(supabase: Awaited<ReturnType<typeof getAdmin>>, billId: string) {
   const { data: bill } = await supabase
     .from("rent_bills")
-    .select("id, tenant_id, tenancy_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
+    .select("id, tenant_id, tenancy_id, tenant_record_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
     .eq("id", billId)
     .single();
 
@@ -113,11 +113,32 @@ async function getBillContext(supabase: Awaited<ReturnType<typeof getAdmin>>, bi
     return null;
   }
 
-  const { data: tenant } = await supabase
-    .from("profiles")
-    .select("id, full_name, phone")
-    .eq("id", bill.tenant_id)
-    .maybeSingle();
+  let tenant: { id: string | null; full_name: string | null; phone: string | null } | null = null;
+
+  if (bill.tenant_id) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, phone")
+      .eq("id", bill.tenant_id)
+      .maybeSingle();
+    tenant = data;
+  }
+
+  if (!tenant && bill.tenant_record_id) {
+    const { data } = await supabase
+      .from("tenant_records")
+      .select("id, tenant_id, full_name, phone")
+      .eq("id", bill.tenant_record_id)
+      .maybeSingle();
+
+    if (data) {
+      tenant = {
+        id: data.tenant_id ?? null,
+        full_name: data.full_name,
+        phone: data.phone,
+      };
+    }
+  }
 
   return {
     ...bill,
@@ -149,6 +170,7 @@ export async function sendRentReminder(formData: FormData) {
   }
 
   const stage = reminderStage(dayDifference(bill.due_date));
+  const reminderTenantId = tenant.id ?? bill.tenant_id;
   const { data: existing } = await supabase
     .from("rent_reminder_logs")
     .select("id")
@@ -161,7 +183,7 @@ export async function sendRentReminder(formData: FormData) {
     redirect("/rent-due-tracker?error=duplicate_reminder");
   }
 
-  const conversationId = await createOrUpdateConversation(supabase, bill.tenant_id, phoneNumber);
+  const conversationId = await createOrUpdateConversation(supabase, reminderTenantId, phoneNumber);
   let providerMessageId: string | null = null;
   let status: "sent" | "failed" = "sent";
   let errorMessage: string | null = null;
@@ -176,7 +198,7 @@ export async function sendRentReminder(formData: FormData) {
 
   await logWhatsAppMessage(supabase, {
     conversationId,
-    tenantId: bill.tenant_id,
+    tenantId: reminderTenantId,
     phoneNumber,
     message,
     providerMessageId,
@@ -186,7 +208,8 @@ export async function sendRentReminder(formData: FormData) {
 
   await supabase.from("rent_reminder_logs").insert({
     bill_id: bill.id,
-    tenant_id: bill.tenant_id,
+    tenant_id: reminderTenantId,
+    tenant_record_id: bill.tenant_record_id,
     reminder_stage: stage,
     channel: "whatsapp",
     provider_message_id: providerMessageId,
@@ -322,7 +345,8 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   const supabase = await createClient();
   const bill = await getBillContext(supabase, billId);
 
-  if (!bill || !bill.tenant_id || ["paid", "cancelled", "waived"].includes(String(bill.status))) {
+  const submissionTenantId = bill?.tenant_id ?? bill?.tenant?.id ?? null;
+  if (!bill || (!submissionTenantId && !bill.tenant_record_id) || ["paid", "cancelled", "waived"].includes(String(bill.status))) {
     redirect("/rent-due-tracker?error=bill_not_found");
   }
 
@@ -360,7 +384,8 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   const { data: submission, error: submissionError } = await supabase
     .from("payment_submissions")
     .insert({
-      tenant_id: bill.tenant_id,
+      tenant_id: submissionTenantId,
+      tenant_record_id: bill.tenant_record_id,
       tenancy_id: bill.tenancy_id,
       rent_bill_id: bill.id,
       property_id: bill.property_id,
@@ -386,7 +411,8 @@ export async function uploadRentPaymentSlip(formData: FormData) {
 
   const { error: attachmentError } = await supabase.from("payment_attachments").insert({
     payment_submission_id: submission.id,
-    tenant_id: bill.tenant_id,
+    tenant_id: submissionTenantId,
+    tenant_record_id: bill.tenant_record_id,
     file_path: path,
     file_name: receipt.name,
     content_type: receipt.type || null,
