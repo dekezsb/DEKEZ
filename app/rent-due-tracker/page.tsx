@@ -29,6 +29,7 @@ type PageProps = {
     paid?: string;
     verified?: string;
     rejected?: string;
+    uploaded?: string;
     error?: string;
   }>;
 };
@@ -60,10 +61,18 @@ const errorMessages: Record<string, string> = {
   mark_paid_missing: "Enter payment type, amount, date and a reference or note.",
   mark_paid_failed: "Payment could not be recorded.",
   duplicate_payment: "A payment with this bill and reference already exists.",
+  paid_amount: "The cash amount cannot be higher than the bill's outstanding balance.",
   bill_not_found: "Bill could not be found or is already closed.",
   verify_missing: "Choose a payment submission to verify.",
   reject_missing: "Choose a payment submission and rejection reason.",
   already_verified: "This payment has already been verified.",
+  proof_missing: "Choose a bill, enter the paid amount and attach a payment slip.",
+  proof_type: "Upload an image or PDF payment slip.",
+  proof_size: "The payment slip must be 10 MB or smaller.",
+  proof_amount: "The submitted amount cannot be higher than the bill's outstanding balance.",
+  proof_pending: "This bill already has a payment slip waiting for verification.",
+  proof_upload: "The payment slip could not be uploaded.",
+  proof_create: "The payment submission could not be created.",
 };
 
 async function getAdmin() {
@@ -168,6 +177,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
       {params.paid === "1" ? <Notice>Rent payment recorded and bill updated.</Notice> : null}
       {params.verified === "1" ? <Notice>Payment slip verified and bill updated.</Notice> : null}
       {params.rejected === "1" ? <Notice>Payment proof rejected and tenant can upload again.</Notice> : null}
+      {params.uploaded === "1" ? <Notice>Payment slip uploaded. The bill remains pending until the payment is verified.</Notice> : null}
       {params.error ? <Notice danger>{errorMessages[params.error] ?? "Action could not be completed."}</Notice> : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
@@ -311,6 +321,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                               latestSubmissionId={bill.latestSubmissionId}
                               latestSubmissionStatus={bill.latestSubmissionStatus}
                               outstandingAmount={money(bill.outstandingAmount)}
+                              outstandingAmountValue={bill.outstandingAmount}
                               paidDateDefault={malaysiaDateString()}
                               propertyName={bill.propertyName}
                               receiptUrl={bill.latestSubmissionId ? receiptUrls.get(bill.latestSubmissionId) : null}
@@ -358,6 +369,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                           latestSubmissionId={bill.latestSubmissionId}
                           latestSubmissionStatus={bill.latestSubmissionStatus}
                           outstandingAmount={money(bill.outstandingAmount)}
+                          outstandingAmountValue={bill.outstandingAmount}
                           paidDateDefault={malaysiaDateString()}
                           propertyName={bill.propertyName}
                           receiptUrl={bill.latestSubmissionId ? receiptUrls.get(bill.latestSubmissionId) : null}

@@ -20,6 +20,11 @@ function numberValue(formData: FormData, key: string) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function fileValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return value instanceof File && value.size > 0 ? value : null;
+}
+
 async function getAdmin() {
   try {
     return createAdminClient();
@@ -215,6 +220,11 @@ export async function markRentBillPaid(formData: FormData) {
     redirect("/rent-due-tracker?error=bill_not_found");
   }
 
+  const outstandingAmount = Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0);
+  if (paidAmount > outstandingAmount) {
+    redirect("/rent-due-tracker?error=paid_amount");
+  }
+
   if (referenceNumber) {
     const { data: duplicatePayment } = await supabase
       .from("payments")
@@ -281,6 +291,126 @@ export async function markRentBillPaid(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/payments");
   redirect("/rent-due-tracker?paid=1");
+}
+
+export async function uploadRentPaymentSlip(formData: FormData) {
+  await requireRole(["super_admin", "owner", "admin"]);
+  const user = await getCurrentUser();
+  const billId = textValue(formData, "billId");
+  const amount = numberValue(formData, "amount");
+  const paymentDate = textValue(formData, "paymentDate") || malaysiaDateString();
+  const paymentMethod = textValue(formData, "paymentMethod") || "bank_transfer";
+  const referenceNumber = textValue(formData, "referenceNumber");
+  const receipt = fileValue(formData, "receipt");
+
+  if (!user || !billId || amount <= 0 || !receipt) {
+    redirect("/rent-due-tracker?error=proof_missing");
+  }
+
+  const isSupportedFile = receipt.type.startsWith("image/")
+    || receipt.type === "application/pdf"
+    || /\.(jpe?g|png|webp|heic|pdf)$/i.test(receipt.name);
+
+  if (!isSupportedFile) {
+    redirect("/rent-due-tracker?error=proof_type");
+  }
+
+  if (receipt.size > 10 * 1024 * 1024) {
+    redirect("/rent-due-tracker?error=proof_size");
+  }
+
+  const supabase = await createClient();
+  const bill = await getBillContext(supabase, billId);
+
+  if (!bill || !bill.tenant_id || ["paid", "cancelled", "waived"].includes(String(bill.status))) {
+    redirect("/rent-due-tracker?error=bill_not_found");
+  }
+
+  const outstandingAmount = Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0);
+  if (amount > outstandingAmount) {
+    redirect("/rent-due-tracker?error=proof_amount");
+  }
+
+  const { data: pendingSubmission } = await supabase
+    .from("payment_submissions")
+    .select("id")
+    .eq("rent_bill_id", bill.id)
+    .eq("verification_status", "pending_verification")
+    .limit(1)
+    .maybeSingle();
+
+  if (pendingSubmission) {
+    redirect("/rent-due-tracker?error=proof_pending");
+  }
+
+  const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const path = `${user.id}/${bill.id}/rent-${Date.now()}-${safeName}`;
+  const bytes = Buffer.from(await receipt.arrayBuffer());
+  const { error: uploadError } = await supabase.storage
+    .from("payment-receipts")
+    .upload(path, bytes, {
+      contentType: receipt.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (uploadError) {
+    redirect("/rent-due-tracker?error=proof_upload");
+  }
+
+  const { data: submission, error: submissionError } = await supabase
+    .from("payment_submissions")
+    .insert({
+      tenant_id: bill.tenant_id,
+      tenancy_id: bill.tenancy_id,
+      rent_bill_id: bill.id,
+      property_id: bill.property_id,
+      unit_id: bill.unit_id,
+      room_id: bill.room_id,
+      bill_month: bill.bill_month,
+      bill_type: "monthly_rent",
+      payment_type: "monthly_rent",
+      amount,
+      payment_date: paymentDate,
+      payment_method: paymentMethod,
+      reference_number: referenceNumber || null,
+      receipt_url: path,
+      verification_status: "pending_verification",
+    })
+    .select("id")
+    .single();
+
+  if (submissionError || !submission) {
+    await supabase.storage.from("payment-receipts").remove([path]);
+    redirect("/rent-due-tracker?error=proof_create");
+  }
+
+  const { error: attachmentError } = await supabase.from("payment_attachments").insert({
+    payment_submission_id: submission.id,
+    tenant_id: bill.tenant_id,
+    file_path: path,
+    file_name: receipt.name,
+    content_type: receipt.type || null,
+  });
+
+  if (attachmentError) {
+    await supabase.from("payment_submissions").delete().eq("id", submission.id);
+    await supabase.storage.from("payment-receipts").remove([path]);
+    redirect("/rent-due-tracker?error=proof_create");
+  }
+
+  await supabase
+    .from("rent_bills")
+    .update({
+      status: "payment_submitted",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", bill.id);
+
+  revalidatePath("/rent-due-tracker");
+  revalidatePath("/payment-verification");
+  revalidatePath("/payments");
+  revalidatePath("/dashboard");
+  redirect("/rent-due-tracker?uploaded=1");
 }
 
 export async function verifyRentSubmission(formData: FormData) {
