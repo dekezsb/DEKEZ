@@ -1,9 +1,10 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
-import { getFirstCompany, getProperties } from "@/lib/data/organization";
+import { getFirstCompany, getProperties, getRooms } from "@/lib/data/organization";
 import { createProperty } from "./actions";
 
 type PropertiesPageProps = {
@@ -25,6 +26,15 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
     getFirstCompany(),
     searchParams,
   ]);
+  const rooms = await getRooms();
+  const roomCounts = new Map<string, { total: number; occupied: number }>();
+
+  for (const room of rooms) {
+    const current = roomCounts.get(room.property_id) ?? { total: 0, occupied: 0 };
+    current.total += 1;
+    current.occupied += room.status === "occupied" ? 1 : 0;
+    roomCounts.set(room.property_id, current);
+  }
 
   return (
     <section className="space-y-6">
@@ -111,15 +121,29 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
                 <TableRow>
                   <TableHead>Property</TableHead>
                   <TableHead>Address</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>Rooms</TableHead>
+                  <TableHead className="w-12"><span className="sr-only">Open</span></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {properties.map((property) => (
                   <TableRow key={property.id}>
-                    <TableCell className="font-medium text-gray-950">{property.name}</TableCell>
+                    <TableCell className="font-medium text-gray-950">
+                      <Link className="hover:text-[#126b5f]" href={`/properties/${property.id}`}>
+                        {property.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>{property.address}</TableCell>
-                    <TableCell>{property.notes ?? "-"}</TableCell>
+                    <TableCell>
+                      {roomCounts.get(property.id)?.occupied ?? 0} / {roomCounts.get(property.id)?.total ?? 0} occupied
+                    </TableCell>
+                    <TableCell>
+                      <Button asChild size="icon" variant="ghost">
+                        <Link aria-label={`Open ${property.name}`} href={`/properties/${property.id}`}>
+                          <ChevronRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -38,7 +38,6 @@ const adminNavigation: NavigationItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Admin Setup", href: "/admin-setup", icon: UserCog },
   { label: "Properties", href: "/properties", icon: Building2 },
-  { label: "Units", href: "/units", icon: Building2 },
   { label: "Rooms", href: "/rooms", icon: ClipboardList },
   { label: "Customers", href: "/tenants", icon: Users },
   { label: "Verification", href: "/tenant-verification", icon: ShieldCheck },

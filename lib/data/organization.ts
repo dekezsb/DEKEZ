@@ -16,6 +16,9 @@ export type PropertySummary = {
   company_id: string;
   name: string;
   address: string;
+  property_code: string | null;
+  area: string | null;
+  payment_qr_url: string | null;
   notes: string | null;
 };
 
@@ -84,7 +87,7 @@ async function getCurrentScope() {
     return { user: null, role: null as AppRole | null };
   }
 
-  const metadataRole = normalizeRole(user.user_metadata?.role);
+  const metadataRole = normalizeRole(user.app_metadata?.role);
 
   if (metadataRole) {
     return { user, role: metadataRole };
@@ -211,7 +214,7 @@ export async function getProperties() {
   const supabase = await getDataClient();
   let query = supabase
     .from("properties")
-    .select("id, company_id, name, address, notes")
+    .select("id, company_id, name, address, property_code, area, payment_qr_url, notes")
     .order("created_at", { ascending: true });
 
   if (propertyIds !== null) {

@@ -12,7 +12,7 @@ export async function getCurrentUserRole() {
     redirect("/");
   }
 
-  const metadataRole = normalizeRole(user.user_metadata?.role);
+  const metadataRole = normalizeRole(user.app_metadata?.role);
 
   if (metadataRole) {
     return metadataRole;
