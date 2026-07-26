@@ -39,7 +39,7 @@ const adminNavigation: NavigationItem[] = [
   { label: "Admin Setup", href: "/admin-setup", icon: UserCog },
   { label: "Properties", href: "/properties", icon: Building2 },
   { label: "Rooms", href: "/rooms", icon: ClipboardList },
-  { label: "Customers", href: "/tenants", icon: Users },
+  { label: "Tenants", href: "/tenants", icon: Users },
   { label: "Verification", href: "/tenant-verification", icon: ShieldCheck },
   { label: "Payments", href: "/payments", icon: CreditCard },
   { label: "Payment Verification", href: "/payment-verification", icon: ClipboardList },
