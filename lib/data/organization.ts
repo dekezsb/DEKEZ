@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveUserRole } from "@/lib/auth/session";
 import type { AppRole } from "@/lib/auth/roles";
 
@@ -244,7 +245,17 @@ export async function getPropertyOwnerData(properties: PropertySummary[]) {
 
 export async function getUserCompanies() {
   const companyIds = await getAccessibleCompanyIds();
-  const supabase = await getDataClient();
+  const { role } = await getCurrentScope();
+  let supabase = await getDataClient();
+
+  if (role === "super_admin") {
+    try {
+      supabase = createAdminClient();
+    } catch {
+      // The authenticated client remains available for local setups without a service key.
+    }
+  }
+
   let query = supabase
     .from("companies")
     .select("id, name, email, phone, status, created_at")

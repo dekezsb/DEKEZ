@@ -20,7 +20,7 @@ const errorMessages: Record<string, string> = {
 };
 
 export default async function SetupPage({ searchParams }: SetupPageProps) {
-  await requireRole(["owner", "super_admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const company = await getFirstCompany();
   const { error } = await searchParams;

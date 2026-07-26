@@ -29,7 +29,7 @@ function numberValue(formData: FormData, key: string, fallback = 0) {
 }
 
 async function assertAdmin() {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
 }
 
 export async function createPortalUser(formData: FormData) {
