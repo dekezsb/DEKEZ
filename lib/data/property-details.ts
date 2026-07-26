@@ -26,6 +26,11 @@ function relatedOne<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
+const roomNumberCollator = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
+
 export type PropertyRoomView = {
   id: string;
   name: string;
@@ -190,55 +195,57 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     }
   }
 
-  const roomViews = rooms.map((room): PropertyRoomView => {
-    const tenantRecord = tenantRecordByRoom.get(room.id);
-    const tenancy = tenancyByRoom.get(room.id);
-    const canonicalTenant = relatedOne(tenancy?.tenants);
-    const bill = billByRoom.get(room.id);
-    const tenancyId = tenancy?.id ?? tenantRecord?.tenancy_id ?? room.current_tenancy_id ?? null;
-    const agreement = tenancyId ? agreementByTenancy.get(tenancyId) : null;
-    const billAmount = Number(bill?.amount ?? 0);
-    const amountReceived = Number(bill?.paid_amount ?? 0);
-    const deposit = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
-    const contractEnd = tenancy?.contract_end ?? tenantRecord?.contract_end ?? null;
-    // A verified submission is only used when no canonical payment exists, so verification
-    // workflows that copy submissions into payments cannot double-count the deposit.
-    const depositReceived =
-      verifiedDepositByRoom.get(room.id) ??
-      verifiedSubmissionDepositByRoom.get(room.id) ??
-      0;
+  const roomViews = rooms
+    .map((room): PropertyRoomView => {
+      const tenantRecord = tenantRecordByRoom.get(room.id);
+      const tenancy = tenancyByRoom.get(room.id);
+      const canonicalTenant = relatedOne(tenancy?.tenants);
+      const bill = billByRoom.get(room.id);
+      const tenancyId = tenancy?.id ?? tenantRecord?.tenancy_id ?? room.current_tenancy_id ?? null;
+      const agreement = tenancyId ? agreementByTenancy.get(tenancyId) : null;
+      const billAmount = Number(bill?.amount ?? 0);
+      const amountReceived = Number(bill?.paid_amount ?? 0);
+      const deposit = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
+      const contractEnd = tenancy?.contract_end ?? tenantRecord?.contract_end ?? null;
+      // A verified submission is only used when no canonical payment exists, so verification
+      // workflows that copy submissions into payments cannot double-count the deposit.
+      const depositReceived =
+        verifiedDepositByRoom.get(room.id) ??
+        verifiedSubmissionDepositByRoom.get(room.id) ??
+        0;
 
-    return {
-      id: room.id,
-      name: room.name ?? room.room_number,
-      roomNumber: room.room_number ?? room.name,
-      status: room.status,
-      monthlyRent: Number(tenancy?.monthly_rental ?? tenantRecord?.monthly_rent ?? room.monthly_rent ?? 0),
-      tenantId: tenancy?.tenant_id ?? tenantRecord?.tenant_id ?? null,
-      tenantRecordId: tenantRecord?.id ?? null,
-      tenancyId,
-      tenantName: canonicalTenant?.full_name ?? tenantRecord?.full_name ?? null,
-      tenantPhone: canonicalTenant?.phone ?? tenantRecord?.phone ?? null,
-      identificationNumber: canonicalTenant?.identity_number ?? tenantRecord?.identification_number ?? null,
-      deposit,
-      depositReceived,
-      depositOutstanding: Math.max(deposit - depositReceived, 0),
-      dueDay: tenancy?.rent_due_day ?? tenancy?.due_day ?? tenantRecord?.due_day ?? null,
-      contractStart: tenancy?.contract_start ?? tenantRecord?.contract_start ?? null,
-      contractEnd,
-      billId: bill?.id ?? null,
-      billStatus: bill?.status ?? null,
-      billDueDate: bill?.due_date ?? null,
-      billAmount,
-      amountReceived,
-      outstanding: bill ? Math.max(billAmount - amountReceived, 0) : 0,
-      agreementId: agreement?.id ?? null,
-      agreementStatus:
-        agreement && contractEnd && contractEnd < currentDate
-          ? "expired"
-          : agreement?.status ?? "not_generated",
-    };
-  });
+      return {
+        id: room.id,
+        name: room.name ?? room.room_number,
+        roomNumber: room.room_number ?? room.name,
+        status: room.status,
+        monthlyRent: Number(tenancy?.monthly_rental ?? tenantRecord?.monthly_rent ?? room.monthly_rent ?? 0),
+        tenantId: tenancy?.tenant_id ?? tenantRecord?.tenant_id ?? null,
+        tenantRecordId: tenantRecord?.id ?? null,
+        tenancyId,
+        tenantName: canonicalTenant?.full_name ?? tenantRecord?.full_name ?? null,
+        tenantPhone: canonicalTenant?.phone ?? tenantRecord?.phone ?? null,
+        identificationNumber: canonicalTenant?.identity_number ?? tenantRecord?.identification_number ?? null,
+        deposit,
+        depositReceived,
+        depositOutstanding: Math.max(deposit - depositReceived, 0),
+        dueDay: tenancy?.rent_due_day ?? tenancy?.due_day ?? tenantRecord?.due_day ?? null,
+        contractStart: tenancy?.contract_start ?? tenantRecord?.contract_start ?? null,
+        contractEnd,
+        billId: bill?.id ?? null,
+        billStatus: bill?.status ?? null,
+        billDueDate: bill?.due_date ?? null,
+        billAmount,
+        amountReceived,
+        outstanding: bill ? Math.max(billAmount - amountReceived, 0) : 0,
+        agreementId: agreement?.id ?? null,
+        agreementStatus:
+          agreement && contractEnd && contractEnd < currentDate
+            ? "expired"
+            : agreement?.status ?? "not_generated",
+      };
+    })
+    .sort((a, b) => roomNumberCollator.compare(a.roomNumber, b.roomNumber));
 
   const property = propertyResult.data;
   const fallbackCode = property.name.includes("-") ? property.name.split("-")[0].trim() : "";
