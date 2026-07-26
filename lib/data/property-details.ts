@@ -39,6 +39,8 @@ export type PropertyRoomView = {
   tenantPhone: string | null;
   identificationNumber: string | null;
   deposit: number;
+  depositReceived: number;
+  depositOutstanding: number;
   dueDay: number | null;
   contractStart: string | null;
   contractEnd: string | null;
@@ -73,8 +75,17 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   }
 
   const supabase = await getDataClient();
-  const billMonth = `${malaysiaDate().slice(0, 7)}-01`;
-  const [propertyResult, roomsResult, tenantRecordsResult, tenanciesResult, billsResult] =
+  const currentDate = malaysiaDate();
+  const billMonth = `${currentDate.slice(0, 7)}-01`;
+  const [
+    propertyResult,
+    roomsResult,
+    tenantRecordsResult,
+    tenanciesResult,
+    billsResult,
+    depositPaymentsResult,
+    depositSubmissionsResult,
+  ] =
     await Promise.all([
       supabase
         .from("properties")
@@ -101,6 +112,18 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .select("id, room_id, tenancy_id, tenant_record_id, amount, paid_amount, status, due_date")
         .eq("property_id", propertyId)
         .eq("bill_month", billMonth),
+      supabase
+        .from("payments")
+        .select("room_id, amount")
+        .eq("property_id", propertyId)
+        .in("category", ["deposit", "rental_deposit", "security_deposit"])
+        .in("status", ["confirmed", "paid"]),
+      supabase
+        .from("payment_submissions")
+        .select("room_id, amount")
+        .eq("property_id", propertyId)
+        .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
+        .eq("verification_status", "verified"),
     ]);
 
   if (propertyResult.error || !propertyResult.data) {
@@ -111,6 +134,8 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   const tenantRecords = tenantRecordsResult.data ?? [];
   const tenancies = tenanciesResult.data ?? [];
   const bills = billsResult.data ?? [];
+  const depositPayments = depositPaymentsResult.data ?? [];
+  const depositSubmissions = depositSubmissionsResult.data ?? [];
   const tenancyIds = tenancies.map((tenancy) => tenancy.id);
   const agreementResult = tenancyIds.length
     ? await supabase
@@ -125,6 +150,22 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   const tenancyByRoom = new Map(tenancies.map((tenancy) => [tenancy.room_id, tenancy]));
   const billByRoom = new Map(bills.map((bill) => [bill.room_id, bill]));
   const agreementByTenancy = new Map<string, (typeof agreements)[number]>();
+  const verifiedDepositByRoom = new Map<string, number>();
+  const verifiedSubmissionDepositByRoom = new Map<string, number>();
+  for (const payment of depositPayments) {
+    if (!payment.room_id) continue;
+    verifiedDepositByRoom.set(
+      payment.room_id,
+      (verifiedDepositByRoom.get(payment.room_id) ?? 0) + Number(payment.amount ?? 0),
+    );
+  }
+  for (const submission of depositSubmissions) {
+    if (!submission.room_id) continue;
+    verifiedSubmissionDepositByRoom.set(
+      submission.room_id,
+      (verifiedSubmissionDepositByRoom.get(submission.room_id) ?? 0) + Number(submission.amount ?? 0),
+    );
+  }
   for (const agreement of agreements) {
     if (!agreementByTenancy.has(agreement.tenancy_id)) {
       agreementByTenancy.set(agreement.tenancy_id, agreement);
@@ -138,8 +179,16 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     const bill = billByRoom.get(room.id);
     const tenancyId = tenancy?.id ?? tenantRecord?.tenancy_id ?? room.current_tenancy_id ?? null;
     const agreement = tenancyId ? agreementByTenancy.get(tenancyId) : null;
-    const billAmount = Number(bill?.amount ?? tenancy?.monthly_rental ?? tenantRecord?.monthly_rent ?? room.monthly_rent ?? 0);
+    const billAmount = Number(bill?.amount ?? 0);
     const amountReceived = Number(bill?.paid_amount ?? 0);
+    const deposit = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
+    const contractEnd = tenancy?.contract_end ?? tenantRecord?.contract_end ?? null;
+    // A verified submission is only used when no canonical payment exists, so verification
+    // workflows that copy submissions into payments cannot double-count the deposit.
+    const depositReceived =
+      verifiedDepositByRoom.get(room.id) ??
+      verifiedSubmissionDepositByRoom.get(room.id) ??
+      0;
 
     return {
       id: room.id,
@@ -153,17 +202,22 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       tenantName: canonicalTenant?.full_name ?? tenantRecord?.full_name ?? null,
       tenantPhone: canonicalTenant?.phone ?? tenantRecord?.phone ?? null,
       identificationNumber: canonicalTenant?.identity_number ?? tenantRecord?.identification_number ?? null,
-      deposit: Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0),
+      deposit,
+      depositReceived,
+      depositOutstanding: Math.max(deposit - depositReceived, 0),
       dueDay: tenancy?.rent_due_day ?? tenancy?.due_day ?? tenantRecord?.due_day ?? null,
       contractStart: tenancy?.contract_start ?? tenantRecord?.contract_start ?? null,
-      contractEnd: tenancy?.contract_end ?? tenantRecord?.contract_end ?? null,
+      contractEnd,
       billId: bill?.id ?? null,
       billStatus: bill?.status ?? null,
       billAmount,
       amountReceived,
-      outstanding: Math.max(billAmount - amountReceived, 0),
+      outstanding: bill ? Math.max(billAmount - amountReceived, 0) : 0,
       agreementId: agreement?.id ?? null,
-      agreementStatus: agreement?.status ?? "not_generated",
+      agreementStatus:
+        agreement && contractEnd && contractEnd < currentDate
+          ? "expired"
+          : agreement?.status ?? "not_generated",
     };
   });
 
@@ -219,4 +273,32 @@ export async function getRoomDetails(propertyId: string, roomId: string) {
     payments: paymentsResult.data ?? [],
     maintenance: maintenanceResult.data ?? [],
   };
+}
+
+export async function getTenantProfile(tenantKey: string) {
+  const supabase = await getDataClient();
+  const { data: importedTenant } = await supabase
+    .from("tenant_records")
+    .select("id, property_id, room_id")
+    .eq("id", tenantKey)
+    .maybeSingle();
+
+  if (importedTenant?.property_id && importedTenant.room_id) {
+    return getRoomDetails(importedTenant.property_id, importedTenant.room_id);
+  }
+
+  const { data: tenancy } = await supabase
+    .from("tenancies")
+    .select("property_id, room_id")
+    .eq("tenant_id", tenantKey)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!tenancy?.property_id || !tenancy.room_id) {
+    notFound();
+  }
+
+  return getRoomDetails(tenancy.property_id, tenancy.room_id);
 }

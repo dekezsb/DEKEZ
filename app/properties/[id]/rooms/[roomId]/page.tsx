@@ -20,6 +20,16 @@ const money = new Intl.NumberFormat("en-MY", {
   currency: "MYR",
 });
 
+function roomStatusClass(status: string) {
+  const classes: Record<string, string> = {
+    occupied: "bg-emerald-100 text-emerald-800",
+    vacant: "bg-gray-100 text-gray-700",
+    reserved: "bg-orange-100 text-orange-800",
+    maintenance: "bg-red-100 text-red-700",
+  };
+  return classes[status] ?? "bg-gray-100 text-gray-700";
+}
+
 export default async function RoomDetailsPage({ params }: PageProps) {
   await requireRole(["super_admin", "owner", "admin"]);
   const { id, roomId } = await params;
@@ -42,7 +52,7 @@ export default async function RoomDetailsPage({ params }: PageProps) {
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{room.roomNumber}</h1>
           <p className="mt-2 text-sm text-gray-600">{property.name}</p>
         </div>
-        <Badge className={room.status === "vacant" ? "bg-red-100 text-red-700" : statusBadgeClass(room.status)}>
+        <Badge className={roomStatusClass(room.status)}>
           {room.status}
         </Badge>
       </div>

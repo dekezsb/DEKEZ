@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
-import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
+import {
+  dueDateForBillMonth,
+  generateRecurringRentBills,
+} from "@/lib/billing/rent-billing";
 import { getCurrentUser, getProperties } from "@/lib/data/organization";
 import {
   addMonths,
@@ -276,7 +279,6 @@ export async function updateProperty(formData: FormData) {
   const propertyId = textValue(formData, "propertyId");
   const property = await accessibleProperty(propertyId);
   const name = textValue(formData, "name");
-  const code = textValue(formData, "propertyCode");
   const area = textValue(formData, "area");
   const address = textValue(formData, "address");
   const targetRooms = Math.max(0, Math.floor(numberValue(formData, "totalRooms")));
@@ -370,7 +372,6 @@ export async function updateProperty(formData: FormData) {
     .from("properties")
     .update({
       name,
-      property_code: code || null,
       area: area || null,
       address,
       updated_at: new Date().toISOString(),
@@ -399,109 +400,142 @@ export async function updatePaymentQr(formData: FormData) {
   redirect(propertyPath(property.id, "?saved=qr"));
 }
 
-export async function updateRoomTerms(formData: FormData) {
+export async function updateRoomField(formData: FormData) {
   await requireRole(["super_admin", "owner", "admin"]);
-  const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
+  const field = textValue(formData, "field");
   const property = await accessibleProperty(propertyId);
-  if (!user || !property) {
-    redirect("/properties");
+  if (!property || !roomId || !["monthlyRent", "dueDay"].includes(field)) {
+    return { ok: false, error: "This room field could not be saved." };
   }
 
-  const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
-  const deposit = Math.max(0, numberValue(formData, "deposit"));
-  const amountReceived = Math.max(0, numberValue(formData, "amountReceived"));
-  const dueDay = Math.min(31, Math.max(1, Math.floor(numberValue(formData, "dueDay"))));
-  const contractEnd = textValue(formData, "contractEnd") || null;
   const tenantRecordId = textValue(formData, "tenantRecordId");
-  let tenancyId = textValue(formData, "tenancyId") || null;
-  const billId = textValue(formData, "billId") || null;
+  const tenancyId = textValue(formData, "tenancyId");
   const supabase = await getAdmin();
 
   const { data: room } = await supabase
     .from("rooms")
-    .select("id")
+    .select("id, status")
     .eq("id", roomId)
     .eq("property_id", property.id)
     .maybeSingle();
   if (!room) {
-    redirect(propertyPath(property.id, "?error=room"));
+    return { ok: false, error: "Room not found." };
   }
 
-  if (!tenancyId && tenantRecordId) {
-    tenancyId = await ensureCanonicalTenancy(supabase, property, roomId, tenantRecordId, user.id);
-  }
+  if (field === "monthlyRent") {
+    const monthlyRent = Math.max(0, numberValue(formData, "value"));
+    const updates = [
+      supabase
+        .from("rooms")
+        .update({ monthly_rent: monthlyRent })
+        .eq("id", roomId)
+        .eq("property_id", property.id),
+    ];
 
-  await supabase.from("rooms").update({ monthly_rent: monthlyRent }).eq("id", roomId);
-  if (tenantRecordId) {
-    await supabase
-      .from("tenant_records")
-      .update({ monthly_rent: monthlyRent, deposit, due_day: dueDay, contract_end: contractEnd })
-      .eq("id", tenantRecordId);
-  }
-  if (tenancyId) {
-    await supabase
-      .from("tenancies")
-      .update({
-        monthly_rent: monthlyRent,
-        monthly_rental: monthlyRent,
-        deposit,
-        due_day: dueDay,
-        rent_due_day: dueDay,
-        end_date: contractEnd,
-        contract_end: contractEnd,
-        tenancy_end_date: contractEnd,
-      })
-      .eq("id", tenancyId);
-  }
+    if (tenantRecordId) {
+      updates.push(
+        supabase
+          .from("tenant_records")
+          .update({ monthly_rent: monthlyRent })
+          .eq("id", tenantRecordId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (tenancyId) {
+      updates.push(
+        supabase
+          .from("tenancies")
+          .update({ monthly_rent: monthlyRent, monthly_rental: monthlyRent })
+          .eq("id", tenancyId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
 
-  if (billId) {
-    const { data: bill } = await supabase
+    const updateResults = await Promise.all(updates);
+    if (updateResults.some((result) => result.error)) {
+      return { ok: false, error: "Monthly rent could not be saved." };
+    }
+
+    let billQuery = supabase
       .from("rent_bills")
-      .select("id, tenant_id, tenancy_id, paid_amount, amount")
-      .eq("id", billId)
+      .select("id, paid_amount")
       .eq("room_id", roomId)
-      .maybeSingle();
-    if (bill) {
-      const existingReceived = Number(bill.paid_amount ?? 0);
-      if (amountReceived < existingReceived) {
-        redirect(propertyPath(property.id, "?error=received_decrease"));
-      }
-      const difference = amountReceived - existingReceived;
-      if (difference > 0 && (bill.tenancy_id ?? tenancyId)) {
-        await supabase.from("payments").insert({
-          company_id: property.company_id,
-          tenancy_id: bill.tenancy_id ?? tenancyId,
-          amount: difference,
-          payment_method: "manual_adjustment",
-          reference_number: `ROOM-${roomId.slice(0, 8)}-${Date.now()}`,
-          status: "confirmed",
-          payment_date: today(),
-          notes: "Recorded from Property Details. Existing verified history was not changed.",
-          collected_by: user.id,
-          property_id: property.id,
-          room_id: roomId,
-          rent_bill_id: bill.id,
-          verified_by: user.id,
-          verified_at: new Date().toISOString(),
-        });
-      }
-      const billAmount = monthlyRent || Number(bill.amount ?? 0);
+      .gte("bill_month", `${today().slice(0, 7)}-01`)
+      .in("status", ["draft", "unpaid", "partial", "submitted", "pending_verification", "rejected", "overdue"]);
+    if (tenancyId) {
+      billQuery = billQuery.eq("tenancy_id", tenancyId);
+    } else if (tenantRecordId) {
+      billQuery = billQuery.eq("tenant_record_id", tenantRecordId);
+    }
+    const { data: bills } = await billQuery;
+    for (const bill of bills ?? []) {
       await supabase
         .from("rent_bills")
         .update({
-          amount: billAmount,
-          paid_amount: amountReceived,
-          status: amountReceived >= billAmount ? "paid" : amountReceived > 0 ? "partial" : "unpaid",
+          amount: Math.max(monthlyRent, Number(bill.paid_amount ?? 0)),
         })
+        .eq("id", bill.id);
+    }
+  }
+
+  if (field === "dueDay") {
+    const dueDay = Math.min(31, Math.max(1, Math.floor(numberValue(formData, "value"))));
+    const updates = [];
+    if (tenantRecordId) {
+      updates.push(
+        supabase
+          .from("tenant_records")
+          .update({ due_day: dueDay })
+          .eq("id", tenantRecordId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (tenancyId) {
+      updates.push(
+        supabase
+          .from("tenancies")
+          .update({ due_day: dueDay, rent_due_day: dueDay })
+          .eq("id", tenancyId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (!updates.length) {
+      return { ok: false, error: "This room has no active tenant assignment." };
+    }
+    const updateResults = await Promise.all(updates);
+    if (updateResults.some((result) => result.error)) {
+      return { ok: false, error: "Rent due day could not be saved." };
+    }
+
+    let billQuery = supabase
+      .from("rent_bills")
+      .select("id, bill_month")
+      .eq("room_id", roomId)
+      .gte("bill_month", `${today().slice(0, 7)}-01`)
+      .in("status", ["draft", "unpaid", "partial", "submitted", "pending_verification", "rejected", "overdue"]);
+    if (tenancyId) {
+      billQuery = billQuery.eq("tenancy_id", tenancyId);
+    } else if (tenantRecordId) {
+      billQuery = billQuery.eq("tenant_record_id", tenantRecordId);
+    }
+    const { data: bills } = await billQuery;
+    for (const bill of bills ?? []) {
+      await supabase
+        .from("rent_bills")
+        .update({ due_date: dueDateForBillMonth(bill.bill_month, dueDay) })
         .eq("id", bill.id);
     }
   }
 
   revalidatePath(propertyPath(property.id));
   revalidatePath("/rent-due-tracker");
-  redirect(propertyPath(property.id, "?saved=room"));
+  return { ok: true };
 }
 
 export async function generateRoomAgreement(formData: FormData) {

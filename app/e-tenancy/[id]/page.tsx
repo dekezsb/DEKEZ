@@ -8,10 +8,11 @@ import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
 import { signAgreement } from "../actions";
 import { SignaturePad } from "../signature-pad";
+import { PrintOnLoad } from "./print-on-load";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; signed?: string }>;
+  searchParams: Promise<{ error?: string; signed?: string; print?: string }>;
 };
 
 export default async function AgreementDetailPage({ params, searchParams }: PageProps) {
@@ -48,6 +49,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
 
   return (
     <section className="space-y-6">
+      {query.print === "1" ? <PrintOnLoad /> : null}
       <div>
         <p className="text-xs font-semibold uppercase text-[#126b5f]">E-Tenancy Agreement</p>
         <div className="mt-2 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
