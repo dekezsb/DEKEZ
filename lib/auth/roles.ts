@@ -103,7 +103,6 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Onboarding", href: "/onboarding", icon: UserCog },
     { label: "My Tenancy Agreement", href: "/e-tenancy", icon: FileSignature },
     { label: "Payments", href: "/payments", icon: CreditCard },
-    { label: "Utility Bills", href: "/utility-bills", icon: Droplets },
     { label: "Maintenance", href: "/maintenance", icon: Wrench },
   ],
 };

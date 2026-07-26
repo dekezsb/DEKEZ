@@ -2,11 +2,14 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ChevronRight,
+  Droplets,
   FileText,
   Home,
   Plus,
   QrCode,
+  ReceiptText,
   UserPlus,
+  Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -235,6 +238,62 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
               <Button type="submit">Save Property</Button>
             </div>
           </PropertyInformationForm>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle>Property Utility Bills</CardTitle>
+            <CardDescription>
+              Main water, electricity and operating utility bills for this property only.
+            </CardDescription>
+          </div>
+          <Button asChild variant="outline">
+            <Link href={`/utility-bills?property=${details.property.id}`}>View All Utility Bills</Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-md border border-[#e5e9ef] p-4">
+              <Droplets className="h-5 w-5 text-[#126b5f]" />
+              <p className="mt-3 text-sm text-gray-500">Current Month Water</p>
+              <p className="mt-1 text-lg font-semibold">{money.format(details.utilitySummary.currentMonthWater)}</p>
+            </div>
+            <div className="rounded-md border border-[#e5e9ef] p-4">
+              <Zap className="h-5 w-5 text-[#b17f19]" />
+              <p className="mt-3 text-sm text-gray-500">Current Month Electricity</p>
+              <p className="mt-1 text-lg font-semibold">{money.format(details.utilitySummary.currentMonthElectricity)}</p>
+            </div>
+            <div className="rounded-md border border-[#e5e9ef] p-4">
+              <ReceiptText className="h-5 w-5 text-[#126b5f]" />
+              <p className="mt-3 text-sm text-gray-500">Total Utilities This Month</p>
+              <p className="mt-1 text-lg font-semibold">{money.format(details.utilitySummary.totalThisMonth)}</p>
+            </div>
+            <div className="rounded-md border border-[#e5e9ef] p-4">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <p className="mt-3 text-sm text-gray-500">Outstanding Utilities</p>
+              <p className={`mt-1 text-lg font-semibold ${details.utilitySummary.outstanding > 0 ? "text-red-600" : "text-emerald-700"}`}>
+                {money.format(details.utilitySummary.outstanding)}
+              </p>
+            </div>
+            <div className="rounded-md border border-[#e5e9ef] p-4">
+              <p className="text-sm text-gray-500">Latest Payment Status</p>
+              {details.utilitySummary.latestStatus ? (
+                <Badge className={`mt-3 ${statusBadgeClass(details.utilitySummary.latestStatus)}`}>
+                  {details.utilitySummary.latestStatus.replaceAll("_", " ")}
+                </Badge>
+              ) : (
+                <p className="mt-3 text-sm text-gray-500">No bills yet</p>
+              )}
+              <p className="mt-2 text-xs text-gray-500">
+                Paid: {details.utilitySummary.latestPaymentDate ?? "-"}
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 text-xs text-gray-500">
+            Tenant smart-meter usage is separate and appears inside Room Details.
+          </p>
         </CardContent>
       </Card>
 

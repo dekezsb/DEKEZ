@@ -67,6 +67,14 @@ export type PropertyDetailsView = {
   rooms: PropertyRoomView[];
   occupiedCount: number;
   vacantCount: number;
+  utilitySummary: {
+    currentMonthWater: number;
+    currentMonthElectricity: number;
+    totalThisMonth: number;
+    outstanding: number;
+    latestStatus: string | null;
+    latestPaymentDate: string | null;
+  };
 };
 
 export async function getPropertyDetails(propertyId: string): Promise<PropertyDetailsView> {
@@ -86,6 +94,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     billsResult,
     depositPaymentsResult,
     depositSubmissionsResult,
+    utilityBillsResult,
   ] =
     await Promise.all([
       supabase
@@ -125,6 +134,13 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .eq("property_id", propertyId)
         .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
         .eq("verification_status", "verified"),
+      supabase
+        .from("utility_bills")
+        .select("utility_type, bill_month, amount, paid_amount, status, payment_date, created_at")
+        .eq("property_id", propertyId)
+        .eq("billing_scope", "property")
+        .order("bill_month", { ascending: false })
+        .order("created_at", { ascending: false }),
     ]);
 
   if (propertyResult.error || !propertyResult.data) {
@@ -137,6 +153,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   const bills = billsResult.data ?? [];
   const depositPayments = depositPaymentsResult.data ?? [];
   const depositSubmissions = depositSubmissionsResult.data ?? [];
+  const utilityBills = utilityBillsResult.data ?? [];
   const tenancyIds = tenancies.map((tenancy) => tenancy.id);
   const agreementResult = tenancyIds.length
     ? await supabase
@@ -225,6 +242,9 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
 
   const property = propertyResult.data;
   const fallbackCode = property.name.includes("-") ? property.name.split("-")[0].trim() : "";
+  const activeUtilityBills = utilityBills.filter((bill) => bill.status !== "cancelled");
+  const currentUtilityBills = activeUtilityBills.filter((bill) => bill.bill_month === billMonth);
+  const latestUtilityBill = activeUtilityBills[0] ?? null;
 
   return {
     property: {
@@ -239,6 +259,25 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     rooms: roomViews,
     occupiedCount: roomViews.filter((room) => room.status === "occupied").length,
     vacantCount: roomViews.filter((room) => room.status === "vacant").length,
+    utilitySummary: {
+      currentMonthWater: currentUtilityBills
+        .filter((bill) => bill.utility_type === "water")
+        .reduce((sum, bill) => sum + Number(bill.amount ?? 0), 0),
+      currentMonthElectricity: currentUtilityBills
+        .filter((bill) => bill.utility_type === "electricity")
+        .reduce((sum, bill) => sum + Number(bill.amount ?? 0), 0),
+      totalThisMonth: currentUtilityBills.reduce(
+        (sum, bill) => sum + Number(bill.amount ?? 0),
+        0,
+      ),
+      outstanding: activeUtilityBills.reduce(
+        (sum, bill) =>
+          sum + Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0),
+        0,
+      ),
+      latestStatus: latestUtilityBill?.status ?? null,
+      latestPaymentDate: latestUtilityBill?.payment_date ?? null,
+    },
   };
 }
 
@@ -250,7 +289,7 @@ export async function getRoomDetails(propertyId: string, roomId: string) {
   }
 
   const supabase = await getDataClient();
-  const [billsResult, paymentsResult, maintenanceResult] = await Promise.all([
+  const [billsResult, paymentsResult, maintenanceResult, metersResult] = await Promise.all([
     supabase
       .from("rent_bills")
       .select("id, bill_month, due_date, amount, paid_amount, status")
@@ -266,7 +305,22 @@ export async function getRoomDetails(propertyId: string, roomId: string) {
       .select("id, ticket_number, category, description, urgency, status, created_at, completed_at")
       .eq("room_id", roomId)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("smart_meters")
+      .select("id, meter_number, meter_type, rate, remaining_credit, status")
+      .eq("room_id", roomId)
+      .order("meter_type", { ascending: true }),
   ]);
+  const meters = metersResult.data ?? [];
+  const meterIds = meters.map((meter) => meter.id);
+  const readingsResult = meterIds.length
+    ? await supabase
+        .from("smart_meter_readings")
+        .select("id, meter_id, billing_month, previous_reading, current_reading, usage, rate, charge_amount, top_up_amount, remaining_credit, reading_date")
+        .in("meter_id", meterIds)
+        .order("reading_date", { ascending: false })
+    : { data: [], error: null };
+  const readings = readingsResult.data ?? [];
 
   return {
     property: propertyDetails.property,
@@ -274,6 +328,10 @@ export async function getRoomDetails(propertyId: string, roomId: string) {
     bills: billsResult.data ?? [],
     payments: paymentsResult.data ?? [],
     maintenance: maintenanceResult.data ?? [],
+    smartMeters: meters.map((meter) => ({
+      ...meter,
+      readings: readings.filter((reading) => reading.meter_id === meter.id),
+    })),
   };
 }
 

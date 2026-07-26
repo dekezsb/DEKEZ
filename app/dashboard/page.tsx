@@ -168,8 +168,8 @@ async function OwnerDashboard() {
         <ModuleCard title="My Properties" description="View properties assigned to your ownership." href="/properties" icon={Building2} badge={summary.totalProperties} />
         <ModuleCard title="My Rooms" description="Track occupied, vacant, reserved and maintenance rooms." href="/rooms" icon={DoorOpen} badge={summary.totalRooms} />
         <ModuleCard title="Rental Income" description="Open rent and payment records for your portfolio." href="/payments" icon={Banknote} />
-        <ModuleCard title="Water Bills" description="Check water utility charges linked to your rooms." href="/utility-bills" icon={Droplets} />
-        <ModuleCard title="Electricity Bills" description="Review electricity utility costs and balances." href="/utility-bills" icon={Zap} />
+        <ModuleCard title="Water Bills" description="Check main water bills for your properties." href="/utility-bills" icon={Droplets} />
+        <ModuleCard title="Electricity Bills" description="Review main electricity costs for your properties." href="/utility-bills" icon={Zap} />
         <ModuleCard title="Maintenance Claims" description="Approve, reject, or review maintenance claim costs." href="/claims" icon={ClipboardCheck} badge={summary.pendingClaims} />
         <ModuleCard title="Reports" description="View cash-flow, rental and maintenance summaries." href="/reports" icon={BarChart3} />
       </div>
@@ -327,7 +327,7 @@ async function TenantDashboard() {
         <p className="text-xs font-semibold uppercase text-[#126b5f]">Tenant Portal</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Tenant Dashboard</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          View your room, rental, bills, balance, contract, payment history and maintenance requests.
+          View your room, rental, balance, contract, payment history and maintenance requests.
         </p>
       </div>
 
@@ -347,8 +347,6 @@ async function TenantDashboard() {
         <StatCard label="Rental Due Date" value={summary?.dueDay ? `Day ${summary.dueDay}` : "-"} detail="Payment due each month" />
         <StatCard label="Outstanding Amount" value={money(summary?.outstandingAmount ?? 0)} detail="Unpaid balance" />
         <StatCard label="Top Up Balance" value={money(summary?.balance ?? 0)} detail="Wallet or account balance" />
-        <StatCard label="Water Bill" value={money(summary?.waterBill ?? 0)} detail="Current water charges" />
-        <StatCard label="Electricity Bill" value={money(summary?.electricityBill ?? 0)} detail="Current electricity charges" />
         <StatCard label="Payment History" value={money(summary?.paymentHistoryTotal ?? 0)} detail="Recorded payments" />
         <StatCard label="Maintenance Requests" value={summary?.openTickets ?? 0} detail="Open tenant tickets" />
       </div>
@@ -357,7 +355,6 @@ async function TenantDashboard() {
         <ModuleCard title="My Room" description="View your assigned room once Admin creates your tenancy." href="/rooms" icon={DoorOpen} />
         <ModuleCard title="Onboarding" description="Submit your tenant application, IC documents and check-in payment proof." href="/onboarding" icon={ClipboardCheck} />
         <ModuleCard title="My Rental" description="Check monthly rent, due date and outstanding balance." href="/payments" icon={Banknote} />
-        <ModuleCard title="My Bills" description="View water, electricity and other utility bills." href="/utility-bills" icon={ReceiptText} />
         <ModuleCard title="Top Up" description="Review account balance and top-up history." href="/payments" icon={WalletCards} />
         <ModuleCard title="Maintenance Request" description="Submit repair, maintenance or cleaning requests." href="/maintenance" icon={Wrench} badge={summary?.openTickets ?? 0} />
         <ModuleCard title="My Contract" description="View contract dates and tenancy details." href="/payments" icon={FileText} />

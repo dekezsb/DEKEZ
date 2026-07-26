@@ -104,36 +104,23 @@ export async function getMyOutstandingRent(supabase: SupabaseAdmin, tenant: Tena
 }
 
 export async function getMyBills(supabase: SupabaseAdmin, tenant: TenantIdentity): Promise<TenantToolResult> {
-  const [rentResult, utilityResult] = await Promise.all([
-    supabase
-      .from("rent_bills")
-      .select("bill_month, due_date, amount, paid_amount, status")
-      .eq("tenant_id", tenant.id)
-      .order("bill_month", { ascending: false })
-      .limit(5),
-    supabase
-      .from("utility_bills")
-      .select("utility_type, bill_month, amount, paid_amount, status")
-      .eq("tenant_id", tenant.id)
-      .order("bill_month", { ascending: false })
-      .limit(5),
-  ]);
+  const { data } = await supabase
+    .from("rent_bills")
+    .select("bill_month, due_date, amount, paid_amount, status")
+    .eq("tenant_id", tenant.id)
+    .order("bill_month", { ascending: false })
+    .limit(5);
+  const rentBills = data ?? [];
 
-  const rentBills = rentResult.data ?? [];
-  const utilityBills = utilityResult.data ?? [];
-
-  if (!rentBills.length && !utilityBills.length) {
-    return { ok: true, message: "No rent or utility bills are showing in your DEKEZ account yet." };
+  if (!rentBills.length) {
+    return { ok: true, message: "No rent bills are showing in your DEKEZ account yet." };
   }
 
   const rentLine = rentBills[0]
     ? `Latest rent bill: ${rentBills[0].bill_month}, ${money(rentBills[0].amount)}, status ${rentBills[0].status}.`
     : "No rent bills found.";
-  const utilityLine = utilityBills[0]
-    ? `Latest utility bill: ${utilityBills[0].utility_type}, ${money(utilityBills[0].amount)}, status ${utilityBills[0].status}.`
-    : "No utility bills found.";
 
-  return { ok: true, message: `${rentLine}\n${utilityLine}`, data: { rentBills, utilityBills } };
+  return { ok: true, message: rentLine, data: { rentBills } };
 }
 
 export async function getMyPaymentHistory(supabase: SupabaseAdmin, tenant: TenantIdentity): Promise<TenantToolResult> {

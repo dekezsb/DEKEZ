@@ -21,7 +21,10 @@ export default async function ReportsPage() {
   const supabase = await createClient();
   const [paymentsResult, utilityBillsResult, claimsResult, rentBillsResult, roomsResult, expensesResult, propertiesResult] = await Promise.all([
     supabase.from("payments").select("property_id, amount, category, status"),
-    supabase.from("utility_bills").select("utility_type, amount, paid_amount, status"),
+    supabase
+      .from("utility_bills")
+      .select("property_id, utility_type, amount, paid_amount, status")
+      .eq("billing_scope", "property"),
     supabase.from("claims").select("property_id, status, total_amount, labour_cost, material_cost"),
     supabase.from("rent_bills").select("amount, paid_amount, status"),
     supabase.from("rooms").select("status, monthly_rent, property_id"),
@@ -36,8 +39,10 @@ export default async function ReportsPage() {
   const expenses = expensesResult.data ?? [];
   const properties = propertiesResult.data ?? [];
   const income = sum(payments.filter((payment) => payment.status !== "cancelled"), "amount");
-  const waterBills = sum(utilityBills.filter((bill) => bill.utility_type === "water"), "amount");
-  const electricityBills = sum(utilityBills.filter((bill) => bill.utility_type === "electricity"), "amount");
+  const activeUtilityBills = utilityBills.filter((bill) => bill.status !== "cancelled");
+  const waterBills = sum(activeUtilityBills.filter((bill) => bill.utility_type === "water"), "amount");
+  const electricityBills = sum(activeUtilityBills.filter((bill) => bill.utility_type === "electricity"), "amount");
+  const utilityPayments = sum(activeUtilityBills, "paid_amount");
   const approvedClaims = claims.filter((claim) => claim.status === "approved");
   const claimExpenses = approvedClaims.reduce(
     (total, claim) =>
@@ -63,13 +68,13 @@ export default async function ReportsPage() {
     verifiedStandaloneExpenses.filter((expense) => expense.tax_claimable),
     "amount",
   );
-  const totalExpenses = waterBills + electricityBills + claimExpenses + expenseBills;
+  const totalExpenses = utilityPayments + claimExpenses + expenseBills;
   const outstandingRent = sum(rentBills, "amount") - sum(rentBills, "paid_amount");
   const expectedRent = sum(rooms, "monthly_rent");
 
   const reportCards = [
     { title: "Monthly income", value: money(income), detail: "Confirmed non-cancelled payments" },
-    { title: "Monthly expenses", value: money(totalExpenses), detail: "Utilities plus approved claims" },
+    { title: "Monthly expenses", value: money(totalExpenses), detail: "Paid utilities, verified expenses and approved claims" },
     { title: "Net cash flow", value: money(income - totalExpenses), detail: "Income minus paid out items" },
     { title: "Expense bills", value: money(expenseBills), detail: "Verified expenses not already linked to claims" },
     { title: "Owner charge expenses", value: money(ownerChargeExpenses), detail: "Verified property expenses charged to owners" },
@@ -99,14 +104,19 @@ export default async function ReportsPage() {
           Number(claim.total_amount ?? Number(claim.labour_cost ?? 0) + Number(claim.material_cost ?? 0)),
         0,
       );
+    const propertyUtilityPayments = sum(
+      activeUtilityBills.filter((bill) => bill.property_id === property.id),
+      "paid_amount",
+    );
 
     return {
       id: property.id,
       name: property.name,
       income: propertyIncome,
       expenses: propertyExpenses,
+      utilities: propertyUtilityPayments,
       claims: propertyClaimExpenses,
-      net: propertyIncome - propertyExpenses - propertyClaimExpenses,
+      net: propertyIncome - propertyExpenses - propertyUtilityPayments - propertyClaimExpenses,
     };
   });
 
@@ -146,7 +156,7 @@ export default async function ReportsPage() {
               <div>
                 <p className="font-semibold text-gray-950">{property.name}</p>
                 <p className="text-gray-500">
-                  Income {money(property.income)} - expenses {money(property.expenses)} - claims {money(property.claims)}
+                  Income {money(property.income)} - expenses {money(property.expenses)} - utilities {money(property.utilities)} - claims {money(property.claims)}
                 </p>
               </div>
               <p className="font-semibold text-[#126b5f]">{money(property.net)}</p>

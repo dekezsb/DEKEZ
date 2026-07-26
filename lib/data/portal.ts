@@ -5,6 +5,14 @@ function sumAmount<T extends Record<string, unknown>>(items: T[], key: keyof T) 
   return items.reduce((total, item) => total + Number(item[key] ?? 0), 0);
 }
 
+function currentMonthStart() {
+  return `${new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+  }).format(new Date())}-01`;
+}
+
 export async function getOwnerPortalSummary() {
   const supabase = await createClient();
   const [propertiesResult, roomsResult, rentBillsResult, utilityBillsResult, claimsResult, ticketsResult] =
@@ -12,7 +20,12 @@ export async function getOwnerPortalSummary() {
       supabase.from("properties").select("id, name"),
       supabase.from("rooms").select("id, status, monthly_rent"),
       supabase.from("rent_bills").select("amount, paid_amount, status"),
-      supabase.from("utility_bills").select("utility_type, amount, paid_amount, status"),
+      supabase
+        .from("utility_bills")
+        .select("utility_type, amount, paid_amount, status")
+        .eq("billing_scope", "property")
+        .eq("bill_month", currentMonthStart())
+        .neq("status", "cancelled"),
       supabase.from("claims").select("status, total_amount, labour_cost, material_cost"),
       supabase.from("maintenance_tickets").select("status"),
     ]);
@@ -59,7 +72,7 @@ export async function getTenantPortalSummary() {
   }
 
   const supabase = await createClient();
-  const [tenanciesResult, rentBillsResult, utilityBillsResult, paymentsResult, walletResult, ticketsResult] =
+  const [tenanciesResult, rentBillsResult, paymentsResult, walletResult, ticketsResult] =
     await Promise.all([
       supabase
         .from("tenancies")
@@ -67,7 +80,6 @@ export async function getTenantPortalSummary() {
         .eq("tenant_id", user.id)
         .order("created_at", { ascending: false }),
       supabase.from("rent_bills").select("amount, paid_amount, status").eq("tenant_id", user.id),
-      supabase.from("utility_bills").select("utility_type, amount, paid_amount, status").eq("tenant_id", user.id),
       supabase.from("payments").select("amount, status").eq("tenant_id", user.id),
       supabase.from("wallet_transactions").select("amount, transaction_type").eq("tenant_id", user.id),
       supabase.from("maintenance_tickets").select("status").eq("tenant_id", user.id),
@@ -75,7 +87,6 @@ export async function getTenantPortalSummary() {
 
   const tenancy = tenanciesResult.data?.[0] ?? null;
   const rentBills = rentBillsResult.data ?? [];
-  const utilityBills = utilityBillsResult.data ?? [];
   const payments = paymentsResult.data ?? [];
   const walletTransactions = walletResult.data ?? [];
   const tickets = ticketsResult.data ?? [];
@@ -88,8 +99,6 @@ export async function getTenantPortalSummary() {
     contractEnd: tenancy?.contract_end ?? null,
     outstandingAmount: sumAmount(rentBills, "amount") - sumAmount(rentBills, "paid_amount"),
     paymentHistoryTotal: sumAmount(payments, "amount"),
-    waterBill: sumAmount(utilityBills.filter((bill) => bill.utility_type === "water"), "amount"),
-    electricityBill: sumAmount(utilityBills.filter((bill) => bill.utility_type === "electricity"), "amount"),
     balance: walletTransactions.reduce((total, item) => {
       const amount = Number(item.amount ?? 0);
       return item.transaction_type === "deduction" ? total - amount : total + amount;

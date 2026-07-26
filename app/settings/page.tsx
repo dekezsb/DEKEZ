@@ -39,7 +39,10 @@ export default async function SettingsPage() {
     supabase.from("profiles").select("id, role"),
     supabase.from("rooms").select("id, status"),
     supabase.from("payments").select("id, category, payment_method, status"),
-    supabase.from("utility_bills").select("id, utility_type, status"),
+    supabase
+      .from("utility_bills")
+      .select("id, utility_type, status")
+      .eq("billing_scope", "property"),
     supabase.from("claims").select("id, status"),
   ]);
 

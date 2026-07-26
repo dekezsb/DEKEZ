@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, FileText, Phone, QrCode, UserRound } from "lucide-react";
+import { BatteryCharging, ChevronRight, FileText, Gauge, Phone, QrCode, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -173,6 +173,83 @@ export default async function RoomDetailsPage({ params }: PageProps) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Gauge className="h-5 w-5 text-[#126b5f]" />
+            <CardTitle>Tenant Smart Meter Usage</CardTitle>
+          </div>
+          <CardDescription>
+            Individual room consumption and top-ups. These readings are separate from the property utility bills paid by DEKEZ.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {details.smartMeters.length ? (
+            <div className="space-y-5">
+              {details.smartMeters.map((meter) => (
+                <div className="rounded-md border border-[#d7dde5]" key={meter.id}>
+                  <div className="flex flex-col justify-between gap-3 border-b border-[#e5e9ef] p-4 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="font-semibold text-gray-950">
+                        {meter.meter_type === "electricity" ? "Electricity" : "Water"} Meter
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Room {room.roomNumber} · Meter {meter.meter_number}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <BatteryCharging className="h-4 w-4 text-[#126b5f]" />
+                      <span className="text-sm font-medium">
+                        Credit {money.format(Number(meter.remaining_credit ?? 0))}
+                      </span>
+                      <Badge className={statusBadgeClass(meter.status)}>{meter.status}</Badge>
+                    </div>
+                  </div>
+                  {meter.readings.length ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Billing Month</TableHead>
+                            <TableHead>Reading Date</TableHead>
+                            <TableHead>Previous</TableHead>
+                            <TableHead>Current</TableHead>
+                            <TableHead>Usage</TableHead>
+                            <TableHead>Rate</TableHead>
+                            <TableHead>Charge</TableHead>
+                            <TableHead>Top-up</TableHead>
+                            <TableHead>Remaining Credit</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {meter.readings.map((reading) => (
+                            <TableRow key={reading.id}>
+                              <TableCell>{reading.billing_month}</TableCell>
+                              <TableCell>{reading.reading_date}</TableCell>
+                              <TableCell>{Number(reading.previous_reading ?? 0).toFixed(2)}</TableCell>
+                              <TableCell>{Number(reading.current_reading ?? 0).toFixed(2)}</TableCell>
+                              <TableCell>{Number(reading.usage ?? 0).toFixed(2)}</TableCell>
+                              <TableCell>{money.format(Number(reading.rate ?? meter.rate ?? 0))}</TableCell>
+                              <TableCell>{money.format(Number(reading.charge_amount ?? 0))}</TableCell>
+                              <TableCell>{money.format(Number(reading.top_up_amount ?? 0))}</TableCell>
+                              <TableCell>{money.format(Number(reading.remaining_credit ?? 0))}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="p-4 text-sm text-gray-500">No smart-meter readings recorded yet.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No smart meter is assigned to this room.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {room.tenantName ? (
         <Card className="border-red-200">
