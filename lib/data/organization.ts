@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveUserRole } from "@/lib/auth/session";
 import type { AppRole } from "@/lib/auth/roles";
 
@@ -71,11 +70,7 @@ export async function getCurrentUser() {
 }
 
 async function getDataClient() {
-  try {
-    return createAdminClient();
-  } catch {
-    return createClient();
-  }
+  return createClient();
 }
 
 async function getCurrentScope() {
