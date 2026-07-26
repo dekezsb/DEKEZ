@@ -152,7 +152,6 @@ async function OwnerDashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="My Properties" value={summary.totalProperties} detail="Properties owned or visible to you" />
-        <StatCard label="My Units" value={summary.totalUnits} detail="Units under your properties" />
         <StatCard label="My Rooms" value={summary.totalRooms} detail="Rooms under your portfolio" />
         <StatCard label="Vacant Rooms" value={summary.vacantRooms} detail="Available rooms" />
         <StatCard label="Rental Income" value={money(summary.monthlyRentalCollected)} detail="Collected this cycle" />
@@ -167,7 +166,6 @@ async function OwnerDashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <ModuleCard title="My Properties" description="View properties assigned to your ownership." href="/properties" icon={Building2} badge={summary.totalProperties} />
-        <ModuleCard title="My Units" description="Review units inside your owned properties." href="/units" icon={Home} badge={summary.totalUnits} />
         <ModuleCard title="My Rooms" description="Track occupied, vacant, reserved and maintenance rooms." href="/rooms" icon={DoorOpen} badge={summary.totalRooms} />
         <ModuleCard title="Rental Income" description="Open rent and payment records for your portfolio." href="/payments" icon={Banknote} />
         <ModuleCard title="Water Bills" description="Check water utility charges linked to your rooms." href="/utility-bills" icon={Droplets} />

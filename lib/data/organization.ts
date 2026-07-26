@@ -297,20 +297,17 @@ export async function getTenantRecords() {
 }
 
 export async function getDashboardSummary() {
-  const [companies, properties, units, rooms] = await Promise.all([
+  const [companies, properties, rooms] = await Promise.all([
     getUserCompanies(),
     getProperties(),
-    getUnits(),
     getRooms(),
   ]);
 
   return {
     companies,
     properties,
-    units,
     rooms,
     totalProperties: properties.length,
-    totalUnits: units.length,
     totalRooms: rooms.length,
     occupiedRooms: rooms.filter((room) => room.status === "occupied").length,
     vacantRooms: rooms.filter((room) => room.status === "vacant").length,

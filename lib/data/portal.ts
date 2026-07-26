@@ -7,10 +7,9 @@ function sumAmount<T extends Record<string, unknown>>(items: T[], key: keyof T) 
 
 export async function getOwnerPortalSummary() {
   const supabase = await createClient();
-  const [propertiesResult, unitsResult, roomsResult, rentBillsResult, utilityBillsResult, claimsResult, ticketsResult] =
+  const [propertiesResult, roomsResult, rentBillsResult, utilityBillsResult, claimsResult, ticketsResult] =
     await Promise.all([
       supabase.from("properties").select("id, name"),
-      supabase.from("units").select("id, name"),
       supabase.from("rooms").select("id, status, monthly_rent"),
       supabase.from("rent_bills").select("amount, paid_amount, status"),
       supabase.from("utility_bills").select("utility_type, amount, paid_amount, status"),
@@ -19,7 +18,6 @@ export async function getOwnerPortalSummary() {
     ]);
 
   const properties = propertiesResult.data ?? [];
-  const units = unitsResult.data ?? [];
   const rooms = roomsResult.data ?? [];
   const rentBills = rentBillsResult.data ?? [];
   const utilityBills = utilityBillsResult.data ?? [];
@@ -31,7 +29,6 @@ export async function getOwnerPortalSummary() {
 
   return {
     totalProperties: properties.length,
-    totalUnits: units.length,
     totalRooms: rooms.length,
     occupiedRooms: rooms.filter((room) => room.status === "occupied").length,
     vacantRooms: rooms.filter((room) => room.status === "vacant").length,

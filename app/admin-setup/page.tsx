@@ -9,7 +9,6 @@ import {
   assignPropertyOwner,
   assignTenantTenancy,
   createPortalUser,
-  createUnit,
 } from "./actions";
 
 type AdminSetupPageProps = {
@@ -22,7 +21,6 @@ type AdminSetupPageProps = {
 
 const successMessages: Record<string, string> = {
   user: "User account created successfully.",
-  unit: "Unit created successfully.",
   owner: "Property owner assigned successfully.",
   tenancy: "Tenant assigned to room successfully.",
 };
@@ -31,8 +29,6 @@ const errorMessages: Record<string, string> = {
   service_key: "Missing Supabase service role key in Vercel. Add SUPABASE_SERVICE_ROLE_KEY first.",
   user_missing: "Please fill in the required user fields.",
   user_create: "User could not be created.",
-  unit_missing: "Please choose a property and enter a unit name.",
-  unit_create: "Unit could not be created.",
   property_missing: "Selected property was not found.",
   owner_missing: "Please choose a property and owner.",
   owner_assign: "Owner could not be assigned to this property.",
@@ -45,16 +41,12 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
   await requireRole(["super_admin", "owner", "admin"]);
   const params = await searchParams;
   const supabase = await createClient();
-  const [properties, rooms, profilesResult, unitsResult, tenanciesResult] = await Promise.all([
+  const [properties, rooms, profilesResult, tenanciesResult] = await Promise.all([
     getProperties(),
     getRooms(),
     supabase
       .from("profiles")
       .select("id, full_name, phone, role")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("units")
-      .select("id, name, floor, property_id")
       .order("created_at", { ascending: false }),
     supabase
       .from("tenancies")
@@ -65,7 +57,6 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
   const profiles = profilesResult.data ?? [];
   const owners = profiles.filter((profile) => profile.role === "owner");
   const tenants = profiles.filter((profile) => profile.role === "tenant");
-  const units = unitsResult.data ?? [];
   const tenancies = tenanciesResult.data ?? [];
   const propertyById = new Map(properties.map((property) => [property.id, property.name]));
   const roomById = new Map(rooms.map((room) => [room.id, room.name]));
@@ -132,39 +123,6 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                 </select>
               </label>
               <Button className="sm:col-span-2" type="submit">Create user</Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Create Unit</CardTitle>
-            <CardDescription>Add a unit under a property.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form action={createUnit} className="grid gap-4 sm:grid-cols-2">
-              <label className="block sm:col-span-2">
-                <span className="text-sm font-medium text-gray-700">Property</span>
-                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="propertyId" required>
-                  <option value="">Choose property</option>
-                  {properties.map((property) => (
-                    <option key={property.id} value={property.id}>{property.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Unit name</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="name" placeholder="Unit A" required />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Floor</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="floor" />
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="text-sm font-medium text-gray-700">Notes</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="notes" />
-              </label>
-              <Button className="sm:col-span-2" type="submit">Create unit</Button>
             </form>
           </CardContent>
         </Card>
@@ -269,7 +227,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
       <Card>
         <CardHeader>
           <CardTitle>Current Setup Records</CardTitle>
-          <CardDescription>Quick view of profiles, units and active tenancies.</CardDescription>
+          <CardDescription>Quick view of profiles and active tenancies.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
@@ -298,19 +256,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div>
-              <h2 className="mb-3 text-sm font-semibold">Units</h2>
-              <div className="space-y-2">
-                {units.slice(0, 6).map((unit) => (
-                  <div className="rounded-md border border-[#d7dde5] p-3 text-sm" key={unit.id}>
-                    <p className="font-medium">{unit.name}</p>
-                    <p className="text-gray-500">{propertyById.get(unit.property_id) ?? "Property"} {unit.floor ? `- ${unit.floor}` : ""}</p>
-                  </div>
-                ))}
-                {!units.length ? <p className="text-sm text-gray-500">No units yet.</p> : null}
-              </div>
-            </div>
+          <div>
             <div>
               <h2 className="mb-3 text-sm font-semibold">Tenancies</h2>
               <div className="space-y-2">

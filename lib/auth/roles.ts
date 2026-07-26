@@ -112,7 +112,6 @@ export const protectedRoutes = [
   "/dashboard",
   "/admin-setup",
   "/properties",
-  "/units",
   "/rooms",
   "/tenants",
   "/tenant-verification",
