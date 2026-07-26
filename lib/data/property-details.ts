@@ -46,6 +46,7 @@ export type PropertyRoomView = {
   contractEnd: string | null;
   billId: string | null;
   billStatus: string | null;
+  billDueDate: string | null;
   billAmount: number;
   amountReceived: number;
   outstanding: number;
@@ -210,6 +211,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       contractEnd,
       billId: bill?.id ?? null,
       billStatus: bill?.status ?? null,
+      billDueDate: bill?.due_date ?? null,
       billAmount,
       amountReceived,
       outstanding: bill ? Math.max(billAmount - amountReceived, 0) : 0,

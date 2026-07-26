@@ -1,9 +1,19 @@
 "use client";
 
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type FocusEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Check, ExternalLink, LoaderCircle, QrCode, X } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { TableRow } from "@/components/ui/table";
 import { updateRoomField } from "./actions";
 
 export function PropertyInformationForm({
@@ -100,7 +110,7 @@ export function PaymentQrCell({
       <div className="space-y-1">
         <p className="text-xs text-gray-400">Not set</p>
         <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
-          <a href="#payment-qr-settings">Replace</a>
+          <a href="#payment-qr-settings">Change</a>
         </Button>
       </div>
     );
@@ -119,7 +129,7 @@ export function PaymentQrCell({
       <div className="flex flex-col items-start gap-1">
         <PaymentQrPreview propertyName={propertyName} qrUrl={qrUrl} />
         <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
-          <a href="#payment-qr-settings">Replace</a>
+          <a href="#payment-qr-settings">Change</a>
         </Button>
       </div>
     </div>
@@ -131,6 +141,7 @@ export function InlineRoomField({
   roomId,
   tenantRecordId,
   tenancyId,
+  billId,
   field,
   value,
   label,
@@ -139,16 +150,19 @@ export function InlineRoomField({
   roomId: string;
   tenantRecordId: string | null;
   tenancyId: string | null;
-  field: "monthlyRent" | "dueDay";
-  value: number;
+  billId?: string | null;
+  field: "monthlyRent" | "deposit" | "amountReceived" | "dueDay" | "contractEnd";
+  value: number | string;
   label: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const savedValue = useRef(String(value));
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
 
   async function save(formData: FormData) {
     setStatus("saving");
+    setErrorMessage("");
     const result = await updateRoomField(formData);
     if (result.ok) {
       savedValue.current = String(formData.get("value") ?? "");
@@ -156,10 +170,11 @@ export function InlineRoomField({
       window.setTimeout(() => setStatus("idle"), 1600);
       return;
     }
+    setErrorMessage(result.error ?? "Save failed");
     setStatus("error");
   }
 
-  function submitIfChanged(event: FormEvent<HTMLInputElement>) {
+  function submitIfChanged(event: FocusEvent<HTMLInputElement>) {
     if (event.currentTarget.value !== savedValue.current) {
       formRef.current?.requestSubmit();
     }
@@ -171,29 +186,72 @@ export function InlineRoomField({
       <input name="roomId" type="hidden" value={roomId} />
       <input name="tenantRecordId" type="hidden" value={tenantRecordId ?? ""} />
       <input name="tenancyId" type="hidden" value={tenancyId ?? ""} />
+      <input name="billId" type="hidden" value={billId ?? ""} />
       <input name="field" type="hidden" value={field} />
       <input
         aria-label={label}
-        className="h-9 w-24 rounded-md border border-[#d7dde5] bg-white px-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20"
+        className={`h-9 rounded-md border border-[#d7dde5] bg-white px-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20 ${
+          field === "contractEnd" ? "w-36" : "w-24"
+        }`}
         defaultValue={value}
         max={field === "dueDay" ? 31 : undefined}
-        min={field === "dueDay" ? 1 : 0}
+        min={field === "dueDay" ? 1 : field === "contractEnd" ? undefined : field === "amountReceived" ? Number(value) : 0}
         name="value"
         onBlur={submitIfChanged}
-        step={field === "monthlyRent" ? "0.01" : "1"}
-        type="number"
+        step={field === "dueDay" ? "1" : field === "contractEnd" ? undefined : "0.01"}
+        type={field === "contractEnd" ? "date" : "number"}
       />
       <span
         aria-live="polite"
-        className={`mt-1 flex h-4 items-center gap-1 text-[11px] ${
+        className={`mt-1 flex min-h-4 max-w-44 items-start gap-1 text-[11px] ${
           status === "error" ? "text-red-600" : "text-gray-500"
         }`}
       >
         {status === "saving" ? <><LoaderCircle className="h-3 w-3 animate-spin" /> Saving</> : null}
         {status === "saved" ? <><Check className="h-3 w-3 text-emerald-600" /> Saved</> : null}
-        {status === "error" ? "Save failed" : null}
+        {status === "error" ? errorMessage : null}
         {status === "idle" ? "Auto-saves" : null}
       </span>
     </form>
+  );
+}
+
+export function RoomNavigationRow({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+
+  function isInteractive(target: EventTarget | null) {
+    return target instanceof Element && Boolean(target.closest("a, button, input, form, label"));
+  }
+
+  function openRoom(event: MouseEvent<HTMLTableRowElement>) {
+    if (!isInteractive(event.target)) {
+      router.push(href);
+    }
+  }
+
+  function openRoomFromKeyboard(event: KeyboardEvent<HTMLTableRowElement>) {
+    if (event.key === "Enter" && event.currentTarget === event.target) {
+      router.push(href);
+    }
+  }
+
+  return (
+    <TableRow
+      className={`cursor-pointer ${className ?? ""}`}
+      onClick={openRoom}
+      onKeyDown={openRoomFromKeyboard}
+      role="link"
+      tabIndex={0}
+    >
+      {children}
+    </TableRow>
   );
 }

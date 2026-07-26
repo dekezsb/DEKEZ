@@ -21,6 +21,7 @@ export function statusBadgeClass(status: string | null | undefined) {
     case "payment_submitted":
     case "pending_verification":
     case "partially_paid":
+    case "partial":
     case "assigned":
     case "in_progress":
       return "bg-amber-50 text-amber-700";
@@ -30,6 +31,9 @@ export function statusBadgeClass(status: string | null | undefined) {
     case "overdue":
     case "due_today":
       return "bg-red-50 text-red-700";
+    case "draft":
+    case "unpaid":
+      return "bg-gray-100 text-gray-700";
     default:
       return "";
   }

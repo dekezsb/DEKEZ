@@ -42,6 +42,7 @@ import {
   PaymentQrCell,
   PaymentQrPreview,
   PropertyInformationForm,
+  RoomNavigationRow,
 } from "./property-controls";
 
 type PageProps = {
@@ -117,6 +118,41 @@ function tenantHref(room: PropertyRoomView) {
   return tenantKey ? `/tenants/${tenantKey}` : null;
 }
 
+function malaysiaDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function paymentStatus(room: PropertyRoomView) {
+  if (!room.billId) return { label: "No Current Bill", status: "draft" };
+  if (room.billStatus === "paid" || room.outstanding <= 0) {
+    return { label: "Paid", status: "paid" };
+  }
+  if (room.billStatus === "pending_verification" || room.billStatus === "submitted") {
+    return { label: "Pending Verification", status: "pending_verification" };
+  }
+  if (room.amountReceived > 0 || room.billStatus === "partial") {
+    return { label: "Partially Paid", status: "partial" };
+  }
+  if (room.billDueDate && room.billDueDate < malaysiaDate()) {
+    return { label: "Overdue", status: "overdue" };
+  }
+  return { label: "Unpaid", status: "unpaid" };
+}
+
+function isOverdue(room: PropertyRoomView) {
+  return Boolean(
+    room.billId &&
+    room.billDueDate &&
+    room.billDueDate < malaysiaDate() &&
+    room.outstanding > 0,
+  );
+}
+
 export default async function PropertyDetailsPage({ params, searchParams }: PageProps) {
   await requireRole(["super_admin", "owner", "admin"]);
   const [{ id }, query] = await Promise.all([params, searchParams]);
@@ -159,13 +195,10 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
               <span className="text-sm font-medium text-gray-700">Property name</span>
               <input className={fieldClass()} name="name" defaultValue={details.property.name} required />
             </label>
-            <div>
+            <label className="block">
               <span className="text-sm font-medium text-gray-700">Property code</span>
-              <div className={`${fieldClass()} min-h-10 bg-gray-50 text-gray-600`}>
-                {details.property.code || "-"}
-              </div>
-              <p className="mt-1 text-xs text-gray-500">Property code is kept stable.</p>
-            </div>
+              <input className={fieldClass()} name="propertyCode" defaultValue={details.property.code} />
+            </label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Area</span>
               <input className={fieldClass()} name="area" defaultValue={details.property.area} />
@@ -245,7 +278,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                 </label>
                 <Button size="sm" type="submit" variant="outline">
                   <QrCode className="h-4 w-4" />
-                  Replace
+                  Change
                 </Button>
               </form>
             </div>
@@ -260,11 +293,13 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                   <TableHead>Tenant</TableHead>
                   <TableHead>Monthly Rent</TableHead>
                   <TableHead>Deposit</TableHead>
-                  <TableHead>Deposit Received</TableHead>
+                  <TableHead>Amount Received</TableHead>
                   <TableHead>Rent Due Day</TableHead>
+                  <TableHead>Contract Start</TableHead>
                   <TableHead>Contract End Date</TableHead>
-                  <TableHead>Outstanding Balance</TableHead>
                   <TableHead>Agreement</TableHead>
+                  <TableHead>Payment Status</TableHead>
+                  <TableHead>Outstanding Balance</TableHead>
                   <TableHead>Payment QR</TableHead>
                   <TableHead className="min-w-52">Actions</TableHead>
                 </TableRow>
@@ -342,21 +377,6 @@ function AgreementActions({ propertyId, room }: { propertyId: string; room: Prop
   );
 }
 
-function DepositSummary({ room }: { room: PropertyRoomView }) {
-  return (
-    <div className="min-w-28">
-      <p className="font-medium text-gray-950">{money.format(room.depositReceived)}</p>
-      {room.depositOutstanding > 0 ? (
-        <p className="mt-1 text-xs font-medium text-red-600">
-          Outstanding {money.format(room.depositOutstanding)}
-        </p>
-      ) : (
-        <p className="mt-1 text-xs text-emerald-700">Fully received</p>
-      )}
-    </div>
-  );
-}
-
 function DesktopRoomRow({
   propertyId,
   propertyName,
@@ -371,9 +391,14 @@ function DesktopRoomRow({
   const vacant = room.status === "vacant";
   const profileHref = tenantHref(room);
   const warning = contractWarning(room.contractEnd);
+  const payment = paymentStatus(room);
+  const overdue = isOverdue(room);
 
   return (
-    <TableRow className={vacant ? "bg-gray-50/70" : undefined}>
+    <RoomNavigationRow
+      className={vacant ? "bg-gray-50/70" : undefined}
+      href={`/properties/${propertyId}/rooms/${room.id}`}
+    >
       <TableCell>
         <Link
           className="font-semibold text-gray-950 hover:text-[#126b5f]"
@@ -409,8 +434,38 @@ function DesktopRoomRow({
           label={`${room.roomNumber} monthly rent`}
         />
       </TableCell>
-      <TableCell>{money.format(room.deposit)}</TableCell>
-      <TableCell>{vacant ? <span className="text-gray-400">-</span> : <DepositSummary room={room} />}</TableCell>
+      <TableCell>
+        {vacant ? money.format(room.deposit) : (
+          <InlineRoomField
+            propertyId={propertyId}
+            roomId={room.id}
+            tenantRecordId={room.tenantRecordId}
+            tenancyId={room.tenancyId}
+            field="deposit"
+            value={room.deposit}
+            label={`${room.roomNumber} deposit`}
+          />
+        )}
+      </TableCell>
+      <TableCell>
+        {vacant || !room.billId ? <span className="text-gray-400">-</span> : room.billStatus === "paid" ? (
+          <div>
+            <p className="font-medium text-emerald-700">{money.format(room.amountReceived)}</p>
+            <p className="mt-1 text-xs text-emerald-700">Verified</p>
+          </div>
+        ) : (
+          <InlineRoomField
+            propertyId={propertyId}
+            roomId={room.id}
+            tenantRecordId={room.tenantRecordId}
+            tenancyId={room.tenancyId}
+            billId={room.billId}
+            field="amountReceived"
+            value={room.amountReceived}
+            label={`${room.roomNumber} amount received`}
+          />
+        )}
+      </TableCell>
       <TableCell>
         {room.tenantName && room.dueDay ? (
           <InlineRoomField
@@ -424,20 +479,25 @@ function DesktopRoomRow({
           />
         ) : <span className="text-gray-400">-</span>}
       </TableCell>
+      <TableCell>{room.contractStart ?? "-"}</TableCell>
       <TableCell>
-        <p>{room.contractEnd ?? "-"}</p>
+        {vacant ? <span className="text-gray-400">-</span> : (
+          <InlineRoomField
+            propertyId={propertyId}
+            roomId={room.id}
+            tenantRecordId={room.tenantRecordId}
+            tenancyId={room.tenancyId}
+            field="contractEnd"
+            value={room.contractEnd ?? ""}
+            label={`${room.roomNumber} contract end date`}
+          />
+        )}
         {warning ? (
           <p className={`mt-1 flex items-center gap-1 text-xs font-medium ${warning.className}`}>
             <AlertTriangle className="h-3 w-3" />
             {warning.label}
           </p>
         ) : null}
-      </TableCell>
-      <TableCell>
-        <p className={room.outstanding > 0 ? "font-semibold text-red-600" : "font-semibold text-emerald-700"}>
-          {money.format(room.outstanding)}
-        </p>
-        {!vacant && room.outstanding <= 0 ? <p className="mt-1 text-xs text-emerald-700">No overdue balance</p> : null}
       </TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
@@ -448,6 +508,21 @@ function DesktopRoomRow({
             <AgreementActions propertyId={propertyId} room={room} />
           </div>
         )}
+      </TableCell>
+      <TableCell>
+        {vacant ? <span className="text-gray-400">-</span> : (
+          <div className="space-y-1">
+            <Badge className={statusBadgeClass(payment.status)}>{payment.label}</Badge>
+            <p className="text-xs text-gray-500">Paid {money.format(room.amountReceived)}</p>
+            {overdue ? <p className="text-xs font-medium text-red-600">Overdue since {room.billDueDate}</p> : null}
+          </div>
+        )}
+      </TableCell>
+      <TableCell>
+        <p className={room.outstanding > 0 ? "font-semibold text-red-600" : "font-semibold text-emerald-700"}>
+          {money.format(room.outstanding)}
+        </p>
+        {!vacant && room.outstanding <= 0 ? <p className="mt-1 text-xs text-emerald-700">No overdue balance</p> : null}
       </TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
@@ -472,7 +547,7 @@ function DesktopRoomRow({
           </Button>
         </div>
       </TableCell>
-    </TableRow>
+    </RoomNavigationRow>
   );
 }
 
@@ -490,6 +565,8 @@ function MobileRoomCard({
   const vacant = room.status === "vacant";
   const profileHref = tenantHref(room);
   const warning = contractWarning(room.contractEnd);
+  const payment = paymentStatus(room);
+  const overdue = isOverdue(room);
 
   return (
     <article className={`rounded-md border p-4 ${vacant ? "border-gray-200 bg-gray-50" : "border-[#d7dde5] bg-white"}`}>
@@ -524,10 +601,41 @@ function MobileRoomCard({
             />
           </dd>
         </div>
-        <div><dt className="text-gray-500">Deposit</dt><dd className="mt-1 font-medium">{money.format(room.deposit)}</dd></div>
+        <div>
+          <dt className="text-gray-500">Deposit</dt>
+          <dd className="mt-1">
+            {vacant ? <span className="font-medium">{money.format(room.deposit)}</span> : (
+              <InlineRoomField
+                propertyId={propertyId}
+                roomId={room.id}
+                tenantRecordId={room.tenantRecordId}
+                tenancyId={room.tenancyId}
+                field="deposit"
+                value={room.deposit}
+                label={`${room.roomNumber} deposit`}
+              />
+            )}
+          </dd>
+        </div>
         {!vacant ? (
           <>
-            <div><dt className="text-gray-500">Deposit Received</dt><dd className="mt-1"><DepositSummary room={room} /></dd></div>
+            <div>
+              <dt className="text-gray-500">Amount Received</dt>
+              <dd className="mt-1">
+                {room.billId && room.billStatus !== "paid" ? (
+                  <InlineRoomField
+                    propertyId={propertyId}
+                    roomId={room.id}
+                    tenantRecordId={room.tenantRecordId}
+                    tenancyId={room.tenancyId}
+                    billId={room.billId}
+                    field="amountReceived"
+                    value={room.amountReceived}
+                    label={`${room.roomNumber} amount received`}
+                  />
+                ) : money.format(room.amountReceived)}
+              </dd>
+            </div>
             <div>
               <dt className="text-gray-500">Rent Due Day</dt>
               <dd className="mt-1">
@@ -545,8 +653,22 @@ function MobileRoomCard({
               </dd>
             </div>
             <div>
+              <dt className="text-gray-500">Contract Start</dt>
+              <dd className="mt-1 font-medium">{room.contractStart ?? "-"}</dd>
+            </div>
+            <div>
               <dt className="text-gray-500">Contract End</dt>
-              <dd className="mt-1 font-medium">{room.contractEnd ?? "-"}</dd>
+              <dd className="mt-1">
+                <InlineRoomField
+                  propertyId={propertyId}
+                  roomId={room.id}
+                  tenantRecordId={room.tenantRecordId}
+                  tenancyId={room.tenancyId}
+                  field="contractEnd"
+                  value={room.contractEnd ?? ""}
+                  label={`${room.roomNumber} contract end date`}
+                />
+              </dd>
               {warning ? <p className={`mt-1 text-xs ${warning.className}`}>{warning.label}</p> : null}
             </div>
             <div>
@@ -554,6 +676,11 @@ function MobileRoomCard({
               <dd className={`mt-1 font-semibold ${room.outstanding > 0 ? "text-red-600" : "text-emerald-700"}`}>
                 {money.format(room.outstanding)}
               </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Payment</dt>
+              <dd className="mt-1"><Badge className={statusBadgeClass(payment.status)}>{payment.label}</Badge></dd>
+              {overdue ? <p className="mt-1 text-xs font-medium text-red-600">Overdue since {room.billDueDate}</p> : null}
             </div>
             <div>
               <dt className="text-gray-500">Agreement</dt>

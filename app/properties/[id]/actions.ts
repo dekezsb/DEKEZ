@@ -279,6 +279,7 @@ export async function updateProperty(formData: FormData) {
   const propertyId = textValue(formData, "propertyId");
   const property = await accessibleProperty(propertyId);
   const name = textValue(formData, "name");
+  const code = textValue(formData, "propertyCode");
   const area = textValue(formData, "area");
   const address = textValue(formData, "address");
   const targetRooms = Math.max(0, Math.floor(numberValue(formData, "totalRooms")));
@@ -372,6 +373,7 @@ export async function updateProperty(formData: FormData) {
     .from("properties")
     .update({
       name,
+      property_code: code || null,
       area: area || null,
       address,
       updated_at: new Date().toISOString(),
@@ -402,16 +404,25 @@ export async function updatePaymentQr(formData: FormData) {
 
 export async function updateRoomField(formData: FormData) {
   await requireRole(["super_admin", "owner", "admin"]);
+  const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
   const field = textValue(formData, "field");
   const property = await accessibleProperty(propertyId);
-  if (!property || !roomId || !["monthlyRent", "dueDay"].includes(field)) {
+  const supportedFields = [
+    "monthlyRent",
+    "deposit",
+    "amountReceived",
+    "dueDay",
+    "contractEnd",
+  ];
+  if (!user || !property || !roomId || !supportedFields.includes(field)) {
     return { ok: false, error: "This room field could not be saved." };
   }
 
   const tenantRecordId = textValue(formData, "tenantRecordId");
-  const tenancyId = textValue(formData, "tenancyId");
+  let tenancyId = textValue(formData, "tenancyId");
+  const billId = textValue(formData, "billId");
   const supabase = await getAdmin();
 
   const { data: room } = await supabase
@@ -530,6 +541,178 @@ export async function updateRoomField(formData: FormData) {
         .from("rent_bills")
         .update({ due_date: dueDateForBillMonth(bill.bill_month, dueDay) })
         .eq("id", bill.id);
+    }
+  }
+
+  if (field === "deposit") {
+    const deposit = Math.max(0, numberValue(formData, "value"));
+    const updates = [];
+    if (tenantRecordId) {
+      updates.push(
+        supabase
+          .from("tenant_records")
+          .update({ deposit })
+          .eq("id", tenantRecordId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (tenancyId) {
+      updates.push(
+        supabase
+          .from("tenancies")
+          .update({ deposit })
+          .eq("id", tenancyId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (!updates.length) {
+      return { ok: false, error: "This room has no active tenant assignment." };
+    }
+    const updateResults = await Promise.all(updates);
+    if (updateResults.some((result) => result.error)) {
+      return { ok: false, error: "Deposit could not be saved." };
+    }
+  }
+
+  if (field === "contractEnd") {
+    const contractEnd = textValue(formData, "value") || null;
+    if (contractEnd && !/^\d{4}-\d{2}-\d{2}$/.test(contractEnd)) {
+      return { ok: false, error: "Contract end date is invalid." };
+    }
+    const updates = [];
+    if (tenantRecordId) {
+      updates.push(
+        supabase
+          .from("tenant_records")
+          .update({ contract_end: contractEnd })
+          .eq("id", tenantRecordId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (tenancyId) {
+      updates.push(
+        supabase
+          .from("tenancies")
+          .update({
+            end_date: contractEnd,
+            contract_end: contractEnd,
+            tenancy_end_date: contractEnd,
+          })
+          .eq("id", tenancyId)
+          .eq("room_id", roomId)
+          .eq("property_id", property.id),
+      );
+    }
+    if (!updates.length) {
+      return { ok: false, error: "This room has no active tenant assignment." };
+    }
+    const updateResults = await Promise.all(updates);
+    if (updateResults.some((result) => result.error)) {
+      return { ok: false, error: "Contract end date could not be saved." };
+    }
+  }
+
+  if (field === "amountReceived") {
+    if (!billId) {
+      return { ok: false, error: "There is no current rent bill to update." };
+    }
+    const amountReceived = Math.max(0, numberValue(formData, "value"));
+    const { data: bill } = await supabase
+      .from("rent_bills")
+      .select("id, tenancy_id, tenant_id, amount, paid_amount, status")
+      .eq("id", billId)
+      .eq("room_id", roomId)
+      .eq("property_id", property.id)
+      .maybeSingle();
+    if (
+      !bill ||
+      ["cancelled", "paid", "submitted", "pending_verification"].includes(bill.status)
+    ) {
+      return { ok: false, error: "This rent bill cannot be changed." };
+    }
+
+    const existingReceived = Number(bill.paid_amount ?? 0);
+    if (amountReceived < existingReceived) {
+      return {
+        ok: false,
+        error: "Verified amount received cannot be reduced.",
+      };
+    }
+    if (amountReceived === existingReceived) {
+      return { ok: true };
+    }
+
+    if (!tenancyId && tenantRecordId) {
+      tenancyId =
+        (await ensureCanonicalTenancy(
+          supabase,
+          property,
+          roomId,
+          tenantRecordId,
+          user.id,
+        )) ?? "";
+    }
+    const paymentTenancyId = bill.tenancy_id ?? tenancyId;
+    if (!paymentTenancyId) {
+      return { ok: false, error: "A tenancy is required before recording payment." };
+    }
+    const { data: paymentTenancy } = await supabase
+      .from("tenancies")
+      .select("tenant_id, organization_id")
+      .eq("id", paymentTenancyId)
+      .eq("room_id", roomId)
+      .maybeSingle();
+    if (!paymentTenancy) {
+      return { ok: false, error: "The active tenancy could not be verified." };
+    }
+
+    const difference = amountReceived - existingReceived;
+    const referenceNumber = `PROPERTY-${bill.id.slice(0, 8)}-${amountReceived.toFixed(2)}`;
+    const { data: existingPayment } = await supabase
+      .from("payments")
+      .select("id")
+      .eq("tenancy_id", paymentTenancyId)
+      .eq("reference_number", referenceNumber)
+      .maybeSingle();
+    if (!existingPayment) {
+      const { error: paymentError } = await supabase.from("payments").insert({
+        company_id: property.company_id,
+        organization_id: paymentTenancy.organization_id,
+        tenancy_id: paymentTenancyId,
+        tenant_id: bill.tenant_id ?? paymentTenancy.tenant_id,
+        property_id: property.id,
+        room_id: roomId,
+        rent_bill_id: bill.id,
+        category: "monthly_rent",
+        amount: difference,
+        payment_method: "manual_adjustment",
+        reference_number: referenceNumber,
+        status: "confirmed",
+        payment_date: today(),
+        notes: "Recorded from Property Details without changing prior verified payments.",
+        collected_by: user.id,
+        recorded_by: user.id,
+        verified_by: user.id,
+        verified_at: new Date().toISOString(),
+      });
+      if (paymentError) {
+        return { ok: false, error: "The verified payment record could not be created." };
+      }
+    }
+
+    const billAmount = Number(bill.amount ?? 0);
+    const { error: billError } = await supabase
+      .from("rent_bills")
+      .update({
+        paid_amount: amountReceived,
+        status: amountReceived >= billAmount ? "paid" : "partial",
+      })
+      .eq("id", bill.id);
+    if (billError) {
+      return { ok: false, error: "The rent bill could not be updated." };
     }
   }
 
