@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
+import { resolveUserRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeRole } from "@/lib/auth/roles";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,17 +30,10 @@ async function RootLayoutContent({
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    role = normalizeRole(user?.user_metadata?.role);
     userName = user?.user_metadata?.full_name ?? user?.email ?? user?.phone ?? null;
 
-    if (user && !role) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role, full_name")
-        .eq("id", user.id)
-        .maybeSingle();
-      role = normalizeRole(profile?.role);
-      userName = profile?.full_name ?? userName;
+    if (user) {
+      role = await resolveUserRole(user);
     }
   } catch {
     role = null;

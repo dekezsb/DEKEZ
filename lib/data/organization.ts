@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { normalizeRole, type AppRole } from "@/lib/auth/roles";
+import { resolveUserRole } from "@/lib/auth/session";
+import type { AppRole } from "@/lib/auth/roles";
 
 export type CompanySummary = {
   id: string;
@@ -87,19 +88,7 @@ async function getCurrentScope() {
     return { user: null, role: null as AppRole | null };
   }
 
-  const metadataRole = normalizeRole(user.app_metadata?.role);
-
-  if (metadataRole) {
-    return { user, role: metadataRole };
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  return { user, role: normalizeRole(profile?.role) };
+  return { user, role: await resolveUserRole(user) };
 }
 
 async function getAccessibleCompanyIds() {

@@ -1,6 +1,31 @@
 import { redirect } from "next/navigation";
+import type { User } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeRole, type AppRole } from "./roles";
+
+export async function resolveUserRole(user: User) {
+  const metadataRole = normalizeRole(user.app_metadata?.role);
+
+  if (metadataRole) {
+    return metadataRole;
+  }
+
+  let dataClient;
+  try {
+    dataClient = createAdminClient();
+  } catch {
+    dataClient = await createClient();
+  }
+
+  const { data: profile } = await dataClient
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  return normalizeRole(profile?.role) ?? "tenant";
+}
 
 export async function getCurrentUserRole() {
   const supabase = await createClient();
@@ -12,19 +37,7 @@ export async function getCurrentUserRole() {
     redirect("/");
   }
 
-  const metadataRole = normalizeRole(user.app_metadata?.role);
-
-  if (metadataRole) {
-    return metadataRole;
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  return normalizeRole(profile?.role) ?? "tenant";
+  return resolveUserRole(user);
 }
 
 export async function requireRole(allowedRoles: AppRole[]) {
