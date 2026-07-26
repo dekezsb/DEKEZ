@@ -6,8 +6,7 @@ import type { AppRole } from "@/lib/auth/roles";
 export type CompanySummary = {
   id: string;
   name: string;
-  email: string | null;
-  phone: string | null;
+  registration_number: string | null;
   status: string;
   created_at: string;
 };
@@ -258,7 +257,7 @@ export async function getUserCompanies() {
 
   let query = supabase
     .from("companies")
-    .select("id, name, email, phone, status, created_at")
+    .select("id, name, registration_number, status, created_at")
     .order("created_at", { ascending: true });
 
   if (companyIds !== null) {

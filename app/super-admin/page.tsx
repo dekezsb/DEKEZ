@@ -6,8 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 type Company = {
   id: string;
   name: string;
-  email: string | null;
-  phone: string | null;
+  registration_number: string | null;
   status: string | null;
 };
 
@@ -25,7 +24,7 @@ async function getSuperAdminSummary() {
   try {
     const admin = createAdminClient();
     const [companiesResult, propertiesResult, roomsResult] = await Promise.all([
-      admin.from("companies").select("id, name, email, phone, status").order("name", { ascending: true }),
+      admin.from("companies").select("id, name, registration_number, status").order("name", { ascending: true }),
       admin.from("properties").select("id, company_id"),
       admin.from("rooms").select("id, status"),
     ]);
@@ -109,8 +108,7 @@ export default async function SuperAdminPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Company</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
+                  <TableHead>Registration</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -118,8 +116,7 @@ export default async function SuperAdminPage() {
                 {summary.companies.map((company) => (
                   <TableRow key={company.id}>
                     <TableCell className="font-medium text-gray-950">{company.name}</TableCell>
-                    <TableCell>{company.email ?? "-"}</TableCell>
-                    <TableCell>{company.phone ?? "-"}</TableCell>
+                    <TableCell>{company.registration_number ?? "-"}</TableCell>
                     <TableCell>{company.status ?? "-"}</TableCell>
                   </TableRow>
                 ))}
