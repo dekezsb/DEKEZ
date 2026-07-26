@@ -38,6 +38,7 @@ export type PropertyRoomView = {
   status: string;
   monthlyRent: number;
   tenantId: string | null;
+  tenantProfileId: string | null;
   tenantRecordId: string | null;
   tenancyId: string | null;
   tenantName: string | null;
@@ -57,6 +58,31 @@ export type PropertyRoomView = {
   outstanding: number;
   agreementId: string | null;
   agreementStatus: string;
+};
+
+export type TenantDocumentView = {
+  id: string;
+  documentType: string;
+  fileName: string;
+  contentType: string | null;
+  verificationStatus: string;
+  uploadedAt: string;
+  signedUrl: string | null;
+};
+
+export type TenantAgreementHistoryView = {
+  id: string;
+  agreementType: string;
+  versionNumber: number;
+  status: string;
+  termStartDate: string | null;
+  termEndDate: string | null;
+  tenantName: string | null;
+  propertyName: string | null;
+  roomName: string | null;
+  generatedAt: string;
+  signedAt: string | null;
+  signedPdfUrl: string | null;
 };
 
 export type PropertyDetailsView = {
@@ -120,7 +146,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .eq("status", "active"),
       supabase
         .from("tenancies")
-        .select("id, tenant_id, room_id, monthly_rental, deposit, due_day, rent_due_day, contract_start, contract_end, status, tenants(full_name, phone, identity_number)")
+        .select("id, tenant_id, room_id, monthly_rental, deposit, due_day, rent_due_day, contract_start, contract_end, status, tenants(full_name, phone, identity_number, profile_id)")
         .eq("property_id", propertyId)
         .eq("status", "active"),
       supabase
@@ -222,6 +248,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         status: room.status,
         monthlyRent: Number(tenancy?.monthly_rental ?? tenantRecord?.monthly_rent ?? room.monthly_rent ?? 0),
         tenantId: tenancy?.tenant_id ?? tenantRecord?.tenant_id ?? null,
+        tenantProfileId: canonicalTenant?.profile_id ?? null,
         tenantRecordId: tenantRecord?.id ?? null,
         tenancyId,
         tenantName: canonicalTenant?.full_name ?? tenantRecord?.full_name ?? null,
@@ -290,7 +317,14 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   };
 }
 
-export async function getRoomDetails(propertyId: string, roomId: string) {
+export async function getRoomDetails(
+  propertyId: string,
+  roomId: string,
+  options: {
+    includeSensitiveDocuments?: boolean;
+    includeAllTenantTerms?: boolean;
+  } = {},
+) {
   const propertyDetails = await getPropertyDetails(propertyId);
   const room = propertyDetails.rooms.find((item) => item.id === roomId);
   if (!room) {
@@ -330,6 +364,143 @@ export async function getRoomDetails(propertyId: string, roomId: string) {
         .order("reading_date", { ascending: false })
     : { data: [], error: null };
   const readings = readingsResult.data ?? [];
+  const [relatedTenantRecordsResult, relatedTenanciesResult] = await Promise.all([
+    room.tenantId
+      ? supabase
+          .from("tenant_records")
+          .select("id")
+          .eq("tenant_id", room.tenantId)
+      : Promise.resolve({ data: room.tenantRecordId ? [{ id: room.tenantRecordId }] : [] }),
+    room.tenantId && options.includeAllTenantTerms
+      ? supabase
+          .from("tenancies")
+          .select("id")
+          .eq("tenant_id", room.tenantId)
+          .order("created_at", { ascending: false })
+      : room.tenantId
+        ? supabase
+            .from("tenancies")
+            .select("id")
+            .eq("tenant_id", room.tenantId)
+            .eq("room_id", roomId)
+            .order("created_at", { ascending: false })
+        : Promise.resolve({ data: room.tenancyId ? [{ id: room.tenancyId }] : [] }),
+  ]);
+  const tenantRecordIds = Array.from(
+    new Set(
+      (relatedTenantRecordsResult.data ?? [])
+        .map((record) => record.id)
+        .concat(room.tenantRecordId ? [room.tenantRecordId] : []),
+    ),
+  );
+  const tenancyIds = Array.from(
+    new Set(
+      (relatedTenanciesResult.data ?? [])
+        .map((tenancy) => tenancy.id)
+        .concat(room.tenancyId ? [room.tenancyId] : []),
+    ),
+  );
+
+  const tenantDocumentRows: Array<{
+    id: string;
+    document_type: string;
+    file_name: string | null;
+    file_path: string;
+    content_type: string | null;
+    verification_status: string;
+    uploaded_at: string;
+  }> = [];
+
+  if (options.includeSensitiveDocuments) {
+    if (tenantRecordIds.length) {
+      const { data } = await supabase
+        .from("tenant_documents")
+        .select("id, document_type, file_name, file_path, content_type, verification_status, uploaded_at")
+        .in("tenant_record_id", tenantRecordIds)
+        .order("uploaded_at", { ascending: false });
+      tenantDocumentRows.push(...(data ?? []));
+    }
+
+    if (room.tenantProfileId) {
+      const { data } = await supabase
+        .from("tenant_documents")
+        .select("id, document_type, file_name, file_path, content_type, verification_status, uploaded_at")
+        .eq("tenant_id", room.tenantProfileId)
+        .order("uploaded_at", { ascending: false });
+      for (const document of data ?? []) {
+        if (!tenantDocumentRows.some((item) => item.id === document.id)) {
+          tenantDocumentRows.push(document);
+        }
+      }
+    }
+  }
+
+  const documents: TenantDocumentView[] = await Promise.all(
+    tenantDocumentRows.map(async (document) => {
+      const { data } = await supabase.storage
+        .from("tenant-documents")
+        .createSignedUrl(document.file_path, 60 * 15);
+      return {
+        id: document.id,
+        documentType: document.document_type,
+        fileName: document.file_name ?? document.file_path.split("/").at(-1) ?? "Document",
+        contentType: document.content_type,
+        verificationStatus: document.verification_status,
+        uploadedAt: document.uploaded_at,
+        signedUrl: data?.signedUrl ?? null,
+      };
+    }),
+  );
+
+  const agreementsResult = tenancyIds.length
+    ? await supabase
+        .from("tenancy_agreements")
+        .select("id, tenancy_id, agreement_type, version_number, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, generated_at, signed_at, pdf_url, tenancies(tenancy_start_date, tenancy_end_date, contract_start, contract_end, properties(name), rooms(name, room_number))")
+        .in("tenancy_id", tenancyIds)
+        .order("term_start_date", { ascending: false, nullsFirst: false })
+        .order("generated_at", { ascending: false })
+    : { data: [], error: null };
+
+  const agreementHistory: TenantAgreementHistoryView[] = await Promise.all(
+    (agreementsResult.data ?? []).map(async (agreement) => {
+      const tenancy = relatedOne(agreement.tenancies);
+      const agreementProperty = relatedOne(tenancy?.properties);
+      const agreementRoom = relatedOne(tenancy?.rooms);
+      const signedPdf = agreement.pdf_url
+        ? await supabase.storage
+            .from("tenancy-agreements")
+            .createSignedUrl(agreement.pdf_url, 60 * 15)
+        : { data: null };
+
+      return {
+        id: agreement.id,
+        agreementType: agreement.agreement_type,
+        versionNumber: agreement.version_number,
+        status: agreement.status,
+        termStartDate:
+          agreement.term_start_date ??
+          tenancy?.tenancy_start_date ??
+          tenancy?.contract_start ??
+          null,
+        termEndDate:
+          agreement.term_end_date ??
+          tenancy?.tenancy_end_date ??
+          tenancy?.contract_end ??
+          null,
+        tenantName: agreement.tenant_name_snapshot ?? room.tenantName,
+        propertyName:
+          agreement.property_name_snapshot ?? agreementProperty?.name ?? null,
+        roomName:
+          agreement.room_name_snapshot ??
+          agreementRoom?.room_number ??
+          agreementRoom?.name ??
+          null,
+        generatedAt: agreement.generated_at,
+        signedAt: agreement.signed_at,
+        signedPdfUrl: signedPdf.data?.signedUrl ?? null,
+      };
+    }),
+  );
 
   return {
     property: propertyDetails.property,
@@ -341,10 +512,15 @@ export async function getRoomDetails(propertyId: string, roomId: string) {
       ...meter,
       readings: readings.filter((reading) => reading.meter_id === meter.id),
     })),
+    documents,
+    agreementHistory,
   };
 }
 
-export async function getTenantProfile(tenantKey: string) {
+export async function getTenantProfile(
+  tenantKey: string,
+  options: { includeSensitiveDocuments?: boolean } = {},
+) {
   const supabase = await getDataClient();
   const { data: importedTenant } = await supabase
     .from("tenant_records")
@@ -353,7 +529,10 @@ export async function getTenantProfile(tenantKey: string) {
     .maybeSingle();
 
   if (importedTenant?.property_id && importedTenant.room_id) {
-    return getRoomDetails(importedTenant.property_id, importedTenant.room_id);
+    return getRoomDetails(importedTenant.property_id, importedTenant.room_id, {
+      ...options,
+      includeAllTenantTerms: true,
+    });
   }
 
   const { data: tenancy } = await supabase
@@ -369,5 +548,8 @@ export async function getTenantProfile(tenantKey: string) {
     notFound();
   }
 
-  return getRoomDetails(tenancy.property_id, tenancy.room_id);
+  return getRoomDetails(tenancy.property_id, tenancy.room_id, {
+    ...options,
+    includeAllTenantTerms: true,
+  });
 }

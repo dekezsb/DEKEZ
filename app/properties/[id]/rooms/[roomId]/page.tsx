@@ -4,6 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  TenantAgreementHistory,
+  TenantDocuments,
+} from "@/components/tenant/tenant-records";
 import { requireRole } from "@/lib/auth/session";
 import { getRoomDetails } from "@/lib/data/property-details";
 import { statusBadgeClass } from "@/lib/status-styles";
@@ -13,6 +17,7 @@ import { CheckoutForm } from "./checkout-form";
 
 type PageProps = {
   params: Promise<{ id: string; roomId: string }>;
+  searchParams: Promise<{ document?: string }>;
 };
 
 const money = new Intl.NumberFormat("en-MY", {
@@ -30,12 +35,18 @@ function roomStatusClass(status: string) {
   return classes[status] ?? "bg-gray-100 text-gray-700";
 }
 
-export default async function RoomDetailsPage({ params }: PageProps) {
+export default async function RoomDetailsPage({
+  params,
+  searchParams,
+}: PageProps) {
   const role = await requireRole(["super_admin", "owner", "admin"]);
   const canManage = role === "super_admin" || role === "admin";
-  const { id, roomId } = await params;
-  const details = await getRoomDetails(id, roomId);
+  const [{ id, roomId }, query] = await Promise.all([params, searchParams]);
+  const details = await getRoomDetails(id, roomId, {
+    includeSensitiveDocuments: canManage,
+  });
   const { property, room } = details;
+  const tenantKey = room.tenantRecordId ?? room.tenantId ?? room.id;
 
   return (
     <section className="space-y-6">
@@ -69,6 +80,9 @@ export default async function RoomDetailsPage({ params }: PageProps) {
               <p className="font-semibold text-gray-950">{room.tenantName}</p>
               <p className="flex items-center gap-2 text-gray-600"><Phone className="h-4 w-4" />{room.tenantPhone ?? "-"}</p>
               <p className="text-gray-600">IC / Passport: {room.identificationNumber ?? "-"}</p>
+              <Button asChild className="mt-2" size="sm" variant="outline">
+                <Link href={`/tenants/${tenantKey}`}>View Tenant Profile</Link>
+              </Button>
             </CardContent>
           </Card>
           <Card>
@@ -111,6 +125,22 @@ export default async function RoomDetailsPage({ params }: PageProps) {
           </CardContent>
         </Card>
       )}
+
+      {room.tenantName ? (
+        <>
+          <TenantDocuments
+            canManageDocuments={canManage}
+            documentResult={query.document}
+            documents={details.documents}
+            propertyId={property.id}
+            returnView="room"
+            roomId={room.id}
+            tenantKey={tenantKey}
+            tenantRecordId={room.tenantRecordId}
+          />
+          <TenantAgreementHistory agreements={details.agreementHistory} />
+        </>
+      ) : null}
 
       <Card>
         <CardHeader>

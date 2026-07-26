@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, FileText, Home, Phone } from "lucide-react";
+import { ChevronRight, Home, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,12 +17,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  TenantAgreementHistory,
+  TenantDocuments,
+} from "@/components/tenant/tenant-records";
 import { requireRole } from "@/lib/auth/session";
 import { getTenantProfile } from "@/lib/data/property-details";
 import { statusBadgeClass } from "@/lib/status-styles";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ document?: string }>;
 };
 
 const money = new Intl.NumberFormat("en-MY", {
@@ -30,10 +35,16 @@ const money = new Intl.NumberFormat("en-MY", {
   currency: "MYR",
 });
 
-export default async function TenantProfilePage({ params }: PageProps) {
-  await requireRole(["super_admin", "owner", "admin"]);
-  const { id } = await params;
-  const details = await getTenantProfile(id);
+export default async function TenantProfilePage({
+  params,
+  searchParams,
+}: PageProps) {
+  const role = await requireRole(["super_admin", "owner", "admin"]);
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const canManage = role === "super_admin" || role === "admin";
+  const details = await getTenantProfile(id, {
+    includeSensitiveDocuments: canManage,
+  });
   const { property, room } = details;
 
   return (
@@ -90,6 +101,19 @@ export default async function TenantProfilePage({ params }: PageProps) {
           </CardContent>
         </Card>
       </div>
+
+      <TenantDocuments
+        canManageDocuments={canManage}
+        documentResult={query.document}
+        documents={details.documents}
+        propertyId={property.id}
+        returnView="tenant"
+        roomId={room.id}
+        tenantKey={id}
+        tenantRecordId={room.tenantRecordId}
+      />
+
+      <TenantAgreementHistory agreements={details.agreementHistory} />
 
       <Card>
         <CardHeader>
@@ -153,32 +177,17 @@ export default async function TenantProfilePage({ params }: PageProps) {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Agreement & Maintenance</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <Badge className={statusBadgeClass(room.agreementStatus)}>
-                {room.agreementStatus.replaceAll("_", " ")}
-              </Badge>
-              {room.agreementId ? (
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/e-tenancy/${room.agreementId}`}>
-                    <FileText className="h-4 w-4" />
-                    View Agreement
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
-            <div className="space-y-3 border-t border-[#e5e9ef] pt-4">
-              {details.maintenance.length ? details.maintenance.map((ticket) => (
-                <div className="flex items-start justify-between gap-3" key={ticket.id}>
-                  <div>
-                    <p className="font-medium text-gray-950">{ticket.ticket_number}</p>
-                    <p className="text-sm text-gray-600">{ticket.category}: {ticket.description}</p>
-                  </div>
-                  <Badge className={statusBadgeClass(ticket.status)}>{ticket.status}</Badge>
+          <CardHeader><CardTitle>Maintenance Records</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {details.maintenance.length ? details.maintenance.map((ticket) => (
+              <div className="flex items-start justify-between gap-3" key={ticket.id}>
+                <div>
+                  <p className="font-medium text-gray-950">{ticket.ticket_number}</p>
+                  <p className="text-sm text-gray-600">{ticket.category}: {ticket.description}</p>
                 </div>
-              )) : <p className="text-sm text-gray-500">No maintenance records found.</p>}
-            </div>
+                <Badge className={statusBadgeClass(ticket.status)}>{ticket.status}</Badge>
+              </div>
+            )) : <p className="text-sm text-gray-500">No maintenance records found.</p>}
           </CardContent>
         </Card>
       </div>

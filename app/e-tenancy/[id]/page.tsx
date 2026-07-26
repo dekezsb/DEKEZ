@@ -22,7 +22,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const supabase = await createClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, status, rendered_content, signed_at, pdf_url, generated_at, tenancies(tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name))")
+    .select("id, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name))")
     .eq("id", id)
     .single();
 
@@ -54,9 +54,9 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
         <p className="text-xs font-semibold uppercase text-[#126b5f]">E-Tenancy Agreement</p>
         <div className="mt-2 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div>
-            <h1 className="text-2xl font-semibold sm:text-3xl">{property?.name ?? "Tenancy Agreement"}</h1>
+            <h1 className="text-2xl font-semibold sm:text-3xl">{agreement.property_name_snapshot ?? property?.name ?? "Tenancy Agreement"}</h1>
             <p className="mt-2 text-sm text-gray-600">
-              {room?.name ?? "Room"} - {tenancy?.contract_duration_months ?? "-"} months
+              {agreement.room_name_snapshot ?? room?.name ?? "Room"} - {tenancy?.contract_duration_months ?? "-"} months
             </p>
           </div>
           <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>
@@ -80,8 +80,8 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
           <CardDescription>Generated {new Date(agreement.generated_at).toLocaleString("en-MY")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm text-gray-600 sm:grid-cols-2">
-          <p>Start: {tenancy?.tenancy_start_date ?? "-"}</p>
-          <p>End: {tenancy?.tenancy_end_date ?? "-"}</p>
+          <p>Start: {agreement.term_start_date ?? tenancy?.tenancy_start_date ?? "-"}</p>
+          <p>End: {agreement.term_end_date ?? tenancy?.tenancy_end_date ?? "-"}</p>
           <p>Signed: {agreement.signed_at ? new Date(agreement.signed_at).toLocaleString("en-MY") : "-"}</p>
           <p>PDF: {agreement.pdf_url ? agreement.pdf_url : "Not signed yet"}</p>
         </CardContent>

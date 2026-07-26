@@ -329,6 +329,11 @@ async function createAgreementForTenancy(
       version_number: 1,
       status: "draft",
       rendered_content: rendered,
+      term_start_date: startDate,
+      term_end_date: endDate,
+      tenant_name_snapshot: tenant?.full_name ?? null,
+      property_name_snapshot: property?.name ?? null,
+      room_name_snapshot: room?.room_number ?? room?.name ?? null,
       created_by: userId,
     })
     .select("id")

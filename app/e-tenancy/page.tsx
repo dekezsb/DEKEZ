@@ -52,7 +52,7 @@ export default async function ETenancyPage({ searchParams }: PageProps) {
       .order("created_at", { ascending: false }),
     supabase
       .from("tenancy_agreements")
-      .select("id, tenancy_id, agreement_type, version_number, status, generated_at, signed_at, pdf_url, tenancies(tenant_id, property_id, room_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name))")
+      .select("id, tenancy_id, agreement_type, version_number, status, generated_at, signed_at, pdf_url, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(tenant_id, property_id, room_id, tenancy_start_date, tenancy_end_date, contract_duration_months, tenants(full_name), properties(name), rooms(name))")
       .order("generated_at", { ascending: false }),
     supabase.from("profiles").select("id, full_name").eq("role", "tenant"),
   ]);
@@ -83,6 +83,7 @@ export default async function ETenancyPage({ searchParams }: PageProps) {
         </div>
       ) : null}
 
+      {role !== "owner" ? (
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
@@ -158,6 +159,7 @@ export default async function ETenancyPage({ searchParams }: PageProps) {
           </CardContent>
         </Card>
       </div>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -183,16 +185,17 @@ export default async function ETenancyPage({ searchParams }: PageProps) {
               <TableBody>
                 {agreements.map((agreement) => {
                   const tenancy = Array.isArray(agreement.tenancies) ? agreement.tenancies[0] : agreement.tenancies;
+                  const tenant = Array.isArray(tenancy?.tenants) ? tenancy?.tenants[0] : tenancy?.tenants;
                   const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
                   const room = Array.isArray(tenancy?.rooms) ? tenancy?.rooms[0] : tenancy?.rooms;
                   return (
                     <TableRow key={agreement.id}>
-                      <TableCell className="font-medium text-gray-950">{profileById.get(tenancy?.tenant_id ?? "") ?? "-"}</TableCell>
-                      <TableCell>{property?.name ?? "-"}</TableCell>
-                      <TableCell>{room?.name ?? "-"}</TableCell>
+                      <TableCell className="font-medium text-gray-950">{agreement.tenant_name_snapshot ?? tenant?.full_name ?? profileById.get(tenancy?.tenant_id ?? "") ?? "-"}</TableCell>
+                      <TableCell>{agreement.property_name_snapshot ?? property?.name ?? "-"}</TableCell>
+                      <TableCell>{agreement.room_name_snapshot ?? room?.name ?? "-"}</TableCell>
                       <TableCell>{tenancy?.contract_duration_months ? `${tenancy.contract_duration_months} months` : "-"}</TableCell>
-                      <TableCell>{tenancy?.tenancy_start_date ?? "-"}</TableCell>
-                      <TableCell>{tenancy?.tenancy_end_date ?? "-"}</TableCell>
+                      <TableCell>{agreement.term_start_date ?? tenancy?.tenancy_start_date ?? "-"}</TableCell>
+                      <TableCell>{agreement.term_end_date ?? tenancy?.tenancy_end_date ?? "-"}</TableCell>
                       <TableCell><Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge></TableCell>
                       <TableCell>{agreement.signed_at ? new Date(agreement.signed_at).toLocaleDateString("en-MY") : "-"}</TableCell>
                       <TableCell>
@@ -218,7 +221,7 @@ async function TenantAgreementList() {
   const supabase = await createClient();
   const { data: agreements } = await supabase
     .from("tenancy_agreements")
-    .select("id, status, signed_at, generated_at, pdf_url, tenancies(tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name))")
+    .select("id, status, signed_at, generated_at, pdf_url, term_start_date, term_end_date, property_name_snapshot, room_name_snapshot, tenancies(tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name))")
     .order("generated_at", { ascending: false });
 
   return (
@@ -233,23 +236,24 @@ async function TenantAgreementList() {
           const tenancy = Array.isArray(agreement.tenancies) ? agreement.tenancies[0] : agreement.tenancies;
           const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
           const room = Array.isArray(tenancy?.rooms) ? tenancy?.rooms[0] : tenancy?.rooms;
-          const daysRemaining = tenancy?.tenancy_end_date
-            ? Math.ceil((new Date(tenancy.tenancy_end_date).getTime() - Date.now()) / 86400000)
+          const termEndDate = agreement.term_end_date ?? tenancy?.tenancy_end_date;
+          const daysRemaining = termEndDate
+            ? Math.ceil((new Date(termEndDate).getTime() - Date.now()) / 86400000)
             : null;
           return (
             <Card key={agreement.id}>
               <CardHeader>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <CardTitle>{property?.name ?? "Tenancy Agreement"}</CardTitle>
-                    <CardDescription>{room?.name ?? "Room"} - {tenancy?.contract_duration_months ?? "-"} months</CardDescription>
+                    <CardTitle>{agreement.property_name_snapshot ?? property?.name ?? "Tenancy Agreement"}</CardTitle>
+                    <CardDescription>{agreement.room_name_snapshot ?? room?.name ?? "Room"} - {tenancy?.contract_duration_months ?? "-"} months</CardDescription>
                   </div>
                   <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
-                <p>Start: {tenancy?.tenancy_start_date ?? "-"}</p>
-                <p>End: {tenancy?.tenancy_end_date ?? "-"}</p>
+                <p>Start: {agreement.term_start_date ?? tenancy?.tenancy_start_date ?? "-"}</p>
+                <p>End: {termEndDate ?? "-"}</p>
                 <p>Days remaining: {daysRemaining ?? "-"}</p>
                 <p>Signed: {agreement.signed_at ? new Date(agreement.signed_at).toLocaleString("en-MY") : "-"}</p>
                 <Button asChild className="sm:col-span-2">

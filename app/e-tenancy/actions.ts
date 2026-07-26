@@ -34,7 +34,7 @@ async function getAdmin() {
 }
 
 export async function createAgreementTemplate(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const name = textValue(formData, "name");
@@ -72,7 +72,7 @@ export async function createAgreementTemplate(formData: FormData) {
 }
 
 export async function generateAgreement(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
   const duration = numberValue(formData, "contractDurationMonths", 12);
@@ -106,7 +106,7 @@ export async function generateAgreement(formData: FormData) {
     .eq("id", tenancy.id);
 
   const [{ data: tenant }, { data: property }, { data: unit }, { data: room }] = await Promise.all([
-    supabase.from("profiles").select("full_name, phone").eq("id", tenancy.tenant_id).maybeSingle(),
+    supabase.from("tenants").select("full_name, phone, identity_number").eq("id", tenancy.tenant_id).maybeSingle(),
     supabase.from("properties").select("name, address, default_ta_template_id").eq("id", tenancy.property_id).maybeSingle(),
     tenancy.unit_id ? supabase.from("units").select("name").eq("id", tenancy.unit_id).maybeSingle() : Promise.resolve({ data: null }),
     supabase.from("rooms").select("name, room_number").eq("id", tenancy.room_id).maybeSingle(),
@@ -139,7 +139,7 @@ export async function generateAgreement(formData: FormData) {
 
   const rendered = renderAgreementTemplate(template?.template_content ?? defaultAgreementTemplate, {
     tenant_name: tenant?.full_name,
-    tenant_ic_passport: "-",
+    tenant_ic_passport: tenant?.identity_number,
     tenant_phone: tenant?.phone,
     property_name: property?.name,
     property_address: property?.address,
@@ -155,13 +155,37 @@ export async function generateAgreement(formData: FormData) {
     tenant_signature: "[Pending tenant signature]",
   });
 
+  const { data: existingAgreements } = await supabase
+    .from("tenancy_agreements")
+    .select("id, version_number, term_start_date, term_end_date")
+    .eq("tenancy_id", tenancy.id)
+    .order("generated_at", { ascending: false });
+  const agreements = existingAgreements ?? [];
+  const existingTerm = agreements.find(
+    (agreement) =>
+      agreement.term_start_date === startDate &&
+      agreement.term_end_date === endDate,
+  );
+  if (existingTerm) {
+    redirect(`/e-tenancy/${existingTerm.id}`);
+  }
+  const previousAgreement = agreements[0] ?? null;
+  const versionNumber =
+    Math.max(0, ...agreements.map((agreement) => agreement.version_number)) + 1;
+
   const { error } = await supabase.from("tenancy_agreements").insert({
     tenancy_id: tenancy.id,
     template_id: template?.id ?? null,
-    agreement_type: "original",
-    version_number: 1,
+    agreement_type: agreements.length ? "renewal" : "original",
+    version_number: versionNumber,
     status: "pending_signature",
     rendered_content: rendered,
+    term_start_date: startDate,
+    term_end_date: endDate,
+    tenant_name_snapshot: tenant?.full_name ?? null,
+    property_name_snapshot: property?.name ?? null,
+    room_name_snapshot: room?.room_number ?? room?.name ?? null,
+    previous_agreement_id: previousAgreement?.id ?? null,
     created_by: user.id,
   });
 
@@ -174,7 +198,7 @@ export async function generateAgreement(formData: FormData) {
 }
 
 export async function refreshAgreementExpiry() {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const supabase = await getAdmin();
   await supabase.rpc("refresh_tenancy_agreement_expiry");
   revalidatePath("/e-tenancy");
@@ -195,12 +219,15 @@ export async function signAgreement(formData: FormData) {
   const supabase = await getAdmin();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, rendered_content, tenancy_id, tenancies(tenant_id)")
+    .select("id, rendered_content, tenancy_id, tenancies(tenant_id, tenants(profile_id))")
     .eq("id", agreementId)
     .single();
 
   const tenancy = Array.isArray(agreement?.tenancies) ? agreement?.tenancies[0] : agreement?.tenancies;
-  if (!agreement || tenancy?.tenant_id !== user.id) {
+  const tenant = Array.isArray(tenancy?.tenants)
+    ? tenancy?.tenants[0]
+    : tenancy?.tenants;
+  if (!agreement || tenant?.profile_id !== user.id) {
     redirect("/dashboard");
   }
 
