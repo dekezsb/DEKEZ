@@ -130,7 +130,9 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         <Card>
           <CardHeader>
             <CardTitle>Assign Property Owner</CardTitle>
-            <CardDescription>Link an owner account to a property.</CardDescription>
+            <CardDescription>
+              Choose the one Owner who can access this property.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form action={assignPropertyOwner} className="grid gap-4 sm:grid-cols-2">
@@ -151,14 +153,6 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                     <option key={owner.id} value={owner.id}>{owner.full_name ?? owner.id}</option>
                   ))}
                 </select>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Ownership %</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="ownershipPercentage" type="number" min="1" max="100" step="0.01" defaultValue="100" />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Start date</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="startDate" type="date" />
               </label>
               <Button className="sm:col-span-2" type="submit">Assign owner</Button>
             </form>

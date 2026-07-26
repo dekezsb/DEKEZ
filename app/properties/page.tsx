@@ -4,19 +4,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
-import { getFirstCompany, getProperties, getRooms } from "@/lib/data/organization";
+import {
+  getFirstCompany,
+  getProperties,
+  getPropertyOwnerData,
+  getRooms,
+} from "@/lib/data/organization";
 import { createProperty } from "./actions";
+import { PropertyOwnerSelect } from "./property-owner-select";
 
 type PropertiesPageProps = {
   searchParams: Promise<{
     created?: string;
     error?: string;
+    updated?: string;
   }>;
 };
 
 const errorMessages: Record<string, string> = {
   missing: "Please enter the property name and address.",
   create: "Property could not be saved. Please try again.",
+  owner_assign: "The Owner could not be assigned. Check that the account is an active Owner for this company.",
+  owner_missing: "Please select an Owner.",
 };
 
 export default async function PropertiesPage({ searchParams }: PropertiesPageProps) {
@@ -26,8 +35,17 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
     getFirstCompany(),
     searchParams,
   ]);
-  const rooms = await getRooms();
+  const [rooms, ownerData] = await Promise.all([
+    getRooms(),
+    getPropertyOwnerData(properties),
+  ]);
   const roomCounts = new Map<string, { total: number; occupied: number }>();
+  const assignedOwners = new Map(
+    ownerData.assignments.map((assignment) => [
+      assignment.property_id,
+      assignment.owner_id,
+    ]),
+  );
 
   for (const room of rooms) {
     const current = roomCounts.get(room.property_id) ?? { total: 0, occupied: 0 };
@@ -54,6 +72,11 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
       {params.created === "1" ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
           Property saved successfully.
+        </div>
+      ) : null}
+      {params.updated === "owner" ? (
+        <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
+          Property Owner updated successfully.
         </div>
       ) : null}
       {params.error ? (
@@ -112,7 +135,9 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
       <Card>
         <CardHeader>
           <CardTitle>Managed Properties</CardTitle>
-          <CardDescription>Your visible company property list.</CardDescription>
+          <CardDescription>
+            Assign an Owner to control which properties appear in their account.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {properties.length ? (
@@ -122,6 +147,7 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
                   <TableHead>Property</TableHead>
                   <TableHead>Address</TableHead>
                   <TableHead>Rooms</TableHead>
+                  <TableHead>Owner</TableHead>
                   <TableHead className="w-12"><span className="sr-only">Open</span></TableHead>
                 </TableRow>
               </TableHeader>
@@ -136,6 +162,16 @@ export default async function PropertiesPage({ searchParams }: PropertiesPagePro
                     <TableCell>{property.address}</TableCell>
                     <TableCell>
                       {roomCounts.get(property.id)?.occupied ?? 0} / {roomCounts.get(property.id)?.total ?? 0} occupied
+                    </TableCell>
+                    <TableCell>
+                      <PropertyOwnerSelect
+                        currentOwnerId={assignedOwners.get(property.id) ?? null}
+                        owners={ownerData.owners
+                          .filter((owner) => owner.company_id === property.company_id)
+                          .map((owner) => ({ id: owner.id, name: owner.name }))}
+                        propertyId={property.id}
+                        propertyName={property.name}
+                      />
                     </TableCell>
                     <TableCell>
                       <Button asChild size="icon" variant="ghost">

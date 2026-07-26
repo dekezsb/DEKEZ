@@ -134,23 +134,17 @@ export async function createUnit(formData: FormData) {
 export async function assignPropertyOwner(formData: FormData) {
   await assertAdmin();
 
-  const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const ownerId = textValue(formData, "ownerId");
-  const ownershipPercentage = numberValue(formData, "ownershipPercentage", 100);
-  const startDate = textValue(formData, "startDate") || new Date().toISOString().slice(0, 10);
 
-  if (!user || !propertyId || !ownerId || ownershipPercentage <= 0) {
+  if (!propertyId || !ownerId) {
     redirect("/admin-setup?error=owner_missing");
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("property_owners").insert({
-    property_id: propertyId,
-    owner_id: ownerId,
-    ownership_percentage: ownershipPercentage,
-    start_date: startDate,
-    created_by: user.id,
+  const { error } = await supabase.rpc("set_property_owner", {
+    target_owner_id: ownerId,
+    target_property_id: propertyId,
   });
 
   if (error) {
@@ -158,6 +152,8 @@ export async function assignPropertyOwner(formData: FormData) {
   }
 
   revalidatePath("/admin-setup");
+  revalidatePath("/properties");
+  revalidatePath("/dashboard");
   redirect("/admin-setup?created=owner");
 }
 

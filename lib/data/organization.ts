@@ -22,6 +22,17 @@ export type PropertySummary = {
   notes: string | null;
 };
 
+export type PropertyOwnerOption = {
+  company_id: string;
+  id: string;
+  name: string;
+};
+
+export type PropertyOwnerAssignment = {
+  owner_id: string;
+  property_id: string;
+};
+
 export type RoomSummary = {
   id: string;
   company_id: string;
@@ -137,7 +148,7 @@ async function getAccessiblePropertyIds() {
     return null;
   }
 
-  if (companyIds.length) {
+  if (role !== "owner" && companyIds.length) {
     const { data: companyProperties } = await supabase
       .from("properties")
       .select("id")
@@ -153,7 +164,8 @@ async function getAccessiblePropertyIds() {
   const { data: ownedProperties } = await supabase
     .from("property_owners")
     .select("property_id")
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .is("end_date", null);
 
   for (const property of ownedProperties ?? []) {
     if (property.property_id) {
@@ -162,6 +174,71 @@ async function getAccessiblePropertyIds() {
   }
 
   return Array.from(propertyIds);
+}
+
+export async function getPropertyOwnerData(properties: PropertySummary[]) {
+  if (!properties.length) {
+    return {
+      assignments: [] as PropertyOwnerAssignment[],
+      owners: [] as PropertyOwnerOption[],
+    };
+  }
+
+  const supabase = await getDataClient();
+  const propertyIds = properties.map((property) => property.id);
+  const companyIds = Array.from(new Set(properties.map((property) => property.company_id)));
+
+  const [{ data: assignments }, { data: memberships }] = await Promise.all([
+    supabase
+      .from("property_owners")
+      .select("property_id, owner_id")
+      .in("property_id", propertyIds)
+      .is("end_date", null),
+    supabase
+      .from("company_users")
+      .select("company_id, profile_id, user_id")
+      .in("company_id", companyIds)
+      .eq("role", "owner")
+      .eq("status", "active"),
+  ]);
+
+  const ownerMemberships = (memberships ?? [])
+    .map((membership) => ({
+      company_id: membership.company_id as string,
+      id: (membership.user_id ?? membership.profile_id) as string,
+    }))
+    .filter((membership) => membership.company_id && membership.id);
+  const ownerIds = Array.from(new Set(ownerMemberships.map((membership) => membership.id)));
+
+  if (!ownerIds.length) {
+    return {
+      assignments: (assignments ?? []) as PropertyOwnerAssignment[],
+      owners: [] as PropertyOwnerOption[],
+    };
+  }
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", ownerIds)
+    .eq("role", "owner");
+  const profileNames = new Map(
+    (profiles ?? []).map((profile) => [
+      profile.id,
+      profile.full_name?.trim() || "Owner account",
+    ]),
+  );
+
+  return {
+    assignments: (assignments ?? []) as PropertyOwnerAssignment[],
+    owners: ownerMemberships
+      .filter((membership) => profileNames.has(membership.id))
+      .map((membership) => ({
+        ...membership,
+        name: profileNames.get(membership.id) ?? "Owner account",
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  };
 }
 
 export async function getUserCompanies() {
