@@ -31,7 +31,8 @@ function roomStatusClass(status: string) {
 }
 
 export default async function RoomDetailsPage({ params }: PageProps) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  const role = await requireRole(["super_admin", "owner", "admin"]);
+  const canManage = role === "super_admin" || role === "admin";
   const { id, roomId } = await params;
   const details = await getRoomDetails(id, roomId);
   const { property, room } = details;
@@ -102,9 +103,11 @@ export default async function RoomDetailsPage({ params }: PageProps) {
               <p className="font-semibold text-gray-950">This room is vacant</p>
               <p className="mt-1 text-sm text-gray-600">Tenant, billing, agreement and payment history actions are not active.</p>
             </div>
-            <Button asChild>
-              <Link href={`/properties/${id}/register-tenant?room=${room.id}`}>Register Tenant</Link>
-            </Button>
+            {canManage ? (
+              <Button asChild>
+                <Link href={`/properties/${id}/register-tenant?room=${room.id}`}>Register Tenant</Link>
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       )}
@@ -251,7 +254,7 @@ export default async function RoomDetailsPage({ params }: PageProps) {
         </CardContent>
       </Card>
 
-      {room.tenantName ? (
+      {room.tenantName && canManage ? (
         <Card className="border-red-200">
           <CardHeader>
             <CardTitle className="text-base text-red-700">Check Out</CardTitle>

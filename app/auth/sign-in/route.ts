@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     return jsonError(error?.message ?? "Unable to login.", 401);
   }
 
-  let actualRole = normalizeRole(data.user.user_metadata?.role);
+  let actualRole = normalizeRole(data.user.app_metadata?.role);
 
   if (!actualRole) {
     const { data: profile } = await supabase

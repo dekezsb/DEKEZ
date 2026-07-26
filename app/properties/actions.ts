@@ -12,7 +12,7 @@ function textValue(formData: FormData, key: string) {
 }
 
 export async function createProperty(formData: FormData) {
-  const role = await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
 
   const user = await getCurrentUser();
   const company = await getFirstCompany();
@@ -21,40 +21,40 @@ export async function createProperty(formData: FormData) {
     redirect("/setup?error=missing");
   }
 
-  const name = textValue(formData, "name");
+  const propertyCode = textValue(formData, "propertyCode");
+  const area = textValue(formData, "area");
   const address = textValue(formData, "address");
-  const notes = textValue(formData, "notes");
+  const ownerId = textValue(formData, "ownerId");
+  const roomCount = Number(textValue(formData, "roomCount"));
+  const isCommercial = formData.get("isCommercial") === "on";
 
-  if (!name || !address) {
+  if (
+    !propertyCode ||
+    !area ||
+    !address ||
+    !Number.isInteger(roomCount) ||
+    roomCount < 1 ||
+    roomCount > 10000
+  ) {
     redirect("/properties?error=missing");
   }
 
   const supabase = await createClient();
-  const { data: property, error } = await supabase
-    .from("properties")
-    .insert({
-      company_id: company.id,
-      name,
-      address,
-      notes: notes || null,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
+  const { data: propertyId, error } = await supabase.rpc(
+    "create_property_with_rooms",
+    {
+      target_address: address,
+      target_area: area,
+      target_company_id: company.id,
+      target_is_commercial: isCommercial,
+      target_owner_id: ownerId || null,
+      target_property_code: propertyCode,
+      target_room_count: roomCount,
+    },
+  );
 
-  if (error || !property) {
+  if (error || !propertyId) {
     redirect("/properties?error=create");
-  }
-
-  if (role === "owner") {
-    const { error: ownerError } = await supabase.rpc("set_property_owner", {
-      target_owner_id: user.id,
-      target_property_id: property.id,
-    });
-
-    if (ownerError) {
-      redirect("/properties?created=1&error=owner_assign");
-    }
   }
 
   revalidatePath("/properties");
@@ -63,7 +63,7 @@ export async function createProperty(formData: FormData) {
 }
 
 export async function updatePropertyOwner(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
 
   const propertyId = textValue(formData, "propertyId");
   const ownerId = textValue(formData, "ownerId");
@@ -85,4 +85,31 @@ export async function updatePropertyOwner(formData: FormData) {
   revalidatePath("/properties");
   revalidatePath("/dashboard");
   redirect("/properties?updated=owner");
+}
+
+export async function updatePropertyCommercial(formData: FormData) {
+  await requireRole(["super_admin", "admin"]);
+
+  const propertyId = textValue(formData, "propertyId");
+  const isCommercial = formData.get("isCommercial") === "on";
+  if (!propertyId) {
+    redirect("/properties?error=property");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("properties")
+    .update({
+      is_commercial: isCommercial,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", propertyId);
+
+  if (error) {
+    redirect("/properties?error=commercial");
+  }
+
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${propertyId}`);
+  redirect("/properties?updated=commercial");
 }

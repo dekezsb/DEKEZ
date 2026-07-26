@@ -18,6 +18,7 @@ export type PropertySummary = {
   address: string;
   property_code: string | null;
   area: string | null;
+  is_commercial: boolean;
   payment_qr_url: string | null;
   notes: string | null;
 };
@@ -275,7 +276,7 @@ export async function getProperties() {
   const supabase = await getDataClient();
   let query = supabase
     .from("properties")
-    .select("id, company_id, name, address, property_code, area, payment_qr_url, notes")
+    .select("id, company_id, name, address, property_code, area, is_commercial, payment_qr_url, notes")
     .order("created_at", { ascending: true });
 
   if (propertyIds !== null) {

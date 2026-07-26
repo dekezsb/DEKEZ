@@ -157,7 +157,8 @@ function isOverdue(room: PropertyRoomView) {
 }
 
 export default async function PropertyDetailsPage({ params, searchParams }: PageProps) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  const role = await requireRole(["super_admin", "owner", "admin"]);
+  const canManage = role === "super_admin" || role === "admin";
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const details = await getPropertyDetails(id);
 
@@ -172,7 +173,11 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
       <div>
         <p className="text-xs font-semibold uppercase text-[#b17f19]">Property Management</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{details.property.name}</h1>
-        <p className="mt-2 text-sm text-gray-600">Manage property information, rooms, tenants and active rental terms.</p>
+        <p className="mt-2 text-sm text-gray-600">
+          {canManage
+            ? "Manage property information, rooms, tenants and active rental terms."
+            : "View property information, rooms, tenants and active rental terms."}
+        </p>
       </div>
 
       {query.saved ? (
@@ -189,55 +194,79 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
       <Card>
         <CardHeader>
           <CardTitle>Property Information</CardTitle>
-          <CardDescription>Edit the property and safely control its total room count.</CardDescription>
+          <CardDescription>
+            {canManage
+              ? "Edit the property and safely control its total room count."
+              : "Owner access is read-only. Contact Admin when property information needs to change."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <PropertyInformationForm action={updateProperty} currentRooms={details.rooms.length}>
-            <input name="propertyId" type="hidden" value={details.property.id} />
-            <label className="block">
-              <span className="text-sm font-medium text-gray-700">Property name</span>
-              <input className={fieldClass()} name="name" defaultValue={details.property.name} required />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-gray-700">Property code</span>
-              <input className={fieldClass()} name="propertyCode" defaultValue={details.property.code} />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-gray-700">Area</span>
-              <input className={fieldClass()} name="area" defaultValue={details.property.area} />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-gray-700">Total rooms</span>
-              <input
-                className={fieldClass()}
-                name="totalRooms"
-                type="number"
-                min={details.occupiedCount}
-                defaultValue={details.rooms.length}
-                required
-              />
-            </label>
-            <label className="block lg:col-span-2">
-              <span className="text-sm font-medium text-gray-700">Full address</span>
-              <textarea
-                className={`${fieldClass()} min-h-24 resize-y`}
-                name="address"
-                defaultValue={details.property.address}
-                required
-              />
-            </label>
-            <div className="flex flex-col justify-between gap-4 border-t border-[#e5e9ef] pt-4 sm:flex-row sm:items-end lg:col-span-2">
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-500">Occupied Rooms</p>
-                <p className="mt-1 text-2xl font-semibold text-gray-950">
-                  {details.occupiedCount} / {details.rooms.length}
-                  <span className="ml-2 text-sm font-normal text-gray-500">Rooms Occupied</span>
-                </p>
-                <p className="mt-1 text-xs text-gray-500">{details.vacantCount} vacant rooms available</p>
+          {canManage ? (
+            <PropertyInformationForm action={updateProperty} currentRooms={details.rooms.length}>
+              <input name="propertyId" type="hidden" value={details.property.id} />
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Property name</span>
+                <input className={fieldClass()} name="name" defaultValue={details.property.name} required />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Property code</span>
+                <input className={fieldClass()} name="propertyCode" defaultValue={details.property.code} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Area</span>
+                <input className={fieldClass()} name="area" defaultValue={details.property.area} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Total rooms</span>
+                <input
+                  className={fieldClass()}
+                  name="totalRooms"
+                  type="number"
+                  min={details.occupiedCount}
+                  defaultValue={details.rooms.length}
+                  required
+                />
+              </label>
+              <label className="block lg:col-span-2">
+                <span className="text-sm font-medium text-gray-700">Full address</span>
+                <textarea
+                  className={`${fieldClass()} min-h-24 resize-y`}
+                  name="address"
+                  defaultValue={details.property.address}
+                  required
+                />
+              </label>
+              <div className="flex flex-col justify-between gap-4 border-t border-[#e5e9ef] pt-4 sm:flex-row sm:items-end lg:col-span-2">
+                <PropertyOccupancy
+                  occupied={details.occupiedCount}
+                  total={details.rooms.length}
+                  vacant={details.vacantCount}
+                />
+                <Button type="submit">Save Property</Button>
               </div>
-              <Button type="submit">Save Property</Button>
+            </PropertyInformationForm>
+          ) : (
+            <div className="space-y-5">
+              <dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <ReadOnlyPropertyField label="Property name" value={details.property.name} />
+                <ReadOnlyPropertyField label="Property code" value={details.property.code || "-"} />
+                <ReadOnlyPropertyField label="Area" value={details.property.area || "-"} />
+                <ReadOnlyPropertyField label="Total rooms" value={String(details.rooms.length)} />
+                <ReadOnlyPropertyField
+                  className="sm:col-span-2 lg:col-span-4"
+                  label="Full address"
+                  value={details.property.address || "-"}
+                />
+              </dl>
+              <div className="border-t border-[#e5e9ef] pt-4">
+                <PropertyOccupancy
+                  occupied={details.occupiedCount}
+                  total={details.rooms.length}
+                  vacant={details.vacantCount}
+                />
+              </div>
             </div>
-          </PropertyInformationForm>
+          )}
         </CardContent>
       </Card>
 
@@ -304,12 +333,14 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
               <CardTitle>Room Management</CardTitle>
               <CardDescription>One row is one room. Rent and due day save when you leave the field.</CardDescription>
             </div>
-            <Button asChild>
-              <Link href={`/properties/${id}/register-tenant`}>
-                <Plus className="h-4 w-4" />
-                Register New Tenant
-              </Link>
-            </Button>
+            {canManage ? (
+              <Button asChild>
+                <Link href={`/properties/${id}/register-tenant`}>
+                  <Plus className="h-4 w-4" />
+                  Register New Tenant
+                </Link>
+              </Button>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -323,23 +354,25 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <PaymentQrPreview propertyName={details.property.name} qrUrl={details.property.paymentQrUrl} />
-              <form action={updatePaymentQr} className="flex flex-col gap-2 sm:flex-row">
-                <input name="propertyId" type="hidden" value={details.property.id} />
-                <label>
-                  <span className="sr-only">Payment QR image URL</span>
-                  <input
-                    className="h-9 w-full min-w-72 rounded-md border border-[#d7dde5] bg-white px-3 text-sm outline-none focus:border-[#b98a29]"
-                    name="paymentQrUrl"
-                    type="url"
-                    defaultValue={details.property.paymentQrUrl ?? ""}
-                    placeholder="https://.../payment-qr.png"
-                  />
-                </label>
-                <Button size="sm" type="submit" variant="outline">
-                  <QrCode className="h-4 w-4" />
-                  Change
-                </Button>
-              </form>
+              {canManage ? (
+                <form action={updatePaymentQr} className="flex flex-col gap-2 sm:flex-row">
+                  <input name="propertyId" type="hidden" value={details.property.id} />
+                  <label>
+                    <span className="sr-only">Payment QR image URL</span>
+                    <input
+                      className="h-9 w-full min-w-72 rounded-md border border-[#d7dde5] bg-white px-3 text-sm outline-none focus:border-[#b98a29]"
+                      name="paymentQrUrl"
+                      type="url"
+                      defaultValue={details.property.paymentQrUrl ?? ""}
+                      placeholder="https://.../payment-qr.png"
+                    />
+                  </label>
+                  <Button size="sm" type="submit" variant="outline">
+                    <QrCode className="h-4 w-4" />
+                    Change
+                  </Button>
+                </form>
+              ) : null}
             </div>
           </div>
 
@@ -371,6 +404,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                     propertyName={details.property.name}
                     room={room}
                     qrUrl={details.property.paymentQrUrl}
+                    canManage={canManage}
                   />
                 ))}
               </TableBody>
@@ -385,12 +419,51 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                 propertyName={details.property.name}
                 room={room}
                 qrUrl={details.property.paymentQrUrl}
+                canManage={canManage}
               />
             ))}
           </div>
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+function ReadOnlyPropertyField({
+  className,
+  label,
+  value,
+}: {
+  className?: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className={className}>
+      <dt className="text-xs font-semibold uppercase text-gray-500">{label}</dt>
+      <dd className="mt-1.5 font-medium text-gray-950">{value}</dd>
+    </div>
+  );
+}
+
+function PropertyOccupancy({
+  occupied,
+  total,
+  vacant,
+}: {
+  occupied: number;
+  total: number;
+  vacant: number;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase text-gray-500">Occupied Rooms</p>
+      <p className="mt-1 text-2xl font-semibold text-gray-950">
+        {occupied} / {total}
+        <span className="ml-2 text-sm font-normal text-gray-500">Rooms Occupied</span>
+      </p>
+      <p className="mt-1 text-xs text-gray-500">{vacant} vacant rooms available</p>
+    </div>
   );
 }
 
@@ -405,9 +478,20 @@ function HiddenRoomFields({ propertyId, room }: { propertyId: string; room: Prop
   );
 }
 
-function AgreementActions({ propertyId, room }: { propertyId: string; room: PropertyRoomView }) {
+function AgreementActions({
+  canManage,
+  propertyId,
+  room,
+}: {
+  canManage: boolean;
+  propertyId: string;
+  room: PropertyRoomView;
+}) {
   if (!room.tenantName) return null;
   if (!room.agreementId) {
+    if (!canManage) {
+      return <span className="text-xs text-gray-400">Not available</span>;
+    }
     return (
       <form action={generateRoomAgreement}>
         <HiddenRoomFields propertyId={propertyId} room={room} />
@@ -423,7 +507,7 @@ function AgreementActions({ propertyId, room }: { propertyId: string; room: Prop
       <Button asChild className="h-8 px-2 text-xs" size="sm" variant="outline">
         <Link href={`/e-tenancy/${room.agreementId}?print=1`} target="_blank">Print</Link>
       </Button>
-      {room.agreementStatus !== "signed" ? (
+      {canManage && room.agreementStatus !== "signed" ? (
         <form action={sendRoomAgreement}>
           <HiddenRoomFields propertyId={propertyId} room={room} />
           <input name="agreementId" type="hidden" value={room.agreementId} />
@@ -437,11 +521,13 @@ function AgreementActions({ propertyId, room }: { propertyId: string; room: Prop
 }
 
 function DesktopRoomRow({
+  canManage,
   propertyId,
   propertyName,
   room,
   qrUrl,
 }: {
+  canManage: boolean;
   propertyId: string;
   propertyName: string;
   room: PropertyRoomView;
@@ -491,6 +577,7 @@ function DesktopRoomRow({
           field="monthlyRent"
           value={room.monthlyRent}
           label={`${room.roomNumber} monthly rent`}
+          editable={canManage}
         />
       </TableCell>
       <TableCell>
@@ -503,6 +590,7 @@ function DesktopRoomRow({
             field="deposit"
             value={room.deposit}
             label={`${room.roomNumber} deposit`}
+            editable={canManage}
           />
         )}
       </TableCell>
@@ -522,6 +610,7 @@ function DesktopRoomRow({
             field="amountReceived"
             value={room.amountReceived}
             label={`${room.roomNumber} amount received`}
+            editable={canManage}
           />
         )}
       </TableCell>
@@ -535,6 +624,7 @@ function DesktopRoomRow({
             field="dueDay"
             value={room.dueDay}
             label={`${room.roomNumber} rent due day`}
+            editable={canManage}
           />
         ) : <span className="text-gray-400">-</span>}
       </TableCell>
@@ -549,6 +639,7 @@ function DesktopRoomRow({
             field="contractEnd"
             value={room.contractEnd ?? ""}
             label={`${room.roomNumber} contract end date`}
+            editable={canManage}
           />
         )}
         {warning ? (
@@ -564,7 +655,7 @@ function DesktopRoomRow({
             <Badge className={statusBadgeClass(room.agreementStatus)}>
               {agreementLabel(room.agreementStatus)}
             </Badge>
-            <AgreementActions propertyId={propertyId} room={room} />
+            <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
           </div>
         )}
       </TableCell>
@@ -585,12 +676,12 @@ function DesktopRoomRow({
       </TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
-          <PaymentQrCell propertyName={propertyName} qrUrl={qrUrl} />
+          <PaymentQrCell canManage={canManage} propertyName={propertyName} qrUrl={qrUrl} />
         )}
       </TableCell>
       <TableCell>
         <div className="flex flex-col gap-2">
-          {vacant ? (
+          {vacant && canManage ? (
             <Button asChild size="sm">
               <Link href={`/properties/${propertyId}/register-tenant?room=${room.id}`}>
                 <UserPlus className="h-4 w-4" />
@@ -611,11 +702,13 @@ function DesktopRoomRow({
 }
 
 function MobileRoomCard({
+  canManage,
   propertyId,
   propertyName,
   room,
   qrUrl,
 }: {
+  canManage: boolean;
   propertyId: string;
   propertyName: string;
   room: PropertyRoomView;
@@ -657,6 +750,7 @@ function MobileRoomCard({
               field="monthlyRent"
               value={room.monthlyRent}
               label={`${room.roomNumber} monthly rent`}
+              editable={canManage}
             />
           </dd>
         </div>
@@ -672,6 +766,7 @@ function MobileRoomCard({
                 field="deposit"
                 value={room.deposit}
                 label={`${room.roomNumber} deposit`}
+                editable={canManage}
               />
             )}
           </dd>
@@ -691,6 +786,7 @@ function MobileRoomCard({
                     field="amountReceived"
                     value={room.amountReceived}
                     label={`${room.roomNumber} amount received`}
+                    editable={canManage}
                   />
                 ) : money.format(room.amountReceived)}
               </dd>
@@ -707,6 +803,7 @@ function MobileRoomCard({
                     field="dueDay"
                     value={room.dueDay}
                     label={`${room.roomNumber} rent due day`}
+                    editable={canManage}
                   />
                 ) : "-"}
               </dd>
@@ -726,6 +823,7 @@ function MobileRoomCard({
                   field="contractEnd"
                   value={room.contractEnd ?? ""}
                   label={`${room.roomNumber} contract end date`}
+                  editable={canManage}
                 />
               </dd>
               {warning ? <p className={`mt-1 text-xs ${warning.className}`}>{warning.label}</p> : null}
@@ -747,23 +845,23 @@ function MobileRoomCard({
             </div>
             <div>
               <dt className="text-gray-500">Payment QR</dt>
-              <dd className="mt-1"><PaymentQrCell propertyName={propertyName} qrUrl={qrUrl} /></dd>
+              <dd className="mt-1"><PaymentQrCell canManage={canManage} propertyName={propertyName} qrUrl={qrUrl} /></dd>
             </div>
           </>
         ) : null}
       </dl>
 
       <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e5e9ef] pt-4">
-        {vacant ? (
+        {vacant && canManage ? (
           <Button asChild size="sm">
             <Link href={`/properties/${propertyId}/register-tenant?room=${room.id}`}>
               <UserPlus className="h-4 w-4" />
               Register Tenant
             </Link>
           </Button>
-        ) : (
-          <AgreementActions propertyId={propertyId} room={room} />
-        )}
+        ) : !vacant ? (
+          <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
+        ) : null}
         <Button asChild size="sm" variant="outline">
           <Link href={`/properties/${propertyId}/rooms/${room.id}`}>
             <Home className="h-4 w-4" />

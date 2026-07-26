@@ -13,13 +13,16 @@ type PageProps = {
 
 const errorMessages: Record<string, string> = {
   missing: "Please complete the required tenant and check-in information.",
+  document: "Upload IC front and back, or upload the passport photo page.",
+  commercial_document: "This commercial-title property requires a trading licence or supporting business document.",
+  upload: "The tenant documents could not be uploaded.",
   occupied: "That room is no longer vacant. Choose another room.",
   tenant: "The tenant record could not be created.",
   tenancy: "The tenancy could not be created.",
 };
 
 export default async function RegisterTenantPage({ params, searchParams }: PageProps) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const details = await getPropertyDetails(id);
   const vacantRooms = details.rooms
@@ -57,6 +60,7 @@ export default async function RegisterTenantPage({ params, searchParams }: PageP
           {vacantRooms.length ? (
             <RegistrationForm
               action={registerTenant}
+              isCommercial={details.property.isCommercial}
               propertyId={id}
               propertyName={details.property.name}
               rooms={vacantRooms}

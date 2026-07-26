@@ -78,7 +78,14 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Super Admin", href: "/super-admin", icon: ShieldCheck },
     ...adminNavigation,
   ],
-  owner: adminNavigation.filter((item) => !["/tenant-verification", "/payment-verification"].includes(item.href)),
+  owner: adminNavigation.filter(
+    (item) =>
+      ![
+        "/admin-setup",
+        "/tenant-verification",
+        "/payment-verification",
+      ].includes(item.href),
+  ),
   admin: adminNavigation.filter((item) => item.href !== "/settings"),
   technician: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },

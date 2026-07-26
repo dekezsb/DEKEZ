@@ -27,12 +27,76 @@ function numberValue(formData: FormData, key: string) {
   return Number.isFinite(value) ? value : 0;
 }
 
+type TenantDocumentType =
+  | "ic_front"
+  | "ic_back"
+  | "passport_photo_page"
+  | "commercial_supporting_document";
+
+function fileValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return value instanceof File && value.size > 0 ? value : null;
+}
+
+function validDocument(file: File | null) {
+  if (!file) return true;
+  const allowedTypes = new Set([
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ]);
+  return file.size <= 10 * 1024 * 1024 && allowedTypes.has(file.type);
+}
+
 async function getAdmin() {
   try {
     return createAdminClient();
   } catch {
     return createClient();
   }
+}
+
+async function uploadTenantDocuments(
+  supabase: Awaited<ReturnType<typeof getAdmin>>,
+  actorId: string,
+  batchId: string,
+  documents: Array<{ documentType: TenantDocumentType; file: File }>,
+) {
+  const uploaded: Array<{
+    content_type: string | null;
+    document_type: TenantDocumentType;
+    file_name: string;
+    file_path: string;
+  }> = [];
+
+  for (const document of documents) {
+    const safeName = document.file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const path = `${actorId}/admin-registration/${batchId}/${document.documentType}-${safeName}`;
+    const bytes = Buffer.from(await document.file.arrayBuffer());
+    const { error } = await supabase.storage
+      .from("tenant-documents")
+      .upload(path, bytes, {
+        contentType: document.file.type || "application/octet-stream",
+        upsert: false,
+      });
+    if (error) {
+      if (uploaded.length) {
+        await supabase.storage
+          .from("tenant-documents")
+          .remove(uploaded.map((item) => item.file_path));
+      }
+      throw error;
+    }
+    uploaded.push({
+      content_type: document.file.type || null,
+      document_type: document.documentType,
+      file_name: document.file.name,
+      file_path: path,
+    });
+  }
+
+  return uploaded;
 }
 
 async function accessibleProperty(propertyId: string) {
@@ -274,7 +338,7 @@ async function createAgreementForTenancy(
 }
 
 export async function updateProperty(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const property = await accessibleProperty(propertyId);
@@ -389,7 +453,7 @@ export async function updateProperty(formData: FormData) {
 }
 
 export async function updatePaymentQr(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const propertyId = textValue(formData, "propertyId");
   const property = await accessibleProperty(propertyId);
   if (!property) {
@@ -403,7 +467,7 @@ export async function updatePaymentQr(formData: FormData) {
 }
 
 export async function updateRoomField(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
@@ -722,7 +786,7 @@ export async function updateRoomField(formData: FormData) {
 }
 
 export async function generateRoomAgreement(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
@@ -749,7 +813,7 @@ export async function generateRoomAgreement(formData: FormData) {
 }
 
 export async function sendRoomAgreement(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const propertyId = textValue(formData, "propertyId");
   const agreementId = textValue(formData, "agreementId");
   const tenancyId = textValue(formData, "tenancyId");
@@ -775,7 +839,7 @@ export async function sendRoomAgreement(formData: FormData) {
 }
 
 export async function registerTenant(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
@@ -788,9 +852,31 @@ export async function registerTenant(formData: FormData) {
   const contractEnd = textValue(formData, "contractEnd") || null;
   const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
   const deposit = Math.max(0, numberValue(formData, "deposit"));
+  const icFront = fileValue(formData, "icFront");
+  const icBack = fileValue(formData, "icBack");
+  const passportPhoto = fileValue(formData, "passportPhoto");
+  const commercialSupportingDocument = fileValue(
+    formData,
+    "commercialSupportingDocument",
+  );
 
   if (!user || !property || !roomId || !fullName || !checkInDate) {
     redirect(propertyPath(propertyId, "/register-tenant?error=missing"));
+  }
+  if (!(icFront && icBack) && !passportPhoto) {
+    redirect(propertyPath(property.id, "/register-tenant?error=document"));
+  }
+  if (property.is_commercial && !commercialSupportingDocument) {
+    redirect(
+      propertyPath(property.id, "/register-tenant?error=commercial_document"),
+    );
+  }
+  if (
+    ![icFront, icBack, passportPhoto, commercialSupportingDocument].every(
+      validDocument,
+    )
+  ) {
+    redirect(propertyPath(property.id, "/register-tenant?error=upload"));
   }
 
   const supabase = await getAdmin();
@@ -802,6 +888,37 @@ export async function registerTenant(formData: FormData) {
     .maybeSingle();
   if (!room || room.status !== "vacant") {
     redirect(propertyPath(property.id, "/register-tenant?error=occupied"));
+  }
+
+  const documentBatchId = crypto.randomUUID();
+  const documents = [
+    icFront ? { documentType: "ic_front" as const, file: icFront } : null,
+    icBack ? { documentType: "ic_back" as const, file: icBack } : null,
+    passportPhoto
+      ? { documentType: "passport_photo_page" as const, file: passportPhoto }
+      : null,
+    commercialSupportingDocument
+      ? {
+          documentType: "commercial_supporting_document" as const,
+          file: commercialSupportingDocument,
+        }
+      : null,
+  ].filter(
+    (
+      document,
+    ): document is { documentType: TenantDocumentType; file: File } =>
+      document !== null,
+  );
+  let uploadedDocuments: Awaited<ReturnType<typeof uploadTenantDocuments>>;
+  try {
+    uploadedDocuments = await uploadTenantDocuments(
+      supabase,
+      user.id,
+      documentBatchId,
+      documents,
+    );
+  } catch {
+    redirect(propertyPath(property.id, "/register-tenant?error=upload"));
   }
 
   let existingTenant = null;
@@ -825,6 +942,7 @@ export async function registerTenant(formData: FormData) {
   }
 
   let tenantId = existingTenant?.id;
+  let createdTenant = false;
   if (!tenantId) {
     const { data: tenant, error } = await supabase
       .from("tenants")
@@ -839,9 +957,13 @@ export async function registerTenant(formData: FormData) {
       .select("id")
       .single();
     if (error || !tenant) {
+      await supabase.storage
+        .from("tenant-documents")
+        .remove(uploadedDocuments.map((item) => item.file_path));
       redirect(propertyPath(property.id, "/register-tenant?error=tenant"));
     }
     tenantId = tenant.id;
+    createdTenant = true;
   }
 
   const dueDay = Number(checkInDate.slice(8, 10));
@@ -872,7 +994,69 @@ export async function registerTenant(formData: FormData) {
     .select("id")
     .single();
   if (tenancyError || !tenancy) {
+    await supabase.storage
+      .from("tenant-documents")
+      .remove(uploadedDocuments.map((item) => item.file_path));
+    if (createdTenant) {
+      await supabase.from("tenants").delete().eq("id", tenantId);
+    }
     redirect(propertyPath(property.id, "/register-tenant?error=tenancy"));
+  }
+
+  const tenantRecordId = crypto.randomUUID();
+  const { error: tenantRecordError } = await supabase
+    .from("tenant_records")
+    .insert({
+      id: tenantRecordId,
+      company_id: property.company_id,
+      property_id: property.id,
+      unit_id: room.unit_id,
+      room_id: room.id,
+      tenant_id: tenantId,
+      tenancy_id: tenancy.id,
+      full_name: fullName,
+      email: email || null,
+      phone: phone || null,
+      identification_number: identityNumber || null,
+      monthly_rent: monthlyRent,
+      deposit,
+      contract_start: checkInDate,
+      contract_end: contractEnd,
+      due_day: dueDay,
+      status: "active",
+      created_by: user.id,
+    });
+  if (tenantRecordError) {
+    await supabase.storage
+      .from("tenant-documents")
+      .remove(uploadedDocuments.map((item) => item.file_path));
+    await supabase.from("tenancies").delete().eq("id", tenancy.id);
+    if (createdTenant) {
+      await supabase.from("tenants").delete().eq("id", tenantId);
+    }
+    redirect(propertyPath(property.id, "/register-tenant?error=tenant"));
+  }
+
+  const { error: documentError } = await supabase
+    .from("tenant_documents")
+    .insert(
+      uploadedDocuments.map((document) => ({
+        ...document,
+        tenant_application_id: null,
+        tenant_id: null,
+        tenant_record_id: tenantRecordId,
+      })),
+    );
+  if (documentError) {
+    await supabase.storage
+      .from("tenant-documents")
+      .remove(uploadedDocuments.map((item) => item.file_path));
+    await supabase.from("tenant_records").delete().eq("id", tenantRecordId);
+    await supabase.from("tenancies").delete().eq("id", tenancy.id);
+    if (createdTenant) {
+      await supabase.from("tenants").delete().eq("id", tenantId);
+    }
+    redirect(propertyPath(property.id, "/register-tenant?error=upload"));
   }
 
   await supabase
@@ -900,7 +1084,7 @@ export async function registerTenant(formData: FormData) {
 }
 
 export async function checkoutRoom(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "admin"]);
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
   const checkoutDate = textValue(formData, "checkoutDate") || today();

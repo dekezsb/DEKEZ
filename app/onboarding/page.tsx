@@ -9,6 +9,7 @@ import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { submitCheckInPayment, submitTenantApplication } from "./actions";
+import { CommercialPropertyFields } from "./commercial-property-fields";
 
 type PageProps = {
   searchParams: Promise<{
@@ -20,7 +21,8 @@ type PageProps = {
 
 const errorMessages: Record<string, string> = {
   missing: "Please fill in your name, property, room and contract duration.",
-  document: "Please upload IC front or passport photo page.",
+  document: "Upload both IC front and back, or upload the passport photo page.",
+  commercial_document: "The selected commercial-title property requires a trading licence or supporting business document.",
   room: "That room is no longer available. Please choose another room.",
   create: "Application could not be submitted.",
   upload: "Document upload failed.",
@@ -43,14 +45,10 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const supabase = await getAdmin();
 
-  const [propertiesResult, unitsResult, roomsResult, applicationsResult] = await Promise.all([
+  const [propertiesResult, roomsResult, applicationsResult] = await Promise.all([
     supabase
       .from("properties")
-      .select("id, name, address, contract_duration_options")
-      .order("name", { ascending: true }),
-    supabase
-      .from("units")
-      .select("id, property_id, name")
+      .select("id, name, address, is_commercial, contract_duration_options")
       .order("name", { ascending: true }),
     supabase
       .from("rooms")
@@ -65,7 +63,6 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   ]);
 
   const properties = propertiesResult.data ?? [];
-  const units = unitsResult.data ?? [];
   const rooms = roomsResult.data ?? [];
   const applications = applicationsResult.data ?? [];
   const latestApplication = applications[0];
@@ -170,35 +167,19 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 <span className="text-sm font-medium text-gray-700">Emergency contact number</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="emergencyContactNumber" />
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Property</span>
-                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="propertyId" required>
-                  <option value="">Choose property</option>
-                  {properties.map((property) => (
-                    <option key={property.id} value={property.id}>{property.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Unit optional</span>
-                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="unitId">
-                  <option value="">Choose unit if needed</option>
-                  {units.map((unit) => (
-                    <option key={unit.id} value={unit.id}>{unit.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Available room</span>
-                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="roomId" required>
-                  <option value="">Choose room</option>
-                  {rooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      {room.room_number ?? room.name} - {money(room.monthly_rent)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <CommercialPropertyFields
+                properties={properties.map((property) => ({
+                  id: property.id,
+                  isCommercial: Boolean(property.is_commercial),
+                  name: property.name,
+                }))}
+                rooms={rooms.map((room) => ({
+                  id: room.id,
+                  monthlyRent: Number(room.monthly_rent ?? 0),
+                  propertyId: room.property_id,
+                  roomNumber: room.room_number ?? room.name ?? "Room",
+                }))}
+              />
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Contract duration</span>
                 <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="contractDurationMonths" defaultValue="12">
@@ -234,6 +215,9 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 <span className="text-sm font-medium text-gray-700">Passport photo page</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="passportPhoto" type="file" accept="image/*,.pdf" />
               </label>
+              <p className="text-xs leading-5 text-gray-500 lg:col-span-3">
+                Identity requirement: upload both IC front and back, or upload the passport photo page.
+              </p>
               <Button className="lg:col-span-3" type="submit">Submit application</Button>
             </form>
           </CardContent>

@@ -35,7 +35,11 @@ async function uploadDocument(
   supabase: Awaited<ReturnType<typeof getAdmin>>,
   userId: string,
   applicationId: string,
-  documentType: "ic_front" | "ic_back" | "passport_photo_page",
+  documentType:
+    | "ic_front"
+    | "ic_back"
+    | "passport_photo_page"
+    | "commercial_supporting_document",
   file: File,
 ) {
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -69,7 +73,6 @@ export async function submitTenantApplication(formData: FormData) {
   }
 
   const propertyId = textValue(formData, "propertyId");
-  const unitId = textValue(formData, "unitId");
   const roomId = textValue(formData, "roomId");
   const fullName = textValue(formData, "fullName");
   const duration = numberValue(formData, "contractDurationMonths", 12);
@@ -85,19 +88,31 @@ export async function submitTenantApplication(formData: FormData) {
   const icFront = fileValue(formData, "icFront");
   const icBack = fileValue(formData, "icBack");
   const passportPhoto = fileValue(formData, "passportPhoto");
+  const commercialSupportingDocument = fileValue(
+    formData,
+    "commercialSupportingDocument",
+  );
 
-  if (!icFront && !passportPhoto) {
+  if (!(icFront && icBack) && !passportPhoto) {
     redirect("/onboarding?error=document");
   }
 
   const supabase = await getAdmin();
   const [{ data: room }, { data: property }] = await Promise.all([
-    supabase.from("rooms").select("id, status, monthly_rent").eq("id", roomId).maybeSingle(),
-    supabase.from("properties").select("id, default_contract_duration_months").eq("id", propertyId).maybeSingle(),
+    supabase
+      .from("rooms")
+      .select("id, unit_id, status, monthly_rent")
+      .eq("id", roomId)
+      .eq("property_id", propertyId)
+      .maybeSingle(),
+    supabase.from("properties").select("id, is_commercial, default_contract_duration_months").eq("id", propertyId).maybeSingle(),
   ]);
 
   if (!room || !property || room.status === "occupied") {
     redirect("/onboarding?error=room");
+  }
+  if (property.is_commercial && !commercialSupportingDocument) {
+    redirect("/onboarding?error=commercial_document");
   }
 
   const finalDuration = [6, 12].includes(duration) ? duration : Number(property.default_contract_duration_months ?? 12);
@@ -106,7 +121,7 @@ export async function submitTenantApplication(formData: FormData) {
     .insert({
       tenant_id: user.id,
       property_id: propertyId,
-      unit_id: unitId || null,
+      unit_id: room.unit_id,
       room_id: roomId,
       full_name: fullName,
       ic_passport_number: textValue(formData, "icPassportNumber") || null,
@@ -148,6 +163,15 @@ export async function submitTenantApplication(formData: FormData) {
     }
     if (passportPhoto) {
       await uploadDocument(supabase, user.id, application.id, "passport_photo_page", passportPhoto);
+    }
+    if (commercialSupportingDocument) {
+      await uploadDocument(
+        supabase,
+        user.id,
+        application.id,
+        "commercial_supporting_document",
+        commercialSupportingDocument,
+      );
     }
   } catch {
     redirect("/onboarding?error=upload");

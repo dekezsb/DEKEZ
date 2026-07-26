@@ -16,12 +16,14 @@ function inputClass() {
 
 export function RegistrationForm({
   action,
+  isCommercial,
   propertyId,
   propertyName,
   rooms,
   selectedRoomId,
 }: {
   action: (formData: FormData) => void | Promise<void>;
+  isCommercial: boolean;
   propertyId: string;
   propertyName: string;
   rooms: VacantRoom[];
@@ -49,6 +51,11 @@ export function RegistrationForm({
       <label>
         <span className="text-sm font-medium text-gray-700">Property</span>
         <input className={`${inputClass()} bg-gray-50`} value={propertyName} readOnly />
+        <span className={`mt-1.5 block text-xs ${isCommercial ? "font-medium text-[#9a6b0f]" : "text-gray-500"}`}>
+          {isCommercial
+            ? "Commercial title: supporting business document required."
+            : "Residential title"}
+        </span>
       </label>
       <label>
         <span className="text-sm font-medium text-gray-700">Vacant room</span>
@@ -90,6 +97,45 @@ export function RegistrationForm({
         <span className="text-sm font-medium text-gray-700">Deposit RM</span>
         <input className={inputClass()} name="deposit" type="number" min="0" step="0.01" defaultValue="0" />
       </label>
+
+      <fieldset className="rounded-md border border-[#d7dde5] p-4 lg:col-span-2">
+        <legend className="px-1 text-sm font-semibold text-gray-950">Tenant identity documents</legend>
+        <p className="mb-4 text-xs text-gray-500">
+          Upload both IC sides, or upload the passport photo page.
+        </p>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <label>
+            <span className="text-sm font-medium text-gray-700">IC front</span>
+            <input className={inputClass()} name="icFront" type="file" accept="image/*,.pdf" />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-gray-700">IC back</span>
+            <input className={inputClass()} name="icBack" type="file" accept="image/*,.pdf" />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-gray-700">Passport photo page</span>
+            <input className={inputClass()} name="passportPhoto" type="file" accept="image/*,.pdf" />
+          </label>
+        </div>
+      </fieldset>
+
+      {isCommercial ? (
+        <label className="rounded-md border border-[#ead8ad] bg-[#fffaf0] p-4 lg:col-span-2">
+          <span className="text-sm font-semibold text-gray-950">
+            Trading licence / supporting business document
+          </span>
+          <span className="mt-1 block text-xs text-gray-600">
+            Required because this property has a commercial title.
+          </span>
+          <input
+            className={inputClass()}
+            name="commercialSupportingDocument"
+            type="file"
+            accept="image/*,.pdf"
+            required
+          />
+        </label>
+      ) : null}
 
       <div className="rounded-md border border-[#ead8ad] bg-[#fffaf0] p-4 lg:col-span-2">
         <p className="text-sm font-semibold text-gray-950">Recurring billing preview</p>

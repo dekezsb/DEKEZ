@@ -67,6 +67,7 @@ export type PropertyDetailsView = {
     code: string;
     area: string;
     address: string;
+    isCommercial: boolean;
     paymentQrUrl: string | null;
   };
   rooms: PropertyRoomView[];
@@ -104,7 +105,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     await Promise.all([
       supabase
         .from("properties")
-        .select("id, company_id, name, address, property_code, area, location, city, payment_qr_url")
+        .select("id, company_id, name, address, property_code, area, location, city, is_commercial, payment_qr_url")
         .eq("id", propertyId)
         .single(),
       supabase
@@ -261,6 +262,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       code: property.property_code ?? fallbackCode,
       area: property.area ?? property.location ?? property.city ?? "",
       address: property.address ?? "",
+      isCommercial: Boolean(property.is_commercial),
       paymentQrUrl: property.payment_qr_url,
     },
     rooms: roomViews,

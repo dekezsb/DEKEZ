@@ -99,9 +99,11 @@ export function PaymentQrPreview({
 }
 
 export function PaymentQrCell({
+  canManage = true,
   propertyName,
   qrUrl,
 }: {
+  canManage?: boolean;
   propertyName: string;
   qrUrl: string | null;
 }) {
@@ -109,9 +111,11 @@ export function PaymentQrCell({
     return (
       <div className="space-y-1">
         <p className="text-xs text-gray-400">Not set</p>
-        <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
-          <a href="#payment-qr-settings">Change</a>
-        </Button>
+        {canManage ? (
+          <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
+            <a href="#payment-qr-settings">Change</a>
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -128,9 +132,11 @@ export function PaymentQrCell({
       />
       <div className="flex flex-col items-start gap-1">
         <PaymentQrPreview propertyName={propertyName} qrUrl={qrUrl} />
-        <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
-          <a href="#payment-qr-settings">Change</a>
-        </Button>
+        {canManage ? (
+          <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
+            <a href="#payment-qr-settings">Change</a>
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -145,6 +151,7 @@ export function InlineRoomField({
   field,
   value,
   label,
+  editable = true,
 }: {
   propertyId: string;
   roomId: string;
@@ -154,6 +161,7 @@ export function InlineRoomField({
   field: "monthlyRent" | "deposit" | "amountReceived" | "dueDay" | "contractEnd";
   value: number | string;
   label: string;
+  editable?: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const savedValue = useRef(String(value));
@@ -178,6 +186,17 @@ export function InlineRoomField({
     if (event.currentTarget.value !== savedValue.current) {
       formRef.current?.requestSubmit();
     }
+  }
+
+  if (!editable) {
+    const displayValue =
+      field === "contractEnd" || field === "dueDay"
+        ? String(value || "-")
+        : new Intl.NumberFormat("en-MY", {
+            style: "currency",
+            currency: "MYR",
+          }).format(Number(value || 0));
+    return <span className="font-medium text-gray-950">{displayValue}</span>;
   }
 
   return (

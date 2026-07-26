@@ -30,6 +30,16 @@ async function getAdmin() {
   }
 }
 
+function documentLabel(documentType: string) {
+  const labels: Record<string, string> = {
+    ic_front: "IC front",
+    ic_back: "IC back",
+    passport_photo_page: "Passport",
+    commercial_supporting_document: "Commercial supporting document",
+  };
+  return labels[documentType] ?? documentType.replaceAll("_", " ");
+}
+
 export default async function TenantVerificationPage({ searchParams }: PageProps) {
   await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
@@ -48,6 +58,7 @@ export default async function TenantVerificationPage({ searchParams }: PageProps
   const documentsByApplication = new Map<string, { id: string; document_type: string; file_path: string; file_name: string | null; verification_status: string; signedUrl?: string }[]>();
 
   for (const document of documentsResult.data ?? []) {
+    if (!document.tenant_application_id) continue;
     const { data } = await supabase.storage.from("tenant-documents").createSignedUrl(document.file_path, 60 * 10);
     const list = documentsByApplication.get(document.tenant_application_id) ?? [];
     list.push({ ...document, signedUrl: data?.signedUrl });
@@ -122,10 +133,10 @@ export default async function TenantVerificationPage({ searchParams }: PageProps
                             {documents.map((document) => (
                               document.signedUrl ? (
                                 <Button asChild key={document.id} size="sm" variant="outline">
-                                  <Link href={document.signedUrl} target="_blank">{document.document_type}</Link>
+                                  <Link href={document.signedUrl} target="_blank">{documentLabel(document.document_type)}</Link>
                                 </Button>
                               ) : (
-                                <Badge key={document.id}>{document.document_type}</Badge>
+                                <Badge key={document.id}>{documentLabel(document.document_type)}</Badge>
                               )
                             ))}
                           </div>
