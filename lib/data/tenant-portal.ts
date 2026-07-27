@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type Relation<T> = T | T[] | null;
@@ -14,7 +15,9 @@ function numberValue(value: unknown) {
 }
 
 async function signedUrl(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase:
+    | Awaited<ReturnType<typeof createClient>>
+    | ReturnType<typeof createAdminClient>,
   bucket: string,
   path: string | null,
 ) {
@@ -35,37 +38,40 @@ export async function getTenantPortalData() {
 
   if (!user) return null;
 
+  // Every privileged query below is explicitly scoped from the authenticated
+  // profile to its linked tenant and tenancy IDs.
+  const dataClient = createAdminClient();
   const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult] =
     await Promise.all([
-      supabase
+      dataClient
         .from("profiles")
         .select(
           "id, full_name, phone, registration_status, identity_type, identity_number",
         )
         .eq("id", user.id)
         .maybeSingle(),
-      supabase
+      dataClient
         .from("tenants")
         .select(
           "id, full_name, email, phone, identity_number, status, company_id",
         )
         .eq("profile_id", user.id)
         .order("updated_at", { ascending: false }),
-      supabase
+      dataClient
         .from("payment_submissions")
         .select(
           "id, rent_bill_id, tenancy_id, bill_month, bill_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_at, rejection_reason, created_at",
         )
         .eq("tenant_id", user.id)
         .order("created_at", { ascending: false }),
-      supabase
+      dataClient
         .from("maintenance_tickets")
         .select(
           "id, ticket_number, category, description, urgency, status, created_at, completed_at, properties(name), rooms(name, room_number), maintenance_attachments(id, bucket_name, file_path, content_type, created_at)",
         )
         .eq("tenant_id", user.id)
         .order("created_at", { ascending: false }),
-      supabase
+      dataClient
         .from("tenant_documents")
         .select(
           "id, document_type, file_path, file_name, content_type, verification_status, uploaded_at",
@@ -100,7 +106,7 @@ export async function getTenantPortalData() {
   }> = [];
 
   if (tenantIds.length) {
-    const { data } = await supabase
+    const { data } = await dataClient
       .from("tenancies")
       .select(
         "id, tenant_id, property_id, room_id, monthly_rent, monthly_rental, deposit, due_day, rent_due_day, start_date, end_date, contract_start, contract_end, check_in_date, checkout_date, status, billing_status, created_at, properties(name), rooms(name, room_number)",
@@ -158,21 +164,21 @@ export async function getTenantPortalData() {
 
   if (tenancyIds.length) {
     const [billsResult, paymentsResult, agreementsResult] = await Promise.all([
-      supabase
+      dataClient
         .from("rent_bills")
         .select(
           "id, tenancy_id, bill_month, due_date, amount, paid_amount, status, created_at",
         )
         .in("tenancy_id", tenancyIds)
         .order("bill_month", { ascending: false }),
-      supabase
+      dataClient
         .from("payments")
         .select(
           "id, tenancy_id, rent_bill_id, category, amount, payment_date, payment_method, reference_number, status, verified_at, created_at",
         )
         .in("tenancy_id", tenancyIds)
         .order("payment_date", { ascending: false }),
-      supabase
+      dataClient
         .from("tenancy_agreements")
         .select(
           "id, tenancy_id, agreement_type, version_number, status, generated_at, signed_at, pdf_url, term_start_date, term_end_date",
@@ -191,7 +197,7 @@ export async function getTenantPortalData() {
         (ticket.maintenance_attachments ?? []).map(async (attachment) => ({
           ...attachment,
           signedUrl: await signedUrl(
-            supabase,
+            dataClient,
             attachment.bucket_name || "maintenance-attachments",
             attachment.file_path,
           ),
@@ -213,7 +219,7 @@ export async function getTenantPortalData() {
     (documentsResult.data ?? []).map(async (document) => ({
       ...document,
       signedUrl: await signedUrl(
-        supabase,
+        dataClient,
         "tenant-documents",
         document.file_path,
       ),
