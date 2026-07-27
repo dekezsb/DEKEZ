@@ -1093,6 +1093,7 @@ export async function checkoutRoom(formData: FormData) {
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
   const checkoutDate = textValue(formData, "checkoutDate") || today();
+  const returnTo = textValue(formData, "returnTo");
   const property = await accessibleProperty(propertyId);
   if (!property) {
     redirect("/properties");
@@ -1140,5 +1141,10 @@ export async function checkoutRoom(formData: FormData) {
       .eq("status", "pending");
   }
   revalidatePath(propertyPath(property.id));
-  redirect(propertyPath(property.id, "?saved=checkout"));
+  revalidatePath("/verification");
+  redirect(
+    returnTo === "/verification?view=tenancy"
+      ? "/verification?view=tenancy&checkout=1"
+      : propertyPath(property.id, "?saved=checkout"),
+  );
 }

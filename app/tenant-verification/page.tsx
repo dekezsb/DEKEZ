@@ -10,7 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { reviewTenantApplication } from "./actions";
 
-type PageProps = {
+export type TenantVerificationPageProps = {
   searchParams: Promise<{
     reviewed?: string;
     error?: string;
@@ -40,7 +40,20 @@ function documentLabel(documentType: string) {
   return labels[documentType] ?? documentType.replaceAll("_", " ");
 }
 
-export default async function TenantVerificationPage({ searchParams }: PageProps) {
+export default async function TenantVerificationPage({
+  searchParams,
+}: TenantVerificationPageProps) {
+  return <TenantVerificationContent searchParams={searchParams} />;
+}
+
+export async function TenantVerificationContent({
+  searchParams,
+  embedded = false,
+  returnTo = "/tenant-verification",
+}: TenantVerificationPageProps & {
+  embedded?: boolean;
+  returnTo?: string;
+}) {
   await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
   const supabase = await getAdmin();
@@ -69,13 +82,13 @@ export default async function TenantVerificationPage({ searchParams }: PageProps
 
   return (
     <section className="space-y-6">
-      <div>
+      {!embedded ? <div>
         <p className="text-xs font-semibold uppercase text-[#126b5f]">Admin Review</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Tenant Verification</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
           Review tenant identity, private documents, property selection, room selection, rent, deposit and duration.
         </p>
-      </div>
+      </div> : null}
 
       {params.reviewed === "1" ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
@@ -150,6 +163,7 @@ export default async function TenantVerificationPage({ searchParams }: PageProps
                         <TableCell className="min-w-64">
                           <form action={reviewTenantApplication} className="space-y-2">
                             <input name="applicationId" type="hidden" value={application.id} />
+                            <input name="returnTo" type="hidden" value={returnTo} />
                             <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Notes optional" defaultValue={application.admin_notes ?? ""} />
                             <div className="grid gap-2 sm:grid-cols-3">
                               <Button name="decision" size="sm" type="submit" value="verified">Verify</Button>

@@ -12,6 +12,16 @@ function textValue(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function returnPath(formData: FormData) {
+  return textValue(formData, "returnTo") === "/verification?view=tenants"
+    ? "/verification?view=tenants"
+    : "/tenant-verification";
+}
+
+function withResult(path: string, result: string) {
+  return `${path}${path.includes("?") ? "&" : "?"}${result}`;
+}
+
 async function getAdmin() {
   try {
     return createAdminClient();
@@ -26,9 +36,10 @@ export async function reviewTenantApplication(formData: FormData) {
   const applicationId = textValue(formData, "applicationId");
   const decision = textValue(formData, "decision");
   const notes = textValue(formData, "notes");
+  const returnTo = returnPath(formData);
 
   if (!user || !applicationId || !["verified", "rejected", "more_information_required"].includes(decision)) {
-    redirect("/tenant-verification?error=missing");
+    redirect(withResult(returnTo, "error=missing"));
   }
 
   const supabase = await getAdmin();
@@ -45,11 +56,11 @@ export async function reviewTenantApplication(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", applicationId)
-    .select("tenant_id")
+    .select("tenant_id, room_id")
     .single();
 
   if (error || !application) {
-    redirect("/tenant-verification?error=review");
+    redirect(withResult(returnTo, "error=review"));
   }
 
   await supabase.from("tenant_verifications").insert({
@@ -65,7 +76,41 @@ export async function reviewTenantApplication(formData: FormData) {
     .update({ verification_status: decision })
     .eq("tenant_application_id", applicationId);
 
+  if (decision === "verified" && application.room_id) {
+    await supabase
+      .from("rooms")
+      .update({ status: "reserved", updated_at: new Date().toISOString() })
+      .eq("id", application.room_id)
+      .eq("status", "vacant");
+  }
+
+  if (decision === "rejected" && application.room_id) {
+    const { data: competingApplications } = await supabase
+      .from("tenant_applications")
+      .select("id")
+      .eq("room_id", application.room_id)
+      .neq("id", applicationId)
+      .in("verification_status", ["verified", "pending_verification"])
+      .limit(1);
+    const { data: activeTenancy } = await supabase
+      .from("tenancies")
+      .select("id")
+      .eq("room_id", application.room_id)
+      .eq("status", "active")
+      .limit(1);
+
+    if (!competingApplications?.length && !activeTenancy?.length) {
+      await supabase
+        .from("rooms")
+        .update({ status: "vacant", updated_at: new Date().toISOString() })
+        .eq("id", application.room_id)
+        .eq("status", "reserved");
+    }
+  }
+
   revalidatePath("/tenant-verification");
+  revalidatePath("/verification");
   revalidatePath("/onboarding");
-  redirect("/tenant-verification?reviewed=1");
+  revalidatePath("/properties");
+  redirect(withResult(returnTo, "reviewed=1"));
 }

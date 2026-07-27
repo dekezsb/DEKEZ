@@ -219,7 +219,7 @@ export async function signAgreement(formData: FormData) {
   const supabase = await getAdmin();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, rendered_content, tenancy_id, tenancies(tenant_id, tenants(profile_id))")
+    .select("id, rendered_content, tenancy_id, agreement_type, term_start_date, term_end_date, tenancies(tenant_id, tenants(profile_id))")
     .eq("id", agreementId)
     .single();
 
@@ -260,14 +260,33 @@ export async function signAgreement(formData: FormData) {
   await supabase
     .from("tenancy_agreements")
     .update({
-      status: "signed",
+      status: agreement.agreement_type === "renewal" ? "renewal_signed" : "signed",
       signed_at: signedAt,
       pdf_url: pdfPath,
       rendered_content: signedContent,
     })
     .eq("id", agreement.id);
 
+  if (
+    agreement.agreement_type === "renewal" &&
+    agreement.term_start_date &&
+    agreement.term_end_date
+  ) {
+    await supabase
+      .from("tenancies")
+      .update({
+        tenancy_start_date: agreement.term_start_date,
+        tenancy_end_date: agreement.term_end_date,
+        contract_start: agreement.term_start_date,
+        contract_end: agreement.term_end_date,
+        renewal_status: "signed",
+        updated_at: signedAt,
+      })
+      .eq("id", agreement.tenancy_id);
+  }
+
   revalidatePath("/e-tenancy");
+  revalidatePath("/verification");
   revalidatePath(`/e-tenancy/${agreement.id}`);
   redirect(`/e-tenancy/${agreement.id}?signed=1`);
 }

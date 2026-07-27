@@ -20,6 +20,7 @@ type PaymentRecordActionsProps = {
   verifiedBy?: string | null;
   verifiedAt?: string | null;
   rejectionReason?: string | null;
+  returnTo?: string;
 };
 
 function statusLabel(status: string) {
@@ -46,6 +47,7 @@ export function PaymentRecordActions({
   verifiedBy,
   verifiedAt,
   rejectionReason,
+  returnTo = "/payment-verification",
 }: PaymentRecordActionsProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -94,6 +96,7 @@ export function PaymentRecordActions({
             <form action={reviewPaymentSubmission} className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="verified" />
+              <input name="returnTo" type="hidden" value={returnTo} />
               <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
               <Button type="submit">Confirm & Verify</Button>
             </form>
@@ -109,6 +112,7 @@ export function PaymentRecordActions({
             <form action={reviewPaymentSubmission} className="mt-5 space-y-3">
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="rejected" />
+              <input name="returnTo" type="hidden" value={returnTo} />
               <select className="w-full rounded-md border border-[#d7dde5] px-3 py-2" name="notes" required>
                 <option value="">Choose reason</option>
                 <option value="Amount not received">Amount not received</option>

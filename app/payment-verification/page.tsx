@@ -9,7 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { PaymentRecordActions } from "./payment-record-actions";
 
-type PageProps = {
+export type PaymentVerificationPageProps = {
   searchParams: Promise<{
     reviewed?: string;
     error?: string;
@@ -71,7 +71,20 @@ function isImagePath(path: string | null | undefined) {
   return Boolean(path?.match(/\.(png|jpg|jpeg|webp|gif)$/i));
 }
 
-export default async function PaymentVerificationPage({ searchParams }: PageProps) {
+export default async function PaymentVerificationPage({
+  searchParams,
+}: PaymentVerificationPageProps) {
+  return <PaymentVerificationContent searchParams={searchParams} />;
+}
+
+export async function PaymentVerificationContent({
+  searchParams,
+  embedded = false,
+  returnTo = "/payment-verification",
+}: PaymentVerificationPageProps & {
+  embedded?: boolean;
+  returnTo?: string;
+}) {
   await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
   const supabase = await getAdmin();
@@ -136,13 +149,13 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
 
   return (
     <section className="space-y-6">
-      <div>
+      {!embedded ? <div>
         <p className="text-xs font-semibold uppercase text-[#b98a2c]">Bank In Records</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Payment Verification</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
           Check uploaded bank-in slips before rent bills are marked paid and rental totals are counted.
         </p>
-      </div>
+      </div> : null}
 
       {params.reviewed === "1" ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
@@ -170,6 +183,9 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 lg:grid-cols-6" method="get">
+            {returnTo === "/verification?view=payments" ? (
+              <input name="view" type="hidden" value="payments" />
+            ) : null}
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Status</span>
               <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="status" defaultValue={statusFilter}>
@@ -262,7 +278,7 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
                             <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
                           </TableCell>
                           <TableCell>
-                            <PaymentRecordActions {...row} />
+                            <PaymentRecordActions {...row} returnTo={returnTo} />
                           </TableCell>
                         </TableRow>
                       );
@@ -286,7 +302,7 @@ export default async function PaymentVerificationPage({ searchParams }: PageProp
                         <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
                       </div>
                       <div className="mt-4">
-                        <PaymentRecordActions {...row} />
+                        <PaymentRecordActions {...row} returnTo={returnTo} />
                       </div>
                     </div>
                   );

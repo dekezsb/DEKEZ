@@ -18,6 +18,16 @@ function textValue(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function returnPath(formData: FormData) {
+  return textValue(formData, "returnTo") === "/verification?view=payments"
+    ? "/verification?view=payments"
+    : "/payment-verification";
+}
+
+function withResult(path: string, result: string) {
+  return `${path}${path.includes("?") ? "&" : "?"}${result}`;
+}
+
 async function getAdmin() {
   try {
     return createAdminClient();
@@ -186,13 +196,14 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const submissionId = textValue(formData, "submissionId");
   const decision = textValue(formData, "decision");
   const notes = textValue(formData, "notes");
+  const returnTo = returnPath(formData);
 
   if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
-    redirect("/payment-verification?error=missing");
+    redirect(withResult(returnTo, "error=missing"));
   }
 
   if (decision === "rejected" && !notes) {
-    redirect("/payment-verification?error=reason");
+    redirect(withResult(returnTo, "error=reason"));
   }
 
   const supabase = await getAdmin();
@@ -203,19 +214,19 @@ export async function reviewPaymentSubmission(formData: FormData) {
     .single();
 
   if (!currentSubmission) {
-    redirect("/payment-verification?error=review");
+    redirect(withResult(returnTo, "error=review"));
   }
 
   if (currentSubmission.verification_status === "verified" && role !== "super_admin") {
-    redirect("/payment-verification?error=already_verified");
+    redirect(withResult(returnTo, "error=already_verified"));
   }
 
   if (currentSubmission.verification_status === "verified" && role === "super_admin" && decision !== "verified" && !notes) {
-    redirect("/payment-verification?error=reason");
+    redirect(withResult(returnTo, "error=reason"));
   }
 
   if (currentSubmission.verification_status === "verified" && decision === "verified") {
-    redirect("/payment-verification?error=already_verified");
+    redirect(withResult(returnTo, "error=already_verified"));
   }
 
   const { data: submission, error } = await supabase
@@ -232,7 +243,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     .single();
 
   if (error || !submission) {
-    redirect("/payment-verification?error=review");
+    redirect(withResult(returnTo, "error=review"));
   }
 
   await supabase.from("payment_verification_audit_logs").insert({
@@ -332,10 +343,11 @@ export async function reviewPaymentSubmission(formData: FormData) {
   }
 
   revalidatePath("/payment-verification");
+  revalidatePath("/verification");
   revalidatePath("/rent-due-tracker");
   revalidatePath("/payments");
   revalidatePath("/dashboard");
   revalidatePath("/e-tenancy");
   revalidatePath("/onboarding");
-  redirect("/payment-verification?reviewed=1");
+  redirect(withResult(returnTo, "reviewed=1"));
 }

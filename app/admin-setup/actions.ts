@@ -73,15 +73,22 @@ export async function createPortalUser(formData: FormData) {
     full_name: fullName,
     phone: phone || null,
     role,
+    registration_status: "approved",
+    registration_reviewed_by: currentUser?.id ?? null,
+    registration_reviewed_at: new Date().toISOString(),
+    registration_rejection_reason: null,
   });
 
   if (company && currentUser) {
     await admin.from("company_users").upsert({
       company_id: company.id,
+      profile_id: data.user.id,
       user_id: data.user.id,
       role,
       status: "active",
       created_by: currentUser.id,
+    }, {
+      onConflict: "company_id,profile_id",
     });
   }
 
