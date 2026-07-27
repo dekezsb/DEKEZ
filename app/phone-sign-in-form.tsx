@@ -45,7 +45,7 @@ export function PhoneSignInForm() {
           className="mt-2 h-11 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-gray-950 outline-none transition focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
           inputMode="tel"
           onChange={(event) => setPhone(event.target.value)}
-          placeholder="+60 12-345 6789"
+          placeholder="012-345 6789"
           required
           type="tel"
           value={phone}

@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     const { data: legacyProfile } = await admin
       .from("profiles")
       .select("id")
-      .eq("normalized_phone", phone.digits)
+      .in("normalized_phone", phone.lookupDigits)
       .maybeSingle();
 
     if (legacyProfile?.id) {

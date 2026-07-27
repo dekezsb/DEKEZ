@@ -53,7 +53,8 @@ export default async function Home() {
         <section className="mt-6 rounded-md bg-white p-6 shadow-xl sm:p-8">
           <h1 className="text-2xl font-semibold text-[#111827]">Sign in</h1>
           <p className="mt-2 text-sm leading-6 text-gray-600">
-            Use your registered phone number with country code.
+            Use Malaysian 01x format or an international number with country
+            code.
           </p>
           <PhoneSignInForm />
         </section>

@@ -16,8 +16,8 @@ export default function RegisterPage() {
         <section className="mt-6 rounded-md bg-white p-6 shadow-xl sm:p-8">
           <h1 className="text-2xl font-semibold text-[#111827]">Register</h1>
           <p className="mt-2 text-sm leading-6 text-gray-600">
-            Use an international phone number. An Admin will assign your DEKEZ
-            permission after registration.
+            Use Malaysian 01x format or an international number with country
+            code. An Admin will assign your DEKEZ permission after registration.
           </p>
           <RegistrationForm />
         </section>
