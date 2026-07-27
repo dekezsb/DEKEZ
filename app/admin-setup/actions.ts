@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/access";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
+import { phoneAuthAlias } from "@/lib/auth/registration";
 import { normalizeRole } from "@/lib/auth/roles";
 import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
@@ -59,11 +60,17 @@ export async function createPortalUser(formData: FormData) {
 
   const fullName = textValue(formData, "fullName");
   const email = textValue(formData, "email").toLowerCase();
-  const phone = textValue(formData, "phone");
+  const phoneInput = textValue(formData, "phone");
   const password = textValue(formData, "password");
   const role = textValue(formData, "role");
+  const phone = normalizeInternationalPhone(phoneInput);
 
-  if (!fullName || !email || !password || !allowedCreateRoles.includes(role as never)) {
+  if (
+    !fullName ||
+    !phone ||
+    !password ||
+    !allowedCreateRoles.includes(role as never)
+  ) {
     redirect("/admin-setup?error=user_missing");
   }
 
@@ -75,7 +82,7 @@ export async function createPortalUser(formData: FormData) {
   }
 
   const { data, error } = await admin.auth.admin.createUser({
-    email,
+    email: email || phoneAuthAlias(phone),
     password,
     email_confirm: true,
     app_metadata: {
@@ -83,7 +90,7 @@ export async function createPortalUser(formData: FormData) {
     },
     user_metadata: {
       full_name: fullName,
-      phone,
+      phone: phone.e164,
     },
   });
 
@@ -91,10 +98,10 @@ export async function createPortalUser(formData: FormData) {
     redirect(`/admin-setup?error=user_create&message=${encodeURIComponent(error?.message ?? "Unable to create user")}`);
   }
 
-  await admin.from("profiles").upsert({
+  const { error: profileError } = await admin.from("profiles").upsert({
     id: data.user.id,
     full_name: fullName,
-    phone: phone || null,
+    phone: phone.e164,
     role,
     global_role: role,
     registration_status: "approved",
@@ -102,6 +109,12 @@ export async function createPortalUser(formData: FormData) {
     registration_reviewed_at: new Date().toISOString(),
     registration_rejection_reason: null,
   });
+  if (profileError) {
+    await admin.auth.admin.deleteUser(data.user.id);
+    redirect(
+      `/admin-setup?error=user_create&message=${encodeURIComponent(profileError.message)}`,
+    );
+  }
 
   if (company && currentUser) {
     await admin.from("company_users").upsert({

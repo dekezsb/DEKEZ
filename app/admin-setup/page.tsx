@@ -115,7 +115,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
           <CardHeader>
             <CardTitle>Create User Account</CardTitle>
             <CardDescription>
-              Creates a Supabase Auth user and profile. Requires SUPABASE_SERVICE_ROLE_KEY.
+              Creates a phone-login account and profile. Email is optional.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -126,11 +126,23 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Phone</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="phone" />
+                <input
+                  className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                  inputMode="tel"
+                  name="phone"
+                  placeholder="01x or international number"
+                  required
+                  type="tel"
+                />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">Email</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="email" type="email" required />
+                <span className="text-sm font-medium text-gray-700">Email (optional)</span>
+                <input
+                  autoComplete="email"
+                  className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                  name="email"
+                  type="email"
+                />
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Temporary password</span>
