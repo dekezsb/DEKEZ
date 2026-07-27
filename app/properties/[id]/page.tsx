@@ -339,7 +339,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="rounded-md border border-[#eadcb9] bg-[#fbf8f1] px-4 py-3 text-sm text-gray-700">
-            Each occupied room keeps its own payment QR. Use <span className="font-semibold">Add QR</span> or{" "}
+            Each room keeps its own payment QR. Use <span className="font-semibold">Add QR</span> or{" "}
             <span className="font-semibold">Change</span> in that room&apos;s row.
           </div>
 
@@ -638,16 +638,14 @@ function DesktopRoomRow({
         {!vacant && room.outstanding <= 0 ? <p className="mt-1 text-xs text-emerald-700">No overdue balance</p> : null}
       </TableCell>
       <TableCell>
-        {vacant ? <span className="text-gray-400">-</span> : (
-          <PaymentQrCell
-            canManage={canManage}
-            hasRoomPaymentQr={room.hasRoomPaymentQr}
-            propertyId={propertyId}
-            propertyName={`${propertyName} - ${room.roomNumber}`}
-            qrUrl={room.paymentQrUrl}
-            roomId={room.id}
-          />
-        )}
+        <PaymentQrCell
+          canManage={canManage}
+          hasRoomPaymentQr={room.hasRoomPaymentQr}
+          propertyId={propertyId}
+          propertyName={`${propertyName} - ${room.roomNumber}`}
+          qrUrl={room.paymentQrUrl}
+          roomId={room.id}
+        />
       </TableCell>
       <TableCell>
         <div className="flex flex-col gap-2">
@@ -813,21 +811,21 @@ function MobileRoomCard({
                 <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
               </dd>
             </div>
-            <div>
-              <dt className="text-gray-500">Payment QR</dt>
-              <dd className="mt-1">
-                <PaymentQrCell
-                  canManage={canManage}
-                  hasRoomPaymentQr={room.hasRoomPaymentQr}
-                  propertyId={propertyId}
-                  propertyName={`${propertyName} - ${room.roomNumber}`}
-                  qrUrl={room.paymentQrUrl}
-                  roomId={room.id}
-                />
-              </dd>
-            </div>
           </>
         ) : null}
+        <div>
+          <dt className="text-gray-500">Payment QR</dt>
+          <dd className="mt-1">
+            <PaymentQrCell
+              canManage={canManage}
+              hasRoomPaymentQr={room.hasRoomPaymentQr}
+              propertyId={propertyId}
+              propertyName={`${propertyName} - ${room.roomNumber}`}
+              qrUrl={room.paymentQrUrl}
+              roomId={room.id}
+            />
+          </dd>
+        </div>
       </dl>
 
       <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e5e9ef] pt-4">
