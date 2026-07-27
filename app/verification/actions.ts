@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
+import { normalizeRole } from "@/lib/auth/roles";
 import { getCurrentUser } from "@/lib/data/organization";
 import {
   addMonths,
@@ -48,11 +49,12 @@ async function adminClient() {
   }
 }
 
-export async function reviewOwnerRegistration(formData: FormData) {
+export async function reviewUserRegistration(formData: FormData) {
   await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
-  const ownerId = textValue(formData, "ownerId");
+  const profileId = textValue(formData, "profileId");
   const decision = textValue(formData, "decision");
+  const assignedRole = normalizeRole(textValue(formData, "role"));
   const reason = textValue(formData, "reason");
   const propertyIds = formData
     .getAll("propertyIds")
@@ -60,61 +62,98 @@ export async function reviewOwnerRegistration(formData: FormData) {
 
   if (
     !user ||
-    !ownerId ||
+    !profileId ||
     !["approved", "rejected"].includes(decision) ||
-    (decision === "approved" && !propertyIds.length) ||
+    (decision === "approved" &&
+      (!assignedRole ||
+        assignedRole === "super_admin" ||
+        (assignedRole === "owner" && !propertyIds.length))) ||
     (decision === "rejected" && !reason)
   ) {
-    redirect(verificationPath("owners", "error=owner_missing"));
+    redirect(verificationPath("users", "error=user_missing"));
   }
 
   const admin = await adminClient();
-  const { data: owner } = await admin
+  const { data: profile } = await admin
     .from("profiles")
     .select("id, role")
-    .eq("id", ownerId)
+    .eq("id", profileId)
     .maybeSingle();
 
-  if (!owner || owner.role !== "owner") {
-    redirect(verificationPath("owners", "error=owner_missing"));
+  if (!profile || profile.role === "super_admin") {
+    redirect(verificationPath("users", "error=user_missing"));
   }
 
   if (decision === "approved") {
-    const { data: properties } = await admin
-      .from("properties")
-      .select("id, company_id")
-      .in("id", propertyIds);
+    const { error: roleError } = await admin
+      .from("profiles")
+      .update({
+        role: assignedRole,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", profile.id);
 
-    if (!properties?.length || properties.length !== propertyIds.length) {
-      redirect(verificationPath("owners", "error=property_missing"));
+    if (roleError) {
+      redirect(verificationPath("users", "error=user_review"));
     }
 
-    const sessionClient = await createClient();
-    for (const property of properties) {
-      const { error: membershipError } = await admin.from("company_users").upsert(
-        {
-          company_id: property.company_id,
-          profile_id: owner.id,
-          user_id: owner.id,
-          role: "owner",
-          status: "active",
-          created_by: user.id,
-          updated_at: new Date().toISOString(),
+    const { data: authUser } = await admin.auth.admin.getUserById(profile.id);
+    const { error: authRoleError } = await admin.auth.admin.updateUserById(
+      profile.id,
+      {
+        app_metadata: {
+          ...(authUser.user?.app_metadata ?? {}),
+          role: assignedRole,
         },
-        { onConflict: "company_id,profile_id" },
-      );
+      },
+    );
 
-      if (membershipError) {
-        redirect(verificationPath("owners", "error=owner_assign"));
+    if (authRoleError) {
+      redirect(verificationPath("users", "error=user_review"));
+    }
+
+    if (assignedRole === "owner") {
+      const { data: properties } = await admin
+        .from("properties")
+        .select("id, company_id")
+        .in("id", propertyIds);
+
+      if (!properties?.length || properties.length !== propertyIds.length) {
+        redirect(verificationPath("users", "error=property_missing"));
       }
 
-      const { error: assignmentError } = await sessionClient.rpc("set_property_owner", {
-        target_owner_id: owner.id,
-        target_property_id: property.id,
-      });
+      const sessionClient = await createClient();
+      for (const property of properties) {
+        const { error: membershipError } = await admin
+          .from("company_users")
+          .upsert(
+            {
+              company_id: property.company_id,
+              profile_id: profile.id,
+              user_id: profile.id,
+              role: "owner",
+              status: "active",
+              created_by: user.id,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "company_id,profile_id" },
+          );
 
-      if (assignmentError) {
-        redirect(verificationPath("owners", "error=owner_assign"));
+        if (membershipError) {
+          redirect(verificationPath("users", "error=user_assign"));
+        }
+
+        const { error: assignmentError } = await sessionClient.rpc(
+          "set_property_owner",
+          {
+            target_owner_id: profile.id,
+            target_property_id: property.id,
+          },
+        );
+
+        if (assignmentError) {
+          redirect(verificationPath("users", "error=user_assign"));
+        }
       }
     }
   }
@@ -128,16 +167,16 @@ export async function reviewOwnerRegistration(formData: FormData) {
       registration_rejection_reason: decision === "rejected" ? reason : null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", owner.id);
+    .eq("id", profile.id);
 
   if (error) {
-    redirect(verificationPath("owners", "error=owner_review"));
+    redirect(verificationPath("users", "error=user_review"));
   }
 
   revalidatePath("/verification");
   revalidatePath("/properties");
   revalidatePath("/dashboard");
-  redirect(verificationPath("owners", "reviewed=1"));
+  redirect(verificationPath("users", "reviewed=1"));
 }
 
 export async function reviewClaim(formData: FormData) {

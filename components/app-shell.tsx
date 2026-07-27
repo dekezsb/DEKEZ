@@ -26,7 +26,11 @@ export function AppShell({ children, role, userName }: AppShellProps) {
   const navigation: NavigationItem[] = role ? roleNavigation[role] : [];
   const currentPage =
     navigation.find((item) => pathname.startsWith(item.href))?.label ?? "DEKEZ";
-  const isPublicPage = pathname === "/" || pathname.startsWith("/login");
+  const isPublicPage =
+    pathname === "/" ||
+    pathname === "/register" ||
+    pathname === "/registration-status" ||
+    pathname.startsWith("/login");
 
   if (isPublicPage) {
     return <>{children}</>;

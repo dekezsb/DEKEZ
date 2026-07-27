@@ -42,5 +42,20 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  if (isProtectedRoute && user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("registration_status")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.registration_status !== "approved") {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/registration-status";
+      redirectUrl.search = "";
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
   return response;
 }

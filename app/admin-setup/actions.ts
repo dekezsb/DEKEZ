@@ -57,8 +57,10 @@ export async function createPortalUser(formData: FormData) {
     email,
     password,
     email_confirm: true,
-    user_metadata: {
+    app_metadata: {
       role,
+    },
+    user_metadata: {
       full_name: fullName,
       phone,
     },

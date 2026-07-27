@@ -1,12 +1,26 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { normalizeRole, roleHome, roleLabels, type AppRole } from "@/lib/auth/roles";
+import { normalizeInternationalPhone } from "@/lib/auth/phone";
+import { normalizeRole, roleHome } from "@/lib/auth/roles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSupabaseUrl } from "@/lib/supabase/config";
 
-const staffRoles: AppRole[] = ["technician", "maintenance_staff", "cleaning_staff"];
+type CookieToSet = {
+  name: string;
+  value: string;
+  options: Parameters<NextResponse["cookies"]["set"]>[2];
+};
 
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
+function responseWithCookies(
+  body: Record<string, unknown>,
+  cookiesToSet: CookieToSet[],
+  status = 200,
+) {
+  const response = NextResponse.json(body, { status });
+  cookiesToSet.forEach(({ name, value, options }) => {
+    response.cookies.set(name, value, options);
+  });
+  return response;
 }
 
 export async function POST(request: NextRequest) {
@@ -14,81 +28,118 @@ export async function POST(request: NextRequest) {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !anonKey) {
-    return jsonError("Supabase is not configured.", 500);
+    return NextResponse.json(
+      { error: "Supabase is not configured." },
+      { status: 500 },
+    );
   }
 
   const body = await request.json().catch(() => null);
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
+  const phone = normalizeInternationalPhone(
+    typeof body?.phone === "string" ? body.phone : "",
+  );
   const password = typeof body?.password === "string" ? body.password : "";
-  const expectedRole = normalizeRole(body?.expectedRole);
 
-  if (!email || !password || !expectedRole) {
-    return jsonError("Email, password and role are required.");
+  if (!phone || !password) {
+    return NextResponse.json(
+      {
+        error:
+          "Enter a valid phone number with country code and your password.",
+      },
+      { status: 400 },
+    );
   }
 
-  const cookiesToSet: Array<{
-    name: string;
-    value: string;
-    options: Parameters<NextResponse["cookies"]["set"]>[2];
-  }> = [];
+  const cookiesToSet: CookieToSet[] = [];
   const supabase = createServerClient(normalizeSupabaseUrl(url), anonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
       setAll(newCookiesToSet) {
-        newCookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        newCookiesToSet.forEach(({ name, value }) => {
+          request.cookies.set(name, value);
+        });
         cookiesToSet.push(...newCookiesToSet);
       },
     },
   });
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
+  let signInResult = await supabase.auth.signInWithPassword({
+    phone: phone.e164,
     password,
   });
 
-  if (error || !data.user) {
-    return jsonError(error?.message ?? "Unable to login.", 401);
+  let admin: ReturnType<typeof createAdminClient> | null = null;
+  try {
+    admin = createAdminClient();
+  } catch {
+    admin = null;
   }
 
-  let actualRole = normalizeRole(data.user.app_metadata?.role);
-
-  if (!actualRole) {
-    const { data: profile } = await supabase
+  if ((signInResult.error || !signInResult.data.user) && admin) {
+    const { data: legacyProfile } = await admin
       .from("profiles")
-      .select("role")
-      .eq("id", data.user.id)
+      .select("id")
+      .eq("normalized_phone", phone.digits)
       .maybeSingle();
 
-    actualRole = normalizeRole(profile?.role);
+    if (legacyProfile?.id) {
+      const { data: legacyAuthUser } =
+        await admin.auth.admin.getUserById(legacyProfile.id);
+      const legacyEmail = legacyAuthUser.user?.email;
+
+      if (legacyEmail) {
+        signInResult = await supabase.auth.signInWithPassword({
+          email: legacyEmail,
+          password,
+        });
+      }
+    }
   }
 
-  actualRole = actualRole ?? "tenant";
+  const signedInUser = signInResult.data.user;
+  if (signInResult.error || !signedInUser) {
+    return responseWithCookies(
+      { error: "Invalid phone number or password." },
+      cookiesToSet,
+      401,
+    );
+  }
 
-  const isExpectedStaffLogin =
-    expectedRole === "technician" && staffRoles.includes(actualRole);
-  const isAllowedRole =
-    actualRole === expectedRole || actualRole === "super_admin" || isExpectedStaffLogin;
+  const profileClient = admin ?? supabase;
+  const { data: profile } = await profileClient
+    .from("profiles")
+    .select("role, registration_status")
+    .eq("id", signedInUser.id)
+    .maybeSingle();
 
-  if (!isAllowedRole) {
+  if (!profile) {
     await supabase.auth.signOut();
-    return jsonError(
-      `This account is registered as ${roleLabels[actualRole]}, not ${roleLabels[expectedRole]}.`,
+    return responseWithCookies(
+      { error: "This user registration is not complete." },
+      cookiesToSet,
       403,
     );
   }
 
-  const response = NextResponse.json(
+  if (profile.registration_status !== "approved") {
+    return responseWithCookies(
+      { redirectTo: "/registration-status" },
+      cookiesToSet,
+    );
+  }
+
+  const role =
+    normalizeRole(signedInUser.app_metadata?.role) ??
+    normalizeRole(profile.role) ??
+    "tenant";
+
+  return responseWithCookies(
     {
-      redirectTo: roleHome[actualRole],
-      role: actualRole,
+      redirectTo: roleHome[role],
+      role,
     },
+    cookiesToSet,
   );
-
-  cookiesToSet.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, options);
-  });
-
-  return response;
 }

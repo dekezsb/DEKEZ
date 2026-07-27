@@ -33,7 +33,7 @@ async function RootLayoutContent({
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    userName = user?.user_metadata?.full_name ?? user?.email ?? user?.phone ?? null;
+    userName = user?.user_metadata?.full_name ?? user?.phone ?? user?.email ?? null;
 
     if (user) {
       role = await resolveUserRole(user);

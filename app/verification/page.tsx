@@ -37,7 +37,7 @@ import { TenantVerificationContent } from "@/app/tenant-verification/page";
 import {
   requestRenewalSignature,
   reviewClaim,
-  reviewOwnerRegistration,
+  reviewUserRegistration,
   sendAgreementWhatsApp,
 } from "./actions";
 
@@ -57,14 +57,14 @@ type PageProps = {
   }>;
 };
 
-type VerificationView = "owners" | "tenants" | "claims" | "tenancy" | "payments";
+type VerificationView = "users" | "tenants" | "claims" | "tenancy" | "payments";
 
 const views: {
   key: VerificationView;
   label: string;
   icon: typeof ShieldCheck;
 }[] = [
-  { key: "owners", label: "Owner Registration", icon: Building2 },
+  { key: "users", label: "User Permission", icon: Building2 },
   { key: "tenants", label: "Tenant & Room", icon: UserCheck },
   { key: "claims", label: "Claim Bills", icon: ClipboardCheck },
   { key: "tenancy", label: "Tenancy Progress", icon: FileSignature },
@@ -72,10 +72,11 @@ const views: {
 ];
 
 const errorMessages: Record<string, string> = {
-  owner_missing: "Choose an Owner, at least one property, and an action.",
+  user_missing:
+    "Choose a user permission and select properties when approving an Owner.",
   property_missing: "One of the selected properties could not be found.",
-  owner_assign: "The Owner could not be assigned to the selected properties.",
-  owner_review: "The Owner registration could not be updated.",
+  user_assign: "The user could not be assigned to the selected properties.",
+  user_review: "The user permission could not be updated.",
   claim_missing: "Choose a claim action and include a reason when required.",
   claim_review: "The claim could not be updated.",
   agreement_missing: "The tenancy agreement could not be found.",
@@ -110,11 +111,11 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const activeView = views.some((view) => view.key === params.view)
     ? (params.view as VerificationView)
-    : "owners";
+    : "users";
   const supabase = await getAdmin();
 
   const [
-    ownersResult,
+    usersResult,
     propertiesResult,
     assignmentsResult,
     tenantApplicationsResult,
@@ -127,8 +128,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, full_name, phone, registration_status, registration_reviewed_at, registration_rejection_reason, created_at")
-      .eq("role", "owner")
+      .select("id, full_name, phone, role, registration_status, registration_reviewed_at, registration_rejection_reason, created_at")
+      .neq("role", "super_admin")
       .order("created_at", { ascending: false }),
     supabase.from("properties").select("id, company_id, name").order("name"),
     supabase
@@ -162,7 +163,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     supabase.from("profiles").select("id, full_name, phone"),
   ]);
 
-  const owners = ownersResult.data ?? [];
+  const users = usersResult.data ?? [];
   const properties = propertiesResult.data ?? [];
   const assignments = assignmentsResult.data ?? [];
   const tenantApplications = tenantApplicationsResult.data ?? [];
@@ -182,8 +183,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   }
 
   const pendingCounts: Record<VerificationView, number> = {
-    owners: owners.filter(
-      (owner) => owner.registration_status === "pending_verification",
+    users: users.filter(
+      (user) => user.registration_status === "pending_verification",
     ).length,
     tenants: tenantApplications.filter(
       (application) => application.verification_status === "pending_verification",
@@ -250,7 +251,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
             <Link
               className={`flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition ${
                 active
-                  ? "border-[#126b5f] bg-[#e5f1ef] text-[#126b5f]"
+                  ? "border-[#b8892c] bg-[#f6edd9] text-[#7a5618]"
                   : "border-[#d7dde5] bg-white text-gray-600 hover:border-gray-400 hover:text-gray-950"
               }`}
               href={`/verification?view=${key}`}
@@ -272,11 +273,11 @@ export default async function VerificationPage({ searchParams }: PageProps) {
         })}
       </div>
 
-      {activeView === "owners" ? (
-        <OwnerRegistrations
+      {activeView === "users" ? (
+        <UserRegistrations
           assignments={assignments}
-          owners={owners}
           properties={properties}
+          users={users}
         />
       ) : null}
 
@@ -345,15 +346,16 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
   return null;
 }
 
-function OwnerRegistrations({
-  owners,
+function UserRegistrations({
+  users,
   properties,
   assignments,
 }: {
-  owners: {
+  users: {
     id: string;
     full_name: string | null;
     phone: string | null;
+    role: string;
     registration_status: string;
     registration_reviewed_at: string | null;
     registration_rejection_reason: string | null;
@@ -369,18 +371,18 @@ function OwnerRegistrations({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Pending Owner Verification</CardTitle>
+        <CardTitle>User Permission Review</CardTitle>
         <CardDescription>
-          Approve an Owner and assign the properties they may view, or reject
-          the registration. Owners cannot edit property records.
+          Assign each new user a permission before they can enter DEKEZ.
+          Owners must also be assigned the properties they may view.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {owners.length ? (
+        {users.length ? (
           <div className="divide-y divide-[#d7dde5]">
-            {owners.map((owner) => {
+            {users.map((user) => {
               const assignedNames = assignments
-                .filter((assignment) => assignment.owner_id === owner.id)
+                .filter((assignment) => assignment.owner_id === user.id)
                 .map(
                   (assignment) =>
                     propertyById.get(assignment.property_id) ?? "Property",
@@ -388,42 +390,67 @@ function OwnerRegistrations({
               return (
                 <div
                   className="grid gap-5 py-5 first:pt-0 last:pb-0 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
-                  key={owner.id}
+                  key={user.id}
                 >
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-gray-950">
-                        {owner.full_name ?? "Owner"}
+                        {user.full_name ?? "New user"}
                       </p>
-                      <Badge className={statusBadgeClass(owner.registration_status)}>
-                        {owner.registration_status.replaceAll("_", " ")}
+                      <Badge className={statusBadgeClass(user.registration_status)}>
+                        {user.registration_status.replaceAll("_", " ")}
                       </Badge>
                     </div>
                     <p className="mt-1 text-sm text-gray-600">
-                      {owner.phone ?? "No phone number"}
+                      {user.phone ?? "No phone number"}
                     </p>
                     <p className="mt-2 text-xs text-gray-500">
                       Registered{" "}
-                      {new Date(owner.created_at).toLocaleString("en-MY")}
+                      {new Date(user.created_at).toLocaleString("en-MY")}
                     </p>
                     <p className="mt-2 text-sm text-gray-600">
+                      Current permission: {user.role.replaceAll("_", " ")}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600">
                       Assigned:{" "}
                       {assignedNames.length ? assignedNames.join(", ") : "None"}
                     </p>
-                    {owner.registration_rejection_reason ? (
+                    {user.registration_rejection_reason ? (
                       <p className="mt-2 text-sm text-red-600">
-                        {owner.registration_rejection_reason}
+                        {user.registration_rejection_reason}
                       </p>
                     ) : null}
                   </div>
 
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <form action={reviewOwnerRegistration} className="space-y-3">
-                      <input name="ownerId" type="hidden" value={owner.id} />
+                    <form action={reviewUserRegistration} className="space-y-3">
+                      <input name="profileId" type="hidden" value={user.id} />
                       <input name="decision" type="hidden" value="approved" />
+                      <label className="block">
+                        <span className="text-sm font-medium text-gray-700">
+                          User permission
+                        </span>
+                        <select
+                          className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
+                          defaultValue={user.role}
+                          name="role"
+                          required
+                        >
+                          <option value="owner">Owner</option>
+                          <option value="admin">Admin Team</option>
+                          <option value="technician">
+                            Maintenance & Cleaning Team
+                          </option>
+                          <option value="maintenance_staff">
+                            Maintenance Team
+                          </option>
+                          <option value="cleaning_staff">Cleaning Team</option>
+                          <option value="tenant">Tenant</option>
+                        </select>
+                      </label>
                       <fieldset>
                         <legend className="text-sm font-medium text-gray-700">
-                          Properties to assign
+                          Properties for Owner permission
                         </legend>
                         <div className="mt-2 grid max-h-36 gap-2 overflow-y-auto rounded-md border border-[#d7dde5] p-3 sm:grid-cols-2">
                           {properties.map((property) => (
@@ -435,7 +462,7 @@ function OwnerRegistrations({
                                 className="mt-0.5"
                                 defaultChecked={assignments.some(
                                   (assignment) =>
-                                    assignment.owner_id === owner.id &&
+                                    assignment.owner_id === user.id &&
                                     assignment.property_id === property.id,
                                 )}
                                 name="propertyIds"
@@ -449,12 +476,12 @@ function OwnerRegistrations({
                       </fieldset>
                       <Button className="w-full" type="submit">
                         <CheckCircle2 className="h-4 w-4" />
-                        Approve & Assign
+                        Approve Permission
                       </Button>
                     </form>
 
-                    <form action={reviewOwnerRegistration} className="space-y-3">
-                      <input name="ownerId" type="hidden" value={owner.id} />
+                    <form action={reviewUserRegistration} className="space-y-3">
+                      <input name="profileId" type="hidden" value={user.id} />
                       <input name="decision" type="hidden" value="rejected" />
                       <label className="block">
                         <span className="text-sm font-medium text-gray-700">
@@ -482,7 +509,7 @@ function OwnerRegistrations({
           </div>
         ) : (
           <p className="text-sm text-gray-500">
-            No Owner registrations are waiting for review.
+            No user registrations are available for review.
           </p>
         )}
       </CardContent>
