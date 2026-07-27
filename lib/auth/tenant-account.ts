@@ -125,7 +125,6 @@ export async function activateTenantAccount(
     .update({
       full_name: requestedTenant.full_name,
       phone: phone.e164,
-      normalized_phone: phone.digits,
       identity_number: requestedTenant.identity_number,
       role: "tenant",
       global_role: "tenant",
