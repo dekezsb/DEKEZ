@@ -1,10 +1,10 @@
-import { Eye, Pencil, UserRound } from "lucide-react";
+import { Eye, Pencil, Search, UserRound } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { normalizeRole, roleLabels } from "@/lib/auth/roles";
+import { appRoles, normalizeRole, roleLabels } from "@/lib/auth/roles";
 import { requireRole } from "@/lib/auth/session";
 import { getProperties } from "@/lib/data/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -26,8 +26,11 @@ type AdminSetupPageProps = {
     errors?: string;
     message?: string;
     removed?: string;
+    q?: string;
+    role?: string;
     rooms?: string;
     skipped?: string;
+    status?: string;
   }>;
 };
 
@@ -78,6 +81,30 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
 
   const profiles = profilesResult.data ?? [];
   const owners = profiles.filter((profile) => profile.role === "owner");
+  const searchTerm = params.q?.trim().toLowerCase() ?? "";
+  const searchDigits = searchTerm.replace(/\D/g, "");
+  const roleFilter = normalizeRole(params.role) ?? "";
+  const statusFilter = ["approved", "pending_verification", "rejected"].includes(
+    params.status ?? "",
+  )
+    ? params.status ?? ""
+    : "";
+  const filteredProfiles = profiles.filter((profile) => {
+    const name = (profile.full_name ?? "").toLowerCase();
+    const phone = profile.phone ?? "";
+    const matchesSearch =
+      !searchTerm ||
+      name.includes(searchTerm) ||
+      phone.toLowerCase().includes(searchTerm) ||
+      (Boolean(searchDigits) &&
+        phone.replace(/\D/g, "").includes(searchDigits));
+    const matchesRole = !roleFilter || profile.role === roleFilter;
+    const matchesStatus =
+      !statusFilter || profile.registration_status === statusFilter;
+
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+  const hasProfileFilters = Boolean(searchTerm || roleFilter || statusFilter);
 
   return (
     <section className="space-y-6">
@@ -232,9 +259,83 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                   or remove login access.
                 </p>
               </div>
-              <Badge>{profiles.length} users</Badge>
+              <Badge>
+                {hasProfileFilters
+                  ? `${filteredProfiles.length} of ${profiles.length} users`
+                  : `${profiles.length} users`}
+              </Badge>
             </div>
-            {profiles.length ? (
+
+            <form
+              className="mb-5 grid gap-3 rounded-md border border-[#d7dde5] bg-[#f8fafc] p-4 md:grid-cols-[minmax(220px,2fr)_minmax(160px,1fr)_minmax(180px,1fr)_auto]"
+              method="get"
+            >
+              <label className="block">
+                <span className="text-xs font-semibold uppercase text-gray-500">
+                  Search user
+                </span>
+                <div className="relative mt-2">
+                  <Search
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                  />
+                  <input
+                    className="w-full rounded-md border border-[#d7dde5] bg-white py-2 pl-9 pr-3"
+                    defaultValue={params.q ?? ""}
+                    name="q"
+                    placeholder="Name or phone number"
+                    type="search"
+                  />
+                </div>
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase text-gray-500">
+                  Role
+                </span>
+                <select
+                  className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                  defaultValue={roleFilter}
+                  name="role"
+                >
+                  <option value="">All roles</option>
+                  {appRoles.map((role) => (
+                    <option key={role} value={role}>
+                      {roleLabels[role]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase text-gray-500">
+                  Status
+                </span>
+                <select
+                  className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                  defaultValue={statusFilter}
+                  name="status"
+                >
+                  <option value="">All statuses</option>
+                  <option value="approved">Approved</option>
+                  <option value="pending_verification">
+                    Pending verification
+                  </option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+              <div className="flex items-end gap-2">
+                <Button className="flex-1 md:flex-none" type="submit">
+                  <Search aria-hidden="true" className="h-4 w-4" />
+                  Search
+                </Button>
+                {hasProfileFilters ? (
+                  <Button asChild variant="outline">
+                    <Link href="/admin-setup">Clear</Link>
+                  </Button>
+                ) : null}
+              </div>
+            </form>
+
+            {filteredProfiles.length ? (
               <>
                 <div className="hidden overflow-x-auto md:block">
                   <Table>
@@ -248,7 +349,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {profiles.map((profile) => (
+                      {filteredProfiles.map((profile) => (
                         <TableRow key={profile.id}>
                           <TableCell className="font-medium text-gray-950">
                             <Link
@@ -303,7 +404,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                 </div>
 
                 <div className="grid gap-3 md:hidden">
-                  {profiles.map((profile) => (
+                  {filteredProfiles.map((profile) => (
                     <div
                       className="rounded-md border border-[#d7dde5] p-4"
                       key={profile.id}
@@ -339,7 +440,11 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                 </div>
               </>
             ) : (
-              <p className="text-sm text-gray-500">No profiles yet.</p>
+              <p className="rounded-md border border-dashed border-[#d7dde5] px-4 py-8 text-center text-sm text-gray-500">
+                {profiles.length
+                  ? "No users match your search and filters."
+                  : "No profiles yet."}
+              </p>
             )}
           </div>
 
