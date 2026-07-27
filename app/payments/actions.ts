@@ -18,7 +18,7 @@ function numberValue(formData: FormData, key: string) {
 }
 
 export async function createPayment(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"], {
+  await requireRole(["super_admin", "admin"], {
     module: "payments",
     level: "manage",
   });
@@ -41,37 +41,69 @@ export async function createPayment(formData: FormData) {
   let tenancy:
     | {
         id: string;
+        company_id: string;
         organization_id: string | null;
+        tenant_id: string;
         property_id: string;
         unit_id: string | null;
         room_id: string;
+        deposit: number | null;
       }
     | null = null;
 
   if (tenancyId) {
     const { data } = await supabase
       .from("tenancies")
-      .select("id, organization_id, property_id, unit_id, room_id")
+      .select("id, company_id, organization_id, tenant_id, property_id, unit_id, room_id, deposit")
       .eq("id", tenancyId)
       .maybeSingle();
     tenancy = data;
   } else {
     const { data } = await supabase
       .from("tenancies")
-      .select("id, organization_id, property_id, unit_id, room_id")
+      .select("id, company_id, organization_id, tenant_id, property_id, unit_id, room_id, deposit")
       .eq("tenant_id", tenantId)
       .eq("status", "active")
       .maybeSingle();
     tenancy = data;
   }
 
+  if (!tenancy) {
+    redirect("/payments?error=tenancy");
+  }
+
+  if (category === "deposit") {
+    const { data: existingDeposits } = await supabase
+      .from("payments")
+      .select("amount")
+      .eq("tenancy_id", tenancy.id)
+      .eq("category", "deposit")
+      .eq("status", "confirmed");
+    const received = (existingDeposits ?? []).reduce(
+      (total, payment) => total + Number(payment.amount ?? 0),
+      0,
+    );
+    const remainingDeposit = Math.max(Number(tenancy.deposit ?? 0) - received, 0);
+
+    if (amount > remainingDeposit + 0.005) {
+      redirect("/payments?error=deposit_amount");
+    }
+  }
+
+  const { data: tenant } = await supabase
+    .from("tenants")
+    .select("profile_id")
+    .eq("id", tenancy.tenant_id)
+    .maybeSingle();
+
   const { error } = await supabase.from("payments").insert({
-    organization_id: tenancy?.organization_id ?? null,
-    tenant_id: tenantId,
-    tenancy_id: tenancy?.id ?? null,
-    property_id: tenancy?.property_id ?? null,
-    unit_id: tenancy?.unit_id ?? null,
-    room_id: tenancy?.room_id ?? null,
+    company_id: tenancy.company_id,
+    organization_id: tenancy.organization_id ?? null,
+    tenant_id: tenant?.profile_id ?? null,
+    tenancy_id: tenancy.id,
+    property_id: tenancy.property_id,
+    unit_id: tenancy.unit_id,
+    room_id: tenancy.room_id,
     category,
     amount,
     payment_date: paymentDate,
@@ -80,6 +112,8 @@ export async function createPayment(formData: FormData) {
     notes: notes || null,
     status: "confirmed",
     recorded_by: user.id,
+    verified_by: user.id,
+    verified_at: new Date().toISOString(),
   });
 
   if (error) {
@@ -88,6 +122,7 @@ export async function createPayment(formData: FormData) {
 
   revalidatePath("/payments");
   revalidatePath("/dashboard");
+  revalidatePath("/properties");
   redirect("/payments?created=1");
 }
 

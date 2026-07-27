@@ -16,8 +16,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
 import { TenantHome } from "@/components/tenant/tenant-portal";
 import { requireRole } from "@/lib/auth/session";
+import { getDepositOutstandingSummary } from "@/lib/data/deposit-outstanding";
 import { getDashboardSummary } from "@/lib/data/organization";
 import { getOwnerPortalSummary, getStaffPortalSummary } from "@/lib/data/portal";
 import { getRentDueSummary } from "@/lib/data/rent-due";
@@ -147,9 +149,10 @@ function AccessNotice({ show }: { show: boolean }) {
 }
 
 async function OwnerDashboard() {
-  const [summary, setupSummary] = await Promise.all([
+  const [summary, setupSummary, depositSummary] = await Promise.all([
     getOwnerPortalSummary(),
     getDashboardSummary(),
+    getDepositOutstandingSummary(),
   ]);
   const needsSetup = setupSummary.companies.length === 0;
   const netPayable =
@@ -196,6 +199,8 @@ async function OwnerDashboard() {
         <StatCard label="Net Payable" value={money(netPayable)} detail="Income minus utilities and claims" />
       </div>
 
+      <DepositOutstanding canManage={false} summary={depositSummary} />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <ModuleCard title="My Properties" description="View properties assigned to your ownership." href="/properties" icon={Building2} badge={summary.totalProperties} />
         <ModuleCard title="My Rooms" description="Track occupied, vacant, reserved and maintenance rooms." href="/rooms" icon={DoorOpen} badge={summary.totalRooms} />
@@ -238,9 +243,10 @@ async function OwnerDashboard() {
 }
 
 async function AdminDashboard() {
-  const [summary, rentDueSummary] = await Promise.all([
+  const [summary, rentDueSummary, depositSummary] = await Promise.all([
     getDashboardSummary(),
     getRentDueSummary(),
+    getDepositOutstandingSummary(),
   ]);
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
@@ -326,6 +332,8 @@ async function AdminDashboard() {
         <StatCard label="Maintenance Rooms" value={summary.maintenanceRooms} detail="Rooms under maintenance" />
         <StatCard label="Properties" value={summary.totalProperties} detail="Managed properties" />
       </div>
+
+      <DepositOutstanding canManage summary={depositSummary} />
 
       <div className="mx-auto max-w-4xl space-y-4">
         <div className="flex items-center justify-between gap-4">
