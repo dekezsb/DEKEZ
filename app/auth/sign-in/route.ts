@@ -6,6 +6,7 @@ import {
   phoneRateLimitKey,
 } from "@/lib/auth/registration";
 import { normalizeRole, roleHome } from "@/lib/auth/roles";
+import { activateTenantAccount } from "@/lib/auth/tenant-account";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSupabaseUrl } from "@/lib/supabase/config";
 
@@ -112,6 +113,34 @@ export async function POST(request: NextRequest) {
       .in("normalized_phone", phone.lookupDigits)
       .maybeSingle();
     profileLookup = data;
+
+    if (!profileLookup && pinPassword) {
+      const { data: activeTenants, error: tenantLookupError } = await admin
+        .from("tenants")
+        .select("id, company_id, phone")
+        .eq("status", "active");
+      const matchingTenants = (activeTenants ?? []).filter((tenant) => {
+        const candidatePhone = normalizeInternationalPhone(tenant.phone ?? "");
+        return candidatePhone?.digits === phone.digits;
+      });
+      const matchingCompanies = new Set(
+        matchingTenants.map((tenant) => tenant.company_id),
+      );
+
+      if (
+        !tenantLookupError &&
+        matchingTenants.length > 0 &&
+        matchingCompanies.size === 1
+      ) {
+        const activation = await activateTenantAccount(
+          matchingTenants[0].id,
+          null,
+        );
+        if (activation.ok) {
+          profileLookup = { id: activation.profileId };
+        }
+      }
+    }
 
     if (profileLookup?.id) {
       const { data: authUser } = await admin.auth.admin.getUserById(

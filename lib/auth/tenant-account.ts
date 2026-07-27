@@ -23,7 +23,7 @@ type ActivationResult =
 
 export async function activateTenantAccount(
   tenantId: string,
-  reviewedBy: string,
+  reviewedBy: string | null,
 ): Promise<ActivationResult> {
   const admin = createAdminClient();
   const { data: requestedTenant } = await admin
