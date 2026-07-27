@@ -316,7 +316,6 @@ export async function POST(request: NextRequest) {
       .update({
         full_name: fullName,
         phone: phone.e164,
-        normalized_phone: phone.digits,
         role: "tenant",
         global_role: "tenant",
         requested_role: accountType,

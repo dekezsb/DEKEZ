@@ -211,7 +211,6 @@ export async function updatePortalUser(formData: FormData) {
   const profileUpdate = {
     full_name: fullName,
     phone: storedPhone,
-    normalized_phone: normalizedPhone?.digits ?? null,
     role: nextRole,
     global_role: nextRole,
     registration_status: nextStatus,

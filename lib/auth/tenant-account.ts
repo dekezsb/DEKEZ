@@ -4,6 +4,7 @@ import { normalizeInternationalPhone } from "@/lib/auth/phone";
 import {
   derivePinPassword,
   phoneAuthAlias,
+  phoneRateLimitKey,
 } from "@/lib/auth/registration";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -124,7 +125,6 @@ export async function activateTenantAccount(
     .update({
       full_name: requestedTenant.full_name,
       phone: phone.e164,
-      normalized_phone: phone.digits,
       identity_number: requestedTenant.identity_number,
       role: "tenant",
       global_role: "tenant",
@@ -170,6 +170,11 @@ export async function activateTenantAccount(
   if (tenantUpdateError) {
     return { ok: false, reason: "tenant" };
   }
+
+  await admin
+    .from("auth_login_rate_limits")
+    .delete()
+    .eq("phone_hash", phoneRateLimitKey(phone));
 
   return { ok: true, profileId, reset };
 }
