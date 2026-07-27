@@ -20,6 +20,8 @@ export type TenantVerificationPageProps = {
 const errorMessages: Record<string, string> = {
   missing: "Choose an application and action.",
   review: "Application could not be updated.",
+  conversion:
+    "The tenant could not be assigned to the room. The application remains pending so it can be reviewed again.",
 };
 
 async function getAdmin() {
@@ -61,7 +63,7 @@ export async function TenantVerificationContent({
   const [applicationsResult, documentsResult] = await Promise.all([
     supabase
       .from("tenant_applications")
-      .select("id, tenant_id, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
+      .select("id, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("tenant_documents")
@@ -113,6 +115,7 @@ export async function TenantVerificationContent({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Tenant</TableHead>
+                    <TableHead>Submitted by</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>IC / Passport</TableHead>
                     <TableHead>Property</TableHead>
@@ -134,6 +137,11 @@ export async function TenantVerificationContent({
                     return (
                       <TableRow key={application.id}>
                         <TableCell className="min-w-48 font-medium text-gray-950">{application.full_name}</TableCell>
+                        <TableCell>
+                          {application.submission_source === "admin_assisted"
+                            ? "Admin"
+                            : "Tenant portal"}
+                        </TableCell>
                         <TableCell>{application.whatsapp_number ?? "-"}</TableCell>
                         <TableCell>{application.ic_passport_number ?? "-"}</TableCell>
                         <TableCell>{property?.name ?? "-"}</TableCell>
@@ -161,16 +169,26 @@ export async function TenantVerificationContent({
                           </div>
                         </TableCell>
                         <TableCell className="min-w-64">
-                          <form action={reviewTenantApplication} className="space-y-2">
-                            <input name="applicationId" type="hidden" value={application.id} />
-                            <input name="returnTo" type="hidden" value={returnTo} />
-                            <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Notes optional" defaultValue={application.admin_notes ?? ""} />
-                            <div className="grid gap-2 sm:grid-cols-3">
-                              <Button name="decision" size="sm" type="submit" value="verified">Verify</Button>
-                              <Button name="decision" size="sm" type="submit" value="more_information_required" variant="outline">More info</Button>
-                              <Button className="border-red-200 text-red-700 hover:bg-red-50" name="decision" size="sm" type="submit" value="rejected" variant="outline">Reject</Button>
-                            </div>
-                          </form>
+                          {application.status === "converted_to_tenancy" ? (
+                            <Badge className="bg-emerald-100 text-emerald-800">
+                              Tenant assigned
+                            </Badge>
+                          ) : application.verification_status === "verified" ? (
+                            <Badge className="bg-amber-100 text-amber-800">
+                              Approved
+                            </Badge>
+                          ) : (
+                            <form action={reviewTenantApplication} className="space-y-2">
+                              <input name="applicationId" type="hidden" value={application.id} />
+                              <input name="returnTo" type="hidden" value={returnTo} />
+                              <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Notes optional" defaultValue={application.admin_notes ?? ""} />
+                              <div className="grid gap-2 sm:grid-cols-3">
+                                <Button name="decision" size="sm" type="submit" value="verified">Approve</Button>
+                                <Button name="decision" size="sm" type="submit" value="more_information_required" variant="outline">More info</Button>
+                                <Button className="border-red-200 text-red-700 hover:bg-red-50" name="decision" size="sm" type="submit" value="rejected" variant="outline">Reject</Button>
+                              </div>
+                            </form>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

@@ -8,14 +8,15 @@ import {
   generateRecurringRentBills,
 } from "@/lib/billing/rent-billing";
 import { getCurrentUser, getProperties } from "@/lib/data/organization";
-import {
-  addMonths,
-  defaultAgreementTemplate,
-  money,
-  renderAgreementTemplate,
-} from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  formFile,
+  isValidTenantDocument,
+  type TenantDocumentType,
+  uploadTenantDocuments,
+} from "@/lib/tenant-documents";
+import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -27,76 +28,12 @@ function numberValue(formData: FormData, key: string) {
   return Number.isFinite(value) ? value : 0;
 }
 
-type TenantDocumentType =
-  | "ic_front"
-  | "ic_back"
-  | "passport_photo_page"
-  | "commercial_supporting_document";
-
-function fileValue(formData: FormData, key: string) {
-  const value = formData.get(key);
-  return value instanceof File && value.size > 0 ? value : null;
-}
-
-function validDocument(file: File | null) {
-  if (!file) return true;
-  const allowedTypes = new Set([
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-  ]);
-  return file.size <= 10 * 1024 * 1024 && allowedTypes.has(file.type);
-}
-
 async function getAdmin() {
   try {
     return createAdminClient();
   } catch {
     return createClient();
   }
-}
-
-async function uploadTenantDocuments(
-  supabase: Awaited<ReturnType<typeof getAdmin>>,
-  actorId: string,
-  batchId: string,
-  documents: Array<{ documentType: TenantDocumentType; file: File }>,
-) {
-  const uploaded: Array<{
-    content_type: string | null;
-    document_type: TenantDocumentType;
-    file_name: string;
-    file_path: string;
-  }> = [];
-
-  for (const document of documents) {
-    const safeName = document.file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const path = `${actorId}/admin-registration/${batchId}/${document.documentType}-${safeName}`;
-    const bytes = Buffer.from(await document.file.arrayBuffer());
-    const { error } = await supabase.storage
-      .from("tenant-documents")
-      .upload(path, bytes, {
-        contentType: document.file.type || "application/octet-stream",
-        upsert: false,
-      });
-    if (error) {
-      if (uploaded.length) {
-        await supabase.storage
-          .from("tenant-documents")
-          .remove(uploaded.map((item) => item.file_path));
-      }
-      throw error;
-    }
-    uploaded.push({
-      content_type: document.file.type || null,
-      document_type: document.documentType,
-      file_name: document.file.name,
-      file_path: path,
-    });
-  }
-
-  return uploaded;
 }
 
 async function accessibleProperty(propertyId: string) {
@@ -239,107 +176,6 @@ async function ensureCanonicalTenancy(
   ]);
 
   return tenancy.id;
-}
-
-async function createAgreementForTenancy(
-  supabase: Awaited<ReturnType<typeof getAdmin>>,
-  tenancyId: string,
-  userId: string,
-) {
-  const { data: existing } = await supabase
-    .from("tenancy_agreements")
-    .select("id")
-    .eq("tenancy_id", tenancyId)
-    .eq("agreement_type", "original")
-    .maybeSingle();
-  if (existing) {
-    return existing.id;
-  }
-
-  const { data: tenancy } = await supabase
-    .from("tenancies")
-    .select("id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, contract_duration_months, tenants(full_name, phone, identity_number), properties(name, address, default_ta_template_id), rooms(name, room_number)")
-    .eq("id", tenancyId)
-    .single();
-  if (!tenancy) {
-    return null;
-  }
-
-  const tenant = Array.isArray(tenancy.tenants) ? tenancy.tenants[0] : tenancy.tenants;
-  const property = Array.isArray(tenancy.properties) ? tenancy.properties[0] : tenancy.properties;
-  const room = Array.isArray(tenancy.rooms) ? tenancy.rooms[0] : tenancy.rooms;
-  const duration = tenancy.contract_duration_months ?? 12;
-  const startDate = tenancy.contract_start ?? today();
-  const endDate = tenancy.contract_end ?? addMonths(startDate, duration);
-  let template: { id: string; template_content: string } | null = null;
-
-  if (property?.default_ta_template_id) {
-    const { data } = await supabase
-      .from("tenancy_agreement_templates")
-      .select("id, template_content")
-      .eq("id", property.default_ta_template_id)
-      .maybeSingle();
-    template = data;
-  }
-  if (!template) {
-    const { data } = await supabase
-      .from("tenancy_agreement_templates")
-      .insert({
-        property_id: tenancy.property_id,
-        name: `${property?.name ?? "Property"} Default TA`,
-        template_content: defaultAgreementTemplate,
-        is_active: true,
-        created_by: userId,
-      })
-      .select("id, template_content")
-      .single();
-    template = data;
-    if (template?.id) {
-      await supabase
-        .from("properties")
-        .update({ default_ta_template_id: template.id })
-        .eq("id", tenancy.property_id);
-    }
-  }
-
-  const rendered = renderAgreementTemplate(template?.template_content ?? defaultAgreementTemplate, {
-    tenant_name: tenant?.full_name,
-    tenant_ic_passport: tenant?.identity_number,
-    tenant_phone: tenant?.phone,
-    property_name: property?.name,
-    property_address: property?.address,
-    unit_number: "-",
-    room_number: room?.room_number ?? room?.name,
-    monthly_rent: money(tenancy.monthly_rental),
-    deposit_amount: money(tenancy.deposit),
-    utility_deposit: money(0),
-    tenancy_start_date: startDate,
-    tenancy_end_date: endDate,
-    contract_duration_months: duration,
-    agreement_date: today(),
-    tenant_signature: "[Pending tenant signature]",
-  });
-
-  const { data: agreement } = await supabase
-    .from("tenancy_agreements")
-    .insert({
-      tenancy_id: tenancy.id,
-      template_id: template?.id ?? null,
-      agreement_type: "original",
-      version_number: 1,
-      status: "draft",
-      rendered_content: rendered,
-      term_start_date: startDate,
-      term_end_date: endDate,
-      tenant_name_snapshot: tenant?.full_name ?? null,
-      property_name_snapshot: property?.name ?? null,
-      room_name_snapshot: room?.room_number ?? room?.name ?? null,
-      created_by: userId,
-    })
-    .select("id")
-    .single();
-
-  return agreement?.id ?? null;
 }
 
 export async function updateProperty(formData: FormData) {
@@ -857,10 +693,10 @@ export async function registerTenant(formData: FormData) {
   const contractEnd = textValue(formData, "contractEnd") || null;
   const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
   const deposit = Math.max(0, numberValue(formData, "deposit"));
-  const icFront = fileValue(formData, "icFront");
-  const icBack = fileValue(formData, "icBack");
-  const passportPhoto = fileValue(formData, "passportPhoto");
-  const commercialSupportingDocument = fileValue(
+  const icFront = formFile(formData, "icFront");
+  const icBack = formFile(formData, "icBack");
+  const passportPhoto = formFile(formData, "passportPhoto");
+  const commercialSupportingDocument = formFile(
     formData,
     "commercialSupportingDocument",
   );
@@ -878,7 +714,7 @@ export async function registerTenant(formData: FormData) {
   }
   if (
     ![icFront, icBack, passportPhoto, commercialSupportingDocument].every(
-      validDocument,
+      isValidTenantDocument,
     )
   ) {
     redirect(propertyPath(property.id, "/register-tenant?error=upload"));

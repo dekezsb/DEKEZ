@@ -231,7 +231,7 @@ async function AdminDashboard() {
     <section className="space-y-6">
       <div className="flex justify-end">
         <Button asChild className="bg-[#b98a2c] text-white hover:bg-[#9d7424]">
-          <Link href="/tenants">+ Register new tenant</Link>
+          <Link href="/register-tenant">+ Register new tenant</Link>
         </Button>
       </div>
 

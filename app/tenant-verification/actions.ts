@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { convertTenantApplication } from "@/lib/tenancy/convert-application";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -56,7 +57,7 @@ export async function reviewTenantApplication(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", applicationId)
-    .select("tenant_id, room_id")
+    .select("tenant_id, room_id, submission_source")
     .single();
 
   if (error || !application) {
@@ -76,7 +77,36 @@ export async function reviewTenantApplication(formData: FormData) {
     .update({ verification_status: decision })
     .eq("tenant_application_id", applicationId);
 
-  if (decision === "verified" && application.room_id) {
+  if (
+    decision === "verified" &&
+    application.submission_source === "admin_assisted"
+  ) {
+    const conversion = await convertTenantApplication(supabase, {
+      actorId: user.id,
+      applicationId,
+    });
+
+    if (!conversion.ok) {
+      await Promise.all([
+        supabase
+          .from("tenant_applications")
+          .update({
+            verification_status: "pending_verification",
+            status: "submitted",
+            reviewed_by: null,
+            reviewed_at: null,
+            admin_notes: `Approval could not be completed: ${conversion.reason}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", applicationId),
+        supabase
+          .from("tenant_documents")
+          .update({ verification_status: "pending_verification" })
+          .eq("tenant_application_id", applicationId),
+      ]);
+      redirect(withResult(returnTo, "error=conversion"));
+    }
+  } else if (decision === "verified" && application.room_id) {
     await supabase
       .from("rooms")
       .update({ status: "reserved", updated_at: new Date().toISOString() })

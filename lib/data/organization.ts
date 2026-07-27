@@ -38,6 +38,8 @@ export type RoomSummary = {
   id: string;
   company_id: string;
   property_id: string;
+  unit_id: string;
+  room_number: string;
   name: string;
   status: "vacant" | "occupied" | "maintenance" | "reserved";
   monthly_rent: number;
@@ -334,7 +336,7 @@ export async function getRooms() {
   const supabase = await getDataClient();
   let query = supabase
     .from("rooms")
-    .select("id, company_id, property_id, name, status, monthly_rent, description")
+    .select("id, company_id, property_id, unit_id, room_number, name, status, monthly_rent, description")
     .order("created_at", { ascending: true });
 
   if (propertyIds !== null) {

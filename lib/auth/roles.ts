@@ -115,6 +115,7 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
 export const protectedRoutes = [
   "/dashboard",
   "/admin-setup",
+  "/register-tenant",
   "/properties",
   "/rooms",
   "/tenants",

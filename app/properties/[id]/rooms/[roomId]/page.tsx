@@ -119,7 +119,9 @@ export default async function RoomDetailsPage({
             </div>
             {canManage ? (
               <Button asChild>
-                <Link href={`/properties/${id}/register-tenant?room=${room.id}`}>Register Tenant</Link>
+                <Link href={`/register-tenant?property=${id}&room=${room.id}`}>
+                  Register Tenant
+                </Link>
               </Button>
             ) : null}
           </CardContent>

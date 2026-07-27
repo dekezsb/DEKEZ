@@ -335,7 +335,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
             </div>
             {canManage ? (
               <Button asChild>
-                <Link href={`/properties/${id}/register-tenant`}>
+                <Link href={`/register-tenant?property=${id}`}>
                   <Plus className="h-4 w-4" />
                   Register New Tenant
                 </Link>
@@ -683,7 +683,9 @@ function DesktopRoomRow({
         <div className="flex flex-col gap-2">
           {vacant && canManage ? (
             <Button asChild size="sm">
-              <Link href={`/properties/${propertyId}/register-tenant?room=${room.id}`}>
+              <Link
+                href={`/register-tenant?property=${propertyId}&room=${room.id}`}
+              >
                 <UserPlus className="h-4 w-4" />
                 Register Tenant
               </Link>
@@ -854,7 +856,9 @@ function MobileRoomCard({
       <div className="mt-4 flex flex-wrap gap-2 border-t border-[#e5e9ef] pt-4">
         {vacant && canManage ? (
           <Button asChild size="sm">
-            <Link href={`/properties/${propertyId}/register-tenant?room=${room.id}`}>
+            <Link
+              href={`/register-tenant?property=${propertyId}&room=${room.id}`}
+            >
               <UserPlus className="h-4 w-4" />
               Register Tenant
             </Link>
