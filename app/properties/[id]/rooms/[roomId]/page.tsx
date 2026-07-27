@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BatteryCharging, ChevronRight, FileText, Gauge, Phone, QrCode, UserRound } from "lucide-react";
+import { BatteryCharging, ChevronRight, FileText, Gauge, Phone, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -172,7 +172,10 @@ export default async function RoomDetailsPage({
                     <Link href={`/e-tenancy/${room.agreementId}`}><FileText className="h-4 w-4" /> View Agreement</Link>
                   </Button>
                 ) : null}
-                <PaymentQrPreview propertyName={property.name} qrUrl={property.paymentQrUrl} />
+                <PaymentQrPreview
+                  propertyName={`${property.name} - ${room.roomNumber}`}
+                  qrUrl={room.paymentQrUrl}
+                />
               </div>
             </CardContent>
           </Card>

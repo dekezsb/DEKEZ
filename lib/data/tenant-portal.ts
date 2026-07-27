@@ -101,8 +101,12 @@ export async function getTenantPortalData() {
     status: string;
     billing_status: string | null;
     created_at: string;
-    properties: Relation<{ name: string }>;
-    rooms: Relation<{ name: string | null; room_number: string | null }>;
+    properties: Relation<{ name: string; payment_qr_url: string | null }>;
+    rooms: Relation<{
+      name: string | null;
+      room_number: string | null;
+      payment_qr_path: string | null;
+    }>;
   }> = [];
 
   if (tenantIds.length) {
@@ -126,12 +130,15 @@ export async function getTenantPortalData() {
     ];
     const [propertiesResult, roomsResult] = await Promise.all([
       propertyIds.length
-        ? dataClient.from("properties").select("id, name").in("id", propertyIds)
+        ? dataClient
+            .from("properties")
+            .select("id, name, payment_qr_url")
+            .in("id", propertyIds)
         : Promise.resolve({ data: [] }),
       roomIds.length
         ? dataClient
             .from("rooms")
-            .select("id, name, room_number")
+            .select("id, name, room_number, payment_qr_path")
             .in("id", roomIds)
         : Promise.resolve({ data: [] }),
     ]);
@@ -273,6 +280,11 @@ export async function getTenantPortalData() {
   const profile = profileResult.data;
   const property = activeTenancy ? one(activeTenancy.properties) : null;
   const room = activeTenancy ? one(activeTenancy.rooms) : null;
+  const roomQrUrl = await signedUrl(
+    dataClient,
+    "room-payment-qr",
+    room?.payment_qr_path ?? null,
+  );
   const outstandingAmount = bills
     .filter((bill) => !["paid", "cancelled", "waived"].includes(String(bill.status)))
     .reduce(
@@ -316,6 +328,7 @@ export async function getTenantPortalData() {
             activeTenancy.end_date ??
             activeTenancy.checkout_date,
           status: activeTenancy.status,
+          paymentQrUrl: roomQrUrl ?? property?.payment_qr_url ?? null,
         }
       : null,
     outstandingAmount,

@@ -13,6 +13,14 @@ async function getDataClient(): Promise<DataClient> {
   }
 }
 
+async function roomPaymentQrUrl(client: DataClient, path: string | null) {
+  if (!path) return null;
+  const { data } = await client.storage
+    .from("room-payment-qr")
+    .createSignedUrl(path, 3600);
+  return data?.signedUrl ?? null;
+}
+
 function malaysiaDate() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kuala_Lumpur",
@@ -58,6 +66,8 @@ export type PropertyRoomView = {
   outstanding: number;
   agreementId: string | null;
   agreementStatus: string;
+  paymentQrUrl: string | null;
+  hasRoomPaymentQr: boolean;
 };
 
 export type TenantDocumentView = {
@@ -136,7 +146,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .single(),
       supabase
         .from("rooms")
-        .select("id, name, room_number, status, monthly_rent, current_tenancy_id")
+        .select("id, name, room_number, status, monthly_rent, current_tenancy_id, payment_qr_path")
         .eq("property_id", propertyId)
         .order("room_number", { ascending: true }),
       supabase
@@ -222,6 +232,15 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     }
   }
 
+  const roomPaymentQrUrls = new Map(
+    await Promise.all(
+      rooms.map(async (room) => [
+        room.id,
+        await roomPaymentQrUrl(supabase, room.payment_qr_path),
+      ] as const),
+    ),
+  );
+
   const roomViews = rooms
     .map((room): PropertyRoomView => {
       const tenantRecord = tenantRecordByRoom.get(room.id);
@@ -271,6 +290,11 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
           agreement && contractEnd && contractEnd < currentDate
             ? "expired"
             : agreement?.status ?? "not_generated",
+        paymentQrUrl:
+          roomPaymentQrUrls.get(room.id) ??
+          propertyResult.data.payment_qr_url ??
+          null,
+        hasRoomPaymentQr: Boolean(room.payment_qr_path),
       };
     })
     .sort((a, b) => roomNumberCollator.compare(a.roomNumber, b.roomNumber));

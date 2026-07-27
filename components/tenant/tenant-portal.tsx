@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   Banknote,
   CalendarDays,
@@ -92,7 +93,39 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
       </CardHeader>
       <CardContent>
         {pendingBills.length ? (
-          <form action={uploadMonthlyPaymentProof} className="space-y-5">
+          <div className="space-y-5">
+            {data.tenancy?.paymentQrUrl ? (
+              <div className="flex flex-col gap-4 rounded-md border border-[#eadcb9] bg-[#fbf8f1] p-4 sm:flex-row sm:items-center">
+                <a
+                  className="shrink-0"
+                  href={data.tenancy.paymentQrUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Image
+                    alt={`${data.tenancy.roomName} payment QR`}
+                    className="h-36 w-36 rounded-md border border-[#d8c28c] bg-white object-contain p-1"
+                    height={288}
+                    src={data.tenancy.paymentQrUrl}
+                    unoptimized
+                    width={288}
+                  />
+                </a>
+                <div>
+                  <p className="font-semibold text-gray-950">Room payment QR</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Scan the QR assigned to {data.tenancy.roomName}, then upload your transfer slip below.
+                  </p>
+                  <Button asChild className="mt-3" size="sm" variant="outline">
+                    <a href={data.tenancy.paymentQrUrl} target="_blank" rel="noreferrer">
+                      Open full QR
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            <form action={uploadMonthlyPaymentProof} className="space-y-5">
             <label className="block">
               <span className="text-sm font-semibold text-gray-800">
                 What are you paying?
@@ -177,7 +210,8 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
               <Upload className="h-4 w-4" />
               Submit payment
             </Button>
-          </form>
+            </form>
+          </div>
         ) : (
           <div className="flex items-start gap-3 rounded-md bg-emerald-50 p-4 text-sm text-emerald-800">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />

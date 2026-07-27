@@ -9,12 +9,12 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { Check, ExternalLink, LoaderCircle, QrCode, X } from "lucide-react";
+import { Check, ExternalLink, LoaderCircle, QrCode, Upload, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { TableRow } from "@/components/ui/table";
-import { updateRoomField } from "./actions";
+import { updateRoomField, updateRoomPaymentQr } from "./actions";
 
 export function PropertyInformationForm({
   action,
@@ -71,7 +71,7 @@ export function PaymentQrPreview({
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-gray-950">{propertyName}</p>
-                <p className="text-xs text-gray-500">Property payment QR</p>
+                <p className="text-xs text-gray-500">Room payment QR</p>
               </div>
               <Button aria-label="Close QR preview" size="icon" type="button" variant="ghost" onClick={() => setOpen(false)}>
                 <X className="h-4 w-4" />
@@ -100,42 +100,72 @@ export function PaymentQrPreview({
 
 export function PaymentQrCell({
   canManage = true,
+  hasRoomPaymentQr,
+  propertyId,
   propertyName,
   qrUrl,
+  roomId,
 }: {
   canManage?: boolean;
+  hasRoomPaymentQr: boolean;
+  propertyId: string;
   propertyName: string;
   qrUrl: string | null;
+  roomId: string;
 }) {
-  if (!qrUrl) {
-    return (
-      <div className="space-y-1">
-        <p className="text-xs text-gray-400">Not set</p>
-        {canManage ? (
-          <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
-            <a href="#payment-qr-settings">Change</a>
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
+  const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="flex min-w-28 items-center gap-2">
-      <Image
-        className="h-10 w-10 rounded border border-[#d7dde5] bg-white object-contain p-0.5"
-        src={qrUrl}
-        alt={`${propertyName} payment QR`}
-        width={80}
-        height={80}
-        unoptimized
-      />
+    <div className="flex min-w-32 items-center gap-2">
+      {qrUrl ? (
+        <Image
+          className="h-11 w-11 rounded border border-[#d7dde5] bg-white object-contain p-0.5"
+          src={qrUrl}
+          alt={`${propertyName} payment QR`}
+          width={88}
+          height={88}
+          unoptimized
+        />
+      ) : (
+        <div className="flex h-11 w-11 items-center justify-center rounded border border-dashed border-[#c9d1dc] bg-gray-50">
+          <QrCode className="h-5 w-5 text-gray-400" />
+        </div>
+      )}
       <div className="flex flex-col items-start gap-1">
-        <PaymentQrPreview propertyName={propertyName} qrUrl={qrUrl} />
+        {qrUrl ? <PaymentQrPreview propertyName={propertyName} qrUrl={qrUrl} /> : (
+          <span className="text-xs text-gray-400">Not set</span>
+        )}
+        {!hasRoomPaymentQr && qrUrl ? (
+          <span className="text-[10px] text-amber-700">Property fallback</span>
+        ) : null}
         {canManage ? (
-          <Button asChild className="h-7 px-2 text-xs" size="sm" variant="ghost">
-            <a href="#payment-qr-settings">Change</a>
-          </Button>
+          <form ref={formRef} action={updateRoomPaymentQr}>
+            <input name="propertyId" type="hidden" value={propertyId} />
+            <input name="roomId" type="hidden" value={roomId} />
+            <input
+              ref={fileInputRef}
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              name="paymentQr"
+              onChange={(event) => {
+                if (event.currentTarget.files?.length) {
+                  formRef.current?.requestSubmit();
+                }
+              }}
+              type="file"
+            />
+            <Button
+              className="h-7 px-2 text-xs"
+              onClick={() => fileInputRef.current?.click()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {hasRoomPaymentQr ? "Change" : "Add QR"}
+            </Button>
+          </form>
         ) : null}
       </div>
     </div>

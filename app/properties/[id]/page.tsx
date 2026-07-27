@@ -1,12 +1,13 @@
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
   ChevronRight,
   Droplets,
   FileText,
   Home,
   Plus,
-  QrCode,
   ReceiptText,
   UserPlus,
   Zap,
@@ -37,13 +38,11 @@ import { statusBadgeClass } from "@/lib/status-styles";
 import {
   generateRoomAgreement,
   sendRoomAgreement,
-  updatePaymentQr,
   updateProperty,
 } from "./actions";
 import {
   InlineRoomField,
   PaymentQrCell,
-  PaymentQrPreview,
   PropertyInformationForm,
   RoomNavigationRow,
 } from "./property-controls";
@@ -67,21 +66,14 @@ const messages: Record<string, string> = {
   rooms_remove: "The vacant rooms could not be removed.",
   tenancy: "A tenancy could not be prepared for this tenant.",
   agreement: "The tenancy agreement could not be generated.",
+  qr_file: "Choose a JPG, PNG or WebP QR image smaller than 5 MB.",
+  qr_room: "The selected room could not be found.",
+  qr_upload: "The room payment QR could not be uploaded.",
+  qr_save: "The room payment QR could not be saved.",
 };
 
 function fieldClass() {
   return "mt-1.5 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20";
-}
-
-function agreementLabel(status: string) {
-  const labels: Record<string, string> = {
-    not_generated: "Not Generated",
-    draft: "Not Sent",
-    pending_signature: "Awaiting Signature",
-    signed: "Signed",
-    expired: "Expired",
-  };
-  return labels[status] ?? status.replaceAll("_", " ");
 }
 
 function roomStatusClass(status: string) {
@@ -164,11 +156,13 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
 
   return (
     <section className="space-y-6">
-      <nav className="flex flex-wrap items-center gap-1 text-sm text-gray-500" aria-label="Breadcrumb">
-        <Link className="hover:text-[#126b5f]" href="/properties">Properties</Link>
-        <ChevronRight className="h-4 w-4" />
-        <span className="font-medium text-gray-950">{details.property.name}</span>
-      </nav>
+      <Link
+        className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-[#126b5f]"
+        href="/properties"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Properties
+      </Link>
 
       <div>
         <p className="text-xs font-semibold uppercase text-[#b17f19]">Property Management</p>
@@ -344,36 +338,9 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div
-            className="flex flex-col justify-between gap-4 border-y border-[#e5e9ef] py-4 sm:flex-row sm:items-end"
-            id="payment-qr-settings"
-          >
-            <div>
-              <p className="text-sm font-semibold text-gray-950">Property Payment QR</p>
-              <p className="mt-1 text-xs text-gray-500">This single QR is reused for every occupied room.</p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <PaymentQrPreview propertyName={details.property.name} qrUrl={details.property.paymentQrUrl} />
-              {canManage ? (
-                <form action={updatePaymentQr} className="flex flex-col gap-2 sm:flex-row">
-                  <input name="propertyId" type="hidden" value={details.property.id} />
-                  <label>
-                    <span className="sr-only">Payment QR image URL</span>
-                    <input
-                      className="h-9 w-full min-w-72 rounded-md border border-[#d7dde5] bg-white px-3 text-sm outline-none focus:border-[#b98a29]"
-                      name="paymentQrUrl"
-                      type="url"
-                      defaultValue={details.property.paymentQrUrl ?? ""}
-                      placeholder="https://.../payment-qr.png"
-                    />
-                  </label>
-                  <Button size="sm" type="submit" variant="outline">
-                    <QrCode className="h-4 w-4" />
-                    Change
-                  </Button>
-                </form>
-              ) : null}
-            </div>
+          <div className="rounded-md border border-[#eadcb9] bg-[#fbf8f1] px-4 py-3 text-sm text-gray-700">
+            Each occupied room keeps its own payment QR. Use <span className="font-semibold">Add QR</span> or{" "}
+            <span className="font-semibold">Change</span> in that room&apos;s row.
           </div>
 
           <div className="hidden overflow-x-auto xl:block">
@@ -403,7 +370,6 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                     propertyId={id}
                     propertyName={details.property.name}
                     room={room}
-                    qrUrl={details.property.paymentQrUrl}
                     canManage={canManage}
                   />
                 ))}
@@ -418,7 +384,6 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                 propertyId={id}
                 propertyName={details.property.name}
                 room={room}
-                qrUrl={details.property.paymentQrUrl}
                 canManage={canManage}
               />
             ))}
@@ -499,15 +464,25 @@ function AgreementActions({
       </form>
     );
   }
+  const isSigned = room.agreementStatus === "signed";
+  const isExpired = room.agreementStatus === "expired";
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex min-w-40 flex-wrap items-center gap-1.5">
       <Button asChild className="h-8 px-2 text-xs" size="sm" variant="outline">
-        <Link href={`/e-tenancy/${room.agreementId}`}>View</Link>
+        <Link href={`/e-tenancy/${room.agreementId}?print=1`} target="_blank">
+          View / print
+        </Link>
       </Button>
-      <Button asChild className="h-8 px-2 text-xs" size="sm" variant="outline">
-        <Link href={`/e-tenancy/${room.agreementId}?print=1`} target="_blank">Print</Link>
-      </Button>
-      {canManage && room.agreementStatus !== "signed" ? (
+      {isSigned ? (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+          Signed
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        </span>
+      ) : null}
+      {isExpired ? (
+        <span className="text-xs font-semibold text-red-600">Expired</span>
+      ) : null}
+      {canManage && !isSigned && !isExpired ? (
         <form action={sendRoomAgreement}>
           <HiddenRoomFields propertyId={propertyId} room={room} />
           <input name="agreementId" type="hidden" value={room.agreementId} />
@@ -525,13 +500,11 @@ function DesktopRoomRow({
   propertyId,
   propertyName,
   room,
-  qrUrl,
 }: {
   canManage: boolean;
   propertyId: string;
   propertyName: string;
   room: PropertyRoomView;
-  qrUrl: string | null;
 }) {
   const vacant = room.status === "vacant";
   const profileHref = tenantHref(room);
@@ -646,12 +619,7 @@ function DesktopRoomRow({
       </TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
-          <div className="space-y-2">
-            <Badge className={statusBadgeClass(room.agreementStatus)}>
-              {agreementLabel(room.agreementStatus)}
-            </Badge>
-            <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
-          </div>
+          <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
         )}
       </TableCell>
       <TableCell>
@@ -671,7 +639,14 @@ function DesktopRoomRow({
       </TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
-          <PaymentQrCell canManage={canManage} propertyName={propertyName} qrUrl={qrUrl} />
+          <PaymentQrCell
+            canManage={canManage}
+            hasRoomPaymentQr={room.hasRoomPaymentQr}
+            propertyId={propertyId}
+            propertyName={`${propertyName} - ${room.roomNumber}`}
+            qrUrl={room.paymentQrUrl}
+            roomId={room.id}
+          />
         )}
       </TableCell>
       <TableCell>
@@ -703,13 +678,11 @@ function MobileRoomCard({
   propertyId,
   propertyName,
   room,
-  qrUrl,
 }: {
   canManage: boolean;
   propertyId: string;
   propertyName: string;
   room: PropertyRoomView;
-  qrUrl: string | null;
 }) {
   const vacant = room.status === "vacant";
   const profileHref = tenantHref(room);
@@ -836,11 +809,22 @@ function MobileRoomCard({
             </div>
             <div>
               <dt className="text-gray-500">Agreement</dt>
-              <dd className="mt-1"><Badge className={statusBadgeClass(room.agreementStatus)}>{agreementLabel(room.agreementStatus)}</Badge></dd>
+              <dd className="mt-1">
+                <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
+              </dd>
             </div>
             <div>
               <dt className="text-gray-500">Payment QR</dt>
-              <dd className="mt-1"><PaymentQrCell canManage={canManage} propertyName={propertyName} qrUrl={qrUrl} /></dd>
+              <dd className="mt-1">
+                <PaymentQrCell
+                  canManage={canManage}
+                  hasRoomPaymentQr={room.hasRoomPaymentQr}
+                  propertyId={propertyId}
+                  propertyName={`${propertyName} - ${room.roomNumber}`}
+                  qrUrl={room.paymentQrUrl}
+                  roomId={room.id}
+                />
+              </dd>
             </div>
           </>
         ) : null}
@@ -856,8 +840,6 @@ function MobileRoomCard({
               Register Tenant
             </Link>
           </Button>
-        ) : !vacant ? (
-          <AgreementActions canManage={canManage} propertyId={propertyId} room={room} />
         ) : null}
         <Button asChild size="sm" variant="outline">
           <Link href={`/properties/${propertyId}/rooms/${room.id}`}>

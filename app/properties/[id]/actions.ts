@@ -314,6 +314,81 @@ export async function updatePaymentQr(formData: FormData) {
   redirect(propertyPath(property.id, "?saved=qr"));
 }
 
+export async function updateRoomPaymentQr(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
+  const propertyId = textValue(formData, "propertyId");
+  const roomId = textValue(formData, "roomId");
+  const property = await accessibleProperty(propertyId);
+  const qrFile = formFile(formData, "paymentQr");
+  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+  if (
+    !property ||
+    !roomId ||
+    !qrFile ||
+    qrFile.size > 5 * 1024 * 1024 ||
+    !allowedTypes.has(qrFile.type)
+  ) {
+    redirect(propertyPath(propertyId, "?error=qr_file"));
+  }
+
+  const supabase = await getAdmin();
+  const { data: room } = await supabase
+    .from("rooms")
+    .select("id, payment_qr_path")
+    .eq("id", roomId)
+    .eq("property_id", property.id)
+    .maybeSingle();
+  if (!room) {
+    redirect(propertyPath(property.id, "?error=qr_room"));
+  }
+
+  const extension =
+    qrFile.type === "image/png"
+      ? "png"
+      : qrFile.type === "image/webp"
+        ? "webp"
+        : "jpg";
+  const filePath = `${property.company_id}/${property.id}/${room.id}/payment-qr.${extension}`;
+  const bytes = Buffer.from(await qrFile.arrayBuffer());
+  const { error: uploadError } = await supabase.storage
+    .from("room-payment-qr")
+    .upload(filePath, bytes, {
+      contentType: qrFile.type,
+      upsert: true,
+    });
+  if (uploadError) {
+    redirect(propertyPath(property.id, "?error=qr_upload"));
+  }
+
+  const { error: saveError } = await supabase
+    .from("rooms")
+    .update({
+      payment_qr_path: filePath,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", room.id)
+    .eq("property_id", property.id);
+  if (saveError) {
+    if (room.payment_qr_path !== filePath) {
+      await supabase.storage.from("room-payment-qr").remove([filePath]);
+    }
+    redirect(propertyPath(property.id, "?error=qr_save"));
+  }
+
+  if (room.payment_qr_path && room.payment_qr_path !== filePath) {
+    await supabase.storage.from("room-payment-qr").remove([room.payment_qr_path]);
+  }
+
+  revalidatePath(propertyPath(property.id));
+  revalidatePath(propertyPath(property.id, `/rooms/${room.id}`));
+  revalidatePath("/dashboard");
+  redirect(propertyPath(property.id, "?saved=room_qr"));
+}
+
 export async function updateRoomField(formData: FormData) {
   await requireRole(["super_admin", "admin"], {
     module: "properties",
