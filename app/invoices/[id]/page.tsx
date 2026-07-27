@@ -43,7 +43,7 @@ export default async function RentalInvoicePage({ params }: PageProps) {
   const propertyLabel = [invoice.propertyCode, invoice.propertyName]
     .filter(Boolean)
     .join(" - ");
-  const description = `${propertyLabel} ${invoice.roomName} - RENTAL FOR ${month.toUpperCase()} - DUE ${dueDate.toUpperCase()}`;
+  const description = `${propertyLabel} ${invoice.roomName} - RENTAL FOR ${month.toUpperCase()}`;
   const returnHref = role === "tenant" ? "/payments" : "/rental-invoices";
 
   return (
@@ -118,10 +118,6 @@ export default async function RentalInvoicePage({ params }: PageProps) {
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-sm sm:justify-self-end">
             <dt className="font-semibold text-gray-600">Invoice Date</dt>
             <dd>{dueDate}</dd>
-            <dt className="font-semibold text-gray-600">Due Date</dt>
-            <dd>{dueDate}</dd>
-            <dt className="font-semibold text-gray-600">Rental Month</dt>
-            <dd>{month}</dd>
             <dt className="font-semibold text-gray-600">Terms</dt>
             <dd>C.O.D.</dd>
           </dl>
@@ -179,14 +175,18 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               Please include the invoice number as the payment reference.
               Payments are reflected only after verification by DEKEZ.
             </p>
-            <p className="mt-4 text-gray-500">
-              Retained in the DEKEZ invoice archive until{" "}
-              {invoiceDate(invoice.retainUntil)}.
-            </p>
           </div>
-          <div className="min-w-48 pt-12 text-center">
+          <div className="min-w-64 pt-8 text-center">
+            <p
+              className="mb-2 text-2xl text-[#17130d]"
+              style={{
+                fontFamily: '"Brush Script MT", "Segoe Script", cursive',
+              }}
+            >
+              DEKEZ SDN BHD
+            </p>
             <div className="border-t border-[#17130d] pt-2">
-              Authorized Signature
+              Authorised Signature
             </div>
           </div>
         </footer>
