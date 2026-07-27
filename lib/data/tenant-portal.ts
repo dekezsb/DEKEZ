@@ -109,11 +109,51 @@ export async function getTenantPortalData() {
     const { data } = await dataClient
       .from("tenancies")
       .select(
-        "id, tenant_id, property_id, room_id, monthly_rent, monthly_rental, deposit, due_day, rent_due_day, start_date, end_date, contract_start, contract_end, check_in_date, checkout_date, status, billing_status, created_at, properties(name), rooms(name, room_number)",
+        "id, tenant_id, property_id, room_id, monthly_rent, monthly_rental, deposit, due_day, rent_due_day, start_date, end_date, contract_start, contract_end, check_in_date, checkout_date, status, billing_status, created_at",
       )
       .in("tenant_id", tenantIds)
       .order("created_at", { ascending: false });
-    tenancies = (data ?? []) as typeof tenancies;
+    const rawTenancies = data ?? [];
+    const propertyIds = [
+      ...new Set(
+        rawTenancies
+          .map((tenancy) => tenancy.property_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const roomIds = [
+      ...new Set(rawTenancies.map((tenancy) => tenancy.room_id)),
+    ];
+    const [propertiesResult, roomsResult] = await Promise.all([
+      propertyIds.length
+        ? dataClient.from("properties").select("id, name").in("id", propertyIds)
+        : Promise.resolve({ data: [] }),
+      roomIds.length
+        ? dataClient
+            .from("rooms")
+            .select("id, name, room_number")
+            .in("id", roomIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const propertyNames = new Map(
+      (propertiesResult.data ?? []).map((property) => [
+        property.id,
+        { name: property.name },
+      ]),
+    );
+    const roomNames = new Map(
+      (roomsResult.data ?? []).map((room) => [
+        room.id,
+        { name: room.name, room_number: room.room_number },
+      ]),
+    );
+    tenancies = rawTenancies.map((tenancy) => ({
+      ...tenancy,
+      properties: tenancy.property_id
+        ? (propertyNames.get(tenancy.property_id) ?? null)
+        : null,
+      rooms: roomNames.get(tenancy.room_id) ?? null,
+    })) as typeof tenancies;
   }
 
   const activeTenancy =
