@@ -30,8 +30,17 @@ body {
 }
 
 @media print {
+  @page {
+    margin: 12mm;
+    size: A4 portrait;
+  }
+
   .tenant-portal-bg {
     background: white;
+  }
+
+  .invoice-sheet {
+    width: 100%;
   }
 }
 

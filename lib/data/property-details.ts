@@ -359,7 +359,7 @@ export async function getRoomDetails(
   const [billsResult, paymentsResult, maintenanceResult, metersResult] = await Promise.all([
     supabase
       .from("rent_bills")
-      .select("id, bill_month, due_date, amount, paid_amount, status")
+      .select("id, invoice_number, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status")
       .eq("room_id", roomId)
       .order("bill_month", { ascending: false }),
     supabase

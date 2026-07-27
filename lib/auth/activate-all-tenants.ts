@@ -479,7 +479,18 @@ export async function activateAllTenantAccounts(
         result.errors += 1;
         continue;
       }
+    }
 
+    const tenancyIds = [...new Set(links.map((link) => link.tenancyId))];
+    if (tenancyIds.length) {
+      const { error: canonicalBillLinkError } = await admin
+        .from("rent_bills")
+        .update({
+          tenant_id: profileId,
+          updated_at: now,
+        })
+        .in("tenancy_id", tenancyIds);
+      if (canonicalBillLinkError) result.errors += 1;
     }
   };
 

@@ -43,6 +43,10 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
     return <>{children}</>;
   }
 
+  if (pathname.startsWith("/invoices/")) {
+    return <>{children}</>;
+  }
+
   if (role === "tenant") {
     return (
       <div className="tenant-portal-bg min-h-screen text-[#17130d]">

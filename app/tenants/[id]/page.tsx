@@ -126,12 +126,14 @@ export default async function TenantProfilePage({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Invoice No.</TableHead>
                     <TableHead>Bill Month</TableHead>
-                    <TableHead>Due Date</TableHead>
+                    <TableHead>Invoice Date</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Paid</TableHead>
                     <TableHead>Outstanding</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -141,6 +143,7 @@ export default async function TenantProfilePage({
                     const outstanding = Math.max(amount - paid, 0);
                     return (
                       <TableRow key={bill.id}>
+                        <TableCell className="font-medium">{bill.invoice_number}</TableCell>
                         <TableCell>{bill.bill_month}</TableCell>
                         <TableCell>{bill.due_date}</TableCell>
                         <TableCell>{money.format(amount)}</TableCell>
@@ -149,6 +152,11 @@ export default async function TenantProfilePage({
                           {money.format(outstanding)}
                         </TableCell>
                         <TableCell><Badge className={statusBadgeClass(bill.status)}>{bill.status}</Badge></TableCell>
+                        <TableCell>
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/invoices/${bill.id}`}>View / Print</Link>
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}

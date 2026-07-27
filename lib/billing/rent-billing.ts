@@ -35,6 +35,7 @@ type TenancyBillingRow = {
 
 type TenantRecordBillingRow = {
   id: string;
+  tenancy_id: string | null;
   company_id: string | null;
   property_id: string;
   unit_id: string | null;
@@ -69,31 +70,50 @@ export function dayOfMonth(dateText: string) {
   return Number(dateText.slice(8, 10));
 }
 
+export function invoiceDueDateForBillMonth(
+  billMonth: string,
+  dueDay: number,
+  checkInDate: string,
+) {
+  const recurringDueDate = dueDateForBillMonth(billMonth, dueDay);
+  return billMonth === billMonthForDate(checkInDate) && recurringDueDate < checkInDate
+    ? checkInDate
+    : recurringDueDate;
+}
+
 function targetBillingMonths(input: {
   startDate: string;
   endDate?: string | null;
   dueDay: number;
   currentDate: string;
-  includeStartMonth?: boolean;
 }) {
   const startMonth = billMonthForDate(input.startDate);
   const currentMonth = billMonthForDate(input.currentDate);
-  const currentDueDate = dueDateForBillMonth(currentMonth, input.dueDay);
-  const candidates = new Set([currentMonth]);
-  if (input.includeStartMonth !== false) {
-    candidates.add(startMonth);
-  }
-  if (input.currentDate >= currentDueDate) {
-    candidates.add(addMonthsToBillMonth(currentMonth, 1));
+  const endMonth = input.endDate
+    ? [currentMonth, billMonthForDate(input.endDate)].sort()[0]
+    : currentMonth;
+
+  if (input.startDate > input.currentDate || startMonth > endMonth) {
+    return [];
   }
 
-  return Array.from(candidates).sort().filter((month) => {
-    const dueDate = dueDateForBillMonth(month, input.dueDay);
-    if (dueDate < input.startDate) {
-      return false;
+  const months: string[] = [];
+  let month = startMonth;
+  while (month <= endMonth) {
+    months.push(month);
+    month = addMonthsToBillMonth(month, 1);
+  }
+
+  const currentDueDate = dueDateForBillMonth(currentMonth, input.dueDay);
+  if (input.currentDate >= currentDueDate) {
+    const nextMonth = addMonthsToBillMonth(currentMonth, 1);
+    const nextDueDate = dueDateForBillMonth(nextMonth, input.dueDay);
+    if (!input.endDate || nextDueDate <= input.endDate) {
+      months.push(nextMonth);
     }
-    return !input.endDate || dueDate <= input.endDate;
-  });
+  }
+
+  return months;
 }
 
 function effectiveEndDate(input: {
@@ -173,12 +193,6 @@ export async function generateRecurringRentBills(
   for (const tenancy of (tenancies ?? []) as TenancyBillingRow[]) {
     result.checkedTenancies += 1;
     const profileId = tenantProfileId(tenancy);
-    if (!profileId) {
-      result.errors.push(
-        `Tenancy ${tenancy.id} has no activated tenant portal profile.`,
-      );
-      continue;
-    }
     const startDate = tenancy.check_in_date ?? tenancy.tenancy_start_date ?? tenancy.contract_start;
     const dueDay = tenancy.rent_due_day ?? tenancy.due_day ?? dayOfMonth(startDate);
     const endDate = effectiveEndDate({
@@ -187,7 +201,12 @@ export async function generateRecurringRentBills(
       contractEnd: tenancy.contract_end,
     });
     const existingMonths = await existingBillMonths(supabase, "tenancy_id", tenancy.id);
-    const targetMonths = targetBillingMonths({ startDate, endDate, dueDay, currentDate });
+    const targetMonths = targetBillingMonths({
+      startDate,
+      endDate,
+      dueDay,
+      currentDate,
+    });
     const missingBills = targetMonths
       .filter((month) => !existingMonths.has(month))
       .map((billMonth) => ({
@@ -199,7 +218,7 @@ export async function generateRecurringRentBills(
         unit_id: tenancy.unit_id,
         room_id: tenancy.room_id,
         bill_month: billMonth,
-        due_date: dueDateForBillMonth(billMonth, dueDay),
+        due_date: invoiceDueDateForBillMonth(billMonth, dueDay, startDate),
         amount: Number(tenancy.monthly_rental ?? 0),
         paid_amount: 0,
         status: "unpaid",
@@ -217,9 +236,10 @@ export async function generateRecurringRentBills(
   if (options.includeTenantRecords !== false) {
     const { data: tenantRecords, error: tenantRecordError } = await supabase
       .from("tenant_records")
-      .select("id, company_id, property_id, unit_id, room_id, monthly_rent, contract_start, contract_end, due_day, rooms!inner(status)")
+      .select("id, tenancy_id, company_id, property_id, unit_id, room_id, monthly_rent, contract_start, contract_end, due_day, rooms!inner(status)")
       .eq("status", "active")
       .eq("rooms.status", "occupied")
+      .is("tenancy_id", null)
       .not("due_day", "is", null)
       .not("contract_start", "is", null);
 
@@ -235,12 +255,12 @@ export async function generateRecurringRentBills(
       result.checkedTenantRecords += 1;
       const existingMonths = await existingBillMonths(supabase, "tenant_record_id", tenant.id);
       const dueDay = tenant.due_day;
+      const contractStart = tenant.contract_start;
       const targetMonths = targetBillingMonths({
-        startDate: tenant.contract_start,
+        startDate: contractStart,
         endDate: tenant.contract_end,
         dueDay,
         currentDate,
-        includeStartMonth: false,
       });
       const missingBills = targetMonths
         .filter((month) => !existingMonths.has(month))
@@ -253,7 +273,11 @@ export async function generateRecurringRentBills(
           unit_id: tenant.unit_id,
           room_id: tenant.room_id,
           bill_month: billMonth,
-          due_date: dueDateForBillMonth(billMonth, dueDay),
+          due_date: invoiceDueDateForBillMonth(
+            billMonth,
+            dueDay,
+            contractStart,
+          ),
           amount: Number(tenant.monthly_rent ?? 0),
           paid_amount: 0,
           status: "unpaid",

@@ -223,19 +223,25 @@ export default async function RoomDetailsPage({
           {details.bills.length ? (
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Bill Month</TableHead><TableHead>Due Date</TableHead><TableHead>Amount</TableHead><TableHead>Paid</TableHead><TableHead>Outstanding</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Invoice No.</TableHead><TableHead>Bill Month</TableHead><TableHead>Invoice Date</TableHead><TableHead>Amount</TableHead><TableHead>Paid</TableHead><TableHead>Outstanding</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
                   {details.bills.map((bill) => {
                     const amount = Number(bill.amount ?? 0);
                     const paid = Number(bill.paid_amount ?? 0);
                     return (
                       <TableRow key={bill.id}>
+                        <TableCell className="font-medium">{bill.invoice_number}</TableCell>
                         <TableCell>{bill.bill_month}</TableCell>
                         <TableCell>{bill.due_date}</TableCell>
                         <TableCell>{money.format(amount)}</TableCell>
                         <TableCell>{money.format(paid)}</TableCell>
                         <TableCell className={amount - paid > 0 ? "font-medium text-red-600" : "text-emerald-700"}>{money.format(Math.max(amount - paid, 0))}</TableCell>
                         <TableCell><Badge className={statusBadgeClass(bill.status)}>{bill.status}</Badge></TableCell>
+                        <TableCell>
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/invoices/${bill.id}`}>View / Print</Link>
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}

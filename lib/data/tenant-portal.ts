@@ -179,6 +179,9 @@ export async function getTenantPortalData() {
   let bills: Array<{
     id: string;
     tenancy_id: string | null;
+    invoice_number: string;
+    issued_at: string;
+    retain_until: string;
     bill_month: string;
     due_date: string;
     amount: number | string;
@@ -217,7 +220,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("rent_bills")
         .select(
-          "id, tenancy_id, bill_month, due_date, amount, paid_amount, status, created_at",
+          "id, tenancy_id, invoice_number, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status, created_at",
         )
         .in("tenancy_id", tenancyIds)
         .order("bill_month", { ascending: false }),

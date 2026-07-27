@@ -1126,6 +1126,14 @@ export async function activateTenantPortalAccess(formData: FormData) {
     );
   }
 
+  await supabase
+    .from("rent_bills")
+    .update({
+      tenant_id: result.profileId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("tenancy_id", assignment.id);
+
   revalidatePath(propertyPath(property.id));
   revalidatePath(propertyPath(property.id, `/rooms/${roomId}`));
   revalidatePath(`/tenants/${tenantId}`);

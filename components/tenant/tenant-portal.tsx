@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/card";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
-import { PrintBillsButton } from "./print-bills-button";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -512,10 +511,7 @@ export function TenantBills({
 }) {
   return (
     <section className="space-y-5 print:bg-white">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <PortalHeading eyebrow="Bills" title="Bills & Receipts" />
-        <PrintBillsButton />
-      </div>
+      <PortalHeading eyebrow="Bills" title="Bills & Receipts" />
 
       {proofSubmitted ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -554,8 +550,10 @@ export function TenantBills({
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly Rent Bills</CardTitle>
-          <CardDescription>Current and historical invoices remain available.</CardDescription>
+          <CardTitle>Monthly Rental Invoices</CardTitle>
+          <CardDescription>
+            View, print, or save every monthly invoice.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {data.bills.length ? (
@@ -567,7 +565,7 @@ export function TenantBills({
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-gray-950">
-                      {date(bill.bill_month)}
+                      {bill.invoice_number}
                     </p>
                     <Badge className={statusBadgeClass(bill.status)}>
                       {titleCase(bill.status)}
@@ -577,10 +575,12 @@ export function TenantBills({
                     {bill.propertyName} / {bill.roomName}
                   </p>
                   <p className="mt-1 text-sm text-gray-600">
-                    Due {date(bill.due_date)} / Bill {money(bill.amount)}
+                    Rental month {date(bill.bill_month)} / Invoice date{" "}
+                    {date(bill.due_date)}
                   </p>
                 </div>
-                <div className="text-left sm:text-right">
+                <div className="flex flex-col items-start gap-3 sm:items-end">
+                  <div className="text-left sm:text-right">
                   <p className="text-xs uppercase text-gray-500">Outstanding</p>
                   <p
                     className={`mt-1 font-bold ${
@@ -589,6 +589,10 @@ export function TenantBills({
                   >
                     {money(bill.outstanding)}
                   </p>
+                  </div>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/invoices/${bill.id}`}>View / Print</Link>
+                  </Button>
                 </div>
               </article>
             ))
