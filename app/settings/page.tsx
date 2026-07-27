@@ -1,4 +1,5 @@
 import { Building2, CreditCard, Home, Users, Wrench, Zap } from "lucide-react";
+import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
@@ -23,7 +24,10 @@ function formatBreakdown(counts: Record<string, number>) {
 }
 
 export default async function SettingsPage() {
-  await requireRole(["super_admin", "owner"]);
+  const role = await requireRole(["super_admin", "owner"]);
+  if (role === "super_admin") {
+    redirect("/admin-setup");
+  }
   const supabase = await createClient();
   const [
     companiesResult,

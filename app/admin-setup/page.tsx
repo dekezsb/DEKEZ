@@ -87,9 +87,11 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
   return (
     <section className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase text-[#126b5f]">Admin Control</p>
+        <p className="text-xs font-semibold uppercase text-[#126b5f]">
+          Admin Control & Settings
+        </p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
-          Admin Setup & Assignment
+          Settings & Admin Setup
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
           Create role accounts, build property structure, assign owners, and create tenant tenancies.

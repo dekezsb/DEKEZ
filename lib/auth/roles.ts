@@ -12,7 +12,6 @@ import {
   ReceiptText,
   ShieldCheck,
   Settings,
-  UserCog,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -39,7 +38,7 @@ export type NavigationItem = {
 
 const adminNavigation: NavigationItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
-  { label: "Admin Setup", href: "/admin-setup", icon: UserCog, module: "admin_setup" },
+  { label: "Admin Settings", href: "/admin-setup", icon: Settings, module: "admin_setup" },
   { label: "Properties", href: "/properties", icon: Building2, module: "properties" },
   { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
   { label: "Payments", href: "/payments", icon: CreditCard, module: "payments" },
@@ -50,7 +49,6 @@ const adminNavigation: NavigationItem[] = [
   { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
   { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
-  { label: "Settings", href: "/settings", icon: Settings, module: "settings" },
 ];
 
 export const roleLabels: Record<AppRole, string> = {
