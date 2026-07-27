@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
+import { hasModuleAccess, type UserAccess } from "@/lib/auth/access";
 import {
   roleLabels,
   roleNavigation,
@@ -16,14 +17,20 @@ import { cn } from "@/lib/utils";
 
 type AppShellProps = {
   children: ReactNode;
+  access: UserAccess | null;
   role: AppRole | null;
   userName?: string | null;
 };
 
-export function AppShell({ children, role, userName }: AppShellProps) {
+export function AppShell({ access, children, role, userName }: AppShellProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
-  const navigation: NavigationItem[] = role ? roleNavigation[role] : [];
+  const navigation: NavigationItem[] =
+    role && access
+      ? roleNavigation[role].filter((item) =>
+          hasModuleAccess(access, item.module),
+        )
+      : [];
   const currentPage =
     navigation.find((item) => pathname.startsWith(item.href))?.label ?? "DEKEZ";
   const isPublicPage =

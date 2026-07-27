@@ -32,7 +32,10 @@ async function getAdmin() {
 }
 
 export async function reviewPaymentSubmission(formData: FormData) {
-  const role = await requireRole(["super_admin", "admin"]);
+  const role = await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const submissionId = textValue(formData, "submissionId");
   const decision = textValue(formData, "decision");

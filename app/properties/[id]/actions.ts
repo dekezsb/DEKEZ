@@ -179,7 +179,10 @@ async function ensureCanonicalTenancy(
 }
 
 export async function updateProperty(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const property = await accessibleProperty(propertyId);
@@ -294,7 +297,10 @@ export async function updateProperty(formData: FormData) {
 }
 
 export async function updatePaymentQr(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const propertyId = textValue(formData, "propertyId");
   const property = await accessibleProperty(propertyId);
   if (!property) {
@@ -308,7 +314,10 @@ export async function updatePaymentQr(formData: FormData) {
 }
 
 export async function updateRoomField(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
@@ -627,7 +636,10 @@ export async function updateRoomField(formData: FormData) {
 }
 
 export async function generateRoomAgreement(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
@@ -654,7 +666,10 @@ export async function generateRoomAgreement(formData: FormData) {
 }
 
 export async function sendRoomAgreement(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const propertyId = textValue(formData, "propertyId");
   const agreementId = textValue(formData, "agreementId");
   const tenancyId = textValue(formData, "tenancyId");
@@ -680,7 +695,10 @@ export async function sendRoomAgreement(formData: FormData) {
 }
 
 export async function registerTenant(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
@@ -925,7 +943,10 @@ export async function registerTenant(formData: FormData) {
 }
 
 export async function checkoutRoom(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
   const checkoutDate = textValue(formData, "checkoutDate") || today();

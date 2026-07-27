@@ -14,6 +14,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
+import type { AccessModule } from "./access";
 
 export const appRoles = [
   "super_admin",
@@ -31,25 +32,29 @@ export type NavigationItem = {
   label: string;
   href: string;
   icon: LucideIcon;
+  module: AccessModule;
 };
 
 const adminNavigation: NavigationItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Admin Setup", href: "/admin-setup", icon: UserCog },
-  { label: "Properties", href: "/properties", icon: Building2 },
-  { label: "Verification", href: "/verification", icon: ShieldCheck },
-  { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock },
-  { label: "Utility Bills", href: "/utility-bills", icon: Droplets },
-  { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
-  { label: "Maintenance", href: "/maintenance", icon: Wrench },
-  { label: "Reports", href: "/reports", icon: BarChart3 },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
+  { label: "Admin Setup", href: "/admin-setup", icon: UserCog, module: "admin_setup" },
+  { label: "Properties", href: "/properties", icon: Building2, module: "properties" },
+  { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
+  { label: "Payments", href: "/payments", icon: CreditCard, module: "payments" },
+  { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
+  { label: "Tenancy Agreements", href: "/e-tenancy", icon: FileSignature, module: "tenancy_agreements" },
+  { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
+  { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+  { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+  { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
+  { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
+  { label: "Settings", href: "/settings", icon: Settings, module: "settings" },
 ];
 
 export const roleLabels: Record<AppRole, string> = {
   super_admin: "Super Admin",
   owner: "Owner",
-  admin: "Admin Team",
+  admin: "Management",
   technician: "Maintenance & Cleaning Team",
   maintenance_staff: "Maintenance Team",
   cleaning_staff: "Cleaning Team",
@@ -68,47 +73,47 @@ export const roleHome: Record<AppRole, string> = {
 
 export const roleNavigation: Record<AppRole, NavigationItem[]> = {
   super_admin: [
-    { label: "Super Admin", href: "/super-admin", icon: ShieldCheck },
+    { label: "Super Admin", href: "/super-admin", icon: ShieldCheck, module: "dashboard" },
     ...adminNavigation,
   ],
   owner: [
-    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Properties", href: "/properties", icon: Building2 },
-    { label: "Payments", href: "/payments", icon: CreditCard },
-    { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock },
-    { label: "Tenancy Agreements", href: "/e-tenancy", icon: FileSignature },
-    { label: "Utility Bills", href: "/utility-bills", icon: Droplets },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
-    { label: "Claims", href: "/claims", icon: ClipboardList },
-    { label: "Reports", href: "/reports", icon: BarChart3 },
-    { label: "Settings", href: "/settings", icon: Settings },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
+    { label: "Properties", href: "/properties", icon: Building2, module: "properties" },
+    { label: "Payments", href: "/payments", icon: CreditCard, module: "payments" },
+    { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
+    { label: "Tenancy Agreements", href: "/e-tenancy", icon: FileSignature, module: "tenancy_agreements" },
+    { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
+    { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
+    { label: "Settings", href: "/settings", icon: Settings, module: "settings" },
   ],
-  admin: adminNavigation.filter((item) => item.href !== "/settings"),
+  admin: adminNavigation,
   technician: [
-    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
-    { label: "Claims", href: "/claims", icon: ClipboardList },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
+    { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   ],
   maintenance_staff: [
-    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
-    { label: "Claims", href: "/claims", icon: ClipboardList },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
+    { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   ],
   cleaning_staff: [
-    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText },
-    { label: "Claims", href: "/claims", icon: ClipboardList },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
+    { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   ],
   tenant: [
-    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Onboarding", href: "/onboarding", icon: UserCog },
-    { label: "My Tenancy Agreement", href: "/e-tenancy", icon: FileSignature },
-    { label: "Payments", href: "/payments", icon: CreditCard },
-    { label: "Maintenance", href: "/maintenance", icon: Wrench },
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
+    { label: "Onboarding", href: "/onboarding", icon: UserCog, module: "onboarding" },
+    { label: "My Tenancy Agreement", href: "/e-tenancy", icon: FileSignature, module: "tenancy_agreements" },
+    { label: "Payments", href: "/payments", icon: CreditCard, module: "payments" },
+    { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
   ],
 };
 

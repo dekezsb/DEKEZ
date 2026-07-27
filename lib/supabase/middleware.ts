@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  hasModuleAccess,
+  moduleForPath,
+  resolveUserAccess,
+} from "@/lib/auth/access";
 import { protectedRoutes } from "@/lib/auth/roles";
+import { normalizeRole } from "@/lib/auth/roles";
 import { normalizeSupabaseUrl } from "./config";
 
 export async function updateSession(request: NextRequest) {
@@ -45,7 +51,7 @@ export async function updateSession(request: NextRequest) {
   if (isProtectedRoute && user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("registration_status")
+      .select("registration_status, role")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -54,6 +60,28 @@ export async function updateSession(request: NextRequest) {
       redirectUrl.pathname = "/registration-status";
       redirectUrl.search = "";
       return NextResponse.redirect(redirectUrl);
+    }
+
+    const role =
+      normalizeRole(user.app_metadata?.role) ??
+      normalizeRole(profile.role) ??
+      "tenant";
+    const module = moduleForPath(request.nextUrl.pathname);
+
+    if (module && role !== "super_admin") {
+      const { data: permissionRows } = await supabase
+        .from("user_module_permissions")
+        .select("module_key, access_level")
+        .eq("profile_id", user.id);
+      const access = resolveUserAccess(role, permissionRows ?? []);
+
+      if (!hasModuleAccess(access, module)) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/dashboard";
+        redirectUrl.search = "";
+        redirectUrl.searchParams.set("error", "access_denied");
+        return NextResponse.redirect(redirectUrl);
+      }
     }
   }
 

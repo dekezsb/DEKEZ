@@ -65,7 +65,10 @@ async function uploadDocument(
 }
 
 export async function submitTenantApplication(formData: FormData) {
-  await requireRole(["tenant"]);
+  await requireRole(["tenant"], {
+    module: "onboarding",
+    level: "manage",
+  });
   const user = await getCurrentUser();
 
   if (!user) {
@@ -183,7 +186,10 @@ export async function submitTenantApplication(formData: FormData) {
 }
 
 export async function submitCheckInPayment(formData: FormData) {
-  await requireRole(["tenant"]);
+  await requireRole(["tenant"], {
+    module: "onboarding",
+    level: "manage",
+  });
   const user = await getCurrentUser();
 
   if (!user) {

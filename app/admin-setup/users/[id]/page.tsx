@@ -28,6 +28,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  accessModuleDetails,
+  getRoleDefaultAccess,
+  resolveUserAccess,
+} from "@/lib/auth/access";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeRole, roleLabels } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -47,6 +52,7 @@ const errorMessages: Record<string, string> = {
   auth_update: "The Supabase login account could not be updated.",
   membership_update: "The profile changed, but company access could not be synchronized.",
   permission: "You cannot change this protected account.",
+  permission_update: "The user profile changed, but module access could not be saved.",
   phone_invalid: "Enter a valid international phone number with country code.",
   removal_reason: "Enter a reason before removing access.",
   self_remove: "You cannot remove your own Super Admin access.",
@@ -57,8 +63,8 @@ const errorMessages: Record<string, string> = {
 };
 
 const editableRoles = [
-  "owner",
   "admin",
+  "owner",
   "tenant",
   "technician",
   "maintenance_staff",
@@ -125,7 +131,10 @@ export default async function UserProfilePage({
   params,
   searchParams,
 }: UserProfilePageProps) {
-  const actorRole = await requireRole(["super_admin", "admin"]);
+  const actorRole = await requireRole(["super_admin"], {
+    module: "admin_setup",
+    level: "manage",
+  });
   const [{ id: profileId }, query] = await Promise.all([
     params,
     searchParams,
@@ -149,6 +158,7 @@ export default async function UserProfilePage({
     ownerAssignmentsResult,
     tenantsResult,
     applicationsResult,
+    permissionsResult,
   ] = await Promise.all([
     admin
       .from("profiles")
@@ -176,6 +186,10 @@ export default async function UserProfilePage({
       .select("id, tenant_id, property_id, room_id, full_name, ic_passport_number, nationality, date_of_birth, whatsapp_number, emergency_contact_name, emergency_contact_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, utility_deposit, status, verification_status, payment_status, submitted_at, reviewed_at, admin_notes")
       .eq("tenant_id", profileId)
       .order("submitted_at", { ascending: false }),
+    admin
+      .from("user_module_permissions")
+      .select("module_key, access_level")
+      .eq("profile_id", profileId),
   ]);
 
   const profile = profileResult.data;
@@ -188,6 +202,13 @@ export default async function UserProfilePage({
   const ownerAssignments = ownerAssignmentsResult.data ?? [];
   const tenantRecords = tenantsResult.data ?? [];
   const applications = applicationsResult.data ?? [];
+  const profileAccess = resolveUserAccess(
+    normalizeRole(profile.role) ?? "tenant",
+    permissionsResult.data ?? [],
+  );
+  const roleMaximumAccess = getRoleDefaultAccess(
+    normalizeRole(profile.role) ?? "tenant",
+  );
   const tenantIds = Array.from(
     new Set([profile.id, ...tenantRecords.map((tenant) => tenant.id)]),
   );
@@ -450,6 +471,78 @@ export default async function UserProfilePage({
                   value={profile.registration_rejection_reason ?? ""}
                 />
               )}
+              <div className="space-y-3 border-t border-[#e4e8ee] pt-5 sm:col-span-2">
+                <div>
+                  <h2 className="font-semibold text-gray-950">
+                    Module Access
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Choose whether this user cannot open a module, can view it,
+                    or can make changes.
+                  </p>
+                </div>
+                <div className="divide-y divide-[#e4e8ee] rounded-md border border-[#d7dde5]">
+                  {accessModuleDetails.map((module) => {
+                    const isDashboard = module.key === "dashboard";
+                    const maximumAccess = roleMaximumAccess[module.key];
+                    const isLocked =
+                      isDashboard ||
+                      isProtectedSuperAdmin ||
+                      maximumAccess === "none";
+                    const accessLevel = profileAccess[module.key];
+
+                    return (
+                      <div
+                        className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center"
+                        key={module.key}
+                      >
+                        <div>
+                          <p className="font-medium text-gray-950">
+                            {module.label}
+                          </p>
+                          <p className="mt-1 text-sm text-gray-500">
+                            {module.description}
+                          </p>
+                        </div>
+                        {isLocked ? (
+                          <>
+                            <input
+                              name={`access_${module.key}`}
+                              type="hidden"
+                              value={
+                                isProtectedSuperAdmin
+                                  ? "manage"
+                                  : isDashboard
+                                    ? "view"
+                                    : "none"
+                              }
+                            />
+                            <div className="flex h-11 items-center rounded-md border border-[#d7dde5] bg-gray-50 px-3 text-sm font-medium text-gray-600">
+                              {isProtectedSuperAdmin
+                                ? "Full access"
+                                : isDashboard
+                                  ? "View only"
+                                  : "Not available for this role"}
+                            </div>
+                          </>
+                        ) : (
+                          <select
+                            className="h-11 w-full rounded-md border border-[#d7dde5] bg-white px-3"
+                            defaultValue={accessLevel}
+                            name={`access_${module.key}`}
+                          >
+                            <option value="none">No access</option>
+                            <option value="view">View only</option>
+                            {maximumAccess === "manage" ? (
+                              <option value="manage">Full access</option>
+                            ) : null}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
               <Button className="sm:col-span-2 sm:w-fit" type="submit">
                 <Save aria-hidden="true" className="h-4 w-4" />
                 Save user
@@ -471,6 +564,12 @@ export default async function UserProfilePage({
           </CardHeader>
           <CardContent>
             <dl className="divide-y divide-[#e4e8ee] text-sm">
+              <div className="py-3 first:pt-0">
+                <dt className="text-gray-500">User ID</dt>
+                <dd className="mt-1 break-all font-mono text-xs font-medium text-gray-950">
+                  {profile.id}
+                </dd>
+              </div>
               <div className="py-3 first:pt-0">
                 <dt className="text-gray-500">Login phone</dt>
                 <dd className="mt-1 font-medium text-gray-950">

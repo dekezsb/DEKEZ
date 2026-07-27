@@ -134,7 +134,10 @@ async function getManagedProperty(propertyId: string) {
 }
 
 export async function createUtilityBill(formData: FormData) {
-  await requireRole(["super_admin", "admin", "owner"]);
+  await requireRole(["super_admin", "admin", "owner"], {
+    module: "utility_bills",
+    level: "manage",
+  });
 
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
@@ -241,7 +244,10 @@ export async function createUtilityBill(formData: FormData) {
 }
 
 export async function updateUtilityBill(formData: FormData) {
-  await requireRole(["super_admin", "admin", "owner"]);
+  await requireRole(["super_admin", "admin", "owner"], {
+    module: "utility_bills",
+    level: "manage",
+  });
 
   const billId = textValue(formData, "billId");
   const propertyId = textValue(formData, "propertyId");
@@ -333,7 +339,10 @@ export async function updateUtilityBill(formData: FormData) {
 }
 
 export async function markUtilityBillPaid(formData: FormData) {
-  await requireRole(["super_admin", "admin", "owner"]);
+  await requireRole(["super_admin", "admin", "owner"], {
+    module: "utility_bills",
+    level: "manage",
+  });
 
   const billId = textValue(formData, "billId");
   const propertyId = textValue(formData, "propertyId");
@@ -381,7 +390,10 @@ export async function markUtilityBillPaid(formData: FormData) {
 }
 
 export async function uploadUtilityReceipt(formData: FormData) {
-  await requireRole(["super_admin", "admin", "owner"]);
+  await requireRole(["super_admin", "admin", "owner"], {
+    module: "utility_bills",
+    level: "manage",
+  });
 
   const billId = textValue(formData, "billId");
   const propertyId = textValue(formData, "propertyId");
@@ -404,7 +416,10 @@ export async function uploadUtilityReceipt(formData: FormData) {
 }
 
 export async function cancelUtilityBill(formData: FormData) {
-  await requireRole(["super_admin", "admin", "owner"]);
+  await requireRole(["super_admin", "admin", "owner"], {
+    module: "utility_bills",
+    level: "manage",
+  });
 
   const user = await getCurrentUser();
   const billId = textValue(formData, "billId");

@@ -57,7 +57,10 @@ function profileStatusClass(status: string) {
 }
 
 export default async function AdminSetupPage({ searchParams }: AdminSetupPageProps) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin"], {
+    module: "admin_setup",
+    level: "manage",
+  });
   const params = await searchParams;
   const supabase = await createClient();
   const [properties, rooms, profilesResult, tenanciesResult] = await Promise.all([
@@ -137,7 +140,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                 <span className="text-sm font-medium text-gray-700">Role</span>
                 <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="role" defaultValue="tenant">
                   <option value="owner">Owner</option>
-                  <option value="admin">Admin Team</option>
+                  <option value="admin">Management</option>
                   <option value="tenant">Tenant</option>
                   <option value="maintenance_staff">Maintenance Staff</option>
                   <option value="cleaning_staff">Cleaning Staff</option>

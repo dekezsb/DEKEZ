@@ -15,7 +15,10 @@ function numberValue(formData: FormData, key: string) {
 }
 
 export async function createOwnerSetup(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "settings",
+    level: "manage",
+  });
 
   const supabase = await createClient();
   const {

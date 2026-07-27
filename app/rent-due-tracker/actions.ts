@@ -151,7 +151,10 @@ function single<T>(value: T | T[] | null | undefined) {
 }
 
 export async function sendRentReminder(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "rent_due_tracker",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const billId = textValue(formData, "billId");
   const message = textValue(formData, "message");
@@ -223,7 +226,10 @@ export async function sendRentReminder(formData: FormData) {
 }
 
 export async function markRentBillPaid(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "rent_due_tracker",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const billId = textValue(formData, "billId");
   const paymentType = textValue(formData, "paymentType");
@@ -317,7 +323,10 @@ export async function markRentBillPaid(formData: FormData) {
 }
 
 export async function uploadRentPaymentSlip(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "rent_due_tracker",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const billId = textValue(formData, "billId");
   const amount = numberValue(formData, "amount");
@@ -440,7 +449,10 @@ export async function uploadRentPaymentSlip(formData: FormData) {
 }
 
 export async function verifyRentSubmission(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "rent_due_tracker",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const submissionId = textValue(formData, "submissionId");
 
@@ -538,7 +550,10 @@ export async function verifyRentSubmission(formData: FormData) {
 }
 
 export async function rejectRentSubmission(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "rent_due_tracker",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const submissionId = textValue(formData, "submissionId");
   const reason = textValue(formData, "reason");

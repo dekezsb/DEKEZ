@@ -88,7 +88,12 @@ function ModuleCard({
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const query = await searchParams;
   const role = await requireRole([
     "super_admin",
     "owner",
@@ -100,18 +105,47 @@ export default async function DashboardPage() {
   ]);
 
   if (role === "tenant") {
-    return <TenantDashboard />;
+    return (
+      <>
+        <AccessNotice show={query.error === "access_denied"} />
+        <TenantDashboard />
+      </>
+    );
   }
 
   if (["technician", "maintenance_staff", "cleaning_staff"].includes(role)) {
-    return <MaintenanceDashboard />;
+    return (
+      <>
+        <AccessNotice show={query.error === "access_denied"} />
+        <MaintenanceDashboard />
+      </>
+    );
   }
 
   if (role === "owner") {
-    return <OwnerDashboard />;
+    return (
+      <>
+        <AccessNotice show={query.error === "access_denied"} />
+        <OwnerDashboard />
+      </>
+    );
   }
 
-  return <AdminDashboard />;
+  return (
+    <>
+      <AccessNotice show={query.error === "access_denied"} />
+      <AdminDashboard />
+    </>
+  );
+}
+
+function AccessNotice({ show }: { show: boolean }) {
+  return show ? (
+    <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+      Your account does not have access to that module. Contact the Super Admin
+      if your access needs to change.
+    </div>
+  ) : null;
 }
 
 async function OwnerDashboard() {
@@ -336,7 +370,7 @@ async function TenantDashboard() {
           <CardHeader>
             <CardTitle>Your room or tenancy has not been assigned yet.</CardTitle>
             <CardDescription>
-              The Owner or Admin Team will assign your company, room and tenancy later.
+              The Owner or Management team will assign your company, room and tenancy later.
             </CardDescription>
           </CardHeader>
         </Card>

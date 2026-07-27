@@ -2,6 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import {
+  accessLevels,
+  accessModules,
+  resolveUserAccess,
+  type AccessLevel,
+} from "@/lib/auth/access";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
 import { normalizeRole } from "@/lib/auth/roles";
@@ -37,7 +43,10 @@ function numberValue(formData: FormData, key: string, fallback = 0) {
 }
 
 async function assertAdmin() {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin"], {
+    module: "admin_setup",
+    level: "manage",
+  });
 }
 
 function profilePath(profileId: string, result: string) {
@@ -112,7 +121,10 @@ export async function createPortalUser(formData: FormData) {
 }
 
 export async function updatePortalUser(formData: FormData) {
-  const actorRole = await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin"], {
+    module: "admin_setup",
+    level: "manage",
+  });
   const actor = await getCurrentUser();
   const profileId = textValue(formData, "profileId");
   const fullName = textValue(formData, "fullName");
@@ -120,6 +132,14 @@ export async function updatePortalUser(formData: FormData) {
   const requestedRole = normalizeRole(textValue(formData, "role"));
   const requestedStatus = textValue(formData, "registrationStatus");
   const rejectionReason = textValue(formData, "rejectionReason");
+  const requestedAccess = accessModules.map((module) => ({
+    module_key: module,
+    access_level: textValue(formData, `access_${module}`),
+  }));
+  const hasInvalidAccess = requestedAccess.some(
+    ({ access_level: accessLevel }) =>
+      !accessLevels.includes(accessLevel as AccessLevel),
+  );
   const normalizedPhone = phoneInput
     ? normalizeInternationalPhone(phoneInput)
     : null;
@@ -129,6 +149,7 @@ export async function updatePortalUser(formData: FormData) {
     !profileId ||
     !fullName ||
     !requestedRole ||
+    hasInvalidAccess ||
     !allowedRegistrationStatuses.includes(requestedStatus as never) ||
     (phoneInput && !normalizedPhone) ||
     (requestedStatus === "rejected" && !rejectionReason)
@@ -150,11 +171,18 @@ export async function updatePortalUser(formData: FormData) {
     redirect(profilePath(profileId, "error=service_key"));
   }
 
-  const { data: profile, error: profileLookupError } = await admin
-    .from("profiles")
-    .select("id, full_name, phone, role, global_role, registration_status, registration_rejection_reason, organization_id")
-    .eq("id", profileId)
-    .maybeSingle();
+  const [profileResult, previousPermissionsResult] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("id, full_name, phone, role, global_role, registration_status, registration_rejection_reason, organization_id")
+      .eq("id", profileId)
+      .maybeSingle(),
+    admin
+      .from("user_module_permissions")
+      .select("module_key, access_level")
+      .eq("profile_id", profileId),
+  ]);
+  const { data: profile, error: profileLookupError } = profileResult;
 
   const currentRole = normalizeRole(profile?.role);
   if (profileLookupError || !profile || !currentRole) {
@@ -163,10 +191,6 @@ export async function updatePortalUser(formData: FormData) {
 
   const isSelf = actor.id === profile.id;
   const isProtectedSuperAdmin = currentRole === "super_admin";
-
-  if (actorRole === "admin" && isProtectedSuperAdmin) {
-    redirect(profilePath(profileId, "error=permission"));
-  }
 
   const nextRole =
     isSelf || isProtectedSuperAdmin ? currentRole : requestedRole;
@@ -314,6 +338,27 @@ export async function updatePortalUser(formData: FormData) {
     redirect(profilePath(profile.id, "error=membership_update"));
   }
 
+  const effectiveAccess = resolveUserAccess(nextRole, requestedAccess);
+  const permissionRows = requestedAccess.map((permission) => ({
+    profile_id: profile.id,
+    module_key: permission.module_key,
+    access_level:
+      isProtectedSuperAdmin
+        ? "manage"
+        : effectiveAccess[permission.module_key],
+    created_by: actor.id,
+    updated_at: now,
+  }));
+  const { error: permissionError } = await admin
+    .from("user_module_permissions")
+    .upsert(permissionRows, {
+      onConflict: "profile_id,module_key",
+    });
+
+  if (permissionError) {
+    redirect(profilePath(profile.id, "error=permission_update"));
+  }
+
   await admin.from("audit_logs").insert({
     company_id: profile.organization_id ?? null,
     actor_profile_id: actor.id,
@@ -332,7 +377,12 @@ export async function updatePortalUser(formData: FormData) {
         phone: storedPhone,
         role: nextRole,
         registration_status: nextStatus,
+        module_access: effectiveAccess,
       },
+      previous_module_access: resolveUserAccess(
+        currentRole,
+        previousPermissionsResult.data ?? [],
+      ),
     },
   });
 
@@ -345,7 +395,10 @@ export async function updatePortalUser(formData: FormData) {
 }
 
 export async function removePortalUserAccess(formData: FormData) {
-  await requireRole(["super_admin"]);
+  await requireRole(["super_admin"], {
+    module: "admin_setup",
+    level: "manage",
+  });
   const actor = await getCurrentUser();
   const profileId = textValue(formData, "profileId");
   const reason = textValue(formData, "reason");

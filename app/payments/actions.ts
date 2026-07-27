@@ -18,7 +18,10 @@ function numberValue(formData: FormData, key: string) {
 }
 
 export async function createPayment(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "payments",
+    level: "manage",
+  });
 
   const user = await getCurrentUser();
   const tenantId = textValue(formData, "tenantId");
@@ -102,7 +105,10 @@ function fileValue(formData: FormData, key: string) {
 }
 
 export async function uploadMonthlyPaymentProof(formData: FormData) {
-  await requireRole(["tenant"]);
+  await requireRole(["tenant"], {
+    module: "payments",
+    level: "manage",
+  });
 
   const user = await getCurrentUser();
   const rentBillId = textValue(formData, "rentBillId");

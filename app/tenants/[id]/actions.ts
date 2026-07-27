@@ -54,7 +54,10 @@ function destination(
 }
 
 export async function uploadTenantDocument(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const tenantKey = textValue(formData, "tenantKey");
   const tenantRecordId = textValue(formData, "tenantRecordId");

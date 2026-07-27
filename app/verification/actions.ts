@@ -50,7 +50,10 @@ async function adminClient() {
 }
 
 export async function reviewUserRegistration(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const profileId = textValue(formData, "profileId");
   const decision = textValue(formData, "decision");
@@ -180,7 +183,10 @@ export async function reviewUserRegistration(formData: FormData) {
 }
 
 export async function reviewClaim(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const claimId = textValue(formData, "claimId");
   const decision = textValue(formData, "decision");
@@ -313,7 +319,10 @@ async function sendAgreementRequest(
 }
 
 export async function sendAgreementWhatsApp(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
   const agreementId = textValue(formData, "agreementId");
 
   if (!agreementId) {
@@ -333,7 +342,10 @@ export async function sendAgreementWhatsApp(formData: FormData) {
 }
 
 export async function requestRenewalSignature(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
   const duration = Number(textValue(formData, "duration") || "12");

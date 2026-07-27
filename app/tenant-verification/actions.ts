@@ -32,7 +32,10 @@ async function getAdmin() {
 }
 
 export async function reviewTenantApplication(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const applicationId = textValue(formData, "applicationId");
   const decision = textValue(formData, "decision");

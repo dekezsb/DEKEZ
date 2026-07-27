@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
-import { resolveUserRole } from "@/lib/auth/session";
+import {
+  resolveUserModuleAccess,
+  resolveUserRole,
+} from "@/lib/auth/session";
+import type { UserAccess } from "@/lib/auth/access";
 import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
@@ -27,6 +31,7 @@ async function RootLayoutContent({
 }>) {
   let role = null;
   let userName = null;
+  let access: UserAccess | null = null;
 
   try {
     const supabase = await createClient();
@@ -37,15 +42,19 @@ async function RootLayoutContent({
 
     if (user) {
       role = await resolveUserRole(user);
+      access = await resolveUserModuleAccess(user, role);
     }
   } catch {
     role = null;
+    access = null;
   }
 
   return (
     <html lang="en">
       <body>
-        <AppShell role={role} userName={userName}>{children}</AppShell>
+        <AppShell access={access} role={role} userName={userName}>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

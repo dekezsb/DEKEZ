@@ -17,7 +17,10 @@ function numberValue(formData: FormData, key: string) {
 }
 
 export async function createRoom(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
 
   const user = await getCurrentUser();
   const properties = await getProperties();

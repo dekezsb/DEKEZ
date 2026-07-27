@@ -40,7 +40,10 @@ const expenseRoles = [
 ] as const;
 
 export async function createExpenseCategory(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "expenses",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const name = textValue(formData, "categoryName");
   const description = textValue(formData, "categoryDescription");
@@ -66,7 +69,10 @@ export async function createExpenseCategory(formData: FormData) {
 }
 
 export async function createExpense(formData: FormData) {
-  const role = await requireRole([...expenseRoles]);
+  const role = await requireRole([...expenseRoles], {
+    module: "expenses",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const amount = numberValue(formData, "amount");
   const categoryId = textValue(formData, "categoryId");
@@ -169,7 +175,10 @@ export async function createExpense(formData: FormData) {
 }
 
 export async function reviewExpense(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "expenses",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const expenseId = textValue(formData, "expenseId");
   const decision = textValue(formData, "decision");

@@ -12,7 +12,10 @@ function textValue(formData: FormData, key: string) {
 }
 
 export async function createProperty(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
 
   const user = await getCurrentUser();
   const company = await getFirstCompany();
@@ -63,7 +66,10 @@ export async function createProperty(formData: FormData) {
 }
 
 export async function updatePropertyOwner(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
 
   const propertyId = textValue(formData, "propertyId");
   const ownerId = textValue(formData, "ownerId");
@@ -88,7 +94,10 @@ export async function updatePropertyOwner(formData: FormData) {
 }
 
 export async function updatePropertyCommercial(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
 
   const propertyId = textValue(formData, "propertyId");
   const isCommercial = formData.get("isCommercial") === "on";

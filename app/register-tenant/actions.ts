@@ -39,7 +39,10 @@ function fail(code: string, propertyId = "", roomId = ""): never {
 }
 
 export async function submitAdminTenantApplication(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");

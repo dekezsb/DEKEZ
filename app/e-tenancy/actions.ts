@@ -34,7 +34,10 @@ async function getAdmin() {
 }
 
 export async function createAgreementTemplate(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "tenancy_agreements",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const name = textValue(formData, "name");
@@ -72,7 +75,10 @@ export async function createAgreementTemplate(formData: FormData) {
 }
 
 export async function generateAgreement(formData: FormData) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "tenancy_agreements",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
   const duration = numberValue(formData, "contractDurationMonths", 12);
@@ -198,7 +204,10 @@ export async function generateAgreement(formData: FormData) {
 }
 
 export async function refreshAgreementExpiry() {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(["super_admin", "admin"], {
+    module: "tenancy_agreements",
+    level: "manage",
+  });
   const supabase = await getAdmin();
   await supabase.rpc("refresh_tenancy_agreement_expiry");
   revalidatePath("/e-tenancy");
@@ -206,7 +215,10 @@ export async function refreshAgreementExpiry() {
 }
 
 export async function signAgreement(formData: FormData) {
-  await requireRole(["tenant"]);
+  await requireRole(["tenant"], {
+    module: "tenancy_agreements",
+    level: "manage",
+  });
   const user = await getCurrentUser();
   const agreementId = textValue(formData, "agreementId");
   const signatureData = textValue(formData, "signatureData");

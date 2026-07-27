@@ -12,7 +12,10 @@ function textValue(formData: FormData, key: string) {
 }
 
 export async function createTenant(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  await requireRole(["super_admin", "owner", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
   const [currentUser, company] = await Promise.all([getCurrentUser(), getFirstCompany()]);
 
   const fullName = textValue(formData, "fullName");

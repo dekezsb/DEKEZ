@@ -12,7 +12,13 @@ function textValue(formData: FormData, key: string) {
 }
 
 export async function createMaintenanceTicket(formData: FormData) {
-  const role = await requireRole(["super_admin", "owner", "admin", "tenant"]);
+  const role = await requireRole(
+    ["super_admin", "owner", "admin", "tenant"],
+    {
+      module: "maintenance",
+      level: "manage",
+    },
+  );
   const user = await getCurrentUser();
 
   if (!user) {

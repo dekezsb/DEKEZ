@@ -437,7 +437,7 @@ function UserRegistrations({
                           required
                         >
                           <option value="owner">Owner</option>
-                          <option value="admin">Admin Team</option>
+                          <option value="admin">Management</option>
                           <option value="technician">
                             Maintenance & Cleaning Team
                           </option>
