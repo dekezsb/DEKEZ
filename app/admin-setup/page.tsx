@@ -1,7 +1,10 @@
+import { Eye, Pencil, UserRound } from "lucide-react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { normalizeRole, roleLabels } from "@/lib/auth/roles";
 import { requireRole } from "@/lib/auth/session";
 import { getProperties, getRooms } from "@/lib/data/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -16,6 +19,7 @@ type AdminSetupPageProps = {
     created?: string;
     error?: string;
     message?: string;
+    removed?: string;
   }>;
 };
 
@@ -37,6 +41,21 @@ const errorMessages: Record<string, string> = {
   tenancy_create: "Tenancy could not be created.",
 };
 
+function profileRoleLabel(role: string) {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole ? roleLabels[normalizedRole] : role;
+}
+
+function profileStatusClass(status: string) {
+  if (status === "approved") {
+    return "bg-emerald-100 text-emerald-800";
+  }
+  if (status === "rejected") {
+    return "bg-red-100 text-red-700";
+  }
+  return "bg-amber-100 text-amber-800";
+}
+
 export default async function AdminSetupPage({ searchParams }: AdminSetupPageProps) {
   await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
@@ -46,7 +65,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
     getRooms(),
     supabase
       .from("profiles")
-      .select("id, full_name, phone, role")
+      .select("id, full_name, phone, role, registration_status, created_at")
       .order("created_at", { ascending: false }),
     supabase
       .from("tenancies")
@@ -74,9 +93,11 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         </p>
       </div>
 
-      {params.created ? (
+      {params.created || params.removed ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
-          {successMessages[params.created] ?? "Saved successfully."}
+          {params.removed
+            ? "User access removed. Historical records were preserved."
+            : successMessages[params.created ?? ""] ?? "Saved successfully."}
         </div>
       ) : null}
       {params.error ? (
@@ -225,26 +246,120 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <h2 className="mb-3 text-sm font-semibold">Profiles</h2>
+            <div className="mb-3 flex items-end justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold">Profiles</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Open a profile to review registration details, edit access,
+                  or remove login access.
+                </p>
+              </div>
+              <Badge>{profiles.length} users</Badge>
+            </div>
             {profiles.length ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Role</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profiles.slice(0, 8).map((profile) => (
-                    <TableRow key={profile.id}>
-                      <TableCell className="font-medium text-gray-950">{profile.full_name ?? profile.id}</TableCell>
-                      <TableCell>{profile.phone ?? "-"}</TableCell>
-                      <TableCell><Badge>{profile.role}</Badge></TableCell>
-                    </TableRow>
+              <>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {profiles.map((profile) => (
+                        <TableRow key={profile.id}>
+                          <TableCell className="font-medium text-gray-950">
+                            <Link
+                              className="inline-flex items-center gap-2 hover:text-[#9a6c1f]"
+                              href={`/admin-setup/users/${profile.id}`}
+                            >
+                              <UserRound
+                                aria-hidden="true"
+                                className="h-4 w-4 text-[#b8892c]"
+                              />
+                              {profile.full_name ?? profile.id}
+                            </Link>
+                          </TableCell>
+                          <TableCell>{profile.phone ?? "-"}</TableCell>
+                          <TableCell>
+                            <Badge>{profileRoleLabel(profile.role)}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              className={profileStatusClass(
+                                profile.registration_status,
+                              )}
+                            >
+                              {profile.registration_status.replaceAll("_", " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-end gap-2">
+                              <Button asChild size="sm" variant="outline">
+                                <Link href={`/admin-setup/users/${profile.id}`}>
+                                  <Eye aria-hidden="true" className="h-4 w-4" />
+                                  View
+                                </Link>
+                              </Button>
+                              <Button asChild size="icon" variant="ghost">
+                                <Link
+                                  aria-label={`Edit ${profile.full_name ?? "user"}`}
+                                  href={`/admin-setup/users/${profile.id}`}
+                                >
+                                  <Pencil
+                                    aria-hidden="true"
+                                    className="h-4 w-4"
+                                  />
+                                </Link>
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="grid gap-3 md:hidden">
+                  {profiles.map((profile) => (
+                    <div
+                      className="rounded-md border border-[#d7dde5] p-4"
+                      key={profile.id}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-gray-950">
+                            {profile.full_name ?? profile.id}
+                          </p>
+                          <p className="mt-1 text-sm text-gray-500">
+                            {profile.phone ?? "No phone registered"}
+                          </p>
+                        </div>
+                        <Badge
+                          className={profileStatusClass(
+                            profile.registration_status,
+                          )}
+                        >
+                          {profile.registration_status.replaceAll("_", " ")}
+                        </Badge>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <Badge>{profileRoleLabel(profile.role)}</Badge>
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/admin-setup/users/${profile.id}`}>
+                            <Eye aria-hidden="true" className="h-4 w-4" />
+                            View profile
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              </>
             ) : (
               <p className="text-sm text-gray-500">No profiles yet.</p>
             )}
