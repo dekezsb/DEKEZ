@@ -13,9 +13,7 @@ import { requireRole } from "@/lib/auth/session";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
 import { phoneAuthAlias } from "@/lib/auth/registration";
 import { normalizeRole } from "@/lib/auth/roles";
-import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
-import { addMonths } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -37,11 +35,6 @@ const allowedRegistrationStatuses = [
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-function numberValue(formData: FormData, key: string, fallback = 0) {
-  const value = Number(textValue(formData, key));
-  return Number.isFinite(value) ? value : fallback;
 }
 
 async function assertAdmin() {
@@ -619,77 +612,4 @@ export async function assignPropertyOwner(formData: FormData) {
   revalidatePath("/properties");
   revalidatePath("/dashboard");
   redirect("/admin-setup?created=owner");
-}
-
-export async function assignTenantTenancy(formData: FormData) {
-  await assertAdmin();
-
-  const user = await getCurrentUser();
-  const tenantId = textValue(formData, "tenantId");
-  const roomId = textValue(formData, "roomId");
-  const monthlyRental = numberValue(formData, "monthlyRental");
-  const deposit = numberValue(formData, "deposit");
-  const contractStart = textValue(formData, "contractStart");
-  const contractDurationMonths = numberValue(formData, "contractDurationMonths", 12);
-  const contractEnd = textValue(formData, "contractEnd") || addMonths(contractStart, contractDurationMonths);
-  const requestedDueDay = numberValue(formData, "dueDay", 0);
-  const checkInDay = Number(contractStart.slice(8, 10));
-  const dueDay = requestedDueDay >= 1 && requestedDueDay <= 31 ? requestedDueDay : checkInDay;
-
-  if (!user || !tenantId || !roomId || !contractStart || ![6, 12].includes(contractDurationMonths) || dueDay < 1 || dueDay > 31) {
-    redirect("/admin-setup?error=tenancy_missing");
-  }
-
-  const supabase = await createClient();
-  const { data: room } = await supabase
-    .from("rooms")
-    .select("id, property_id, unit_id, organization_id")
-    .eq("id", roomId)
-    .single();
-
-  if (!room?.property_id) {
-    redirect("/admin-setup?error=room_missing");
-  }
-
-  const { data: tenancy, error: tenancyError } = await supabase.from("tenancies").insert({
-    tenant_id: tenantId,
-    room_id: room.id,
-    property_id: room.property_id,
-    unit_id: room.unit_id ?? null,
-    organization_id: room.organization_id ?? null,
-    monthly_rental: monthlyRental,
-    deposit,
-    contract_start: contractStart,
-    contract_end: contractEnd || null,
-    tenancy_start_date: contractStart,
-    tenancy_end_date: contractEnd || null,
-    contract_duration_months: contractDurationMonths,
-    due_day: dueDay,
-    rent_due_day: dueDay,
-    check_in_date: contractStart,
-    checkout_date: null,
-    billing_status: "active",
-    status: "active",
-    created_by: user.id,
-  }).select("id").single();
-
-  if (tenancyError) {
-    redirect("/admin-setup?error=tenancy_create");
-  }
-
-  await supabase.from("rooms").update({ status: "occupied" }).eq("id", room.id);
-  if (tenancy?.id) {
-    await generateRecurringRentBills(supabase, {
-      currentDate: contractStart,
-      createdBy: user.id,
-      tenancyId: tenancy.id,
-      includeTenantRecords: false,
-    });
-  }
-
-  revalidatePath("/admin-setup");
-  revalidatePath("/tenants");
-  revalidatePath("/rooms");
-  revalidatePath("/rent-due-tracker");
-  redirect("/admin-setup?created=tenancy");
 }
