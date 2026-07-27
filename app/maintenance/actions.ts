@@ -11,6 +11,11 @@ function textValue(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function fileValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return value instanceof File && value.size > 0 ? value : null;
+}
+
 export async function createMaintenanceTicket(formData: FormData) {
   const role = await requireRole(
     ["super_admin", "owner", "admin", "tenant"],
@@ -30,6 +35,7 @@ export async function createMaintenanceTicket(formData: FormData) {
   const category = textValue(formData, "category");
   const description = textValue(formData, "description");
   const urgency = textValue(formData, "urgency") || "normal";
+  const photo = fileValue(formData, "photo");
   let tenantId = textValue(formData, "tenantId");
   let roomId = textValue(formData, "roomId");
 
@@ -37,13 +43,31 @@ export async function createMaintenanceTicket(formData: FormData) {
     redirect("/maintenance?error=missing");
   }
 
+  if (
+    photo &&
+    (photo.size > 10 * 1024 * 1024 ||
+      !["image/jpeg", "image/png", "image/webp"].includes(photo.type))
+  ) {
+    redirect("/maintenance?error=photo_type");
+  }
+
   if (role === "tenant") {
     tenantId = user.id;
+    const { data: tenantRecord } = await supabase
+      .from("tenants")
+      .select("id")
+      .eq("profile_id", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const { data: tenancy } = await supabase
       .from("tenancies")
       .select("tenant_id, room_id")
-      .eq("tenant_id", user.id)
+      .eq("tenant_id", tenantRecord?.id ?? user.id)
       .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     roomId = tenancy?.room_id ?? "";
@@ -63,22 +87,58 @@ export async function createMaintenanceTicket(formData: FormData) {
     redirect("/maintenance?error=room");
   }
 
-  const { error } = await supabase.from("maintenance_tickets").insert({
-    organization_id: room.organization_id ?? null,
-    tenant_id: tenantId,
-    property_id: room.property_id,
-    unit_id: room.unit_id ?? null,
-    room_id: room.id,
-    ticket_type: ticketType,
-    category: category || null,
-    description,
-    urgency,
-    status: "submitted",
-    created_by: user.id,
-  });
+  const { data: ticket, error } = await supabase
+    .from("maintenance_tickets")
+    .insert({
+      organization_id: room.organization_id ?? null,
+      tenant_id: tenantId,
+      property_id: room.property_id,
+      unit_id: room.unit_id ?? null,
+      room_id: room.id,
+      ticket_type: ticketType,
+      category: category || null,
+      description,
+      urgency,
+      status: "submitted",
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
+  if (error || !ticket) {
     redirect("/maintenance?error=create");
+  }
+
+  if (photo) {
+    const safeName = photo.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const path = `${user.id}/${ticket.id}/problem-${Date.now()}-${safeName}`;
+    const bytes = Buffer.from(await photo.arrayBuffer());
+    const { error: uploadError } = await supabase.storage
+      .from("maintenance-attachments")
+      .upload(path, bytes, {
+        contentType: photo.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      redirect("/maintenance?error=photo_upload");
+    }
+
+    const { error: attachmentError } = await supabase
+      .from("maintenance_attachments")
+      .insert({
+        ticket_id: ticket.id,
+        uploaded_by: user.id,
+        attachment_type: "problem",
+        bucket_name: "maintenance-attachments",
+        file_path: path,
+        content_type: photo.type,
+      });
+
+    if (attachmentError) {
+      await supabase.storage.from("maintenance-attachments").remove([path]);
+      redirect("/maintenance?error=photo_upload");
+    }
   }
 
   revalidatePath("/maintenance");

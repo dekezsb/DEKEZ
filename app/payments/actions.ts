@@ -120,11 +120,31 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
   }
 
   const supabase = await getAdmin();
+  const { data: tenantRecords } = await supabase
+    .from("tenants")
+    .select("id")
+    .eq("profile_id", user.id);
+  const tenantIds = (tenantRecords ?? []).map((tenant) => tenant.id);
+
+  if (!tenantIds.length) {
+    redirect("/payments?error=proof_missing");
+  }
+
+  const { data: tenancies } = await supabase
+    .from("tenancies")
+    .select("id")
+    .in("tenant_id", tenantIds);
+  const tenancyIds = (tenancies ?? []).map((tenancy) => tenancy.id);
+
+  if (!tenancyIds.length) {
+    redirect("/payments?error=proof_missing");
+  }
+
   const { data: bill } = await supabase
     .from("rent_bills")
     .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount")
     .eq("id", rentBillId)
-    .eq("tenant_id", user.id)
+    .in("tenancy_id", tenancyIds)
     .maybeSingle();
 
   if (!bill) {

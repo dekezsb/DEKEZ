@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -41,6 +41,80 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   if (isPublicPage) {
     return <>{children}</>;
+  }
+
+  if (role === "tenant") {
+    return (
+      <div className="tenant-portal-bg min-h-screen text-[#17130d]">
+        <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
+          <div className="mx-auto flex h-18 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
+            <Link className="flex items-center gap-3" href="/dashboard">
+              <BrandLogo className="rounded-md" priority size={46} />
+              <span>
+                <span className="block text-base font-bold text-[#c99a3e]">
+                  DEKEZ
+                </span>
+                <span className="block text-xs text-[#d7c6a8]">
+                  Tenant Portal
+                </span>
+              </span>
+            </Link>
+            <div className="flex items-center gap-3">
+              <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
+                {userName ?? "Tenant"}
+              </p>
+              <form action="/logout" method="post">
+                <Button
+                  aria-label="Logout"
+                  className="border-[#4a4031] bg-transparent text-[#f8f0df] hover:bg-[#1b1711]"
+                  size="icon"
+                  title="Logout"
+                  type="submit"
+                  variant="outline"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </form>
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto min-h-[calc(100vh-72px)] max-w-5xl px-4 py-6 pb-28 sm:px-6 sm:py-8">
+          {children}
+        </main>
+
+        <nav
+          aria-label="Tenant portal"
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d8c28c] bg-white/95 shadow-[0_-8px_24px_rgba(23,19,13,0.08)] backdrop-blur print:hidden"
+        >
+          <div className="mx-auto grid max-w-2xl grid-cols-4">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+
+              return (
+                <Link
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-20 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] font-semibold transition sm:text-xs",
+                    isActive
+                      ? "text-[#ef5c5c]"
+                      : "text-[#17130d] hover:text-[#8a641d]",
+                  )}
+                  href={item.href}
+                  key={item.href}
+                >
+                  <Icon className="h-7 w-7" strokeWidth={1.8} />
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
+    );
   }
 
   return (

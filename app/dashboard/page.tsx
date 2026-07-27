@@ -2,28 +2,26 @@ import Link from "next/link";
 import {
   Banknote,
   BarChart3,
-  BriefcaseBusiness,
   Building2,
   ClipboardCheck,
   ClipboardList,
-  CreditCard,
   DoorOpen,
   Droplets,
-  FileText,
   Home,
   ReceiptText,
   Upload,
-  WalletCards,
   Wrench,
   Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TenantHome } from "@/components/tenant/tenant-portal";
 import { requireRole } from "@/lib/auth/session";
 import { getDashboardSummary } from "@/lib/data/organization";
-import { getOwnerPortalSummary, getStaffPortalSummary, getTenantPortalSummary } from "@/lib/data/portal";
+import { getOwnerPortalSummary, getStaffPortalSummary } from "@/lib/data/portal";
 import { getRentDueSummary } from "@/lib/data/rent-due";
+import { getTenantPortalData } from "@/lib/data/tenant-portal";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -353,61 +351,8 @@ async function AdminDashboard() {
 }
 
 async function TenantDashboard() {
-  const summary = await getTenantPortalSummary();
-
-  return (
-    <section className="space-y-6">
-      <div>
-        <p className="text-xs font-semibold uppercase text-[#126b5f]">Tenant Portal</p>
-        <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Tenant Dashboard</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          View your room, rental, balance, contract, payment history and maintenance requests.
-        </p>
-      </div>
-
-      {summary && !summary.hasTenancy ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Your room or tenancy has not been assigned yet.</CardTitle>
-            <CardDescription>
-              The Owner or Management team will assign your company, room and tenancy later.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="My Rental" value={money(summary?.monthlyRental ?? 0)} detail="Monthly rental amount" />
-        <StatCard label="Rental Due Date" value={summary?.dueDay ? `Day ${summary.dueDay}` : "-"} detail="Payment due each month" />
-        <StatCard label="Outstanding Amount" value={money(summary?.outstandingAmount ?? 0)} detail="Unpaid balance" />
-        <StatCard label="Top Up Balance" value={money(summary?.balance ?? 0)} detail="Wallet or account balance" />
-        <StatCard label="Payment History" value={money(summary?.paymentHistoryTotal ?? 0)} detail="Recorded payments" />
-        <StatCard label="Maintenance Requests" value={summary?.openTickets ?? 0} detail="Open tenant tickets" />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <ModuleCard title="My Room" description="View your assigned room once Admin creates your tenancy." href="/rooms" icon={DoorOpen} />
-        <ModuleCard title="Onboarding" description="Submit your tenant application, IC documents and check-in payment proof." href="/onboarding" icon={ClipboardCheck} />
-        <ModuleCard title="My Rental" description="Check monthly rent, due date and outstanding balance." href="/payments" icon={Banknote} />
-        <ModuleCard title="Top Up" description="Review account balance and top-up history." href="/payments" icon={WalletCards} />
-        <ModuleCard title="Maintenance Request" description="Submit repair, maintenance or cleaning requests." href="/maintenance" icon={Wrench} badge={summary?.openTickets ?? 0} />
-        <ModuleCard title="My Contract" description="View contract dates and tenancy details." href="/payments" icon={FileText} />
-        <ModuleCard title="Payment History" description="Track all recorded rental and bill payments." href="/payments" icon={CreditCard} />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Contract Summary</CardTitle>
-          <CardDescription>Shown after Admin assigns your tenancy.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-gray-600">
-          <p>Contract start: {summary?.contractStart ?? "-"}</p>
-          <p>Contract end: {summary?.contractEnd ?? "-"}</p>
-          <p>Monthly due day: {summary?.dueDay ? `Day ${summary.dueDay}` : "-"}</p>
-        </CardContent>
-      </Card>
-    </section>
-  );
+  const data = await getTenantPortalData();
+  return data ? <TenantHome data={data} /> : null;
 }
 
 async function MaintenanceDashboard() {

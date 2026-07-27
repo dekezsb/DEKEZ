@@ -1,8 +1,10 @@
 import { Badge } from "@/components/ui/badge";
+import { TenantMaintenance } from "@/components/tenant/tenant-portal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { getTenantPortalData } from "@/lib/data/tenant-portal";
 import { createClient } from "@/lib/supabase/server";
 import { createMaintenanceTicket } from "./actions";
 
@@ -18,6 +20,8 @@ const errorMessages: Record<string, string> = {
   assignment: "Tenant or room is missing. Assign a tenancy first.",
   room: "Selected room was not found.",
   create: "Maintenance ticket could not be saved.",
+  photo_type: "Use a JPG, PNG or WebP photo no larger than 10 MB.",
+  photo_upload: "The report was saved, but the photo could not be uploaded.",
 };
 
 export default async function MaintenancePage({ searchParams }: MaintenancePageProps) {
@@ -31,6 +35,22 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
     "tenant",
   ]);
   const params = await searchParams;
+
+  if (role === "tenant") {
+    const data = await getTenantPortalData();
+    return data ? (
+      <TenantMaintenance
+        created={params.created === "1"}
+        data={data}
+        error={
+          params.error
+            ? (errorMessages[params.error] ?? "The report could not be saved.")
+            : undefined
+        }
+      />
+    ) : null;
+  }
+
   const supabase = await createClient();
   const [ticketsResult, roomsResult, tenantsResult] = await Promise.all([
     supabase
@@ -50,8 +70,7 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
   const tickets = ticketsResult.data ?? [];
   const rooms = roomsResult.data ?? [];
   const tenants = tenantsResult.data ?? [];
-  const canCreate = ["super_admin", "owner", "admin", "tenant"].includes(role);
-  const isTenant = role === "tenant";
+  const canCreate = ["super_admin", "owner", "admin"].includes(role);
 
   return (
     <section className="space-y-6">
@@ -84,28 +103,24 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
           </CardHeader>
           <CardContent>
             <form action={createMaintenanceTicket} className="grid gap-4 lg:grid-cols-2">
-              {!isTenant ? (
-                <>
-                  <label className="block">
-                    <span className="text-sm font-medium text-gray-700">Tenant</span>
-                    <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="tenantId" required>
-                      <option value="">Choose tenant</option>
-                      {tenants.map((tenant) => (
-                        <option key={tenant.id} value={tenant.id}>{tenant.full_name ?? tenant.id}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-medium text-gray-700">Room</span>
-                    <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="roomId" required>
-                      <option value="">Choose room</option>
-                      {rooms.map((room) => (
-                        <option key={room.id} value={room.id}>{room.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : null}
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Tenant</span>
+                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="tenantId" required>
+                  <option value="">Choose tenant</option>
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>{tenant.full_name ?? tenant.id}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Room</span>
+                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="roomId" required>
+                  <option value="">Choose room</option>
+                  {rooms.map((room) => (
+                    <option key={room.id} value={room.id}>{room.name}</option>
+                  ))}
+                </select>
+              </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Ticket type</span>
                 <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="ticketType" defaultValue="maintenance">

@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "./organization";
 
 function sumAmount<T extends Record<string, unknown>>(items: T[], key: keyof T) {
   return items.reduce((total, item) => total + Number(item[key] ?? 0), 0);
@@ -61,50 +60,6 @@ export async function getOwnerPortalSummary() {
     openMaintenanceTickets: tickets.filter(
       (ticket) => !["completed", "rejected", "closed"].includes(String(ticket.status)),
     ).length,
-  };
-}
-
-export async function getTenantPortalSummary() {
-  const user = await getCurrentUser();
-
-  if (!user) {
-    return null;
-  }
-
-  const supabase = await createClient();
-  const [tenanciesResult, rentBillsResult, paymentsResult, walletResult, ticketsResult] =
-    await Promise.all([
-      supabase
-        .from("tenancies")
-        .select("id, monthly_rental, contract_start, contract_end, due_day, status, property_id, unit_id, room_id")
-        .eq("tenant_id", user.id)
-        .order("created_at", { ascending: false }),
-      supabase.from("rent_bills").select("amount, paid_amount, status").eq("tenant_id", user.id),
-      supabase.from("payments").select("amount, status").eq("tenant_id", user.id),
-      supabase.from("wallet_transactions").select("amount, transaction_type").eq("tenant_id", user.id),
-      supabase.from("maintenance_tickets").select("status").eq("tenant_id", user.id),
-    ]);
-
-  const tenancy = tenanciesResult.data?.[0] ?? null;
-  const rentBills = rentBillsResult.data ?? [];
-  const payments = paymentsResult.data ?? [];
-  const walletTransactions = walletResult.data ?? [];
-  const tickets = ticketsResult.data ?? [];
-
-  return {
-    hasTenancy: Boolean(tenancy),
-    monthlyRental: Number(tenancy?.monthly_rental ?? 0),
-    dueDay: tenancy?.due_day ?? null,
-    contractStart: tenancy?.contract_start ?? null,
-    contractEnd: tenancy?.contract_end ?? null,
-    outstandingAmount: sumAmount(rentBills, "amount") - sumAmount(rentBills, "paid_amount"),
-    paymentHistoryTotal: sumAmount(payments, "amount"),
-    balance: walletTransactions.reduce((total, item) => {
-      const amount = Number(item.amount ?? 0);
-      return item.transaction_type === "deduction" ? total - amount : total + amount;
-    }, 0),
-    maintenanceTickets: tickets.length,
-    openTickets: tickets.filter((ticket) => !["completed", "closed", "rejected"].includes(String(ticket.status))).length,
   };
 }
 

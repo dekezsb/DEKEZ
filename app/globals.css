@@ -20,6 +20,21 @@ body {
   min-height: 100%;
 }
 
+.tenant-portal-bg {
+  background-color: #f4f6f8;
+  background-image:
+    radial-gradient(circle at 0 100%, transparent 21px, rgba(184, 137, 44, 0.1) 22px, rgba(184, 137, 44, 0.1) 23px, transparent 24px),
+    radial-gradient(circle at 22px 100%, transparent 21px, rgba(184, 137, 44, 0.1) 22px, rgba(184, 137, 44, 0.1) 23px, transparent 24px);
+  background-position: 0 0, 0 11px;
+  background-size: 44px 22px;
+}
+
+@media print {
+  .tenant-portal-bg {
+    background: white;
+  }
+}
+
 body {
   margin: 0;
   background: var(--background);
