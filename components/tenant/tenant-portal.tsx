@@ -94,34 +94,49 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
       <CardContent>
         {pendingBills.length ? (
           <div className="space-y-5">
-            {data.tenancy?.paymentQrUrl ? (
-              <div className="flex flex-col gap-4 rounded-md border border-[#eadcb9] bg-[#fbf8f1] p-4 sm:flex-row sm:items-center">
-                <a
-                  className="shrink-0"
-                  href={data.tenancy.paymentQrUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Image
-                    alt={`${data.tenancy.roomName} payment QR`}
-                    className="h-36 w-36 rounded-md border border-[#d8c28c] bg-white object-contain p-1"
-                    height={288}
-                    src={data.tenancy.paymentQrUrl}
-                    unoptimized
-                    width={288}
-                  />
-                </a>
-                <div>
-                  <p className="font-semibold text-gray-950">Room payment QR</p>
-                  <p className="mt-1 text-sm text-gray-600">
-                    Scan the QR assigned to {data.tenancy.roomName}, then upload your transfer slip below.
-                  </p>
-                  <Button asChild className="mt-3" size="sm" variant="outline">
-                    <a href={data.tenancy.paymentQrUrl} target="_blank" rel="noreferrer">
-                      Open full QR
-                    </a>
-                  </Button>
-                </div>
+            {data.tenancies.some((tenancy) => tenancy.paymentQrUrl) ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {data.tenancies
+                  .filter((tenancy) => tenancy.paymentQrUrl)
+                  .map((tenancy) => (
+                    <div
+                      className="flex gap-4 rounded-md border border-[#eadcb9] bg-[#fbf8f1] p-4"
+                      key={tenancy.id}
+                    >
+                      <a
+                        className="shrink-0"
+                        href={tenancy.paymentQrUrl ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Image
+                          alt={`${tenancy.roomName} payment QR`}
+                          className="h-24 w-24 rounded-md border border-[#d8c28c] bg-white object-contain p-1"
+                          height={192}
+                          src={tenancy.paymentQrUrl ?? ""}
+                          unoptimized
+                          width={192}
+                        />
+                      </a>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-950">
+                          {tenancy.propertyName}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {tenancy.roomName} payment QR
+                        </p>
+                        <Button asChild className="mt-3" size="sm" variant="outline">
+                          <a
+                            href={tenancy.paymentQrUrl ?? "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open QR
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
               </div>
             ) : null}
 
@@ -138,6 +153,7 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
                 <option value="">Select a rent bill</option>
                 {pendingBills.map((bill) => (
                   <option key={bill.id} value={bill.id}>
+                    {bill.propertyName} / {bill.roomName} /{" "}
                     {date(bill.bill_month)} - {money(bill.outstanding)} outstanding
                   </option>
                 ))}
@@ -236,33 +252,52 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
   return (
     <section className="space-y-5">
       <PortalHeading
-        eyebrow={`${data.tenancy.propertyName} / ${data.tenancy.roomName}`}
+        eyebrow={
+          data.tenancies.length > 1
+            ? `${data.tenancies.length} active rooms`
+            : `${data.tenancy.propertyName} / ${data.tenancy.roomName}`
+        }
         title={`Hello, ${data.profile.fullName}`}
       />
 
-      <Card className="overflow-hidden border-[#d8c28c]">
-        <CardHeader className="border-b border-[#eee5d1] bg-[#fbf8f1]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <CardTitle>Rental Terms</CardTitle>
-              <CardDescription>{data.tenancy.roomName}</CardDescription>
-            </div>
-            <House className="h-6 w-6 text-[#b8892c]" />
-          </div>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-x-5 gap-y-6 pt-5">
-          <Term label="Check-in" value={date(data.tenancy.checkIn)} />
-          <Term label="Due day" value={data.tenancy.dueDay ? `${data.tenancy.dueDay}` : "-"} />
-          <Term label="Monthly rent" value={money(data.tenancy.monthlyRent)} />
-          <Term label="Contract end" value={date(data.tenancy.contractEnd)} />
-          <Term
-            className="col-span-2"
-            danger={data.outstandingAmount > 0}
-            label="Outstanding"
-            value={money(data.outstandingAmount)}
-          />
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {data.tenancies.map((tenancy) => (
+          <Card className="overflow-hidden border-[#d8c28c]" key={tenancy.id}>
+            <CardHeader className="border-b border-[#eee5d1] bg-[#fbf8f1]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Rental Terms</CardTitle>
+                  <CardDescription>
+                    {tenancy.propertyName} / {tenancy.roomName}
+                  </CardDescription>
+                </div>
+                <House className="h-6 w-6 text-[#b8892c]" />
+              </div>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-x-5 gap-y-6 pt-5">
+              <Term label="Check-in" value={date(tenancy.checkIn)} />
+              <Term
+                label="Due day"
+                value={tenancy.dueDay ? `${tenancy.dueDay}` : "-"}
+              />
+              <Term
+                label="Monthly rent"
+                value={money(tenancy.monthlyRent)}
+              />
+              <Term
+                label="Contract end"
+                value={date(tenancy.contractEnd)}
+              />
+              <Term
+                className="col-span-2"
+                danger={tenancy.outstandingAmount > 0}
+                label="Outstanding"
+                value={money(tenancy.outstandingAmount)}
+              />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       <PaymentForm data={data} />
     </section>
@@ -342,7 +377,7 @@ export function TenantMaintenance({
           <CardHeader>
             <CardTitle>Tell us what happened</CardTitle>
             <CardDescription>
-              {data.tenancy.propertyName} / {data.tenancy.roomName}
+              Choose the room that needs attention.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -353,6 +388,30 @@ export function TenantMaintenance({
             >
               <input name="ticketType" type="hidden" value="maintenance" />
               <input name="urgency" type="hidden" value="normal" />
+              {data.tenancies.length > 1 ? (
+                <label className="block">
+                  <span className="text-sm font-semibold text-gray-800">
+                    Room
+                  </span>
+                  <select
+                    className="mt-2 h-12 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-base"
+                    name="roomId"
+                    required
+                  >
+                    {data.tenancies.map((tenancy) => (
+                      <option key={tenancy.id} value={tenancy.roomId}>
+                        {tenancy.propertyName} / {tenancy.roomName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <input
+                  name="roomId"
+                  type="hidden"
+                  value={data.tenancy.roomId}
+                />
+              )}
               <label className="block">
                 <span className="text-sm font-semibold text-gray-800">
                   What&apos;s the problem?
@@ -483,7 +542,13 @@ export function TenantBills({
         <SummaryTile
           icon={CalendarDays}
           label="Due day"
-          value={data.tenancy?.dueDay ? `${data.tenancy.dueDay}` : "-"}
+          value={
+            data.tenancies.length > 1
+              ? "By room"
+              : data.tenancy?.dueDay
+                ? `${data.tenancy.dueDay}`
+                : "-"
+          }
         />
       </div>
 
@@ -509,6 +574,9 @@ export function TenantBills({
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-gray-600">
+                    {bill.propertyName} / {bill.roomName}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-600">
                     Due {date(bill.due_date)} / Bill {money(bill.amount)}
                   </p>
                 </div>
@@ -770,23 +838,34 @@ export function TenantProfile({ data }: { data: NonNullable<TenantPortalData> })
         <CardHeader>
           <CardTitle>Rental Details</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
-          <ProfileField
-            label="Property"
-            value={data.tenancy?.propertyName ?? "Not assigned"}
-          />
-          <ProfileField
-            label="Room"
-            value={data.tenancy?.roomName ?? "Not assigned"}
-          />
-          <ProfileField
-            label="Monthly rent"
-            value={money(data.tenancy?.monthlyRent ?? 0)}
-          />
-          <ProfileField
-            label="Contract end"
-            value={date(data.tenancy?.contractEnd)}
-          />
+        <CardContent className="space-y-3">
+          {data.tenancies.length ? (
+            data.tenancies.map((tenancy) => (
+              <article
+                className="grid gap-x-6 gap-y-4 rounded-md border border-[#d7dde5] p-4 sm:grid-cols-2"
+                key={tenancy.id}
+              >
+                <ProfileField
+                  label="Property / Room"
+                  value={`${tenancy.propertyName} / ${tenancy.roomName}`}
+                />
+                <ProfileField
+                  label="Monthly rent"
+                  value={money(tenancy.monthlyRent)}
+                />
+                <ProfileField
+                  label="Due day"
+                  value={tenancy.dueDay ? `${tenancy.dueDay}` : "-"}
+                />
+                <ProfileField
+                  label="Contract end"
+                  value={date(tenancy.contractEnd)}
+                />
+              </article>
+            ))
+          ) : (
+            <p className="text-sm text-gray-500">Not assigned</p>
+          )}
         </CardContent>
       </Card>
     </section>

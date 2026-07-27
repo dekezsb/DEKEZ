@@ -53,23 +53,27 @@ export async function createMaintenanceTicket(formData: FormData) {
 
   if (role === "tenant") {
     tenantId = user.id;
-    const { data: tenantRecord } = await supabase
+    const requestedRoomId = roomId;
+    const { data: tenantRecords } = await supabase
       .from("tenants")
       .select("id")
-      .eq("profile_id", user.id)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .eq("profile_id", user.id);
+    const tenantIds = (tenantRecords ?? []).map((tenant) => tenant.id);
+    const { data: tenancies } = tenantIds.length
+      ? await supabase
+          .from("tenancies")
+          .select("tenant_id, room_id")
+          .in("tenant_id", tenantIds)
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+      : { data: [] };
 
-    const { data: tenancy } = await supabase
-      .from("tenancies")
-      .select("tenant_id, room_id")
-      .eq("tenant_id", tenantRecord?.id ?? user.id)
-      .eq("status", "active")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
+    const tenancy =
+      (tenancies ?? []).find(
+        (candidate) => candidate.room_id === requestedRoomId,
+      ) ??
+      tenancies?.[0] ??
+      null;
     roomId = tenancy?.room_id ?? "";
   }
 

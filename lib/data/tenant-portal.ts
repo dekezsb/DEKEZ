@@ -145,7 +145,10 @@ export async function getTenantPortalData() {
     const propertyNames = new Map(
       (propertiesResult.data ?? []).map((property) => [
         property.id,
-        { name: property.name },
+        {
+          name: property.name,
+          payment_qr_url: property.payment_qr_url,
+        },
       ]),
     );
     const roomNames = new Map(
@@ -273,18 +276,75 @@ export async function getTenantPortalData() {
     })),
   );
 
+  const portalTenancies = await Promise.all(
+    tenancies
+      .filter(
+        (tenancy) =>
+          tenancy.status === "active" &&
+          !["completed", "terminated"].includes(
+            String(tenancy.billing_status),
+          ),
+      )
+      .map(async (tenancy) => {
+        const tenancyProperty = one(tenancy.properties);
+        const tenancyRoom = one(tenancy.rooms);
+        const tenancyQrUrl = await signedUrl(
+          dataClient,
+          "room-payment-qr",
+          tenancyRoom?.payment_qr_path ?? null,
+        );
+        const tenancyOutstanding = bills
+          .filter(
+            (bill) =>
+              bill.tenancy_id === tenancy.id &&
+              !["paid", "cancelled", "waived"].includes(String(bill.status)),
+          )
+          .reduce(
+            (total, bill) =>
+              total +
+              Math.max(
+                0,
+                numberValue(bill.amount) - numberValue(bill.paid_amount),
+              ),
+            0,
+          );
+
+        return {
+          id: tenancy.id,
+          tenantId: tenancy.tenant_id,
+          roomId: tenancy.room_id,
+          propertyName: tenancyProperty?.name ?? "Property",
+          roomName:
+            tenancyRoom?.room_number ?? tenancyRoom?.name ?? "Room",
+          monthlyRent: numberValue(
+            tenancy.monthly_rental ?? tenancy.monthly_rent,
+          ),
+          deposit: numberValue(tenancy.deposit),
+          dueDay: tenancy.rent_due_day ?? tenancy.due_day,
+          checkIn:
+            tenancy.check_in_date ??
+            tenancy.contract_start ??
+            tenancy.start_date,
+          contractEnd:
+            tenancy.contract_end ??
+            tenancy.end_date ??
+            tenancy.checkout_date,
+          status: tenancy.status,
+          outstandingAmount: tenancyOutstanding,
+          paymentQrUrl:
+            tenancyQrUrl ?? tenancyProperty?.payment_qr_url ?? null,
+        };
+      }),
+  );
+  const currentPortalTenancy =
+    portalTenancies.find((tenancy) => tenancy.id === activeTenancy?.id) ??
+    portalTenancies[0] ??
+    null;
   const currentTenant =
     tenantRecords.find((tenant) => tenant.id === activeTenancy?.tenant_id) ??
     tenantRecords[0] ??
     null;
   const profile = profileResult.data;
-  const property = activeTenancy ? one(activeTenancy.properties) : null;
-  const room = activeTenancy ? one(activeTenancy.rooms) : null;
-  const roomQrUrl = await signedUrl(
-    dataClient,
-    "room-payment-qr",
-    room?.payment_qr_path ?? null,
-  );
   const outstandingAmount = bills
     .filter((bill) => !["paid", "cancelled", "waived"].includes(String(bill.status)))
     .reduce(
@@ -308,32 +368,18 @@ export async function getTenantPortalData() {
         currentTenant?.identity_number ?? profile?.identity_number ?? null,
       registrationStatus: profile?.registration_status ?? "approved",
     },
-    hasTenancy: Boolean(activeTenancy),
-    tenancy: activeTenancy
-      ? {
-          id: activeTenancy.id,
-          propertyName: property?.name ?? "Property",
-          roomName: room?.room_number ?? room?.name ?? "Room",
-          monthlyRent: numberValue(
-            activeTenancy.monthly_rental ?? activeTenancy.monthly_rent,
-          ),
-          deposit: numberValue(activeTenancy.deposit),
-          dueDay: activeTenancy.rent_due_day ?? activeTenancy.due_day,
-          checkIn:
-            activeTenancy.check_in_date ??
-            activeTenancy.contract_start ??
-            activeTenancy.start_date,
-          contractEnd:
-            activeTenancy.contract_end ??
-            activeTenancy.end_date ??
-            activeTenancy.checkout_date,
-          status: activeTenancy.status,
-          paymentQrUrl: roomQrUrl ?? property?.payment_qr_url ?? null,
-        }
-      : null,
+    hasTenancy: portalTenancies.length > 0,
+    tenancy: currentPortalTenancy,
+    tenancies: portalTenancies,
     outstandingAmount,
     bills: bills.map((bill) => ({
       ...bill,
+      propertyName:
+        portalTenancies.find((tenancy) => tenancy.id === bill.tenancy_id)
+          ?.propertyName ?? "Property",
+      roomName:
+        portalTenancies.find((tenancy) => tenancy.id === bill.tenancy_id)
+          ?.roomName ?? "Room",
       amount: numberValue(bill.amount),
       paidAmount: numberValue(bill.paid_amount),
       outstanding: Math.max(

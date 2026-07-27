@@ -27,6 +27,10 @@ type TenancyBillingRow = {
   check_in_date?: string | null;
   checkout_date?: string | null;
   billing_status?: string | null;
+  tenants:
+    | { profile_id: string | null }
+    | Array<{ profile_id: string | null }>
+    | null;
 };
 
 type TenantRecordBillingRow = {
@@ -100,6 +104,13 @@ function effectiveEndDate(input: {
   return input.checkoutDate ?? input.tenancyEndDate ?? input.contractEnd ?? null;
 }
 
+function tenantProfileId(tenancy: TenancyBillingRow) {
+  const tenant = Array.isArray(tenancy.tenants)
+    ? tenancy.tenants[0]
+    : tenancy.tenants;
+  return tenant?.profile_id ?? null;
+}
+
 async function existingBillMonths(
   supabase: SupabaseLike,
   column: "tenancy_id" | "tenant_record_id",
@@ -145,7 +156,7 @@ export async function generateRecurringRentBills(
 
   let tenancyQuery = supabase
     .from("tenancies")
-    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!inner(status)")
+    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!inner(status), tenants(profile_id)")
     .eq("status", "active")
     .eq("billing_status", "active")
     .eq("rooms.status", "occupied");
@@ -161,6 +172,13 @@ export async function generateRecurringRentBills(
 
   for (const tenancy of (tenancies ?? []) as TenancyBillingRow[]) {
     result.checkedTenancies += 1;
+    const profileId = tenantProfileId(tenancy);
+    if (!profileId) {
+      result.errors.push(
+        `Tenancy ${tenancy.id} has no activated tenant portal profile.`,
+      );
+      continue;
+    }
     const startDate = tenancy.check_in_date ?? tenancy.tenancy_start_date ?? tenancy.contract_start;
     const dueDay = tenancy.rent_due_day ?? tenancy.due_day ?? dayOfMonth(startDate);
     const endDate = effectiveEndDate({
@@ -175,7 +193,7 @@ export async function generateRecurringRentBills(
       .map((billMonth) => ({
         organization_id: tenancy.organization_id,
         tenancy_id: tenancy.id,
-        tenant_id: tenancy.tenant_id,
+        tenant_id: profileId,
         tenant_record_id: null,
         property_id: tenancy.property_id,
         unit_id: tenancy.unit_id,

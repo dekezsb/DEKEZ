@@ -9,17 +9,26 @@ import { requireRole } from "@/lib/auth/session";
 import { getProperties, getRooms } from "@/lib/data/organization";
 import { createClient } from "@/lib/supabase/server";
 import {
+  activateAllTenantPortalAccounts,
   assignPropertyOwner,
   assignTenantTenancy,
   createPortalUser,
 } from "./actions";
 
+export const maxDuration = 300;
+
 type AdminSetupPageProps = {
   searchParams: Promise<{
+    accounts?: string;
+    activated?: string;
+    conflicts?: string;
     created?: string;
     error?: string;
+    errors?: string;
     message?: string;
     removed?: string;
+    rooms?: string;
+    skipped?: string;
   }>;
 };
 
@@ -39,6 +48,7 @@ const errorMessages: Record<string, string> = {
   tenancy_missing: "Please choose tenant, room and contract start date.",
   room_missing: "Selected room was not found.",
   tenancy_create: "Tenancy could not be created.",
+  tenant_activation: "Tenant portal activation could not be completed. No credentials were exposed.",
 };
 
 function profileRoleLabel(role: string) {
@@ -98,9 +108,11 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         </p>
       </div>
 
-      {params.created || params.removed ? (
+      {params.created || params.removed || params.activated ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
-          {params.removed
+          {params.activated
+            ? `${params.accounts ?? "0"} tenant logins are active across ${params.rooms ?? "0"} room assignments. ${params.skipped ?? "0"} records without valid phones and ${params.conflicts ?? "0"} conflicts require review.${Number(params.errors ?? 0) ? ` ${params.errors} processing errors were recorded.` : ""}`
+            : params.removed
             ? "User access removed. Historical records were preserved."
             : successMessages[params.created ?? ""] ?? "Saved successfully."}
         </div>
@@ -111,6 +123,27 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
           {params.message ? ` ${params.message}` : ""}
         </div>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tenant Portal Access</CardTitle>
+          <CardDescription>
+            Activate every tenant with a valid phone number. The initial PIN is
+            the last four phone digits. One person keeps one login, and every
+            active room linked to that phone appears in the same portal.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-3xl text-sm leading-6 text-gray-600">
+            This action is repeatable. Existing accounts are retained and their
+            portal links are repaired without deleting bills, payments, or
+            agreements.
+          </p>
+          <form action={activateAllTenantPortalAccounts}>
+            <Button type="submit">Activate all tenant logins</Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>

@@ -8,6 +8,7 @@ import {
   resolveUserAccess,
   type AccessLevel,
 } from "@/lib/auth/access";
+import { activateAllTenantAccounts } from "@/lib/auth/activate-all-tenants";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
 import { phoneAuthAlias } from "@/lib/auth/registration";
@@ -52,6 +53,38 @@ async function assertAdmin() {
 
 function profilePath(profileId: string, result: string) {
   return `/admin-setup/users/${profileId}?${result}`;
+}
+
+export async function activateAllTenantPortalAccounts() {
+  await assertAdmin();
+  const actor = await getCurrentUser();
+  if (!actor) {
+    redirect("/admin-setup?error=tenant_activation");
+  }
+
+  let result;
+  try {
+    result = await activateAllTenantAccounts(actor.id);
+  } catch {
+    redirect("/admin-setup?error=tenant_activation");
+  }
+
+  revalidatePath("/admin-setup");
+  revalidatePath("/dashboard");
+  revalidatePath("/payments");
+  revalidatePath("/rent-due-tracker");
+  revalidatePath("/properties");
+  revalidatePath("/tenant/profile");
+
+  const params = new URLSearchParams({
+    activated: "tenants",
+    accounts: String(result.accountsActivated),
+    rooms: String(result.roomsLinked),
+    skipped: String(result.skippedMissingPhone),
+    conflicts: String(result.conflicts),
+    errors: String(result.errors),
+  });
+  redirect(`/admin-setup?${params.toString()}`);
 }
 
 export async function createPortalUser(formData: FormData) {
