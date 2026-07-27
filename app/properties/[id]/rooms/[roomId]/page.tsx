@@ -11,19 +11,59 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { getRoomDetails } from "@/lib/data/property-details";
 import { statusBadgeClass } from "@/lib/status-styles";
-import { checkoutRoom } from "../../actions";
+import {
+  activateTenantPortalAccess,
+  checkoutRoom,
+} from "../../actions";
 import { PaymentQrPreview } from "../../property-controls";
 import { CheckoutForm } from "./checkout-form";
 
 type PageProps = {
   params: Promise<{ id: string; roomId: string }>;
-  searchParams: Promise<{ document?: string }>;
+  searchParams: Promise<{ document?: string; portal?: string }>;
 };
 
 const money = new Intl.NumberFormat("en-MY", {
   style: "currency",
   currency: "MYR",
 });
+
+const portalMessages: Record<string, { error?: boolean; text: string }> = {
+  activated: {
+    text: "Tenant login activated. The initial PIN is the last 4 digits of the phone number.",
+  },
+  reset: {
+    text: "Tenant PIN reset to the last 4 digits of the phone number.",
+  },
+  assignment: {
+    error: true,
+    text: "The active tenant assignment could not be verified.",
+  },
+  phone: {
+    error: true,
+    text: "Add a valid tenant phone number before activating portal login.",
+  },
+  conflict: {
+    error: true,
+    text: "That phone number is already connected to another portal account.",
+  },
+  auth: {
+    error: true,
+    text: "Supabase could not create or update the tenant login.",
+  },
+  profile: {
+    error: true,
+    text: "The tenant profile could not be completed.",
+  },
+  tenant: {
+    error: true,
+    text: "The tenant record could not be linked to the portal account.",
+  },
+  missing: {
+    error: true,
+    text: "The tenant record was not found.",
+  },
+};
 
 function roomStatusClass(status: string) {
   const classes: Record<string, string> = {
@@ -47,6 +87,7 @@ export default async function RoomDetailsPage({
   });
   const { property, room } = details;
   const tenantKey = room.tenantRecordId ?? room.tenantId ?? room.id;
+  const portalMessage = query.portal ? portalMessages[query.portal] : null;
 
   return (
     <section className="space-y-6">
@@ -69,6 +110,18 @@ export default async function RoomDetailsPage({
         </Badge>
       </div>
 
+      {portalMessage ? (
+        <p
+          className={`rounded-md border px-4 py-3 text-sm font-medium ${
+            portalMessage.error
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+          }`}
+        >
+          {portalMessage.text}
+        </p>
+      ) : null}
+
       {room.tenantName ? (
         <div className="grid gap-4 lg:grid-cols-3">
           <Card>
@@ -80,9 +133,23 @@ export default async function RoomDetailsPage({
               <p className="font-semibold text-gray-950">{room.tenantName}</p>
               <p className="flex items-center gap-2 text-gray-600"><Phone className="h-4 w-4" />{room.tenantPhone ?? "-"}</p>
               <p className="text-gray-600">IC / Passport: {room.identificationNumber ?? "-"}</p>
-              <Button asChild className="mt-2" size="sm" variant="outline">
-                <Link href={`/tenants/${tenantKey}`}>View Tenant Profile</Link>
-              </Button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/tenants/${tenantKey}`}>View Tenant Profile</Link>
+                </Button>
+                {canManage && room.tenantId ? (
+                  <form action={activateTenantPortalAccess}>
+                    <input name="propertyId" type="hidden" value={property.id} />
+                    <input name="roomId" type="hidden" value={room.id} />
+                    <input name="tenantId" type="hidden" value={room.tenantId} />
+                    <Button size="sm" type="submit">
+                      {room.tenantProfileId
+                        ? "Reset Tenant PIN"
+                        : "Activate Tenant Login"}
+                    </Button>
+                  </form>
+                ) : null}
+              </div>
             </CardContent>
           </Card>
           <Card>

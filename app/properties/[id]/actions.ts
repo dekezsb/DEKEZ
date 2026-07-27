@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
+import { activateTenantAccount } from "@/lib/auth/tenant-account";
 import {
   dueDateForBillMonth,
   generateRecurringRentBills,
@@ -1003,5 +1004,59 @@ export async function checkoutRoom(formData: FormData) {
     returnTo === "/verification?view=tenancy"
       ? "/verification?view=tenancy&checkout=1"
       : propertyPath(property.id, "?saved=checkout"),
+  );
+}
+
+export async function activateTenantPortalAccess(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const propertyId = textValue(formData, "propertyId");
+  const roomId = textValue(formData, "roomId");
+  const tenantId = textValue(formData, "tenantId");
+  const property = await accessibleProperty(propertyId);
+
+  if (!user || !property || !roomId || !tenantId) {
+    redirect("/properties");
+  }
+
+  const supabase = await getAdmin();
+  const { data: assignment } = await supabase
+    .from("tenancies")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("property_id", property.id)
+    .eq("room_id", roomId)
+    .limit(1)
+    .maybeSingle();
+  if (!assignment) {
+    redirect(
+      propertyPath(
+        property.id,
+        `/rooms/${roomId}?portal=assignment`,
+      ),
+    );
+  }
+
+  const result = await activateTenantAccount(tenantId, user.id);
+  if (!result.ok) {
+    redirect(
+      propertyPath(
+        property.id,
+        `/rooms/${roomId}?portal=${result.reason}`,
+      ),
+    );
+  }
+
+  revalidatePath(propertyPath(property.id));
+  revalidatePath(propertyPath(property.id, `/rooms/${roomId}`));
+  revalidatePath(`/tenants/${tenantId}`);
+  redirect(
+    propertyPath(
+      property.id,
+      `/rooms/${roomId}?portal=${result.reset ? "reset" : "activated"}`,
+    ),
   );
 }
