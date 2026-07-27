@@ -41,7 +41,6 @@ const adminNavigation: NavigationItem[] = [
   { label: "Admin Settings", href: "/admin-setup", icon: Settings, module: "admin_setup" },
   { label: "Properties", href: "/properties", icon: Building2, module: "properties" },
   { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
-  { label: "Payments", href: "/payments", icon: CreditCard, module: "payments" },
   { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
   { label: "Tenancy Agreements", href: "/e-tenancy", icon: FileSignature, module: "tenancy_agreements" },
   { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
