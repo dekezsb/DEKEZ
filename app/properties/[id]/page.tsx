@@ -577,6 +577,7 @@ function DesktopRoomRow({
             field="depositReceived"
             value={room.depositReceived}
             maxValue={room.deposit}
+            balanceTotal={room.deposit}
             label={`${room.roomNumber} deposit received`}
             editable={canManage}
           />
@@ -752,6 +753,7 @@ function MobileRoomCard({
                   field="depositReceived"
                   value={room.depositReceived}
                   maxValue={room.deposit}
+                  balanceTotal={room.deposit}
                   label={`${room.roomNumber} deposit received`}
                   editable={canManage}
                 />

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useRef,
   useState,
   type FocusEvent,
@@ -181,6 +182,7 @@ export function InlineRoomField({
   value,
   label,
   maxValue,
+  balanceTotal,
   editable = true,
 }: {
   propertyId: string;
@@ -191,13 +193,24 @@ export function InlineRoomField({
   value: number | string;
   label: string;
   maxValue?: number;
+  balanceTotal?: number;
   editable?: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const savedValue = useRef(String(value));
+  const [inputValue, setInputValue] = useState(String(value));
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
-  const requiresSave = field === "depositReceived";
+  const balanceOwed =
+    field === "depositReceived" && balanceTotal !== undefined
+      ? Math.max(balanceTotal - (Number(inputValue) || 0), 0)
+      : null;
+
+  useEffect(() => {
+    const nextValue = String(value);
+    savedValue.current = nextValue;
+    setInputValue(nextValue);
+  }, [value]);
 
   async function save(formData: FormData) {
     setStatus("saving");
@@ -227,14 +240,23 @@ export function InlineRoomField({
             style: "currency",
             currency: "MYR",
           }).format(Number(value || 0));
-    return <span className="font-medium text-gray-950">{displayValue}</span>;
+    return (
+      <div>
+        <span className="font-medium text-gray-950">{displayValue}</span>
+        {balanceOwed !== null && balanceOwed > 0.005 ? (
+          <p className="mt-1 whitespace-nowrap text-xs font-semibold text-red-600">
+            Owes RM {balanceOwed.toFixed(2)}
+          </p>
+        ) : null}
+      </div>
+    );
   }
 
   return (
     <form
       ref={formRef}
       action={save}
-      className={requiresSave ? "flex min-w-40 items-start gap-2" : "min-w-24"}
+      className="min-w-24"
     >
       <input name="propertyId" type="hidden" value={propertyId} />
       <input name="roomId" type="hidden" value={roomId} />
@@ -247,7 +269,7 @@ export function InlineRoomField({
           className={`h-9 rounded-md border border-[#d7dde5] bg-white px-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20 ${
             field === "contractEnd" ? "w-36" : "w-24"
           }`}
-          defaultValue={value}
+          value={inputValue}
           max={field === "dueDay" ? 31 : maxValue}
           min={
             field === "dueDay"
@@ -259,7 +281,8 @@ export function InlineRoomField({
                   : 0
           }
           name="value"
-          onBlur={requiresSave ? undefined : submitIfChanged}
+          onBlur={submitIfChanged}
+          onChange={(event) => setInputValue(event.currentTarget.value)}
           step={field === "dueDay" ? "1" : field === "contractEnd" ? undefined : "0.01"}
           type={field === "contractEnd" ? "date" : "number"}
         />
@@ -272,14 +295,14 @@ export function InlineRoomField({
           {status === "saving" ? <><LoaderCircle className="h-3 w-3 animate-spin" /> Saving</> : null}
           {status === "saved" ? <><Check className="h-3 w-3 text-emerald-600" /> Saved</> : null}
           {status === "error" ? errorMessage : null}
-          {status === "idle" && !requiresSave ? "Auto-saves" : null}
+          {status === "idle" ? "Auto-saves" : null}
         </span>
+        {balanceOwed !== null && balanceOwed > 0.005 ? (
+          <p className="mt-0.5 whitespace-nowrap text-xs font-semibold text-red-600">
+            Owes RM {balanceOwed.toFixed(2)}
+          </p>
+        ) : null}
       </div>
-      {requiresSave ? (
-        <Button disabled={status === "saving"} size="sm" type="submit">
-          Save
-        </Button>
-      ) : null}
     </form>
   );
 }
