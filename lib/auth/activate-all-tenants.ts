@@ -1,6 +1,5 @@
 import "server-only";
 
-import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeInternationalPhone } from "./phone";
 import { activateTenantAccount } from "./tenant-account";
@@ -481,12 +480,6 @@ export async function activateAllTenantAccounts(
         continue;
       }
 
-      const billing = await generateRecurringRentBills(admin, {
-        createdBy: reviewedBy,
-        tenancyId: link.tenancyId,
-        includeTenantRecords: false,
-      });
-      result.errors += billing.errors.length;
     }
   };
 
