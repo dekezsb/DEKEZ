@@ -327,7 +327,7 @@ export async function updateRoomField(formData: FormData) {
   const supportedFields = [
     "monthlyRent",
     "deposit",
-    "amountReceived",
+    "depositReceived",
     "dueDay",
     "contractEnd",
   ];
@@ -337,7 +337,6 @@ export async function updateRoomField(formData: FormData) {
 
   const tenantRecordId = textValue(formData, "tenantRecordId");
   let tenancyId = textValue(formData, "tenancyId");
-  const billId = textValue(formData, "billId");
   const supabase = await getAdmin();
 
   const { data: room } = await supabase
@@ -530,35 +529,8 @@ export async function updateRoomField(formData: FormData) {
     }
   }
 
-  if (field === "amountReceived") {
-    if (!billId) {
-      return { ok: false, error: "There is no current rent bill to update." };
-    }
-    const amountReceived = Math.max(0, numberValue(formData, "value"));
-    const { data: bill } = await supabase
-      .from("rent_bills")
-      .select("id, tenancy_id, tenant_id, amount, paid_amount, status")
-      .eq("id", billId)
-      .eq("room_id", roomId)
-      .eq("property_id", property.id)
-      .maybeSingle();
-    if (
-      !bill ||
-      ["cancelled", "paid", "submitted", "pending_verification"].includes(bill.status)
-    ) {
-      return { ok: false, error: "This rent bill cannot be changed." };
-    }
-
-    const existingReceived = Number(bill.paid_amount ?? 0);
-    if (amountReceived < existingReceived) {
-      return {
-        ok: false,
-        error: "Verified amount received cannot be reduced.",
-      };
-    }
-    if (amountReceived === existingReceived) {
-      return { ok: true };
-    }
+  if (field === "depositReceived") {
+    const depositReceived = Math.max(0, numberValue(formData, "value"));
 
     if (!tenancyId && tenantRecordId) {
       tenancyId =
@@ -570,68 +542,97 @@ export async function updateRoomField(formData: FormData) {
           user.id,
         )) ?? "";
     }
-    const paymentTenancyId = bill.tenancy_id ?? tenancyId;
-    if (!paymentTenancyId) {
-      return { ok: false, error: "A tenancy is required before recording payment." };
+    if (!tenancyId) {
+      return { ok: false, error: "This room needs a tenant assignment first." };
     }
+
     const { data: paymentTenancy } = await supabase
       .from("tenancies")
-      .select("tenant_id, organization_id")
-      .eq("id", paymentTenancyId)
+      .select("id, tenant_id, organization_id, unit_id, deposit")
+      .eq("id", tenancyId)
       .eq("room_id", roomId)
+      .eq("property_id", property.id)
+      .eq("status", "active")
       .maybeSingle();
     if (!paymentTenancy) {
       return { ok: false, error: "The active tenancy could not be verified." };
     }
 
-    const difference = amountReceived - existingReceived;
-    const referenceNumber = `PROPERTY-${bill.id.slice(0, 8)}-${amountReceived.toFixed(2)}`;
+    const requiredDeposit = Number(paymentTenancy.deposit ?? 0);
+    if (depositReceived > requiredDeposit + 0.005) {
+      return {
+        ok: false,
+        error: `Deposit received cannot exceed RM ${requiredDeposit.toFixed(2)}.`,
+      };
+    }
+
+    const { data: existingDeposits } = await supabase
+      .from("payments")
+      .select("amount")
+      .eq("tenancy_id", paymentTenancy.id)
+      .in("category", ["deposit", "rental_deposit", "security_deposit"])
+      .eq("status", "confirmed");
+    const existingReceived = (existingDeposits ?? []).reduce(
+      (total, payment) => total + Number(payment.amount ?? 0),
+      0,
+    );
+
+    if (depositReceived < existingReceived - 0.005) {
+      return {
+        ok: false,
+        error: "Verified deposit received cannot be reduced.",
+      };
+    }
+    if (Math.abs(depositReceived - existingReceived) <= 0.005) {
+      revalidatePath(propertyPath(property.id));
+      revalidatePath("/dashboard");
+      return { ok: true };
+    }
+
+    const { data: tenant } = await supabase
+      .from("tenants")
+      .select("profile_id")
+      .eq("id", paymentTenancy.tenant_id)
+      .maybeSingle();
+    const difference = depositReceived - existingReceived;
+    const referenceNumber =
+      `DEPOSIT-${paymentTenancy.id.slice(0, 8)}-${depositReceived.toFixed(2)}`;
     const { data: existingPayment } = await supabase
       .from("payments")
       .select("id")
-      .eq("tenancy_id", paymentTenancyId)
+      .eq("tenancy_id", paymentTenancy.id)
       .eq("reference_number", referenceNumber)
       .maybeSingle();
+
     if (!existingPayment) {
       const { error: paymentError } = await supabase.from("payments").insert({
         company_id: property.company_id,
         organization_id: paymentTenancy.organization_id,
-        tenancy_id: paymentTenancyId,
-        tenant_id: bill.tenant_id ?? paymentTenancy.tenant_id,
+        tenancy_id: paymentTenancy.id,
+        tenant_id: tenant?.profile_id ?? null,
         property_id: property.id,
+        unit_id: paymentTenancy.unit_id,
         room_id: roomId,
-        rent_bill_id: bill.id,
-        category: "monthly_rent",
+        category: "deposit",
         amount: difference,
         payment_method: "manual_adjustment",
         reference_number: referenceNumber,
         status: "confirmed",
         payment_date: today(),
-        notes: "Recorded from Property Details without changing prior verified payments.",
+        notes: "Deposit received recorded from Property Details.",
         collected_by: user.id,
         recorded_by: user.id,
         verified_by: user.id,
         verified_at: new Date().toISOString(),
       });
       if (paymentError) {
-        return { ok: false, error: "The verified payment record could not be created." };
+        return { ok: false, error: "The deposit payment could not be saved." };
       }
-    }
-
-    const billAmount = Number(bill.amount ?? 0);
-    const { error: billError } = await supabase
-      .from("rent_bills")
-      .update({
-        paid_amount: amountReceived,
-        status: amountReceived >= billAmount ? "paid" : "partial",
-      })
-      .eq("id", bill.id);
-    if (billError) {
-      return { ok: false, error: "The rent bill could not be updated." };
     }
   }
 
   revalidatePath(propertyPath(property.id));
+  revalidatePath("/dashboard");
   revalidatePath("/rent-due-tracker");
   return { ok: true };
 }

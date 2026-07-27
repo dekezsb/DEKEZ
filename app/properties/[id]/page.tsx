@@ -385,7 +385,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                   <TableHead>Tenant</TableHead>
                   <TableHead>Monthly Rent</TableHead>
                   <TableHead>Deposit</TableHead>
-                  <TableHead>Amount Received</TableHead>
+                  <TableHead>Deposit Received</TableHead>
                   <TableHead>Rent Due Day</TableHead>
                   <TableHead>Contract Start</TableHead>
                   <TableHead>Contract End Date</TableHead>
@@ -595,21 +595,16 @@ function DesktopRoomRow({
         )}
       </TableCell>
       <TableCell>
-        {vacant || !room.billId ? <span className="text-gray-400">-</span> : room.billStatus === "paid" ? (
-          <div>
-            <p className="font-medium text-emerald-700">{money.format(room.amountReceived)}</p>
-            <p className="mt-1 text-xs text-emerald-700">Verified</p>
-          </div>
-        ) : (
+        {vacant ? <span className="text-gray-400">-</span> : (
           <InlineRoomField
             propertyId={propertyId}
             roomId={room.id}
             tenantRecordId={room.tenantRecordId}
             tenancyId={room.tenancyId}
-            billId={room.billId}
-            field="amountReceived"
-            value={room.amountReceived}
-            label={`${room.roomNumber} amount received`}
+            field="depositReceived"
+            value={room.depositReceived}
+            maxValue={room.deposit}
+            label={`${room.roomNumber} deposit received`}
             editable={canManage}
           />
         )}
@@ -776,21 +771,19 @@ function MobileRoomCard({
         {!vacant ? (
           <>
             <div>
-              <dt className="text-gray-500">Amount Received</dt>
+              <dt className="text-gray-500">Deposit Received</dt>
               <dd className="mt-1">
-                {room.billId && room.billStatus !== "paid" ? (
-                  <InlineRoomField
-                    propertyId={propertyId}
-                    roomId={room.id}
-                    tenantRecordId={room.tenantRecordId}
-                    tenancyId={room.tenancyId}
-                    billId={room.billId}
-                    field="amountReceived"
-                    value={room.amountReceived}
-                    label={`${room.roomNumber} amount received`}
-                    editable={canManage}
-                  />
-                ) : money.format(room.amountReceived)}
+                <InlineRoomField
+                  propertyId={propertyId}
+                  roomId={room.id}
+                  tenantRecordId={room.tenantRecordId}
+                  tenancyId={room.tenancyId}
+                  field="depositReceived"
+                  value={room.depositReceived}
+                  maxValue={room.deposit}
+                  label={`${room.roomNumber} deposit received`}
+                  editable={canManage}
+                />
               </dd>
             </div>
             <div>

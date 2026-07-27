@@ -147,26 +147,27 @@ export function InlineRoomField({
   roomId,
   tenantRecordId,
   tenancyId,
-  billId,
   field,
   value,
   label,
+  maxValue,
   editable = true,
 }: {
   propertyId: string;
   roomId: string;
   tenantRecordId: string | null;
   tenancyId: string | null;
-  billId?: string | null;
-  field: "monthlyRent" | "deposit" | "amountReceived" | "dueDay" | "contractEnd";
+  field: "monthlyRent" | "deposit" | "depositReceived" | "dueDay" | "contractEnd";
   value: number | string;
   label: string;
+  maxValue?: number;
   editable?: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const savedValue = useRef(String(value));
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const requiresSave = field === "depositReceived";
 
   async function save(formData: FormData) {
     setStatus("saving");
@@ -200,37 +201,55 @@ export function InlineRoomField({
   }
 
   return (
-    <form ref={formRef} action={save} className="min-w-24">
+    <form
+      ref={formRef}
+      action={save}
+      className={requiresSave ? "flex min-w-40 items-start gap-2" : "min-w-24"}
+    >
       <input name="propertyId" type="hidden" value={propertyId} />
       <input name="roomId" type="hidden" value={roomId} />
       <input name="tenantRecordId" type="hidden" value={tenantRecordId ?? ""} />
       <input name="tenancyId" type="hidden" value={tenancyId ?? ""} />
-      <input name="billId" type="hidden" value={billId ?? ""} />
       <input name="field" type="hidden" value={field} />
-      <input
-        aria-label={label}
-        className={`h-9 rounded-md border border-[#d7dde5] bg-white px-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20 ${
-          field === "contractEnd" ? "w-36" : "w-24"
-        }`}
-        defaultValue={value}
-        max={field === "dueDay" ? 31 : undefined}
-        min={field === "dueDay" ? 1 : field === "contractEnd" ? undefined : field === "amountReceived" ? Number(value) : 0}
-        name="value"
-        onBlur={submitIfChanged}
-        step={field === "dueDay" ? "1" : field === "contractEnd" ? undefined : "0.01"}
-        type={field === "contractEnd" ? "date" : "number"}
-      />
-      <span
-        aria-live="polite"
-        className={`mt-1 flex min-h-4 max-w-44 items-start gap-1 text-[11px] ${
-          status === "error" ? "text-red-600" : "text-gray-500"
-        }`}
-      >
-        {status === "saving" ? <><LoaderCircle className="h-3 w-3 animate-spin" /> Saving</> : null}
-        {status === "saved" ? <><Check className="h-3 w-3 text-emerald-600" /> Saved</> : null}
-        {status === "error" ? errorMessage : null}
-        {status === "idle" ? "Auto-saves" : null}
-      </span>
+      <div>
+        <input
+          aria-label={label}
+          className={`h-9 rounded-md border border-[#d7dde5] bg-white px-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20 ${
+            field === "contractEnd" ? "w-36" : "w-24"
+          }`}
+          defaultValue={value}
+          max={field === "dueDay" ? 31 : maxValue}
+          min={
+            field === "dueDay"
+              ? 1
+              : field === "contractEnd"
+                ? undefined
+                : field === "depositReceived"
+                  ? Number(value)
+                  : 0
+          }
+          name="value"
+          onBlur={requiresSave ? undefined : submitIfChanged}
+          step={field === "dueDay" ? "1" : field === "contractEnd" ? undefined : "0.01"}
+          type={field === "contractEnd" ? "date" : "number"}
+        />
+        <span
+          aria-live="polite"
+          className={`mt-1 flex min-h-4 max-w-44 items-start gap-1 text-[11px] ${
+            status === "error" ? "text-red-600" : "text-gray-500"
+          }`}
+        >
+          {status === "saving" ? <><LoaderCircle className="h-3 w-3 animate-spin" /> Saving</> : null}
+          {status === "saved" ? <><Check className="h-3 w-3 text-emerald-600" /> Saved</> : null}
+          {status === "error" ? errorMessage : null}
+          {status === "idle" && !requiresSave ? "Auto-saves" : null}
+        </span>
+      </div>
+      {requiresSave ? (
+        <Button disabled={status === "saving"} size="sm" type="submit">
+          Save
+        </Button>
+      ) : null}
     </form>
   );
 }
