@@ -17,6 +17,10 @@ type RegistrationRoom = {
   monthlyRent: number;
 };
 
+function roomLabel(value: string) {
+  return /^room\b/i.test(value.trim()) ? value.trim() : `Room ${value.trim()}`;
+}
+
 function fieldClass() {
   return "mt-1.5 h-11 w-full rounded-md border border-[#cfd8e6] bg-white px-3 text-sm text-[#07142f] outline-none transition focus:border-[#b98a2c] focus:ring-2 focus:ring-[#b98a2c]/20";
 }
@@ -146,7 +150,7 @@ export function RegistrationForm({
           </option>
           {propertyRooms.map((room) => (
             <option key={room.id} value={room.id}>
-              Room {room.roomNumber}
+              {roomLabel(room.roomNumber)}
             </option>
           ))}
         </select>
