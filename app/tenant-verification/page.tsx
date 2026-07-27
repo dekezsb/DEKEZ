@@ -60,14 +60,19 @@ export async function TenantVerificationContent({
   const params = await searchParams;
   const supabase = await getAdmin();
 
-  const [applicationsResult, documentsResult] = await Promise.all([
+  const [applicationsResult, documentsResult, paymentsResult] = await Promise.all([
     supabase
       .from("tenant_applications")
       .select("id, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
+      .neq("status", "draft")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("tenant_documents")
       .select("id, tenant_application_id, document_type, file_path, file_name, verification_status"),
+    supabase
+      .from("payment_submissions")
+      .select("id, tenant_application_id, amount, receipt_url, verification_status")
+      .not("tenant_application_id", "is", null),
   ]);
 
   const documentsByApplication = new Map<string, { id: string; document_type: string; file_path: string; file_name: string | null; verification_status: string; signedUrl?: string }[]>();
@@ -78,6 +83,28 @@ export async function TenantVerificationContent({
     const list = documentsByApplication.get(document.tenant_application_id) ?? [];
     list.push({ ...document, signedUrl: data?.signedUrl });
     documentsByApplication.set(document.tenant_application_id, list);
+  }
+
+  const paymentByApplication = new Map<
+    string,
+    {
+      amount: number;
+      id: string;
+      signedUrl?: string;
+      verification_status: string;
+    }
+  >();
+  for (const payment of paymentsResult.data ?? []) {
+    if (!payment.tenant_application_id || !payment.receipt_url) continue;
+    const { data } = await supabase.storage
+      .from("payment-receipts")
+      .createSignedUrl(payment.receipt_url, 60 * 10);
+    paymentByApplication.set(payment.tenant_application_id, {
+      amount: Number(payment.amount ?? 0),
+      id: payment.id,
+      signedUrl: data?.signedUrl,
+      verification_status: payment.verification_status,
+    });
   }
 
   const applications = applicationsResult.data ?? [];
@@ -124,6 +151,7 @@ export async function TenantVerificationContent({
                     <TableHead>Deposit</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Documents</TableHead>
+                    <TableHead>Payment slip</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
@@ -133,6 +161,7 @@ export async function TenantVerificationContent({
                     const property = Array.isArray(application.properties) ? application.properties[0] : application.properties;
                     const room = Array.isArray(application.rooms) ? application.rooms[0] : application.rooms;
                     const documents = documentsByApplication.get(application.id) ?? [];
+                    const payment = paymentByApplication.get(application.id);
 
                     return (
                       <TableRow key={application.id}>
@@ -140,7 +169,9 @@ export async function TenantVerificationContent({
                         <TableCell>
                           {application.submission_source === "admin_assisted"
                             ? "Admin"
-                            : "Tenant portal"}
+                            : application.submission_source === "self_registration"
+                              ? "New user"
+                              : "Tenant portal"}
                         </TableCell>
                         <TableCell>{application.whatsapp_number ?? "-"}</TableCell>
                         <TableCell>{application.ic_passport_number ?? "-"}</TableCell>
@@ -161,6 +192,29 @@ export async function TenantVerificationContent({
                               )
                             ))}
                           </div>
+                        </TableCell>
+                        <TableCell className="min-w-40">
+                          {payment?.signedUrl ? (
+                            <div className="space-y-2">
+                              <Button asChild size="sm" variant="outline">
+                                <Link href={payment.signedUrl} target="_blank">
+                                  View slip
+                                </Link>
+                              </Button>
+                              <p className="text-xs text-gray-500">
+                                {money(payment.amount)}
+                              </p>
+                              <Badge
+                                className={statusBadgeClass(
+                                  payment.verification_status,
+                                )}
+                              >
+                                {payment.verification_status.replaceAll("_", " ")}
+                              </Badge>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-500">None</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">

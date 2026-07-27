@@ -79,12 +79,34 @@ export async function reviewUserRegistration(formData: FormData) {
   const admin = await adminClient();
   const { data: profile } = await admin
     .from("profiles")
-    .select("id, role")
+    .select("id, role, requested_role, identity_type, identity_number")
     .eq("id", profileId)
     .maybeSingle();
 
   if (!profile || profile.role === "super_admin") {
     redirect(verificationPath("users", "error=user_missing"));
+  }
+
+  if (
+    decision === "approved" &&
+    assignedRole === "owner" &&
+    profile.requested_role === "owner"
+  ) {
+    const { data: documents } = await admin
+      .from("profile_documents")
+      .select("document_type")
+      .eq("profile_id", profile.id);
+    const documentTypes = new Set(
+      (documents ?? []).map((document) => document.document_type),
+    );
+    const hasIdentity =
+      profile.identity_type === "ic"
+        ? documentTypes.has("ic_front") && documentTypes.has("ic_back")
+        : documentTypes.has("passport_photo_page");
+
+    if (!profile.identity_number || !hasIdentity) {
+      redirect(verificationPath("users", "error=user_documents"));
+    }
   }
 
   if (decision === "approved") {
@@ -175,6 +197,17 @@ export async function reviewUserRegistration(formData: FormData) {
   if (error) {
     redirect(verificationPath("users", "error=user_review"));
   }
+
+  await admin
+    .from("profile_documents")
+    .update({
+      verification_status:
+        decision === "approved" ? "verified" : "rejected",
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+      rejection_reason: decision === "rejected" ? reason : null,
+    })
+    .eq("profile_id", profile.id);
 
   revalidatePath("/verification");
   revalidatePath("/properties");

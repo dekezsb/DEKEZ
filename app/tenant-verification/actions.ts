@@ -82,7 +82,9 @@ export async function reviewTenantApplication(formData: FormData) {
 
   if (
     decision === "verified" &&
-    application.submission_source === "admin_assisted"
+    ["admin_assisted", "self_registration"].includes(
+      application.submission_source,
+    )
   ) {
     const conversion = await convertTenantApplication(supabase, {
       actorId: user.id,
@@ -108,6 +110,39 @@ export async function reviewTenantApplication(formData: FormData) {
           .eq("tenant_application_id", applicationId),
       ]);
       redirect(withResult(returnTo, "error=conversion"));
+    }
+
+    if (
+      application.submission_source === "self_registration" &&
+      application.tenant_id
+    ) {
+      const { data: authUser } = await supabase.auth.admin.getUserById(
+        application.tenant_id,
+      );
+      const [{ error: profileError }, { error: authError }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .update({
+            role: "tenant",
+            global_role: "tenant",
+            registration_status: "approved",
+            registration_reviewed_by: user.id,
+            registration_reviewed_at: new Date().toISOString(),
+            registration_rejection_reason: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", application.tenant_id),
+        supabase.auth.admin.updateUserById(application.tenant_id, {
+          app_metadata: {
+            ...(authUser.user?.app_metadata ?? {}),
+            role: "tenant",
+          },
+        }),
+      ]);
+
+      if (profileError || authError) {
+        redirect(withResult(returnTo, "error=review"));
+      }
     }
   } else if (decision === "verified" && application.room_id) {
     await supabase
@@ -141,9 +176,28 @@ export async function reviewTenantApplication(formData: FormData) {
     }
   }
 
+  if (
+    application.submission_source === "self_registration" &&
+    application.tenant_id &&
+    decision === "rejected"
+  ) {
+    await supabase
+      .from("profiles")
+      .update({
+        registration_status: "rejected",
+        registration_reviewed_by: user.id,
+        registration_reviewed_at: new Date().toISOString(),
+        registration_rejection_reason: notes || "Tenant registration rejected",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", application.tenant_id);
+  }
+
   revalidatePath("/tenant-verification");
   revalidatePath("/verification");
   revalidatePath("/onboarding");
   revalidatePath("/properties");
+  revalidatePath("/e-tenancy");
+  revalidatePath("/registration-status");
   redirect(withResult(returnTo, "reviewed=1"));
 }

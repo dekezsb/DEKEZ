@@ -100,11 +100,102 @@ export async function reviewPaymentSubmission(formData: FormData) {
   });
 
   if (decision === "verified") {
-    if (submission.rent_bill_id) {
+    let tenancyId = submission.tenancy_id;
+    let rentBillId = submission.rent_bill_id;
+
+    if (submission.tenant_application_id) {
+      await supabase
+        .from("tenant_applications")
+        .update({
+          payment_status: "verified",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", submission.tenant_application_id);
+
+      const conversion = await convertTenantApplication(supabase, {
+        actorId: user.id,
+        applicationId: submission.tenant_application_id,
+        requireVerifiedPayment: true,
+      });
+
+      if (!conversion.ok) {
+        await Promise.all([
+          supabase
+            .from("payment_submissions")
+            .update({
+              verification_status: "pending_verification",
+              verified_by: null,
+              verified_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", submission.id),
+          supabase
+            .from("tenant_applications")
+            .update({
+              payment_status: "pending_verification",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", submission.tenant_application_id),
+        ]);
+        redirect(withResult(returnTo, "error=review"));
+      }
+      tenancyId = conversion.tenancyId;
+    }
+
+    const { data: tenancy } = tenancyId
+      ? await supabase
+          .from("tenancies")
+          .select(
+            "id, company_id, organization_id, property_id, unit_id, room_id",
+          )
+          .eq("id", tenancyId)
+          .maybeSingle()
+      : { data: null };
+
+    if (!tenancy) {
+      await supabase
+        .from("payment_submissions")
+        .update({
+          verification_status: "pending_verification",
+          verified_by: null,
+          verified_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", submission.id);
+      redirect(withResult(returnTo, "error=review"));
+    }
+
+    if (
+      !rentBillId &&
+      submission.payment_type === "first_month_rental"
+    ) {
+      const { data: firstBill } = await supabase
+        .from("rent_bills")
+        .select("id")
+        .eq("tenancy_id", tenancy.id)
+        .order("bill_month", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      rentBillId = firstBill?.id ?? null;
+    }
+
+    await supabase
+      .from("payment_submissions")
+      .update({
+        tenancy_id: tenancy.id,
+        rent_bill_id: rentBillId,
+        property_id: tenancy.property_id,
+        unit_id: tenancy.unit_id,
+        room_id: tenancy.room_id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", submission.id);
+
+    if (rentBillId) {
       const { data: bill } = await supabase
         .from("rent_bills")
         .select("id, amount, paid_amount, status")
-        .eq("id", submission.rent_bill_id)
+        .eq("id", rentBillId)
         .single();
       const oldPaidAmount = Number(bill?.paid_amount ?? 0);
       const billAmount = Number(bill?.amount ?? 0);
@@ -118,10 +209,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
           status: newStatus,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", submission.rent_bill_id);
+        .eq("id", rentBillId);
 
       await supabase.from("rent_bill_audit_logs").insert({
-        bill_id: submission.rent_bill_id,
+        bill_id: rentBillId,
         action: "verify_payment_submission",
         performed_by: user.id,
         old_status: bill?.status ?? null,
@@ -133,13 +224,14 @@ export async function reviewPaymentSubmission(formData: FormData) {
     }
 
     await supabase.from("payments").insert({
-      rent_bill_id: submission.rent_bill_id,
-      organization_id: null,
+      company_id: tenancy.company_id,
+      rent_bill_id: rentBillId,
+      organization_id: tenancy.organization_id,
       tenant_id: submission.tenant_id,
-      tenancy_id: submission.tenancy_id,
-      property_id: submission.property_id,
-      unit_id: submission.unit_id,
-      room_id: submission.room_id,
+      tenancy_id: tenancy.id,
+      property_id: tenancy.property_id,
+      unit_id: tenancy.unit_id,
+      room_id: tenancy.room_id,
       category: submission.bill_type === "monthly_rent" ? "monthly_rent" : submission.payment_type,
       amount: submission.amount,
       payment_date: submission.payment_date,
@@ -151,19 +243,6 @@ export async function reviewPaymentSubmission(formData: FormData) {
       verified_by: user.id,
       verified_at: new Date().toISOString(),
     });
-
-    if (submission.tenant_application_id) {
-      await supabase
-        .from("tenant_applications")
-        .update({ payment_status: "verified", updated_at: new Date().toISOString() })
-        .eq("id", submission.tenant_application_id);
-
-      await convertTenantApplication(supabase, {
-        actorId: user.id,
-        applicationId: submission.tenant_application_id,
-        requireVerifiedPayment: true,
-      });
-    }
   } else {
     if (submission.rent_bill_id) {
       const { data: bill } = await supabase

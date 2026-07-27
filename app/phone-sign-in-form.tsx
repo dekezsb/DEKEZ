@@ -53,16 +53,23 @@ export function PhoneSignInForm() {
       </label>
 
       <label className="block">
-        <span className="text-sm font-medium text-gray-800">Password</span>
+        <span className="text-sm font-medium text-gray-800">
+          PIN / password
+        </span>
         <input
           autoComplete="current-password"
           className="mt-2 h-11 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-gray-950 outline-none transition focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
-          minLength={8}
+          inputMode="numeric"
           onChange={(event) => setPassword(event.target.value)}
+          placeholder="Last 4 digits of your phone"
           required
           type="password"
           value={password}
         />
+        <span className="mt-1.5 block text-xs leading-5 text-gray-500">
+          New users use the last 4 digits of the registered phone number.
+          Existing Admin accounts may continue with their current password.
+        </span>
       </label>
 
       {error ? (

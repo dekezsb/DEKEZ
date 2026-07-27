@@ -17,7 +17,7 @@ export default async function RegistrationStatusPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, role, registration_status, registration_rejection_reason")
+    .select("full_name, role, requested_role, registration_status, registration_rejection_reason")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -30,6 +30,7 @@ export default async function RegistrationStatusPage() {
   }
 
   const rejected = profile?.registration_status === "rejected";
+  const requestedRole = profile?.requested_role;
   const StatusIcon = rejected ? XCircle : Clock3;
 
   return (
@@ -52,7 +53,11 @@ export default async function RegistrationStatusPage() {
           <p className="mt-3 text-sm leading-6 text-gray-600">
             {rejected
               ? "An Admin did not approve this registration."
-              : "Your phone is registered. An Admin must assign your user permission before you can enter DEKEZ."}
+              : requestedRole === "tenant"
+                ? "Your tenant details, room choice, identity documents and payment slip are waiting for Admin review. After approval, DEKEZ prepares your tenancy agreement."
+                : requestedRole === "owner"
+                  ? "Your Owner identity and supporting documents are waiting for Admin review. After approval, an Admin assigns the properties you may view."
+                  : "Your phone is registered. An Admin must assign your user permission before you can enter DEKEZ."}
           </p>
           {profile?.registration_rejection_reason ? (
             <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

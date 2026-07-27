@@ -76,6 +76,8 @@ const errorMessages: Record<string, string> = {
     "Choose a user permission and select properties when approving an Owner.",
   property_missing: "One of the selected properties could not be found.",
   user_assign: "The user could not be assigned to the selected properties.",
+  user_documents:
+    "Review the Owner identity number and required IC/passport photos before approval.",
   user_review: "The user permission could not be updated.",
   claim_missing: "Choose a claim action and include a reason when required.",
   claim_review: "The claim could not be updated.",
@@ -125,11 +127,13 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     agreementsResult,
     paymentSubmissionsResult,
     profilesResult,
+    profileDocumentsResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, full_name, phone, role, registration_status, registration_reviewed_at, registration_rejection_reason, created_at")
+      .select("id, full_name, phone, role, requested_role, identity_type, identity_number, company_name, company_details, registration_status, registration_reviewed_at, registration_rejection_reason, registration_completed_at, created_at")
       .neq("role", "super_admin")
+      .not("registration_completed_at", "is", null)
       .order("created_at", { ascending: false }),
     supabase.from("properties").select("id, company_id, name").order("name"),
     supabase
@@ -138,7 +142,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .is("end_date", null),
     supabase
       .from("tenant_applications")
-      .select("id, tenant_id, property_id, room_id, full_name, verification_status, payment_status, status, proposed_start_date, proposed_end_date, properties(name), rooms(name, room_number)")
+      .select("id, tenant_id, submission_source, property_id, room_id, full_name, verification_status, payment_status, status, proposed_start_date, proposed_end_date, properties(name), rooms(name, room_number)")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("claims")
@@ -161,6 +165,10 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .from("payment_submissions")
       .select("id, verification_status"),
     supabase.from("profiles").select("id, full_name, phone"),
+    supabase
+      .from("profile_documents")
+      .select("id, profile_id, document_type, file_path, file_name, verification_status")
+      .order("uploaded_at", { ascending: true }),
   ]);
 
   const users = usersResult.data ?? [];
@@ -175,6 +183,36 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const profiles = new Map(
     (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
   );
+  const profileDocuments = new Map<
+    string,
+    {
+      document_type: string;
+      file_name: string | null;
+      id: string;
+      signedUrl?: string;
+      verification_status: string;
+    }[]
+  >();
+  for (const document of profileDocumentsResult.data ?? []) {
+    const { data } = await supabase.storage
+      .from("tenant-documents")
+      .createSignedUrl(document.file_path, 60 * 10);
+    const list = profileDocuments.get(document.profile_id) ?? [];
+    list.push({ ...document, signedUrl: data?.signedUrl });
+    profileDocuments.set(document.profile_id, list);
+  }
+  const selfRegisteredTenantIds = new Set(
+    tenantApplications
+      .filter(
+        (application) =>
+          application.submission_source === "self_registration" &&
+          application.tenant_id,
+      )
+      .map((application) => application.tenant_id as string),
+  );
+  const permissionUsers = users.filter(
+    (user) => !selfRegisteredTenantIds.has(user.id),
+  );
   const agreementsByTenancy = new Map<string, (typeof agreements)[number]>();
   for (const agreement of agreements) {
     if (!agreementsByTenancy.has(agreement.tenancy_id)) {
@@ -183,7 +221,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   }
 
   const pendingCounts: Record<VerificationView, number> = {
-    users: users.filter(
+    users: permissionUsers.filter(
       (user) => user.registration_status === "pending_verification",
     ).length,
     tenants: tenantApplications.filter(
@@ -276,8 +314,9 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       {activeView === "users" ? (
         <UserRegistrations
           assignments={assignments}
+          documentsByProfile={profileDocuments}
           properties={properties}
-          users={users}
+          users={permissionUsers}
         />
       ) : null}
 
@@ -350,12 +389,18 @@ function UserRegistrations({
   users,
   properties,
   assignments,
+  documentsByProfile,
 }: {
   users: {
     id: string;
     full_name: string | null;
     phone: string | null;
     role: string;
+    requested_role: string | null;
+    identity_type: string | null;
+    identity_number: string | null;
+    company_name: string | null;
+    company_details: string | null;
     registration_status: string;
     registration_reviewed_at: string | null;
     registration_rejection_reason: string | null;
@@ -363,6 +408,16 @@ function UserRegistrations({
   }[];
   properties: { id: string; company_id: string; name: string }[];
   assignments: { property_id: string; owner_id: string }[];
+  documentsByProfile: Map<
+    string,
+    {
+      document_type: string;
+      file_name: string | null;
+      id: string;
+      signedUrl?: string;
+      verification_status: string;
+    }[]
+  >;
 }) {
   const propertyById = new Map(
     properties.map((property) => [property.id, property.name]),
@@ -381,6 +436,7 @@ function UserRegistrations({
         {users.length ? (
           <div className="divide-y divide-[#d7dde5]">
             {users.map((user) => {
+              const documents = documentsByProfile.get(user.id) ?? [];
               const assignedNames = assignments
                 .filter((assignment) => assignment.owner_id === user.id)
                 .map(
@@ -412,6 +468,46 @@ function UserRegistrations({
                       Current permission: {user.role.replaceAll("_", " ")}
                     </p>
                     <p className="mt-1 text-sm text-gray-600">
+                      Requested:{" "}
+                      {(user.requested_role ?? user.role).replaceAll("_", " ")}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {user.identity_type?.toUpperCase() ?? "Identity"}:{" "}
+                      {user.identity_number ?? "Not supplied"}
+                    </p>
+                    {user.company_name ? (
+                      <p className="mt-1 text-sm text-gray-600">
+                        Company: {user.company_name}
+                      </p>
+                    ) : null}
+                    {user.company_details ? (
+                      <p className="mt-1 text-xs leading-5 text-gray-500">
+                        {user.company_details}
+                      </p>
+                    ) : null}
+                    {documents.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {documents.map((document) =>
+                          document.signedUrl ? (
+                            <Button
+                              asChild
+                              key={document.id}
+                              size="sm"
+                              variant="outline"
+                            >
+                              <Link href={document.signedUrl} target="_blank">
+                                {document.document_type.replaceAll("_", " ")}
+                              </Link>
+                            </Button>
+                          ) : (
+                            <Badge key={document.id}>
+                              {document.document_type.replaceAll("_", " ")}
+                            </Badge>
+                          ),
+                        )}
+                      </div>
+                    ) : null}
+                    <p className="mt-1 text-sm text-gray-600">
                       Assigned:{" "}
                       {assignedNames.length ? assignedNames.join(", ") : "None"}
                     </p>
@@ -432,7 +528,7 @@ function UserRegistrations({
                         </span>
                         <select
                           className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
-                          defaultValue={user.role}
+                          defaultValue={user.requested_role ?? user.role}
                           name="role"
                           required
                         >

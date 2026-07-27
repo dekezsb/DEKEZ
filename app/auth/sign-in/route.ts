@@ -1,6 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
+import {
+  derivePinPassword,
+  phoneRateLimitKey,
+} from "@/lib/auth/registration";
 import { normalizeRole, roleHome } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSupabaseUrl } from "@/lib/supabase/config";
@@ -44,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Enter a valid phone number with country code and your password.",
+          "Enter a valid phone number and your 4-digit PIN or password.",
       },
       { status: 400 },
     );
@@ -65,11 +69,6 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  let signInResult = await supabase.auth.signInWithPassword({
-    phone: phone.e164,
-    password,
-  });
-
   let admin: ReturnType<typeof createAdminClient> | null = null;
   try {
     admin = createAdminClient();
@@ -77,34 +76,107 @@ export async function POST(request: NextRequest) {
     admin = null;
   }
 
-  if ((signInResult.error || !signInResult.data.user) && admin) {
-    const { data: legacyProfile } = await admin
+  const rateLimitKey = admin ? phoneRateLimitKey(phone) : null;
+  if (admin && rateLimitKey) {
+    const { data: rateLimit } = await admin
+      .from("auth_login_rate_limits")
+      .select("locked_until")
+      .eq("phone_hash", rateLimitKey)
+      .maybeSingle();
+    if (
+      rateLimit?.locked_until &&
+      new Date(rateLimit.locked_until).getTime() > Date.now()
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Too many unsuccessful attempts. Please wait 15 minutes before trying again.",
+        },
+        { status: 429 },
+      );
+    }
+  }
+
+  const pinPassword = /^\d{4}$/.test(password)
+    ? derivePinPassword(phone, password)
+    : null;
+  let profileLookup: { id: string } | null = null;
+  let signInResult:
+    | Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>
+    | null = null;
+
+  if (admin) {
+    const { data } = await admin
       .from("profiles")
       .select("id")
       .in("normalized_phone", phone.lookupDigits)
       .maybeSingle();
+    profileLookup = data;
 
-    if (legacyProfile?.id) {
-      const { data: legacyAuthUser } =
-        await admin.auth.admin.getUserById(legacyProfile.id);
-      const legacyEmail = legacyAuthUser.user?.email;
+    if (profileLookup?.id) {
+      const { data: authUser } = await admin.auth.admin.getUserById(
+        profileLookup.id,
+      );
+      const email = authUser.user?.email;
 
-      if (legacyEmail) {
+      if (email && (!/^\d{4}$/.test(password) || pinPassword)) {
         signInResult = await supabase.auth.signInWithPassword({
-          email: legacyEmail,
-          password,
+          email,
+          password: pinPassword ?? password,
         });
       }
     }
   }
 
+  if (!signInResult) {
+    signInResult = await supabase.auth.signInWithPassword({
+      phone: phone.e164,
+      password: pinPassword ?? password,
+    });
+  }
+
   const signedInUser = signInResult.data.user;
   if (signInResult.error || !signedInUser) {
+    if (admin && rateLimitKey) {
+      const { data: existing } = await admin
+        .from("auth_login_rate_limits")
+        .select("failed_attempts, window_started_at")
+        .eq("phone_hash", rateLimitKey)
+        .maybeSingle();
+      const now = new Date();
+      const windowStarted = existing?.window_started_at
+        ? new Date(existing.window_started_at)
+        : now;
+      const inWindow =
+        now.getTime() - windowStarted.getTime() < 15 * 60 * 1000;
+      const failedAttempts = inWindow
+        ? Number(existing?.failed_attempts ?? 0) + 1
+        : 1;
+      await admin.from("auth_login_rate_limits").upsert({
+        phone_hash: rateLimitKey,
+        failed_attempts: failedAttempts,
+        window_started_at: inWindow
+          ? windowStarted.toISOString()
+          : now.toISOString(),
+        locked_until:
+          failedAttempts >= 5
+            ? new Date(now.getTime() + 15 * 60 * 1000).toISOString()
+            : null,
+        updated_at: now.toISOString(),
+      });
+    }
     return responseWithCookies(
-      { error: "Invalid phone number or password." },
+      { error: "Invalid phone number or PIN/password." },
       cookiesToSet,
       401,
     );
+  }
+
+  if (admin && rateLimitKey) {
+    await admin
+      .from("auth_login_rate_limits")
+      .delete()
+      .eq("phone_hash", rateLimitKey);
   }
 
   const profileClient = admin ?? supabase;
