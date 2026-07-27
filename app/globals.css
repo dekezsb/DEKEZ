@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f7f9;
-  --foreground: #111827;
+  --background: #f2f4f7;
+  --foreground: #17130d;
   --muted: #6b7280;
   --panel: #ffffff;
   --line: #d7dde5;
-  --brand: #126b5f;
+  --brand: #b8892c;
+  --brand-strong: #8a641d;
+  --brand-soft: #f6edd9;
 }
 
 * {
@@ -23,6 +25,11 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: #ead8ad;
+  color: #17130d;
 }
 
 a {

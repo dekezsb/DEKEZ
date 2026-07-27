@@ -7,6 +7,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "DEKEZ",
   description: "DEKEZ Rental Management System",
+  icons: {
+    icon: "/dekez-logo.jpg",
+  },
 };
 
 export default function RootLayout({

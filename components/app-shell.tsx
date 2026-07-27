@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
+import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import {
   roleLabels,
@@ -19,8 +20,6 @@ type AppShellProps = {
   userName?: string | null;
 };
 
-const backendRoles: Array<AppRole> = ["super_admin", "owner", "admin"];
-
 export function AppShell({ children, role, userName }: AppShellProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
@@ -28,35 +27,26 @@ export function AppShell({ children, role, userName }: AppShellProps) {
   const currentPage =
     navigation.find((item) => pathname.startsWith(item.href))?.label ?? "DEKEZ";
   const isPublicPage = pathname === "/" || pathname.startsWith("/login");
-  const isBackend = role ? backendRoles.includes(role) : false;
 
   if (isPublicPage) {
     return <>{children}</>;
   }
 
   return (
-    <div className={cn("min-h-screen text-[#0b1733]", isBackend ? "bg-[#eef3f9]" : "bg-[#f4f6f8]")}>
+    <div className="min-h-screen bg-[#f2f4f7] text-[#17130d]">
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-72 -translate-x-full transition-transform lg:translate-x-0",
-          isBackend
-            ? "border-r border-[#18130b] bg-[#090806] text-[#f8f0df]"
-            : "border-r border-[#d7dde5] bg-white",
+          "fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#090806] text-[#f8f0df] transition-transform lg:translate-x-0",
           isOpen && "translate-x-0",
         )}
       >
         <div className="flex h-full flex-col">
-          <div className="flex h-20 items-center justify-between px-5">
+          <div className="flex min-h-24 items-center justify-between border-b border-[#211b11] px-5 py-3">
             <Link href="/dashboard" className="flex items-center gap-3">
-              <span className={cn(
-                "flex h-11 w-11 items-center justify-center rounded-xl text-sm font-bold",
-                isBackend ? "bg-black text-[#c4942e] ring-1 ring-[#2c2417]" : "bg-[#126b5f] text-white",
-              )}>
-                {isBackend ? "DK" : "D"}
-              </span>
+              <BrandLogo className="rounded-md" priority size={58} />
               <span>
-                <span className={cn("block text-lg font-bold tracking-wide", isBackend && "text-[#c4942e]")}>DEKEZ</span>
-                <span className={cn("block text-xs", isBackend ? "text-[#d7c6a8]" : "text-gray-500")}>
+                <span className="block text-lg font-bold text-[#c99a3e]">DEKEZ</span>
+                <span className="block text-xs text-[#d7c6a8]">
                   {role ? roleLabels[role] : "Rental SaaS"}
                 </span>
               </span>
@@ -81,13 +71,9 @@ export function AppShell({ children, role, userName }: AppShellProps) {
                 <Link
                   className={cn(
                     "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition",
-                    isBackend
-                      ? isActive
-                        ? "bg-[#2a2110] text-[#c4942e]"
-                        : "text-[#d9d1c2] hover:bg-[#18130b] hover:text-[#f8f0df]"
-                      : isActive
-                        ? "bg-[#e7f2f0] text-[#126b5f]"
-                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-950",
+                    isActive
+                      ? "bg-[#2a2110] text-[#c99a3e]"
+                      : "text-[#d9d1c2] hover:bg-[#18130b] hover:text-[#f8f0df]",
                   )}
                   href={item.href}
                   key={item.href}
@@ -100,11 +86,11 @@ export function AppShell({ children, role, userName }: AppShellProps) {
             })}
           </nav>
 
-          <div className={cn("border-t p-4", isBackend ? "border-[#1b1711]" : "border-[#d7dde5]")}>
-            <div className={cn("rounded-lg p-4", isBackend ? "bg-[#15120d]" : "bg-[#f4f6f8]")}>
-              <p className="text-sm font-semibold">Phase 2 Auth</p>
-              <p className={cn("mt-1 text-xs leading-5", isBackend ? "text-[#a99c85]" : "text-gray-500")}>
-                Protected routes with role-aware navigation.
+          <div className="border-t border-[#1b1711] p-4">
+            <div className="rounded-md bg-[#15120d] p-4">
+              <p className="text-sm font-semibold text-[#c99a3e]">DEKEZ</p>
+              <p className="mt-1 text-xs leading-5 text-[#a99c85]">
+                Rental Management System
               </p>
             </div>
           </div>
@@ -143,7 +129,7 @@ export function AppShell({ children, role, userName }: AppShellProps) {
             <div className="flex items-center gap-4">
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-semibold text-gray-950">{userName ?? (role ? roleLabels[role] : "User")}</p>
-                <p className="text-xs text-[#496386]">{role ? roleLabels[role] : "DEKEZ"}</p>
+                <p className="text-xs text-[#8a641d]">{role ? roleLabels[role] : "DEKEZ"}</p>
               </div>
               <form action="/logout" method="post">
                 <Button className="border-[#cfd8e5] px-5" type="submit" variant="outline">
@@ -160,7 +146,7 @@ export function AppShell({ children, role, userName }: AppShellProps) {
       </div>
 
       {navigation.length ? (
-        <nav className={cn("fixed inset-x-0 bottom-0 z-30 border-t lg:hidden", isBackend ? "border-[#1b1711] bg-[#090806]" : "border-[#d7dde5] bg-white")}>
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#1b1711] bg-[#090806] lg:hidden">
           <div className="grid grid-cols-4">
             {navigation.slice(0, 4).map((item) => {
               const Icon = item.icon;
@@ -170,9 +156,7 @@ export function AppShell({ children, role, userName }: AppShellProps) {
                 <Link
                   className={cn(
                     "flex min-h-16 flex-col items-center justify-center gap-1 px-2 text-xs font-medium",
-                    isBackend
-                      ? isActive ? "text-[#c4942e]" : "text-[#d9d1c2]"
-                      : isActive ? "text-[#126b5f]" : "text-gray-500",
+                    isActive ? "text-[#c99a3e]" : "text-[#d9d1c2]",
                   )}
                   href={item.href}
                   key={item.href}

@@ -154,7 +154,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
           <label className="block">
             <span className="text-sm font-medium text-gray-700">Full name</span>
             <input
-              className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+              className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
               type="text"
               autoComplete="name"
               value={fullName}
@@ -168,7 +168,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
                 Company or business name
               </span>
               <input
-                className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+                className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
                 type="text"
                 autoComplete="organization"
                 value={businessName}
@@ -182,7 +182,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       <label className="block">
         <span className="text-sm font-medium text-gray-700">Email</span>
         <input
-          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
           type="email"
           autoComplete="email"
           value={email}
@@ -194,7 +194,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
         <label className="block">
           <span className="text-sm font-medium text-gray-700">Phone number</span>
           <input
-            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
             type="tel"
             autoComplete="tel"
             value={phone}
@@ -209,7 +209,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
             Identification number optional
           </span>
           <input
-            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
             type="text"
             value={identificationNumber}
             onChange={(event) => setIdentificationNumber(event.target.value)}
@@ -219,7 +219,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
       <label className="block">
         <span className="text-sm font-medium text-gray-700">Password</span>
         <input
-          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
           type="password"
           autoComplete="current-password"
           value={password}
@@ -233,7 +233,7 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
             Confirm password
           </span>
           <input
-            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#126b5f] focus:ring-2 focus:ring-[#126b5f]/20"
+            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-gray-950 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
             type="password"
             autoComplete="new-password"
             value={confirmPassword}
@@ -243,9 +243,9 @@ export function LoginForm({ expectedRole }: LoginFormProps) {
         </label>
       ) : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {message ? <p className="text-sm text-[#126b5f]">{message}</p> : null}
+      {message ? <p className="text-sm text-[#8a641d]">{message}</p> : null}
       <button
-        className="w-full rounded-md bg-[#126b5f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f5a50] disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-md bg-[#b8892c] px-5 py-3 text-sm font-semibold text-[#17130d] shadow-sm transition hover:bg-[#c99a3e] disabled:cursor-not-allowed disabled:opacity-60"
         type="submit"
         disabled={isLoading}
       >

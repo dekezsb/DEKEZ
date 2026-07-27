@@ -49,7 +49,7 @@ export function PhoneLoginForm() {
       <label className="block">
         <span className="text-sm font-medium text-gray-700">WhatsApp / mobile number</span>
         <input
-          className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+          className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
           onChange={(event) => setPhone(event.target.value)}
           placeholder="+60123456789"
           value={phone}
@@ -59,7 +59,7 @@ export function PhoneLoginForm() {
         <label className="block">
           <span className="text-sm font-medium text-gray-700">OTP code</span>
           <input
-            className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+            className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2 outline-none focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
             onChange={(event) => setOtp(event.target.value)}
             value={otp}
           />
