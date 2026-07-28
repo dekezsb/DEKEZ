@@ -38,6 +38,7 @@ import { normalizeRole, roleLabels } from "@/lib/auth/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { updatePortalUser } from "../../actions";
+import { CredentialControls } from "./credential-controls";
 import { RemoveAccessDialog } from "./remove-access-dialog";
 
 type UserProfilePageProps = {
@@ -607,6 +608,10 @@ export default async function UserProfilePage({
                 </dd>
               </div>
             </dl>
+            <CredentialControls
+              phone={authUser.phone ?? profile.phone ?? null}
+              profileId={profile.id}
+            />
           </CardContent>
         </Card>
       </div>

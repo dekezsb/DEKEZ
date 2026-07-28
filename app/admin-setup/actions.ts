@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -11,11 +12,17 @@ import {
 import { activateAllTenantAccounts } from "@/lib/auth/activate-all-tenants";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
-import { phoneAuthAlias } from "@/lib/auth/registration";
+import {
+  derivePinPassword,
+  phoneAuthAlias,
+  phoneRateLimitKey,
+} from "@/lib/auth/registration";
 import { normalizeRole } from "@/lib/auth/roles";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { normalizePhoneNumber } from "@/lib/whatsapp/config";
+import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
 const allowedCreateRoles = [
   "owner",
@@ -46,6 +53,274 @@ async function assertAdmin() {
 
 function profilePath(profileId: string, result: string) {
   return `/admin-setup/users/${profileId}?${result}`;
+}
+
+function baseUrl() {
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return "https://dekez.vercel.app";
+}
+
+export type CredentialActionState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  temporaryPassword?: string;
+};
+
+function credentialError(message: string): CredentialActionState {
+  return { status: "error", message };
+}
+
+async function clearLoginRateLimit(
+  admin: ReturnType<typeof createAdminClient>,
+  phone: ReturnType<typeof normalizeInternationalPhone>,
+) {
+  if (!phone) {
+    return;
+  }
+
+  await admin
+    .from("auth_login_rate_limits")
+    .delete()
+    .eq("phone_hash", phoneRateLimitKey(phone));
+}
+
+async function auditCredentialAction(
+  admin: ReturnType<typeof createAdminClient>,
+  input: {
+    actorId: string;
+    action: string;
+    companyId: string | null;
+    metadata: Record<string, unknown>;
+    profileId: string;
+  },
+) {
+  await admin.from("audit_logs").insert({
+    company_id: input.companyId,
+    actor_profile_id: input.actorId,
+    action: input.action,
+    entity_table: "profiles",
+    entity_id: input.profileId,
+    metadata: input.metadata,
+  });
+}
+
+export async function manageUserCredentials(
+  _previousState: CredentialActionState,
+  formData: FormData,
+): Promise<CredentialActionState> {
+  await assertAdmin();
+  const actor = await getCurrentUser();
+  const profileId = textValue(formData, "profileId");
+  const operation = textValue(formData, "operation");
+
+  if (!actor || !profileId) {
+    return credentialError("The user account could not be found.");
+  }
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return credentialError(
+      "SUPABASE_SERVICE_ROLE_KEY is required for password management.",
+    );
+  }
+
+  const [{ data: profile }, { data: authResult, error: authLookupError }] =
+    await Promise.all([
+      admin
+        .from("profiles")
+        .select("id, full_name, phone, organization_id")
+        .eq("id", profileId)
+        .maybeSingle(),
+      admin.auth.admin.getUserById(profileId),
+    ]);
+  const authUser = authResult.user;
+
+  if (!profile || authLookupError || !authUser) {
+    return credentialError("The user login account could not be found.");
+  }
+
+  const phone = normalizeInternationalPhone(
+    profile.phone ?? String(authUser.user_metadata?.phone ?? ""),
+  );
+  const now = new Date().toISOString();
+
+  if (operation === "send_whatsapp_reset") {
+    if (!phone) {
+      return credentialError(
+        "Add a valid phone number to this user before sending a WhatsApp reset link.",
+      );
+    }
+    if (!authUser.email) {
+      return credentialError(
+        "This Supabase login account cannot generate a recovery link.",
+      );
+    }
+
+    const { data: linkResult, error: linkError } =
+      await admin.auth.admin.generateLink({
+        type: "recovery",
+        email: authUser.email,
+        options: {
+          redirectTo: `${baseUrl()}/auth/callback?next=/reset-password`,
+        },
+      });
+    const actionLink = linkResult.properties?.action_link;
+
+    if (linkError || !actionLink) {
+      return credentialError(
+        "The secure password reset link could not be created.",
+      );
+    }
+
+    const message = [
+      `Hello ${profile.full_name || "DEKEZ user"},`,
+      "A DEKEZ administrator has created a one-time password reset link for your account.",
+      `Reset your password here: ${actionLink}`,
+      "This link can only be used once. If you did not request it, contact DEKEZ.",
+    ].join("\n\n");
+    const normalizedPhone = normalizePhoneNumber(phone.e164);
+    const { data: conversation } = await admin
+      .from("whatsapp_conversations")
+      .upsert(
+        {
+          tenant_id: profile.id,
+          phone_number: phone.e164,
+          normalized_phone: normalizedPhone,
+          last_message_at: now,
+          updated_at: now,
+        },
+        { onConflict: "normalized_phone" },
+      )
+      .select("id")
+      .single();
+
+    let providerMessageId: string | null = null;
+    let errorMessage: string | null = null;
+
+    try {
+      const sent = await sendWhatsAppText(phone.e164, message);
+      providerMessageId = sent.messages?.[0]?.id ?? null;
+    } catch {
+      errorMessage = "The WhatsApp provider rejected or could not send the message.";
+    }
+
+    await admin.from("whatsapp_messages").insert({
+      conversation_id: conversation?.id ?? null,
+      tenant_id: profile.id,
+      phone_number: phone.e164,
+      normalized_phone: normalizedPhone,
+      direction: "outgoing",
+      meta_message_id: providerMessageId,
+      message_type: "text",
+      message_text:
+        "One-time DEKEZ password reset link sent by a Super Admin. The secure link is not retained in message history.",
+      processing_status: errorMessage ? "failed" : "sent",
+      error_message: errorMessage,
+    });
+
+    await auditCredentialAction(admin, {
+      actorId: actor.id,
+      action: "user_password_reset_link_sent",
+      companyId: profile.organization_id ?? null,
+      profileId: profile.id,
+      metadata: {
+        channel: "whatsapp",
+        phone: phone.e164,
+        provider_message_id: providerMessageId,
+        status: errorMessage ? "failed" : "sent",
+      },
+    });
+
+    if (errorMessage) {
+      return credentialError(
+        "The reset link was created, but WhatsApp could not deliver it. Check the Meta WhatsApp configuration and try again.",
+      );
+    }
+
+    return {
+      status: "success",
+      message: `A one-time password reset link was sent to ${phone.e164} through WhatsApp.`,
+    };
+  }
+
+  let temporaryPassword = "";
+  let storedPassword = "";
+  let method = "";
+
+  if (operation === "phone_pin") {
+    if (!phone) {
+      return credentialError(
+        "Add a valid phone number before resetting this user to the phone PIN.",
+      );
+    }
+    const pinPassword = derivePinPassword(phone);
+    if (!pinPassword) {
+      return credentialError("The phone PIN could not be generated.");
+    }
+    temporaryPassword = phone.digits.slice(-4);
+    storedPassword = pinPassword;
+    method = "phone_last_four";
+  } else if (operation === "generate_temporary") {
+    temporaryPassword = `Dk!${randomBytes(9).toString("base64url")}`;
+    storedPassword = temporaryPassword;
+    method = "generated_temporary";
+  } else if (operation === "set_custom") {
+    const password = textValue(formData, "password");
+    const confirmPassword = textValue(formData, "confirmPassword");
+
+    if (password.length < 8) {
+      return credentialError(
+        "The temporary password must contain at least 8 characters.",
+      );
+    }
+    if (password !== confirmPassword) {
+      return credentialError("The two temporary passwords do not match.");
+    }
+
+    temporaryPassword = password;
+    storedPassword = password;
+    method = "custom_temporary";
+  } else {
+    return credentialError("Choose a password action.");
+  }
+
+  const { error: passwordError } = await admin.auth.admin.updateUserById(
+    profile.id,
+    { password: storedPassword },
+  );
+
+  if (passwordError) {
+    return credentialError("The Supabase password could not be updated.");
+  }
+
+  await clearLoginRateLimit(admin, phone);
+  await auditCredentialAction(admin, {
+    actorId: actor.id,
+    action: "user_temporary_password_set",
+    companyId: profile.organization_id ?? null,
+    profileId: profile.id,
+    metadata: {
+      method,
+      password_disclosed_once: true,
+    },
+  });
+  revalidatePath(`/admin-setup/users/${profile.id}`);
+
+  return {
+    status: "success",
+    message:
+      operation === "phone_pin"
+        ? "The login PIN is now the last 4 digits of the registered phone number."
+        : "The temporary password has been saved. It is shown once below.",
+    temporaryPassword,
+  };
 }
 
 export async function activateAllTenantPortalAccounts() {

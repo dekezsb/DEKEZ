@@ -36,6 +36,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   const isPublicPage =
     pathname === "/" ||
     pathname === "/register" ||
+    pathname === "/reset-password" ||
     pathname === "/registration-status" ||
     pathname.startsWith("/login");
 
