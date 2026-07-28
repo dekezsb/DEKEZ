@@ -18,17 +18,28 @@ function numberValue(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
-function latestSubmissionPerBill<
-  T extends { id: string; rent_bill_id: string | null },
+function visiblePaymentSubmissions<
+  T extends {
+    rent_bill_id: string | null;
+    verification_status: string;
+    rejection_reason: string | null;
+  },
 >(submissions: T[]) {
-  const seen = new Set<string>();
+  const pendingBills = new Set<string>();
 
   return submissions.filter((submission) => {
-    const key = submission.rent_bill_id
-      ? `bill:${submission.rent_bill_id}`
-      : `submission:${submission.id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (submission.rejection_reason === "Superseded duplicate submission") {
+      return false;
+    }
+
+    if (
+      submission.rent_bill_id &&
+      submission.verification_status === "pending_verification"
+    ) {
+      if (pendingBills.has(submission.rent_bill_id)) return false;
+      pendingBills.add(submission.rent_bill_id);
+    }
+
     return true;
   });
 }
@@ -363,7 +374,7 @@ export async function getTenantPortalData() {
     })),
   );
   const submissions = await Promise.all(
-    latestSubmissionPerBill(submissionsResult.data ?? []).map(
+    visiblePaymentSubmissions(submissionsResult.data ?? []).map(
       async (submission) => ({
         ...submission,
         amount: numberValue(submission.amount),

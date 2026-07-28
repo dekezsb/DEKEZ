@@ -360,7 +360,11 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   }
 
   const outstandingAmount = Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0);
-  if (amount > outstandingAmount) {
+  if (outstandingAmount <= 0.005) {
+    redirect("/rent-due-tracker?error=bill_not_found");
+  }
+
+  if (amount > outstandingAmount + 0.005) {
     redirect("/rent-due-tracker?error=proof_amount");
   }
 

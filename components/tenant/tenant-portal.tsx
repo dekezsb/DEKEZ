@@ -36,6 +36,7 @@ import {
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
 import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
+import { PaymentAmountFields } from "./payment-amount-fields";
 import { PaymentSubmitButton } from "./payment-submit-button";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
@@ -76,24 +77,25 @@ function UnassignedNotice() {
 }
 
 function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
-  const latestSubmissionByBill = new Map(
+  const pendingBillIds = new Set(
     data.submissions
-      .filter((submission) => submission.rent_bill_id)
-      .map((submission) => [submission.rent_bill_id, submission]),
+      .filter(
+        (submission) =>
+          submission.rent_bill_id &&
+          submission.verification_status === "pending_verification",
+      )
+      .map((submission) => submission.rent_bill_id),
   );
   const pendingSubmissions = data.submissions.filter(
     (submission) => submission.verification_status === "pending_verification",
   );
-  const pendingBills = data.bills.filter(
-    (bill) => {
-      const submission = latestSubmissionByBill.get(bill.id);
-      return (
-        !["draft", "paid", "cancelled", "waived"].includes(
-          String(bill.status),
-        ) &&
-        (!submission || submission.verification_status === "rejected")
-      );
-    },
+  const payableBills = data.bills.filter(
+    (bill) =>
+      bill.outstanding > 0.005 &&
+      !["draft", "paid", "cancelled", "waived"].includes(
+        String(bill.invoiceStatus),
+      ) &&
+      !pendingBillIds.has(bill.id),
   );
 
   return (
@@ -117,7 +119,7 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
             </div>
           </div>
         ) : null}
-        {pendingBills.length ? (
+        {payableBills.length ? (
           <div className="space-y-5">
             {data.tenancies.some((tenancy) => tenancy.paymentQrUrl) ? (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -166,88 +168,62 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
             ) : null}
 
             <form action={uploadMonthlyPaymentProof} className="space-y-5">
-            <label className="block">
-              <span className="text-sm font-semibold text-gray-800">
-                What are you paying?
-              </span>
-              <select
-                className="mt-2 h-12 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-base"
-                name="rentBillId"
-                required
-              >
-                <option value="">Select a rent bill</option>
-                {pendingBills.map((bill) => (
-                  <option key={bill.id} value={bill.id}>
-                    {bill.propertyName} / {bill.roomName} /{" "}
-                    {date(bill.bill_month)} - {money(bill.outstanding)} outstanding
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-semibold text-gray-800">
-                Amount paid (RM)
-              </span>
-              <input
-                className="mt-2 h-12 w-full rounded-md border border-[#cfd8e5] px-3 text-base"
-                min="0.01"
-                name="amount"
-                placeholder="0.00"
-                required
-                step="0.01"
-                type="number"
+              <PaymentAmountFields
+                bills={payableBills.map((bill) => ({
+                  id: bill.id,
+                  label: `${bill.propertyName} / ${bill.roomName} / ${date(bill.bill_month)} - ${money(bill.outstanding)} outstanding`,
+                  outstanding: bill.outstanding,
+                }))}
               />
-            </label>
 
-            <fieldset>
-              <legend className="text-sm font-semibold text-gray-800">
-                How did you pay?
-              </legend>
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <label className="cursor-pointer">
+              <fieldset>
+                <legend className="text-sm font-semibold text-gray-800">
+                  How did you pay?
+                </legend>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <label className="cursor-pointer">
+                    <input
+                      className="peer sr-only"
+                      defaultChecked
+                      name="paymentMethod"
+                      type="radio"
+                      value="bank_transfer"
+                    />
+                    <span className="flex h-12 items-center justify-center rounded-md border border-[#cfd8e5] bg-white font-medium peer-checked:border-[#b8892c] peer-checked:bg-[#f6edd9] peer-checked:text-[#8a641d]">
+                      Online transfer
+                    </span>
+                  </label>
+                  <label className="cursor-pointer">
+                    <input
+                      className="peer sr-only"
+                      name="paymentMethod"
+                      type="radio"
+                      value="cash"
+                    />
+                    <span className="flex h-12 items-center justify-center rounded-md border border-[#cfd8e5] bg-white font-medium peer-checked:border-[#b8892c] peer-checked:bg-[#f6edd9] peer-checked:text-[#8a641d]">
+                      Cash
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <label className="block">
+                <span className="text-sm font-semibold text-gray-800">
+                  Transfer slip
+                </span>
+                <span className="mt-2 flex min-h-14 items-center gap-3 rounded-md border border-dashed border-[#b8892c] bg-[#fbf6e9] px-4 text-sm font-semibold text-[#8a641d]">
+                  <Paperclip className="h-4 w-4" />
                   <input
-                    className="peer sr-only"
-                    defaultChecked
-                    name="paymentMethod"
-                    type="radio"
-                    value="bank_transfer"
+                    accept="image/*,.pdf"
+                    className="min-w-0 flex-1 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#b8892c] file:px-3 file:py-2 file:font-semibold file:text-white"
+                    name="receipt"
+                    required
+                    type="file"
                   />
-                  <span className="flex h-12 items-center justify-center rounded-md border border-[#cfd8e5] bg-white font-medium peer-checked:border-[#b8892c] peer-checked:bg-[#f6edd9] peer-checked:text-[#8a641d]">
-                    Online transfer
-                  </span>
-                </label>
-                <label className="cursor-pointer">
-                  <input
-                    className="peer sr-only"
-                    name="paymentMethod"
-                    type="radio"
-                    value="cash"
-                  />
-                  <span className="flex h-12 items-center justify-center rounded-md border border-[#cfd8e5] bg-white font-medium peer-checked:border-[#b8892c] peer-checked:bg-[#f6edd9] peer-checked:text-[#8a641d]">
-                    Cash
-                  </span>
-                </label>
-              </div>
-            </fieldset>
+                </span>
+              </label>
 
-            <label className="block">
-              <span className="text-sm font-semibold text-gray-800">
-                Transfer slip
-              </span>
-              <span className="mt-2 flex min-h-14 items-center gap-3 rounded-md border border-dashed border-[#b8892c] bg-[#fbf6e9] px-4 text-sm font-semibold text-[#8a641d]">
-                <Paperclip className="h-4 w-4" />
-                <input
-                  accept="image/*,.pdf"
-                  className="min-w-0 flex-1 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#b8892c] file:px-3 file:py-2 file:font-semibold file:text-white"
-                  name="receipt"
-                  required
-                  type="file"
-                />
-              </span>
-            </label>
-
-            <PaymentSubmitButton />
+              <PaymentSubmitButton />
             </form>
           </div>
         ) : (

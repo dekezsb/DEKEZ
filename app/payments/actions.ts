@@ -177,7 +177,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
 
   const { data: bill } = await supabase
     .from("rent_bills")
-    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount, status")
+    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount, paid_amount, status")
     .eq("id", rentBillId)
     .in("tenancy_id", tenancyIds)
     .maybeSingle();
@@ -190,21 +190,30 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     redirect("/payments?error=proof_closed");
   }
 
+  const outstandingAmount = Math.max(
+    Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0),
+    0,
+  );
+
+  if (outstandingAmount <= 0.005) {
+    redirect("/payments?error=proof_closed");
+  }
+
+  if (amount > outstandingAmount + 0.005) {
+    redirect("/payments?error=proof_amount");
+  }
+
   const { data: existingSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status")
+    .select("id")
     .eq("rent_bill_id", bill.id)
-    .in("verification_status", ["pending_verification", "verified"])
+    .eq("verification_status", "pending_verification")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (existingSubmission?.verification_status === "pending_verification") {
+  if (existingSubmission) {
     redirect("/payments?proof=1");
-  }
-
-  if (existingSubmission?.verification_status === "verified") {
-    redirect("/payments?error=proof_verified");
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -264,5 +273,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
 
   revalidatePath("/payments");
   revalidatePath("/payment-verification");
+  revalidatePath("/rent-due-tracker");
+  revalidatePath("/dashboard");
   redirect("/payments?proof=1");
 }

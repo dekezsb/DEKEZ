@@ -6,6 +6,11 @@ import { Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { uploadRentPaymentSlip } from "./actions";
 
+const moneyFormatter = new Intl.NumberFormat("en-MY", {
+  style: "currency",
+  currency: "MYR",
+});
+
 type AdminPaymentSlipUploadProps = {
   billId: string;
   tenantName: string;
@@ -26,12 +31,23 @@ export function AdminPaymentSlipUpload({
   paymentDateDefault,
 }: AdminPaymentSlipUploadProps) {
   const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(outstandingAmount.toFixed(2));
+  const numericAmount = Number(amount);
+  const submittedAmount =
+    Number.isFinite(numericAmount) && numericAmount > 0 ? numericAmount : 0;
+  const remainingAmount = Math.max(
+    outstandingAmount - submittedAmount,
+    0,
+  );
 
   return (
     <>
       <Button
         className="whitespace-nowrap border-[#d9bf84] text-[#8a641d] hover:bg-[#fff8e8]"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setAmount(outstandingAmount.toFixed(2));
+          setOpen(true);
+        }}
         size="sm"
         type="button"
         variant="outline"
@@ -65,8 +81,9 @@ export function AdminPaymentSlipUpload({
             </div>
 
             <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              After submission, this room leaves the outstanding list and the slip moves to Payment Verification.
-              The rent remains unpaid until an authorized Admin verifies it.
+              The slip moves to Payment Verification after submission. The
+              official balance changes only after an authorized Admin verifies
+              the amount. A partial balance remains open until fully paid.
             </p>
 
             <form action={uploadRentPaymentSlip} className="grid gap-4 sm:grid-cols-2">
@@ -75,14 +92,26 @@ export function AdminPaymentSlipUpload({
                 <span className="text-sm font-medium text-gray-700">Amount submitted RM</span>
                 <input
                   className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
-                  defaultValue={outstandingAmount}
+                  value={amount}
                   max={outstandingAmount}
                   min="0.01"
                   name="amount"
+                  onChange={(event) => setAmount(event.target.value)}
                   required
                   step="0.01"
                   type="number"
                 />
+                <span
+                  aria-live="polite"
+                  className={`mt-2 block text-xs font-medium ${
+                    remainingAmount > 0.005
+                      ? "text-amber-700"
+                      : "text-emerald-700"
+                  }`}
+                >
+                  Remaining after verification:{" "}
+                  {moneyFormatter.format(remainingAmount)}
+                </span>
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Payment date</span>
