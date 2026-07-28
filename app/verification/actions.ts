@@ -33,6 +33,15 @@ function baseUrl() {
   return "https://dekez.vercel.app";
 }
 
+function malaysiaToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 async function adminClient() {
   try {
     return createAdminClient();
@@ -227,6 +236,163 @@ export async function reviewClaim(formData: FormData) {
   }
 
   const supabase = await adminClient();
+  const { data: claim } = await supabase
+    .from("claims")
+    .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, status")
+    .eq("id", claimId)
+    .maybeSingle();
+
+  if (!claim || ["paid"].includes(claim.status)) {
+    redirect(verificationPath("claims", "error=claim_missing"));
+  }
+
+  if (decision !== "approved" && claim.status === "approved") {
+    redirect(verificationPath("claims", "error=claim_review"));
+  }
+
+  if (decision === "approved") {
+    const { data: property } = await supabase
+      .from("properties")
+      .select("id, company_id, organization_id")
+      .eq("id", claim.property_id)
+      .maybeSingle();
+    const { data: category } = await supabase
+      .from("expense_categories")
+      .select("id")
+      .eq("name", "Repairs & Maintenance")
+      .maybeSingle();
+
+    if (!property) {
+      redirect(verificationPath("claims", "error=claim_expense"));
+    }
+
+    let { data: expense } = await supabase
+      .from("expenses")
+      .select("id")
+      .eq("claim_id", claim.id)
+      .maybeSingle();
+    let createdExpense = false;
+
+    if (!expense) {
+      const { data: insertedExpense, error: expenseError } = await supabase
+        .from("expenses")
+        .insert({
+          organization_id: property.organization_id ?? null,
+          company_id: property.company_id,
+          property_id: claim.property_id,
+          room_id: claim.room_id ?? null,
+          maintenance_ticket_id: claim.ticket_id ?? null,
+          claim_id: claim.id,
+          category_id: category?.id ?? null,
+          expense_date: malaysiaToday(),
+          amount:
+            claim.total_amount ??
+            Number(claim.labour_cost ?? 0) + Number(claim.material_cost ?? 0),
+          tax_amount: 0,
+          description: claim.description,
+          paid_by: claim.submitted_by,
+          payment_method: "cash",
+          funding_source: claim.funding_source,
+          charge_to: "company",
+          status: "pending_verification",
+          tax_claimable: false,
+          uploaded_by: claim.submitted_by,
+        })
+        .select("id")
+        .single();
+
+      if (expenseError || !insertedExpense) {
+        redirect(verificationPath("claims", "error=claim_expense"));
+      }
+      expense = insertedExpense;
+      createdExpense = true;
+    }
+
+    const [{ data: claimAttachments }, { data: existingAttachments }] =
+      await Promise.all([
+        supabase
+          .from("claim_attachments")
+          .select("id, bucket_name, file_path, content_type")
+          .eq("claim_id", claim.id),
+        supabase
+          .from("expense_attachments")
+          .select("file_path")
+          .eq("expense_id", expense.id),
+      ]);
+    const existingPaths = new Set(
+      (existingAttachments ?? []).map((attachment) => attachment.file_path),
+    );
+    const copiedPaths: string[] = [];
+
+    for (const attachment of claimAttachments ?? []) {
+      const fileName =
+        attachment.file_path.split("/").at(-1) ?? `${attachment.id}.bin`;
+      const destinationPath = `${expense.id}/claim-${attachment.id}-${fileName}`;
+      if (existingPaths.has(destinationPath)) continue;
+
+      const { data: receipt, error: downloadError } = await supabase.storage
+        .from(attachment.bucket_name)
+        .download(attachment.file_path);
+      if (downloadError || !receipt) {
+        if (createdExpense) {
+          await supabase.from("expenses").delete().eq("id", expense.id);
+        }
+        redirect(verificationPath("claims", "error=claim_expense"));
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from("expense-receipts")
+        .upload(destinationPath, await receipt.arrayBuffer(), {
+          contentType: attachment.content_type ?? undefined,
+          upsert: false,
+        });
+      if (uploadError) {
+        if (copiedPaths.length) {
+          await supabase.storage.from("expense-receipts").remove(copiedPaths);
+        }
+        if (createdExpense) {
+          await supabase.from("expenses").delete().eq("id", expense.id);
+        }
+        redirect(verificationPath("claims", "error=claim_expense"));
+      }
+      copiedPaths.push(destinationPath);
+
+      const { error: attachmentError } = await supabase
+        .from("expense_attachments")
+        .insert({
+          expense_id: expense.id,
+          bucket_name: "expense-receipts",
+          file_path: destinationPath,
+          file_name: fileName,
+          content_type: attachment.content_type,
+          uploaded_by: claim.submitted_by,
+        });
+      if (attachmentError) {
+        await supabase.storage
+          .from("expense-receipts")
+          .remove(copiedPaths);
+        if (createdExpense) {
+          await supabase.from("expenses").delete().eq("id", expense.id);
+        }
+        redirect(verificationPath("claims", "error=claim_expense"));
+      }
+    }
+
+    const { error: expenseVerificationError } = await supabase
+      .from("expenses")
+      .update({
+        status: "verified",
+        verified_by: user.id,
+        verified_at: new Date().toISOString(),
+        rejection_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", expense.id);
+    if (expenseVerificationError) {
+      redirect(verificationPath("claims", "error=claim_expense"));
+    }
+  }
+
   const { error } = await supabase
     .from("claims")
     .update({
@@ -244,6 +410,8 @@ export async function reviewClaim(formData: FormData) {
 
   revalidatePath("/verification");
   revalidatePath("/claims");
+  revalidatePath("/maintenance");
+  revalidatePath("/expenses");
   revalidatePath("/dashboard");
   revalidatePath("/reports");
   redirect(verificationPath("claims", "reviewed=1"));

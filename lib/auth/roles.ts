@@ -4,7 +4,6 @@ import {
   CalendarClock,
   CircleUserRound,
   Droplets,
-  ClipboardList,
   CreditCard,
   FileSignature,
   FileText,
@@ -48,7 +47,6 @@ const adminNavigation: NavigationItem[] = [
   { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
   { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
   { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
-  { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
 ];
 
@@ -87,7 +85,6 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
-    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
     { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
     { label: "Settings", href: "/settings", icon: Settings, module: "settings" },
   ],
@@ -96,19 +93,16 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
-    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   ],
   maintenance_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
-    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   ],
   cleaning_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
-    { label: "Claims", href: "/claims", icon: ClipboardList, module: "claims" },
   ],
   tenant: [
     { label: "Home", href: "/dashboard", icon: House, module: "dashboard" },

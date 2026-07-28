@@ -100,6 +100,7 @@ const errorMessages: Record<string, string> = {
   user_review: "The user permission could not be updated.",
   claim_missing: "Choose a claim action and include a reason when required.",
   claim_review: "The claim could not be updated.",
+  claim_expense: "The approved claim could not be added to Expense Bills.",
   agreement_missing: "The tenancy agreement could not be found.",
   whatsapp_failed: "The WhatsApp request could not be sent. The failed attempt was logged.",
   renewal_missing: "The active tenancy does not have enough information for renewal.",
@@ -164,11 +165,11 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .order("submitted_at", { ascending: false }),
     supabase
       .from("claims")
-      .select("id, ticket_id, property_id, submitted_by, labour_cost, material_cost, total_amount, description, status, submitted_at, reviewed_at, rejection_reason, properties(name), maintenance_tickets(ticket_number)")
+      .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, status, submitted_at, reviewed_at, rejection_reason, properties(name), rooms(name, room_number), maintenance_tickets(ticket_number), claim_attachments(id, bucket_name, file_path, content_type)")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("expenses")
-      .select("claim_id, paid_by, amount, status")
+      .select("claim_id, funding_source, amount, status")
       .not("claim_id", "is", null),
     supabase
       .from("tenancies")
@@ -198,6 +199,30 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const profiles = new Map(
     (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
   );
+  const claimAttachments = new Map<
+    string,
+    {
+      id: string;
+      content_type: string | null;
+      fileName: string;
+      signedUrl: string | null;
+    }[]
+  >();
+  for (const claim of claims) {
+    for (const attachment of claim.claim_attachments ?? []) {
+      const { data } = await supabase.storage
+        .from(attachment.bucket_name)
+        .createSignedUrl(attachment.file_path, 60 * 10);
+      const list = claimAttachments.get(claim.id) ?? [];
+      list.push({
+        id: attachment.id,
+        content_type: attachment.content_type,
+        fileName: attachment.file_path.split("/").at(-1) ?? "Claim receipt",
+        signedUrl: data?.signedUrl ?? null,
+      });
+      claimAttachments.set(claim.id, list);
+    }
+  }
   const profileDocuments = new Map<
     string,
     {
@@ -353,6 +378,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 
       {activeView === "claims" ? (
         <ClaimBills
+          attachmentsByClaim={claimAttachments}
           claims={claims}
           expenses={claimExpenses}
           profiles={profiles}
@@ -642,10 +668,20 @@ function UserRegistrations({
 }
 
 function ClaimBills({
+  attachmentsByClaim,
   claims,
   expenses,
   profiles,
 }: {
+  attachmentsByClaim: Map<
+    string,
+    {
+      id: string;
+      content_type: string | null;
+      fileName: string;
+      signedUrl: string | null;
+    }[]
+  >;
   claims: {
     id: string;
     submitted_by: string;
@@ -653,11 +689,16 @@ function ClaimBills({
     material_cost: number | string;
     total_amount: number | string | null;
     description: string | null;
+    funding_source: string;
     status: string;
     submitted_at: string;
     reviewed_at: string | null;
     rejection_reason: string | null;
     properties: { name: string } | { name: string }[] | null;
+    rooms:
+      | { name: string | null; room_number: string | null }
+      | { name: string | null; room_number: string | null }[]
+      | null;
     maintenance_tickets:
       | { ticket_number: string }
       | { ticket_number: string }[]
@@ -665,7 +706,7 @@ function ClaimBills({
   }[];
   expenses: {
     claim_id: string | null;
-    paid_by: string | null;
+    funding_source: string;
     amount: number | string;
     status: string;
   }[];
@@ -691,10 +732,11 @@ function ClaimBills({
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Submitted By</TableHead>
-                  <TableHead>Property / Ticket</TableHead>
+                  <TableHead>Property / Room</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Paid From</TableHead>
                   <TableHead>Total</TableHead>
+                  <TableHead>Receipt</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="min-w-72">Admin Decision</TableHead>
                 </TableRow>
@@ -702,10 +744,12 @@ function ClaimBills({
               <TableBody>
                 {claims.map((claim) => {
                   const property = single(claim.properties);
+                  const room = single(claim.rooms);
                   const ticket = single(claim.maintenance_tickets);
                   const expense = expenses.find(
                     (item) => item.claim_id === claim.id,
                   );
+                  const attachments = attachmentsByClaim.get(claim.id) ?? [];
                   const total =
                     claim.total_amount ??
                     Number(claim.labour_cost ?? 0) +
@@ -722,22 +766,46 @@ function ClaimBills({
                       <TableCell>
                         <p>{property?.name ?? "-"}</p>
                         <p className="text-xs text-gray-500">
-                          {ticket?.ticket_number ?? "-"}
+                          {room
+                            ? room.room_number ?? room.name ?? "Room"
+                            : "No specific room"}
+                          {ticket?.ticket_number
+                            ? ` - ${ticket.ticket_number}`
+                            : ""}
                         </p>
                       </TableCell>
                       <TableCell className="min-w-56">
                         {claim.description ?? "-"}
                       </TableCell>
                       <TableCell>
-                        {expense?.paid_by?.replaceAll("_", " ") ??
-                          "Not recorded"}
+                        {(expense?.funding_source ?? claim.funding_source) ===
+                        "staff_personal"
+                          ? "My own money"
+                          : "Company money"}
                       </TableCell>
                       <TableCell className="font-semibold">
                         {money(total)}
                       </TableCell>
                       <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          {attachments.map((attachment) => (
+                            <DocumentPreview
+                              contentType={attachment.content_type}
+                              fileName={attachment.fileName}
+                              key={attachment.id}
+                              label="Claim receipt"
+                              showName={false}
+                              size="sm"
+                              url={attachment.signedUrl}
+                            />
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <Badge className={statusBadgeClass(claim.status)}>
-                          {claim.status.replaceAll("_", " ")}
+                          {claim.status === "pending_owner_approval"
+                            ? "Pending verification"
+                            : claim.status.replaceAll("_", " ")}
                         </Badge>
                         {claim.rejection_reason ? (
                           <p className="mt-2 text-xs text-red-600">
@@ -748,7 +816,7 @@ function ClaimBills({
                       <TableCell>
                         {["approved", "paid"].includes(claim.status) ? (
                           <p className="text-sm text-[#126b5f]">
-                            Verified by Admin
+                            Verified by Admin - Expense recorded
                           </p>
                         ) : (
                           <div className="space-y-2">

@@ -204,7 +204,7 @@ async function OwnerDashboard() {
         <StatCard label="Outstanding Rental" value={money(summary.outstandingRental)} detail="Unpaid rent balance" />
         <StatCard label="Water Bills" value={money(summary.waterBills)} detail="Water charges" />
         <StatCard label="Electricity Bills" value={money(summary.electricityBills)} detail="Electricity charges" />
-        <StatCard label="Maintenance Claims" value={summary.pendingClaims} detail="Pending owner approval" />
+        <StatCard label="Maintenance Claims" value={summary.pendingClaims} detail="Pending Admin verification" />
         <StatCard label="Approved Claims" value={summary.approvedClaims} detail="Approved expenses" />
         <StatCard label="Open Tickets" value={summary.openMaintenanceTickets} detail="Maintenance not closed" />
         <StatCard label="Net Payable" value={money(netPayable)} detail="Income minus utilities and claims" />
@@ -218,7 +218,7 @@ async function OwnerDashboard() {
         <ModuleCard title="Rental Income" description="Open rent and payment records for your portfolio." href="/payments" icon={Banknote} />
         <ModuleCard title="Water Bills" description="Check main water bills for your properties." href="/utility-bills" icon={Droplets} />
         <ModuleCard title="Electricity Bills" description="Review main electricity costs for your properties." href="/utility-bills" icon={Zap} />
-        <ModuleCard title="Maintenance Claims" description="Approve, reject, or review maintenance claim costs." href="/claims" icon={ClipboardCheck} badge={summary.pendingClaims} />
+        <ModuleCard title="Maintenance Claims" description="View submitted maintenance claims and their status." href="/maintenance#claim-bills" icon={ClipboardCheck} badge={summary.pendingClaims} />
         <ModuleCard title="Reports" description="View cash-flow, rental and maintenance summaries." href="/reports" icon={BarChart3} />
       </div>
 
@@ -242,7 +242,7 @@ async function OwnerDashboard() {
             <CardDescription>Common owner tasks.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2 sm:grid-cols-2">
-            <Button asChild variant="outline"><Link href="/claims">Review claims</Link></Button>
+            <Button asChild variant="outline"><Link href="/maintenance#claim-bills">View claims</Link></Button>
             <Button asChild variant="outline"><Link href="/utility-bills">View bills</Link></Button>
             <Button asChild variant="outline"><Link href="/maintenance">Open tickets</Link></Button>
             <Button asChild variant="outline"><Link href="/reports">View reports</Link></Button>
@@ -411,7 +411,7 @@ async function MaintenanceDashboard() {
         <ModuleCard title="Completed Jobs" description="Review completed maintenance and cleaning work." href="/maintenance" icon={ClipboardCheck} badge={summary.completedJobs} />
         <ModuleCard title="Upload Before Photos" description="Attach before-work photos to a maintenance ticket." href="/maintenance" icon={Upload} />
         <ModuleCard title="Upload After Photos" description="Attach after-work photos before marking completed." href="/maintenance" icon={Upload} />
-        <ModuleCard title="Submit Claim" description="Record labour/material costs and submit owner claim." href="/claims" icon={ReceiptText} />
+        <ModuleCard title="Submit Claim" description="Upload a repair bill for Admin verification." href="/maintenance#claim-bills" icon={ReceiptText} />
       </div>
 
       <Card>
