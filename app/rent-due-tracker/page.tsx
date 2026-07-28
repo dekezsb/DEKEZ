@@ -122,9 +122,6 @@ function CollectionBadge({ status }: { status: RentCollectionStatus }) {
 }
 
 function RoomCard({ room }: { room: RentMapRoom }) {
-  const vacant = room.status === "vacant";
-  const reserved = room.status === "reserved";
-  const maintenance = room.status === "maintenance";
   const displayStatus = room.paymentStatus === "pending_verification"
     ? "Pending verification"
     : statusLabels[room.status];
@@ -135,41 +132,23 @@ function RoomCard({ room }: { room: RentMapRoom }) {
   return (
     <Link
       href={`/properties/${room.propertyId}/rooms/${room.id}`}
-      className={`group flex min-h-48 flex-col justify-between rounded-lg border p-4 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a2c] ${roomStyles[room.status]}`}
+      className={`group flex items-center justify-between gap-3 rounded-lg border p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a2c] ${roomStyles[room.status]}`}
     >
-      <div>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase text-current/60">Room</p>
-            <h3 className="mt-1 text-lg font-semibold">{room.roomNumber}</h3>
-          </div>
-          <span className="inline-flex max-w-36 items-center gap-1.5 rounded-full bg-white/70 px-2 py-1 text-xs font-medium">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-semibold">Room {room.roomNumber}</h3>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium">
             <span className={`size-2 shrink-0 rounded-full ${displayDot}`} />
             {displayStatus}
           </span>
         </div>
-
-        <p className="mt-4 line-clamp-2 min-h-10 text-sm font-medium">
-          {room.tenantName ?? (vacant ? "No tenant" : reserved ? "Reserved room" : maintenance ? "Room unavailable" : "Tenant not assigned")}
+        <p className="mt-1 truncate text-sm">{room.tenantName}</p>
+        <p className="mt-1 text-xs text-current/70">
+          Due {room.dueDay ?? "-"} |{" "}
+          <span className="font-semibold text-current">{money(room.outstanding)} outstanding</span>
         </p>
       </div>
-
-      <div className="mt-4 flex items-end justify-between gap-3 border-t border-current/10 pt-3">
-        <div className="space-y-1 text-sm">
-          <p>
-            Due: <span className="font-semibold">{room.dueDay ?? "-"}</span>
-          </p>
-          <p className="font-semibold">
-            {room.billId ? `${money(room.outstanding)} outstanding` : "-"}
-          </p>
-          {room.previousOutstanding > 0 ? (
-            <p className="text-xs text-current/70">
-              Previous: {money(room.previousOutstanding)}
-            </p>
-          ) : null}
-        </div>
-        <ArrowRight className="size-4 shrink-0 transition-transform group-hover:translate-x-1" />
-      </div>
+      <ArrowRight className="size-4 shrink-0 transition-transform group-hover:translate-x-1" />
     </Link>
   );
 }
@@ -244,9 +223,9 @@ function CollectionDetails({
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold text-[#0b1733]">Tenant Collection Details</h2>
+        <h2 className="text-xl font-semibold text-[#0b1733]">Outstanding Room Details</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Previous balances stay separate from the selected month. Only verified payments reduce the official balance.
+          Only tenant rooms with a remaining balance for the selected month are shown.
         </p>
       </div>
 
@@ -346,8 +325,8 @@ function CollectionDetails({
         </>
       ) : (
         <div className="rounded-lg border border-dashed border-[#cfd7e3] py-12 text-center">
-          <ReceiptText className="mx-auto size-7 text-muted-foreground" />
-          <p className="mt-3 font-medium text-[#0b1733]">No rent invoices for this month</p>
+          <CircleCheckBig className="mx-auto size-7 text-emerald-600" />
+          <p className="mt-3 font-medium text-[#0b1733]">No unpaid tenant rooms for this month</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Change the billing month or property filter to view another collection period.
           </p>
@@ -372,6 +351,21 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   const visibleCollections = visibleProperties.flatMap(
     (property) => property.collections,
   );
+  const outstandingCollections = visibleCollections.filter(
+    (collection) => collection.outstanding > 0,
+  );
+  const propertiesWithUnpaidRooms = visibleProperties
+    .map((property) => ({
+      ...property,
+      rooms: property.rooms.filter(
+        (room) =>
+          Boolean(room.tenantName)
+          && Boolean(room.billId)
+          && room.outstanding > 0
+          && (room.status === "unpaid" || room.status === "partially_paid"),
+      ),
+    }))
+    .filter((property) => property.rooms.length > 0);
   const visibleSummary = summarizeRentCollections(visibleCollections);
   const pendingVerification = visibleCollections.filter(
     (collection) => collection.paymentStatus === "pending_verification",
@@ -476,14 +470,15 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
 
       <section className="space-y-5">
         <div>
-          <h2 className="text-xl font-semibold text-[#0b1733]">Property Room Maps</h2>
+          <h2 className="text-xl font-semibold text-[#0b1733]">Rooms Still Unpaid</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Select a room to open its tenant details, invoices and payment history.
+            Only occupied rooms with a tenant and an outstanding bill for {tracker.selectedMonthLabel} are shown.
+            Paid rooms disappear automatically.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-x-5 gap-y-2 border-y border-[#d8dee8] py-3 text-xs font-medium text-[#42516a]">
-          {(["paid", "unpaid", "partially_paid", "vacant", "reserved"] as const).map(
+          {(["unpaid", "partially_paid"] as const).map(
             (status) => (
               <span key={status} className="inline-flex items-center gap-2">
                 <span className={`size-2.5 rounded-full ${statusDots[status]}`} />
@@ -497,9 +492,9 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           </span>
         </div>
 
-        {visibleProperties.length ? (
-          <div className="space-y-10">
-            {visibleProperties.map((property) => (
+        {propertiesWithUnpaidRooms.length ? (
+          <div className="space-y-8">
+            {propertiesWithUnpaidRooms.map((property) => (
               <section key={property.id} className="space-y-4">
                 <div className="flex flex-col gap-3 border-b border-[#d8dee8] pb-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
@@ -512,34 +507,33 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                     ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Due {money(property.summary.totalRentDue)} · Paid {money(property.summary.totalPaid)} · Outstanding{" "}
+                    {property.rooms.length} unpaid room{property.rooms.length === 1 ? "" : "s"} | Outstanding{" "}
                     <span className="font-semibold text-red-700">{money(property.summary.totalOutstanding)}</span>
                   </p>
                 </div>
 
-                {property.rooms.length ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                    {property.rooms.map((room) => (
-                      <RoomCard key={room.id} room={room} />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="py-8 text-sm text-muted-foreground">
-                    No rooms are recorded for this property.
-                  </p>
-                )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {property.rooms.map((room) => (
+                    <RoomCard key={room.id} room={room} />
+                  ))}
+                </div>
               </section>
             ))}
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-[#cfd7e3] py-16 text-center">
-            <Building2 className="mx-auto size-8 text-muted-foreground" />
-            <p className="mt-3 font-medium text-[#0b1733]">No properties available</p>
+            <CircleCheckBig className="mx-auto size-8 text-emerald-600" />
+            <p className="mt-3 font-medium text-[#0b1733]">
+              All occupied rooms are paid for {tracker.selectedMonthLabel}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Vacant rooms and rooms without a current bill are hidden.
+            </p>
           </div>
         )}
       </section>
 
-      <CollectionDetails collections={visibleCollections} />
+      <CollectionDetails collections={outstandingCollections} />
     </section>
   );
 }
