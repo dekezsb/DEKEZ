@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { FileSignature, Plus, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  AGREEMENT_TYPES,
-  type AgreementDocumentType,
-} from "@/lib/tenancy/agreement-types";
+import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import {
   FACILITY_OPTIONS,
   OPTIONAL_CLAUSES,
@@ -40,9 +37,7 @@ export function AgreementSettingsForm({
   const [airConditionerMode, setAirConditionerMode] = useState(
     settings.airConditionerMode,
   );
-  const [agreementType, setAgreementType] = useState<AgreementDocumentType>(
-    settings.defaultAgreementType,
-  );
+  const agreementType = settings.defaultAgreementType;
   const [waterMode, setWaterMode] = useState(settings.waterMode);
   const [electricityMode, setElectricityMode] = useState(
     settings.electricityMode,
@@ -98,27 +93,18 @@ export function AgreementSettingsForm({
           Property & Utilities
         </legend>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label className="block md:col-span-2">
-            <span className="text-sm font-medium text-gray-700">
-              Default agreement type
-            </span>
-            <select
-              className={`${inputClass} mt-1.5`}
-              name="defaultAgreementType"
-              onChange={(event) =>
-                setAgreementType(
-                  event.target.value as AgreementDocumentType,
-                )
-              }
-              value={agreementType}
-            >
-              {AGREEMENT_TYPES.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="rounded-md border border-[#dbc38e] bg-[#fbf6e9] p-3 md:col-span-2">
+            <p className="text-xs font-semibold uppercase text-[#8a6418]">
+              Agreement mode
+            </p>
+            <p className="mt-1 text-sm font-semibold text-gray-950">
+              {agreementTypeLabel(agreementType)}
+            </p>
+            <p className="mt-1 text-xs text-gray-600">
+              Automatically selected from the Commercial switch on the
+              Properties page.
+            </p>
+          </div>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">Property type</span>
             <select

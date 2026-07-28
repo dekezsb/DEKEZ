@@ -12,7 +12,6 @@ import {
   prepareNextRenewalAgreement,
   updateUnsignedAgreementRent,
 } from "@/lib/tenancy/agreement";
-import { isAgreementDocumentType } from "@/lib/tenancy/agreement-types";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -543,17 +542,14 @@ export async function generateInitialAgreement(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
-  const agreementType = textValue(formData, "agreementType");
 
-  if (!user || !tenancyId || !isAgreementDocumentType(agreementType)) {
+  if (!user || !tenancyId) {
     redirect(verificationPath("tenancy", "error=agreement_missing"));
   }
 
   const supabase = await adminClient();
   try {
-    await createAgreementForTenancy(supabase, tenancyId, user.id, {
-      agreementType,
-    });
+    await createAgreementForTenancy(supabase, tenancyId, user.id);
   } catch {
     redirect(verificationPath("tenancy", "error=agreement_create"));
   }
@@ -595,7 +591,6 @@ export async function requestRenewalSignature(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
-  const agreementType = textValue(formData, "agreementType");
   const renewalMonthlyRent = Number(
     textValue(formData, "renewalMonthlyRent"),
   );
@@ -603,7 +598,6 @@ export async function requestRenewalSignature(formData: FormData) {
   if (
     !user ||
     !tenancyId ||
-    !isAgreementDocumentType(agreementType) ||
     !Number.isFinite(renewalMonthlyRent) ||
     renewalMonthlyRent <= 0
   ) {
@@ -628,7 +622,6 @@ export async function requestRenewalSignature(formData: FormData) {
         supabase,
         agreementId,
         renewalMonthlyRent,
-        agreementType,
       );
     } catch {
       redirect(verificationPath("tenancy", "error=renewal_create"));
@@ -640,7 +633,6 @@ export async function requestRenewalSignature(formData: FormData) {
         tenancyId,
         user.id,
         {
-          agreementType,
           monthlyRent: renewalMonthlyRent,
         },
       );

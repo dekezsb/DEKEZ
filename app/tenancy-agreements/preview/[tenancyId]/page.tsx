@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
 import { loadPropertyTenancySettings } from "@/lib/tenancy/property-settings";
 import { confirmAgreementGeneration } from "./actions";
 import { AgreementPreviewForm } from "./agreement-preview-form";
@@ -109,21 +110,22 @@ export default async function AgreementPreviewPage({
         <CardHeader>
           <CardTitle>Agreement Preview</CardTitle>
           <CardDescription>
-            Select the required agreement type and confirm the property-specific
-            wording before creating the PDF.
+            Confirm the agreement type selected from the property Commercial
+            setting and review the property-specific wording before creating the
+            PDF.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {query.error ? (
             <div className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
               {query.error === "confirm"
-                ? "Select an agreement type and confirm the preview."
+                ? "Confirm the agreement preview before generating it."
                 : "The agreement could not be generated. Check the tenancy details and try again."}
             </div>
           ) : null}
           <AgreementPreviewForm
             action={confirmAgreementGeneration}
-            defaultAgreementType={settings.defaultAgreementType}
+            agreementType={agreementTypeForProperty(property.is_commercial)}
             propertyName={property.name}
             roomName={room?.room_number ?? room?.name ?? "Room"}
             settings={settings}

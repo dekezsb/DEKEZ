@@ -12,6 +12,7 @@ import {
   type TenantDocumentType,
   uploadTenantDocuments,
 } from "@/lib/tenant-documents";
+import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -195,9 +196,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
     .from("tenant_applications")
     .insert({
       tenant_id: null,
-      agreement_type: property.is_commercial
-        ? "commercial_office"
-        : "residential_room",
+      agreement_type: agreementTypeForProperty(property.is_commercial),
       tenant_type: property.is_commercial ? tenantType : "individual",
       business_name: property.is_commercial ? businessName : null,
       business_registration_number: property.is_commercial

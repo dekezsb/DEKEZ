@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { CheckCircle2, FileCheck2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  AGREEMENT_TYPES,
+  agreementTypeLabel,
   type AgreementDocumentType,
 } from "@/lib/tenancy/agreement-types";
 import {
@@ -15,7 +14,7 @@ import {
 
 type AgreementPreviewFormProps = {
   action: (formData: FormData) => void | Promise<void>;
-  defaultAgreementType: AgreementDocumentType;
+  agreementType: AgreementDocumentType;
   propertyName: string;
   roomName: string;
   settings: PropertyTenancySettings;
@@ -23,9 +22,6 @@ type AgreementPreviewFormProps = {
   tenantType: string;
   tenancyId: string;
 };
-
-const selectClass =
-  "mt-1.5 h-11 w-full rounded-md border border-[#cfd8e6] bg-white px-3 text-sm text-[#07142f] outline-none focus:border-[#b98a2c] focus:ring-2 focus:ring-[#b98a2c]/20";
 
 function utilityLabel(
   mode: PropertyTenancySettings["waterMode"],
@@ -44,7 +40,7 @@ function utilityLabel(
 
 export function AgreementPreviewForm({
   action,
-  defaultAgreementType,
+  agreementType,
   propertyName,
   roomName,
   settings,
@@ -52,30 +48,24 @@ export function AgreementPreviewForm({
   tenantType,
   tenancyId,
 }: AgreementPreviewFormProps) {
-  const [agreementType, setAgreementType] =
-    useState<AgreementDocumentType>(defaultAgreementType);
-  const preview = useMemo(() => {
-    const facilities = FACILITY_OPTIONS.filter(
+  const preview = {
+    facilities: FACILITY_OPTIONS.filter(
       (option) =>
         (option.appliesTo === "both" ||
           option.appliesTo === agreementType) &&
         settings.facilities[option.code],
-    ).map((option) => option.label);
-    const clauses = OPTIONAL_CLAUSES.filter(
+    ).map((option) => option.label),
+    clauses: OPTIONAL_CLAUSES.filter(
       (option) =>
         (option.appliesTo === "both" ||
           option.appliesTo === agreementType) &&
         settings.optionalClauses[option.code],
-    ).map((option) => option.label);
-    return {
-      clauses,
-      facilities,
-      permittedUse:
-        agreementType === "commercial_office"
-          ? "Commercial office use only, subject to written approval."
-          : "Residential accommodation only.",
-    };
-  }, [agreementType, settings.facilities, settings.optionalClauses]);
+    ).map((option) => option.label),
+    permittedUse:
+      agreementType === "commercial_office"
+        ? "Commercial office use only, subject to written approval."
+        : "Residential accommodation only.",
+  };
 
   const displayedTenantType =
     agreementType === "residential_room"
@@ -88,30 +78,21 @@ export function AgreementPreviewForm({
     <form action={action} className="space-y-6">
       <input name="tenancyId" type="hidden" value={tenancyId} />
 
-      <label className="block max-w-xl">
-        <span className="text-sm font-semibold text-[#17223b]">
+      <div className="max-w-xl rounded-md border border-[#dbc38e] bg-[#fbf6e9] p-4">
+        <p className="text-xs font-semibold uppercase text-[#8a6418]">
           Agreement type
-        </span>
-        <select
-          className={selectClass}
-          name="agreementType"
-          onChange={(event) =>
-            setAgreementType(event.target.value as AgreementDocumentType)
-          }
-          required
-          value={agreementType}
-        >
-          {AGREEMENT_TYPES.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+        </p>
+        <p className="mt-1 text-sm font-semibold text-gray-950">
+          {agreementTypeLabel(agreementType)}
+        </p>
+        <p className="mt-1 text-xs text-gray-600">
+          Automatically selected from this property&apos;s Commercial switch.
+        </p>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         {[
-          ["Agreement type", AGREEMENT_TYPES.find((item) => item.value === agreementType)?.label],
+          ["Agreement type", agreementTypeLabel(agreementType)],
           ["Tenant type", displayedTenantType],
           ["Tenant", tenantName],
           ["Property / Room", `${propertyName} / ${roomName}`],

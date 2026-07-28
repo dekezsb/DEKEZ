@@ -44,6 +44,12 @@ export function agreementTypeLabel(type: AgreementDocumentType) {
   );
 }
 
+export function agreementTypeForProperty(
+  isCommercial: boolean,
+): AgreementDocumentType {
+  return isCommercial ? "commercial_office" : "residential_room";
+}
+
 function valueOrDash(value: string | null | undefined) {
   const normalized = value?.trim();
   return normalized || "-";

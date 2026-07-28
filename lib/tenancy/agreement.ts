@@ -11,6 +11,7 @@ import {
   STANDARD_AGREEMENT_VERSION,
 } from "@/lib/tenancy/standard-agreement";
 import {
+  agreementTypeForProperty,
   agreementTypeVariables,
   type AgreementDocumentType,
 } from "@/lib/tenancy/agreement-types";
@@ -372,8 +373,12 @@ async function renderExistingAgreement(
     context.property_id,
     context.properties?.is_commercial ?? false,
   );
+  const agreementType = agreementTypeForProperty(
+    context.properties?.is_commercial ?? false,
+  );
 
   return {
+    agreementType,
     context,
     renderedContent: renderAgreement(
       context,
@@ -383,7 +388,7 @@ async function renderExistingAgreement(
       duration,
       monthlyRent ?? Number(agreement.monthly_rent_snapshot ?? context.monthly_rental ?? 0),
       settings,
-      agreement.agreement_type,
+      agreementType,
     ),
   };
 }
@@ -430,7 +435,6 @@ async function createTermAgreement(
         updateExistingRent
           ? monthlyRent
           : Number(sameTerm.monthly_rent_snapshot ?? monthlyRent),
-        agreementType,
       );
     }
     return { id: sameTerm.id, created: false };
@@ -529,7 +533,6 @@ export async function createAgreementForTenancy(
   tenancyId: string,
   userId: string,
   options: {
-    agreementType?: AgreementDocumentType;
     monthlyRent?: number;
   } = {},
 ) {
@@ -552,13 +555,9 @@ export async function createAgreementForTenancy(
     context.contract_end ??
     context.end_date ??
     calculateTermEndDate(startDate, duration);
-  const settings = await loadPropertyTenancySettings(
-    supabase,
-    context.property_id,
+  const agreementType = agreementTypeForProperty(
     context.properties?.is_commercial ?? false,
   );
-  const agreementType =
-    options.agreementType ?? settings.defaultAgreementType;
 
   const agreement = await createTermAgreement(supabase, context, userId, {
     termType: "original",
@@ -578,7 +577,6 @@ export async function prepareNextRenewalAgreement(
   tenancyId: string,
   userId: string,
   options: {
-    agreementType?: AgreementDocumentType;
     monthlyRent?: number;
   } = {},
 ) {
@@ -593,9 +591,7 @@ export async function prepareNextRenewalAgreement(
     return null;
   }
 
-  await createAgreementForTenancy(supabase, tenancyId, userId, {
-    agreementType: options.agreementType,
-  });
+  await createAgreementForTenancy(supabase, tenancyId, userId);
 
   const { data: agreements } = await supabase
     .from("tenancy_agreements")
@@ -621,12 +617,9 @@ export async function prepareNextRenewalAgreement(
   const endDate = calculateTermEndDate(startDate, duration);
   const agreement = await createTermAgreement(supabase, context, userId, {
     termType: "renewal",
-    agreementType:
-      options.agreementType ??
-      latest.agreement_type ??
-      (context.properties?.is_commercial
-        ? "commercial_office"
-        : "residential_room"),
+    agreementType: agreementTypeForProperty(
+      context.properties?.is_commercial ?? false,
+    ),
     startDate,
     endDate,
     durationMonths: duration,
@@ -652,7 +645,6 @@ export async function updateUnsignedAgreementRent(
   supabase: SupabaseClient,
   agreementId: string,
   monthlyRent: number,
-  agreementType?: AgreementDocumentType,
 ) {
   if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) {
     throw new Error("Enter a valid monthly rent for this agreement term.");
@@ -674,11 +666,8 @@ export async function updateUnsignedAgreementRent(
   }
 
   const template = await ensureMasterTemplate(supabase, null);
-  const targetAgreement = {
-    ...agreement,
-    agreement_type: agreementType ?? agreement.agreement_type,
-  } as RegenerableAgreement;
-  const { renderedContent } = await renderExistingAgreement(
+  const targetAgreement = agreement as RegenerableAgreement;
+  const { agreementType, renderedContent } = await renderExistingAgreement(
     supabase,
     targetAgreement,
     template.template_content,
@@ -689,7 +678,7 @@ export async function updateUnsignedAgreementRent(
     .from("tenancy_agreements")
     .update({
       template_id: template.id,
-      agreement_type: targetAgreement.agreement_type,
+      agreement_type: agreementType,
       monthly_rent_snapshot: monthlyRent,
       rendered_content: renderedContent,
       updated_at: new Date().toISOString(),
@@ -745,7 +734,7 @@ export async function regenerateAllUnsignedAgreements(
     const results = await Promise.all(
       batch.map(async (agreement) => {
         try {
-          const { renderedContent } = await renderExistingAgreement(
+          const { agreementType, renderedContent } = await renderExistingAgreement(
             supabase,
             agreement,
             template.template_content,
@@ -754,6 +743,7 @@ export async function regenerateAllUnsignedAgreements(
             .from("tenancy_agreements")
             .update({
               template_id: template.id,
+              agreement_type: agreementType,
               rendered_content: renderedContent,
               updated_at: new Date().toISOString(),
             })

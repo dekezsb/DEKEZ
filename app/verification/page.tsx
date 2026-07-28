@@ -45,7 +45,7 @@ import {
 } from "@/components/verification/agreement-archive";
 import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import {
-  AGREEMENT_TYPES,
+  agreementTypeForProperty,
   agreementTypeLabel,
 } from "@/lib/tenancy/agreement-types";
 import {
@@ -1263,25 +1263,19 @@ function RenewalAndCheckout({ tenancy }: { tenancy: TenancyItem }) {
     <div className="grid gap-3">
       <form action={requestRenewalSignature} className="grid gap-2">
         <input name="tenancyId" type="hidden" value={tenancy.id} />
-        <label className="grid gap-1 text-xs font-medium text-gray-600">
+        <div className="rounded-md border border-[#dbc38e] bg-[#fbf6e9] px-3 py-2">
+          <p className="text-xs font-medium text-[#8a6418]">
           Agreement type
-          <select
-            className="rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-sm text-gray-950"
-            defaultValue={
-              property?.is_commercial
-                ? "commercial_office"
-                : "residential_room"
-            }
-            name="agreementType"
-            required
-          >
-            {AGREEMENT_TYPES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.shortLabel}
-              </option>
-            ))}
-          </select>
-        </label>
+          </p>
+          <p className="mt-0.5 text-sm font-semibold text-gray-950">
+            {agreementTypeLabel(
+              agreementTypeForProperty(property?.is_commercial ?? false),
+            )}
+          </p>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Selected automatically from the property Commercial switch.
+          </p>
+        </div>
         <p className="text-xs text-gray-500">
           {duration}-month {property?.is_commercial ? "commercial" : "non-commercial"} renewal
         </p>

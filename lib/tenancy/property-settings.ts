@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AgreementDocumentType } from "@/lib/tenancy/agreement-types";
+import {
+  agreementTypeForProperty,
+  type AgreementDocumentType,
+} from "@/lib/tenancy/agreement-types";
 
 export const PROPERTY_TYPES = [
   { value: "residential_room", label: "Residential Room" },
@@ -252,9 +255,7 @@ export function defaultPropertyTenancySettings(
   ) as Record<OptionalClauseCode, boolean>;
 
   return {
-    defaultAgreementType: isCommercial
-      ? "commercial_office"
-      : "residential_room",
+    defaultAgreementType: agreementTypeForProperty(isCommercial),
     propertyType: isCommercial ? "shop_lot" : "residential_room",
     facilities: {
       ...facilities,
@@ -314,12 +315,7 @@ export function normalizePropertyTenancySettings(
   const employeeLimit = Number(raw.employee_limit);
 
   return {
-    defaultAgreementType:
-      raw.default_agreement_type === "commercial_office"
-        ? "commercial_office"
-        : raw.default_agreement_type === "residential_room"
-          ? "residential_room"
-          : defaults.defaultAgreementType,
+    defaultAgreementType: agreementTypeForProperty(isCommercial),
     propertyType: isPropertyType(raw.property_type)
       ? raw.property_type
       : defaults.propertyType,

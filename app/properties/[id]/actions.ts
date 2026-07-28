@@ -17,7 +17,7 @@ import {
   type TenantDocumentType,
   uploadTenantDocuments,
 } from "@/lib/tenant-documents";
-import { isAgreementDocumentType } from "@/lib/tenancy/agreement-types";
+import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
 import {
   FACILITY_OPTIONS,
   OPTIONAL_CLAUSES,
@@ -322,9 +322,8 @@ export async function updatePropertyTenancySettings(formData: FormData) {
   }
 
   const propertyType = textValue(formData, "propertyType");
-  const defaultAgreementType = textValue(
-    formData,
-    "defaultAgreementType",
+  const defaultAgreementType = agreementTypeForProperty(
+    property.is_commercial,
   );
   const waterMode = textValue(formData, "waterMode");
   const electricityMode = textValue(formData, "electricityMode");
@@ -344,7 +343,6 @@ export async function updatePropertyTenancySettings(formData: FormData) {
   ]);
 
   if (
-    !isAgreementDocumentType(defaultAgreementType) ||
     !validPropertyTypes.has(
       propertyType as (typeof PROPERTY_TYPES)[number]["value"],
     ) ||

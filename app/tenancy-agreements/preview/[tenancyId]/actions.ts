@@ -6,7 +6,6 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
-import { isAgreementDocumentType } from "@/lib/tenancy/agreement-types";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -20,13 +19,11 @@ export async function confirmAgreementGeneration(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
-  const agreementType = textValue(formData, "agreementType");
   const confirmed = textValue(formData, "confirmed");
 
   if (
     !user ||
     !tenancyId ||
-    !isAgreementDocumentType(agreementType) ||
     confirmed !== "on"
   ) {
     redirect(
@@ -37,12 +34,7 @@ export async function confirmAgreementGeneration(formData: FormData) {
   const supabase = createAdminClient();
   let agreementId: string | null = null;
   try {
-    agreementId = await createAgreementForTenancy(
-      supabase,
-      tenancyId,
-      user.id,
-      { agreementType },
-    );
+    agreementId = await createAgreementForTenancy(supabase, tenancyId, user.id);
   } catch (error) {
     console.error("Unable to generate tenancy agreement.", {
       tenancyId,

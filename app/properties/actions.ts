@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createClient } from "@/lib/supabase/server";
+import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -117,6 +118,14 @@ export async function updatePropertyCommercial(formData: FormData) {
   if (error) {
     redirect("/properties?error=commercial");
   }
+
+  await supabase
+    .from("property_tenancy_settings")
+    .update({
+      default_agreement_type: agreementTypeForProperty(isCommercial),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("property_id", propertyId);
 
   revalidatePath("/properties");
   revalidatePath(`/properties/${propertyId}`);
