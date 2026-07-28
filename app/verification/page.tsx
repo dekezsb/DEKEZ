@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import {
   Table,
   TableBody,
@@ -167,7 +168,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     supabase.from("profiles").select("id, full_name, phone"),
     supabase
       .from("profile_documents")
-      .select("id, profile_id, document_type, file_path, file_name, verification_status")
+      .select("id, profile_id, document_type, file_path, file_name, content_type, verification_status")
       .order("uploaded_at", { ascending: true }),
   ]);
 
@@ -188,6 +189,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     {
       document_type: string;
       file_name: string | null;
+      content_type: string | null;
       id: string;
       signedUrl?: string;
       verification_status: string;
@@ -413,6 +415,7 @@ function UserRegistrations({
     {
       document_type: string;
       file_name: string | null;
+      content_type: string | null;
       id: string;
       signedUrl?: string;
       verification_status: string;
@@ -486,19 +489,16 @@ function UserRegistrations({
                       </p>
                     ) : null}
                     {documents.length ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mt-3 grid grid-cols-2 gap-3">
                         {documents.map((document) =>
                           document.signedUrl ? (
-                            <Button
-                              asChild
+                            <DocumentPreview
+                              contentType={document.content_type}
+                              fileName={document.file_name}
                               key={document.id}
-                              size="sm"
-                              variant="outline"
-                            >
-                              <Link href={document.signedUrl} target="_blank">
-                                {document.document_type.replaceAll("_", " ")}
-                              </Link>
-                            </Button>
+                              label={document.document_type.replaceAll("_", " ")}
+                              url={document.signedUrl}
+                            />
                           ) : (
                             <Badge key={document.id}>
                               {document.document_type.replaceAll("_", " ")}

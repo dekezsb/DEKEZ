@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { CheckCircle2, Clock, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { money } from "@/lib/e-tenancy";
@@ -420,18 +420,14 @@ function ReceiptThumb({
     return <span className="text-sm text-gray-500">No slip</span>;
   }
 
-  if (!receiptIsImage) {
-    return (
-      <Button asChild size="sm" variant="outline">
-        <Link href={receiptUrl} target="_blank">Open slip</Link>
-      </Button>
-    );
-  }
-
   return (
-    <a className="block h-16 w-16 overflow-hidden rounded-md border border-[#d7dde5] bg-[#f4f6f8]" href={receiptUrl} target="_blank">
-      <img alt="Payment slip thumbnail" className="h-full w-full object-cover" src={receiptUrl} />
-    </a>
+    <DocumentPreview
+      contentType={receiptIsImage ? "image/*" : "application/pdf"}
+      label="Payment slip"
+      showName={false}
+      size="sm"
+      url={receiptUrl}
+    />
   );
 }
 

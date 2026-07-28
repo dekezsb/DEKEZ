@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import {
   Table,
   TableBody,
@@ -116,7 +117,7 @@ export default async function UtilityBillsPage({ searchParams }: UtilityBillsPag
   let billsQuery = supabase
     .from("utility_bills")
     .select(
-      "id, property_id, utility_type, bill_month, amount, paid_amount, status, account_number, reference_number, due_date, payment_date, notes, bill_attachment_path, bill_attachment_name, receipt_path, receipt_name, created_at, properties(name)",
+      "id, property_id, utility_type, bill_month, amount, paid_amount, status, account_number, reference_number, due_date, payment_date, notes, bill_attachment_path, bill_attachment_name, bill_attachment_type, receipt_path, receipt_name, receipt_type, created_at, properties(name)",
     )
     .eq("billing_scope", "property")
     .order("bill_month", { ascending: false })
@@ -484,17 +485,31 @@ export default async function UtilityBillsPage({ searchParams }: UtilityBillsPag
                             <Badge className={statusBadgeClass(bill.status)}>{statusLabel(bill.status)}</Badge>
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-col gap-1 text-sm">
+                            <div className="flex gap-2">
                               {signedDocuments.get(`${bill.id}:bill`) ? (
-                                <a className="text-[#126b5f] underline" href={signedDocuments.get(`${bill.id}:bill`)} rel="noreferrer" target="_blank">
-                                  Bill
-                                </a>
-                              ) : <span className="text-gray-400">No bill</span>}
+                                <DocumentPreview
+                                  contentType={bill.bill_attachment_type}
+                                  fileName={bill.bill_attachment_name}
+                                  label="Utility bill"
+                                  showName={false}
+                                  size="sm"
+                                  url={signedDocuments.get(`${bill.id}:bill`)}
+                                />
+                              ) : null}
                               {signedDocuments.get(`${bill.id}:receipt`) ? (
-                                <a className="text-[#126b5f] underline" href={signedDocuments.get(`${bill.id}:receipt`)} rel="noreferrer" target="_blank">
-                                  Receipt
-                                </a>
-                              ) : <span className="text-gray-400">No receipt</span>}
+                                <DocumentPreview
+                                  contentType={bill.receipt_type}
+                                  fileName={bill.receipt_name}
+                                  label="Utility receipt"
+                                  showName={false}
+                                  size="sm"
+                                  url={signedDocuments.get(`${bill.id}:receipt`)}
+                                />
+                              ) : null}
+                              {!signedDocuments.get(`${bill.id}:bill`)
+                              && !signedDocuments.get(`${bill.id}:receipt`) ? (
+                                <span className="text-gray-400">No documents</span>
+                                ) : null}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -561,15 +576,23 @@ export default async function UtilityBillsPage({ searchParams }: UtilityBillsPag
                             <Link href={`?edit=${bill.id}#utility-form`}>Edit</Link>
                           </Button>
                         ) : null}
+                      </div>
+                      <div className="mt-3 flex gap-3">
                         {signedDocuments.get(`${bill.id}:bill`) ? (
-                          <Button asChild size="sm" variant="outline">
-                            <a href={signedDocuments.get(`${bill.id}:bill`)} rel="noreferrer" target="_blank">Open Bill</a>
-                          </Button>
+                          <DocumentPreview
+                            contentType={bill.bill_attachment_type}
+                            fileName={bill.bill_attachment_name}
+                            label="Utility bill"
+                            url={signedDocuments.get(`${bill.id}:bill`)}
+                          />
                         ) : null}
                         {signedDocuments.get(`${bill.id}:receipt`) ? (
-                          <Button asChild size="sm" variant="outline">
-                            <a href={signedDocuments.get(`${bill.id}:receipt`)} rel="noreferrer" target="_blank">Open Receipt</a>
-                          </Button>
+                          <DocumentPreview
+                            contentType={bill.receipt_type}
+                            fileName={bill.receipt_name}
+                            label="Utility receipt"
+                            url={signedDocuments.get(`${bill.id}:receipt`)}
+                          />
                         ) : null}
                       </div>
                       <div className="mt-3">

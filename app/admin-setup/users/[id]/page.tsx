@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   Building2,
   CalendarDays,
-  ExternalLink,
   FileText,
   KeyRound,
   Save,
@@ -20,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import {
   Table,
   TableBody,
@@ -238,6 +238,18 @@ export default async function UserProfilePage({
       .order("uploaded_at", { ascending: false });
     documentRows.push(...(data ?? []));
   }
+  const { data: profileDocumentRows } = await admin
+    .from("profile_documents")
+    .select("id, profile_id, document_type, file_path, file_name, content_type, verification_status, uploaded_at")
+    .eq("profile_id", profileId)
+    .order("uploaded_at", { ascending: false });
+  documentRows.push(
+    ...(profileDocumentRows ?? []).map((document) => ({
+      ...document,
+      tenant_application_id: null,
+      tenant_id: profileId,
+    })),
+  );
 
   const documents = Array.from(
     new Map(documentRows.map((document) => [document.id, document])).values(),
@@ -857,9 +869,18 @@ export default async function UserProfilePage({
             <div className="grid gap-3 md:grid-cols-2">
               {documentsWithUrls.map((document) => (
                 <div
-                  className="flex items-center justify-between gap-4 rounded-md border border-[#d7dde5] p-4"
+                  className="flex items-start gap-4 rounded-md border border-[#d7dde5] p-4"
                   key={document.id}
                 >
+                  {document.signedUrl ? (
+                    <DocumentPreview
+                      contentType={document.content_type}
+                      fileName={document.file_name}
+                      label={humanize(document.document_type)}
+                      size="sm"
+                      url={document.signedUrl}
+                    />
+                  ) : null}
                   <div className="min-w-0">
                     <p className="truncate font-medium">
                       {document.file_name ??
@@ -871,21 +892,6 @@ export default async function UserProfilePage({
                       {humanize(document.verification_status)}
                     </p>
                   </div>
-                  {document.signedUrl ? (
-                    <Button asChild size="sm" variant="outline">
-                      <a
-                        href={document.signedUrl}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        <ExternalLink
-                          aria-hidden="true"
-                          className="h-4 w-4"
-                        />
-                        View
-                      </a>
-                    </Button>
-                  ) : null}
                 </div>
               ))}
             </div>

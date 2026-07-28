@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Banknote, MessageCircle, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import {
   markRentBillPaid,
   rejectRentSubmission,
@@ -85,9 +86,12 @@ export function RentDueActions({
           <Link href={`/payments?bill=${billId}`}>View Bill</Link>
         </Button>
       {receiptUrl ? (
-        <Button asChild size="sm" variant="ghost">
-          <Link href={receiptUrl} target="_blank">View Payment Slip</Link>
-        </Button>
+        <DocumentPreview
+          label="Payment slip"
+          showName={false}
+          size="sm"
+          url={receiptUrl}
+        />
       ) : null}
       {canVerify ? (
         <Button size="sm" type="button" onClick={() => setVerifyOpen(true)}>
@@ -207,9 +211,10 @@ export function RentDueActions({
           <div className="space-y-3 text-sm text-gray-600">
             <p>Confirm this payment was received before marking the bill paid or partially paid.</p>
             {receiptUrl ? (
-              <Button asChild variant="outline">
-                <Link href={receiptUrl} target="_blank">Open receipt</Link>
-              </Button>
+              <DocumentPreview
+                label="Payment receipt"
+                url={receiptUrl}
+              />
             ) : null}
           </div>
           <form action={verifyRentSubmission} className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">

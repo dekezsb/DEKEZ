@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileImage, FileLock2, FileText, Upload } from "lucide-react";
+import { FileLock2, FileText, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import { uploadTenantDocument } from "@/app/tenants/[id]/actions";
 import type {
   TenantAgreementHistoryView,
@@ -61,14 +62,6 @@ function formatDateTime(value: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function documentIcon(contentType: string | null) {
-  return contentType?.startsWith("image/") ? (
-    <FileImage className="h-5 w-5 text-[#b17f19]" />
-  ) : (
-    <FileText className="h-5 w-5 text-[#b17f19]" />
-  );
 }
 
 export function TenantDocuments({
@@ -163,11 +156,21 @@ export function TenantDocuments({
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {documents.map((document) => (
                 <div
-                  className="flex min-w-0 items-start gap-3 rounded-md border border-[#d7dde5] p-4"
+                  className="min-w-0 rounded-md border border-[#d7dde5] p-4"
                   key={document.id}
                 >
-                  {documentIcon(document.contentType)}
-                  <div className="min-w-0 flex-1">
+                  {document.signedUrl ? (
+                    <DocumentPreview
+                      contentType={document.contentType}
+                      fileName={document.fileName}
+                      label={
+                        documentLabels[document.documentType]
+                        ?? document.documentType.replaceAll("_", " ")
+                      }
+                      url={document.signedUrl}
+                    />
+                  ) : null}
+                  <div className="mt-3 min-w-0">
                     <p className="font-medium text-gray-950">
                       {documentLabels[document.documentType] ??
                         document.documentType.replaceAll("_", " ")}
@@ -186,13 +189,6 @@ export function TenantDocuments({
                       >
                         {document.verificationStatus.replaceAll("_", " ")}
                       </Badge>
-                      {document.signedUrl ? (
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={document.signedUrl} target="_blank">
-                            View
-                          </Link>
-                        </Button>
-                      ) : null}
                     </div>
                   </div>
                 </div>

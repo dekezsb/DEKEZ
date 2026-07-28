@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { money } from "@/lib/e-tenancy";
@@ -68,14 +68,14 @@ export async function TenantVerificationContent({
       .order("submitted_at", { ascending: false }),
     supabase
       .from("tenant_documents")
-      .select("id, tenant_application_id, document_type, file_path, file_name, verification_status"),
+      .select("id, tenant_application_id, document_type, file_path, file_name, content_type, verification_status"),
     supabase
       .from("payment_submissions")
       .select("id, tenant_application_id, amount, receipt_url, verification_status")
       .not("tenant_application_id", "is", null),
   ]);
 
-  const documentsByApplication = new Map<string, { id: string; document_type: string; file_path: string; file_name: string | null; verification_status: string; signedUrl?: string }[]>();
+  const documentsByApplication = new Map<string, { id: string; tenant_application_id: string | null; document_type: string; file_path: string; file_name: string | null; content_type: string | null; verification_status: string; signedUrl?: string }[]>();
 
   for (const document of documentsResult.data ?? []) {
     if (!document.tenant_application_id) continue;
@@ -89,6 +89,7 @@ export async function TenantVerificationContent({
     string,
     {
       amount: number;
+      fileName: string | null;
       id: string;
       signedUrl?: string;
       verification_status: string;
@@ -101,6 +102,7 @@ export async function TenantVerificationContent({
       .createSignedUrl(payment.receipt_url, 60 * 10);
     paymentByApplication.set(payment.tenant_application_id, {
       amount: Number(payment.amount ?? 0),
+      fileName: payment.receipt_url.split("/").at(-1) ?? null,
       id: payment.id,
       signedUrl: data?.signedUrl,
       verification_status: payment.verification_status,
@@ -181,12 +183,17 @@ export async function TenantVerificationContent({
                         <TableCell>{money(application.deposit)}</TableCell>
                         <TableCell>{application.contract_duration_months} months</TableCell>
                         <TableCell className="min-w-52">
-                          <div className="flex flex-wrap gap-2">
+                          <div className="grid grid-cols-2 gap-2">
                             {documents.map((document) => (
                               document.signedUrl ? (
-                                <Button asChild key={document.id} size="sm" variant="outline">
-                                  <Link href={document.signedUrl} target="_blank">{documentLabel(document.document_type)}</Link>
-                                </Button>
+                                <DocumentPreview
+                                  contentType={document.content_type}
+                                  fileName={document.file_name}
+                                  key={document.id}
+                                  label={documentLabel(document.document_type)}
+                                  size="sm"
+                                  url={document.signedUrl}
+                                />
                               ) : (
                                 <Badge key={document.id}>{documentLabel(document.document_type)}</Badge>
                               )
@@ -196,11 +203,12 @@ export async function TenantVerificationContent({
                         <TableCell className="min-w-40">
                           {payment?.signedUrl ? (
                             <div className="space-y-2">
-                              <Button asChild size="sm" variant="outline">
-                                <Link href={payment.signedUrl} target="_blank">
-                                  View slip
-                                </Link>
-                              </Button>
+                              <DocumentPreview
+                                fileName={payment.fileName}
+                                label="Payment slip"
+                                size="sm"
+                                url={payment.signedUrl}
+                              />
                               <p className="text-xs text-gray-500">
                                 {money(payment.amount)}
                               </p>

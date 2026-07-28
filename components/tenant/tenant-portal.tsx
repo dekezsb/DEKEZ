@@ -28,6 +28,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
 import { PaymentSubmitButton } from "./payment-submit-button";
@@ -669,6 +670,16 @@ export function TenantBills({
                     {submission.rejection_reason}
                   </p>
                 ) : null}
+                {submission.signedReceiptUrl ? (
+                  <div className="mt-3">
+                    <DocumentPreview
+                      fileName={submission.receipt_url?.split("/").at(-1)}
+                      label="Payment slip"
+                      size="sm"
+                      url={submission.signedReceiptUrl}
+                    />
+                  </div>
+                ) : null}
               </article>
             ))
           ) : (
@@ -849,11 +860,17 @@ export function TenantProfile({ data }: { data: NonNullable<TenantPortalData> })
                     </Badge>
                   </div>
                   {document.signedUrl ? (
-                    <Button asChild className="mt-4 w-full" variant="outline">
-                      <Link href={document.signedUrl} target="_blank">
-                        View document
-                      </Link>
-                    </Button>
+                    <div className="mt-4">
+                      <DocumentPreview
+                        contentType={document.content_type}
+                        fileName={document.file_name}
+                        label={
+                          documentLabels[document.document_type]
+                          ?? titleCase(document.document_type)
+                        }
+                        url={document.signedUrl}
+                      />
+                    </div>
                   ) : null}
                 </article>
               ))}

@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { FileImage, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DocumentPreview } from "@/components/ui/document-preview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { statusBadgeClass } from "@/lib/status-styles";
@@ -387,13 +387,19 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                           <p>Claim link: {expense.claim_id ?? "-"}</p>
                         </div>
                         <div className="space-y-3">
-                          {attachments.map((attachment) => (
-                            attachment.signedUrl ? (
-                              <Button asChild key={attachment.id} variant="outline">
-                                <Link href={attachment.signedUrl} target="_blank">Open {attachment.file_name ?? "receipt"}</Link>
-                              </Button>
-                            ) : null
-                          ))}
+                          <div className="flex flex-wrap gap-3">
+                            {attachments.map((attachment) => (
+                              attachment.signedUrl ? (
+                                <DocumentPreview
+                                  contentType={attachment.content_type}
+                                  fileName={attachment.file_name}
+                                  key={attachment.id}
+                                  label="Expense receipt"
+                                  url={attachment.signedUrl}
+                                />
+                              ) : null
+                            ))}
+                          </div>
                           {canVerify ? (
                             <form action={reviewExpense} className="grid gap-3">
                               <input name="expenseId" type="hidden" value={expense.id} />

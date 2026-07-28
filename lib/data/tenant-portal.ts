@@ -314,6 +314,19 @@ export async function getTenantPortalData() {
       ),
     })),
   );
+  const submissions = await Promise.all(
+    latestSubmissionPerBill(submissionsResult.data ?? []).map(
+      async (submission) => ({
+        ...submission,
+        amount: numberValue(submission.amount),
+        signedReceiptUrl: await signedUrl(
+          dataClient,
+          "payment-receipts",
+          submission.receipt_url,
+        ),
+      }),
+    ),
+  );
 
   const portalTenancies = await Promise.all(
     tenancies
@@ -436,12 +449,7 @@ export async function getTenantPortalData() {
       ...payment,
       amount: numberValue(payment.amount),
     })),
-    submissions: latestSubmissionPerBill(submissionsResult.data ?? []).map(
-      (submission) => ({
-        ...submission,
-        amount: numberValue(submission.amount),
-      }),
-    ),
+    submissions,
     tickets,
     documents,
     agreements,
