@@ -18,18 +18,7 @@ function RegenerateSubmitButton() {
 
 export function RegenerateMasterButton() {
   return (
-    <form
-      action={regenerateMasterAgreementArchive}
-      onSubmit={(event) => {
-        if (
-          !window.confirm(
-            "Replace the wording in every unsigned and expired agreement with the latest DEKEZ master agreement? Signed agreements will not be changed.",
-          )
-        ) {
-          event.preventDefault();
-        }
-      }}
-    >
+    <form action={regenerateMasterAgreementArchive}>
       <RegenerateSubmitButton />
     </form>
   );
