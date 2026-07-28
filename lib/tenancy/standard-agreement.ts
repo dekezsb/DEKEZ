@@ -1,5 +1,5 @@
 export const STANDARD_AGREEMENT_NAME = "DEKEZ Standard Room Tenancy Agreement";
-export const STANDARD_AGREEMENT_VERSION = 2;
+export const STANDARD_AGREEMENT_VERSION = 3;
 
 export const standardAgreementTemplate = `# TENANCY AGREEMENT
 
@@ -8,7 +8,7 @@ DATED THIS {{agreement_date}}
 BETWEEN
 
 DEKEZ SDN BHD
-Company No: 202501054747
+Company Registration No. (New): 202501054747
 (LANDLORD / CHIEF TENANT)
 
 AND
@@ -208,6 +208,7 @@ If any provision of this Agreement is held to be unlawful, invalid or unenforcea
 For and on behalf of the Landlord:
 
 Company Name: DEKEZ SDN BHD
+Company Registration No. (New): 202501054747
 Authorised Representative: Director of DEKEZ
 NRIC No: 950222-12-5502
 

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   PDFDocument,
   PDFFont,
@@ -10,10 +12,13 @@ import {
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN_X = 54;
-const TOP_Y = PAGE_HEIGHT - 62;
-const BOTTOM_Y = 54;
+const TOP_Y = PAGE_HEIGHT - 86;
+const BOTTOM_Y = 56;
 const BODY_SIZE = 9.5;
 const BODY_LINE_HEIGHT = 13.5;
+const GOLD = rgb(0.68, 0.48, 0.16);
+const INK = rgb(0.08, 0.08, 0.08);
+const MUTED = rgb(0.36, 0.39, 0.43);
 
 type DrawState = {
   document: PDFDocument;
@@ -21,6 +26,13 @@ type DrawState = {
   regular: PDFFont;
   bold: PDFFont;
   y: number;
+};
+
+type AgreementPdfInput = {
+  content: string;
+  signerName?: string | null;
+  signedAt?: string | null;
+  tenantSignatureBytes?: Uint8Array | null;
 };
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
@@ -47,7 +59,10 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
     let fragment = "";
     for (const character of word) {
       const candidateFragment = `${fragment}${character}`;
-      if (font.widthOfTextAtSize(candidateFragment, size) > maxWidth && fragment) {
+      if (
+        font.widthOfTextAtSize(candidateFragment, size) > maxWidth &&
+        fragment
+      ) {
         lines.push(fragment);
         fragment = character;
       } else {
@@ -98,7 +113,7 @@ function drawLines(
       y: state.y,
       size,
       font,
-      color: options.color ?? rgb(0.08, 0.08, 0.08),
+      color: options.color ?? INK,
     });
     state.y -= lineHeight;
   }
@@ -114,6 +129,7 @@ function drawParagraph(
     indent?: number;
     bullet?: boolean;
     after?: number;
+    color?: ReturnType<typeof rgb>;
   } = {},
 ) {
   const font = options.font ?? state.regular;
@@ -130,6 +146,7 @@ function drawParagraph(
       y: state.y,
       size,
       font: state.bold,
+      color: options.color ?? INK,
     });
   }
 
@@ -138,44 +155,327 @@ function drawParagraph(
     size,
     lineHeight: options.lineHeight,
     indent: indent + bulletIndent,
+    color: options.color,
   });
   state.y -= options.after ?? 5;
 }
 
-async function embedSignature(
+async function readPublicAsset(filename: string) {
+  try {
+    return await readFile(path.join(process.cwd(), "public", filename));
+  } catch {
+    return null;
+  }
+}
+
+async function embedImage(
   document: PDFDocument,
-  signatureBytes?: Uint8Array | null,
+  imageBytes?: Uint8Array | null,
 ): Promise<PDFImage | null> {
-  if (!signatureBytes?.length) {
+  if (!imageBytes?.length) {
     return null;
   }
 
   try {
-    return await document.embedPng(signatureBytes);
+    return await document.embedPng(imageBytes);
   } catch {
     try {
-      return await document.embedJpg(signatureBytes);
+      return await document.embedJpg(imageBytes);
     } catch {
       return null;
     }
   }
 }
 
-export async function createSignedAgreementPdf({
+export function prepareAgreementPdfContent(content: string) {
+  let normalized = content
+    .replace(
+      /Company No:\s*202501054747/gi,
+      "Company Registration No. (New): 202501054747",
+    )
+    .replace(
+      /Company Registration (?:Number|No\.?)\s*(?:\(New\))?\s*:\s*202501054747/gi,
+      "Company Registration No. (New): 202501054747",
+    );
+
+  const signatureIndex = normalized.indexOf("## SIGNATURES");
+  if (signatureIndex === -1) {
+    return normalized;
+  }
+
+  const beforeSignatures = normalized.slice(0, signatureIndex);
+  let signatureSection = normalized.slice(signatureIndex);
+  const tenantSignatureIndex = signatureSection.indexOf(
+    "For and on behalf of the Tenant:",
+  );
+  const landlordSection =
+    tenantSignatureIndex === -1
+      ? signatureSection
+      : signatureSection.slice(0, tenantSignatureIndex);
+
+  if (
+    !landlordSection.includes(
+      "Company Registration No. (New): 202501054747",
+    )
+  ) {
+    signatureSection = signatureSection.replace(
+      "Company Name: DEKEZ SDN BHD",
+      "Company Name: DEKEZ SDN BHD\nCompany Registration No. (New): 202501054747",
+    );
+  }
+
+  return `${beforeSignatures}${signatureSection}`;
+}
+
+function drawDocumentTitle(state: DrawState, title: string) {
+  ensureSpace(state, 48);
+  const size = 18;
+  const width = state.bold.widthOfTextAtSize(title, size);
+  state.page.drawText(title, {
+    x: Math.max(MARGIN_X, (PAGE_WIDTH - width) / 2),
+    y: state.y,
+    size,
+    font: state.bold,
+    color: INK,
+  });
+  state.y -= 27;
+  state.page.drawLine({
+    start: { x: MARGIN_X + 105, y: state.y },
+    end: { x: PAGE_WIDTH - MARGIN_X - 105, y: state.y },
+    thickness: 1.5,
+    color: GOLD,
+  });
+  state.y -= 17;
+}
+
+function drawSectionHeading(state: DrawState, heading: string) {
+  ensureSpace(state, 30);
+  state.y -= 3;
+  state.page.drawText(heading, {
+    x: MARGIN_X,
+    y: state.y,
+    size: 11.5,
+    font: state.bold,
+    color: rgb(0.14, 0.12, 0.08),
+  });
+  state.y -= 7;
+  state.page.drawLine({
+    start: { x: MARGIN_X, y: state.y },
+    end: { x: PAGE_WIDTH - MARGIN_X, y: state.y },
+    thickness: 0.75,
+    color: GOLD,
+  });
+  state.y -= 14;
+}
+
+function drawLandlordSignature(
+  state: DrawState,
+  authorisedSignature: PDFImage | null,
+  companyChop: PDFImage | null,
+) {
+  ensureSpace(state, 115);
+  const top = state.y;
+
+  if (authorisedSignature) {
+    const scaled = authorisedSignature.scaleToFit(205, 48);
+    state.page.drawImage(authorisedSignature, {
+      x: MARGIN_X,
+      y: top - scaled.height,
+      width: scaled.width,
+      height: scaled.height,
+    });
+  }
+
+  if (companyChop) {
+    const scaled = companyChop.scaleToFit(72, 72);
+    state.page.drawImage(companyChop, {
+      x: MARGIN_X + 282,
+      y: top - scaled.height - 2,
+      width: scaled.width,
+      height: scaled.height,
+    });
+  }
+
+  const lineY = top - 76;
+  state.page.drawLine({
+    start: { x: MARGIN_X, y: lineY },
+    end: { x: MARGIN_X + 210, y: lineY },
+    thickness: 0.8,
+    color: INK,
+  });
+  state.page.drawText("Authorised Signature", {
+    x: MARGIN_X,
+    y: lineY - 13,
+    size: 8.5,
+    font: state.bold,
+    color: MUTED,
+  });
+  state.page.drawText("Company Chop", {
+    x: MARGIN_X + 282,
+    y: lineY - 13,
+    size: 8.5,
+    font: state.bold,
+    color: MUTED,
+  });
+  state.y = lineY - 29;
+}
+
+function drawTenantSignature(
+  state: DrawState,
+  tenantSignature: PDFImage | null,
+  signerName: string,
+  signedAt?: string | null,
+) {
+  ensureSpace(state, 120);
+  const top = state.y;
+
+  if (tenantSignature) {
+    const scaled = tenantSignature.scaleToFit(190, 58);
+    state.page.drawImage(tenantSignature, {
+      x: MARGIN_X,
+      y: top - scaled.height,
+      width: scaled.width,
+      height: scaled.height,
+    });
+  }
+
+  const lineY = top - 66;
+  state.page.drawLine({
+    start: { x: MARGIN_X, y: lineY },
+    end: { x: MARGIN_X + 210, y: lineY },
+    thickness: 0.8,
+    color: INK,
+  });
+  state.y = lineY - 15;
+  drawParagraph(state, `Signed digitally by ${signerName}`, {
+    font: state.bold,
+    after: 2,
+  });
+
+  if (signedAt) {
+    drawParagraph(
+      state,
+      `Signed at ${new Intl.DateTimeFormat("en-MY", {
+        timeZone: "Asia/Kuala_Lumpur",
+        dateStyle: "long",
+        timeStyle: "medium",
+      }).format(new Date(signedAt))}`,
+      { size: 8.5, color: MUTED, after: 0 },
+    );
+  }
+}
+
+function drawPendingTenantSignature(state: DrawState) {
+  ensureSpace(state, 50);
+  state.y -= 18;
+  state.page.drawLine({
+    start: { x: MARGIN_X, y: state.y },
+    end: { x: MARGIN_X + 210, y: state.y },
+    thickness: 0.8,
+    color: INK,
+  });
+  state.y -= 15;
+  drawParagraph(state, "Pending tenant signature", {
+    size: 8.5,
+    color: MUTED,
+    after: 4,
+  });
+}
+
+function addPageFurniture(
+  document: PDFDocument,
+  regular: PDFFont,
+  bold: PDFFont,
+  logo: PDFImage | null,
+) {
+  const pages = document.getPages();
+
+  pages.forEach((page, index) => {
+    if (logo) {
+      const scaled = logo.scaleToFit(29, 29);
+      page.drawImage(logo, {
+        x: MARGIN_X,
+        y: PAGE_HEIGHT - 50,
+        width: scaled.width,
+        height: scaled.height,
+      });
+    }
+
+    page.drawText("DEKEZ SDN BHD", {
+      x: MARGIN_X + 38,
+      y: PAGE_HEIGHT - 32,
+      size: 9.5,
+      font: bold,
+      color: INK,
+    });
+    page.drawText("Company Registration No. (New): 202501054747", {
+      x: MARGIN_X + 38,
+      y: PAGE_HEIGHT - 44,
+      size: 7.5,
+      font: regular,
+      color: MUTED,
+    });
+    page.drawText("TENANCY AGREEMENT", {
+      x:
+        PAGE_WIDTH -
+        MARGIN_X -
+        bold.widthOfTextAtSize("TENANCY AGREEMENT", 9),
+      y: PAGE_HEIGHT - 35,
+      size: 9,
+      font: bold,
+      color: GOLD,
+    });
+    page.drawLine({
+      start: { x: MARGIN_X, y: PAGE_HEIGHT - 58 },
+      end: { x: PAGE_WIDTH - MARGIN_X, y: PAGE_HEIGHT - 58 },
+      thickness: 0.9,
+      color: GOLD,
+    });
+
+    page.drawText("Confidential tenancy record", {
+      x: MARGIN_X,
+      y: 28,
+      size: 7.5,
+      font: regular,
+      color: MUTED,
+    });
+    const pageLabel = `Page ${index + 1} of ${pages.length}`;
+    page.drawText(pageLabel, {
+      x: PAGE_WIDTH - MARGIN_X - regular.widthOfTextAtSize(pageLabel, 8),
+      y: 28,
+      size: 8,
+      font: regular,
+      color: MUTED,
+    });
+  });
+}
+
+export async function createAgreementPdf({
   content,
   signerName,
   signedAt,
-  signatureBytes,
-}: {
-  content: string;
-  signerName: string;
-  signedAt: string;
-  signatureBytes?: Uint8Array | null;
-}) {
+  tenantSignatureBytes,
+}: AgreementPdfInput) {
   const document = await PDFDocument.create();
   const regular = await document.embedFont(StandardFonts.Helvetica);
   const bold = await document.embedFont(StandardFonts.HelveticaBold);
-  const signature = await embedSignature(document, signatureBytes);
+  const [
+    tenantSignature,
+    authorisedSignature,
+    companyChop,
+    logo,
+  ] = await Promise.all([
+    embedImage(document, tenantSignatureBytes),
+    readPublicAsset("dekez-authorised-signature.png").then((bytes) =>
+      embedImage(document, bytes),
+    ),
+    readPublicAsset("dekez-company-chop.png").then((bytes) =>
+      embedImage(document, bytes),
+    ),
+    readPublicAsset("dekez-logo.jpg").then((bytes) =>
+      embedImage(document, bytes),
+    ),
+  ]);
   const state: DrawState = {
     document,
     page: document.addPage([PAGE_WIDTH, PAGE_HEIGHT]),
@@ -183,11 +483,32 @@ export async function createSignedAgreementPdf({
     bold,
     y: TOP_Y,
   };
+  const preparedContent = prepareAgreementPdfContent(content);
 
-  for (const rawLine of content.split("\n")) {
+  for (const rawLine of preparedContent.split("\n")) {
     const line = rawLine.trim();
     if (!line) {
       state.y -= 5;
+      continue;
+    }
+
+    if (line === "[LANDLORD_SIGNATURE]") {
+      drawLandlordSignature(state, authorisedSignature, companyChop);
+      continue;
+    }
+
+    if (line === "[Pending tenant signature]") {
+      drawPendingTenantSignature(state);
+      continue;
+    }
+
+    if (line.startsWith("Signed digitally by ")) {
+      drawTenantSignature(
+        state,
+        tenantSignature,
+        signerName || line.slice("Signed digitally by ".length),
+        signedAt,
+      );
       continue;
     }
 
@@ -197,31 +518,22 @@ export async function createSignedAgreementPdf({
         start: { x: MARGIN_X, y: state.y },
         end: { x: PAGE_WIDTH - MARGIN_X, y: state.y },
         thickness: 0.75,
-        color: rgb(0.45, 0.36, 0.18),
+        color: GOLD,
       });
       state.y -= 14;
       continue;
     }
 
     if (line.startsWith("# ")) {
-      state.y -= 4;
-      drawParagraph(state, line.slice(2), {
-        font: bold,
-        size: 18,
-        lineHeight: 22,
-        after: 10,
-      });
+      drawDocumentTitle(state, line.slice(2));
       continue;
     }
 
     if (line.startsWith("## ")) {
-      state.y -= 4;
-      drawParagraph(state, line.slice(3), {
-        font: bold,
-        size: 12,
-        lineHeight: 16,
-        after: 7,
-      });
+      if (line === "## SIGNATURES" && state.y < TOP_Y - 40) {
+        addPage(state);
+      }
+      drawSectionHeading(state, line.slice(3));
       continue;
     }
 
@@ -231,6 +543,7 @@ export async function createSignedAgreementPdf({
         size: 10.5,
         lineHeight: 14,
         after: 5,
+        color: rgb(0.16, 0.14, 0.1),
       });
       continue;
     }
@@ -247,61 +560,31 @@ export async function createSignedAgreementPdf({
     drawParagraph(state, line);
   }
 
-  ensureSpace(state, 110);
-  state.y -= 12;
-  if (signature) {
-    const scaled = signature.scaleToFit(160, 55);
-    state.page.drawImage(signature, {
-      x: MARGIN_X,
-      y: state.y - scaled.height,
-      width: scaled.width,
-      height: scaled.height,
-    });
-    state.y -= scaled.height + 8;
-  }
-  state.page.drawLine({
-    start: { x: MARGIN_X, y: state.y },
-    end: { x: MARGIN_X + 210, y: state.y },
-    thickness: 0.75,
-  });
-  state.y -= 16;
-  drawParagraph(state, `Signed digitally by ${signerName}`, {
-    font: bold,
-    after: 2,
-  });
-  drawParagraph(
-    state,
-    `Signed at ${new Intl.DateTimeFormat("en-MY", {
-      timeZone: "Asia/Kuala_Lumpur",
-      dateStyle: "long",
-      timeStyle: "medium",
-    }).format(new Date(signedAt))}`,
-    { size: 8.5, after: 0 },
-  );
-
-  const pages = document.getPages();
-  pages.forEach((page, index) => {
-    page.drawText("DEKEZ SDN BHD - TENANCY AGREEMENT", {
-      x: MARGIN_X,
-      y: PAGE_HEIGHT - 30,
-      size: 8,
-      font: bold,
-      color: rgb(0.45, 0.36, 0.18),
-    });
-    const pageLabel = `Page ${index + 1} of ${pages.length}`;
-    page.drawText(pageLabel, {
-      x: PAGE_WIDTH - MARGIN_X - regular.widthOfTextAtSize(pageLabel, 8),
-      y: 28,
-      size: 8,
-      font: regular,
-      color: rgb(0.35, 0.35, 0.35),
-    });
-  });
-
+  addPageFurniture(document, regular, bold, logo);
   document.setTitle("DEKEZ Tenancy Agreement");
+  document.setSubject("Room tenancy agreement");
   document.setAuthor("DEKEZ SDN BHD");
   document.setCreator("DEKEZ Rental Management System");
   document.setProducer("DEKEZ Rental Management System");
 
   return document.save();
+}
+
+export async function createSignedAgreementPdf({
+  content,
+  signerName,
+  signedAt,
+  signatureBytes,
+}: {
+  content: string;
+  signerName: string;
+  signedAt: string;
+  signatureBytes?: Uint8Array | null;
+}) {
+  return createAgreementPdf({
+    content,
+    signerName,
+    signedAt,
+    tenantSignatureBytes: signatureBytes,
+  });
 }

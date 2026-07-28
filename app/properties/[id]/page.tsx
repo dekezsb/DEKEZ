@@ -470,7 +470,10 @@ function AgreementActions({
   return (
     <div className="flex min-w-40 flex-wrap items-center gap-1.5">
       <Button asChild className="h-8 px-2 text-xs" size="sm" variant="outline">
-        <Link href={`/e-tenancy/${room.agreementId}?print=1`} target="_blank">
+        <Link
+          href={`/api/tenancy-agreements/${room.agreementId}/pdf`}
+          target="_blank"
+        >
           View / print
         </Link>
       </Button>

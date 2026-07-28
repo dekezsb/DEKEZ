@@ -7,13 +7,11 @@ import {
   formatMalaysiaDate,
   formatMalaysiaDateTime,
 } from "@/lib/date-format";
-import { plainTextToHtml } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { signAgreement } from "../actions";
 import { SignaturePad } from "../signature-pad";
-import { PrintOnLoad } from "./print-on-load";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -64,15 +62,10 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
     );
   const backPath =
     role === "tenant" ? "/e-tenancy" : "/tenancy-agreements";
-  const { data: signedPdf } = agreement.pdf_url
-    ? await supabase.storage
-        .from("tenancy-agreements")
-        .createSignedUrl(agreement.pdf_url, 60 * 10)
-    : { data: null };
+  const pdfPath = `/api/tenancy-agreements/${agreement.id}/pdf`;
 
   return (
     <section className="space-y-6">
-      {query.print === "1" ? <PrintOnLoad /> : null}
       <div>
         <p className="text-xs font-semibold uppercase text-[#126b5f]">E-Tenancy Agreement</p>
         <div className="mt-2 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
@@ -113,31 +106,33 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
             <Button asChild size="sm" variant="outline">
               <Link href={backPath}>Back to archive</Link>
             </Button>
-            {signedPdf?.signedUrl ? (
-              <Button asChild size="sm">
-                <a
-                  href={signedPdf.signedUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Open signed PDF
-                </a>
-              </Button>
-            ) : null}
+            <Button asChild size="sm">
+              <a href={pdfPath} rel="noreferrer" target="_blank">
+                Open PDF / Print
+              </a>
+            </Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Review Agreement</CardTitle>
-          <CardDescription>Read the full agreement before signing.</CardDescription>
+          <CardTitle>Tenancy Agreement PDF</CardTitle>
+          <CardDescription>
+            Professional A4 copy with the DEKEZ company details, authorised
+            signature and company chop.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div
-            className="prose max-w-none rounded-lg border border-[#d7dde5] bg-white p-5 text-sm leading-7"
-            dangerouslySetInnerHTML={{ __html: plainTextToHtml(agreement.rendered_content) }}
+        <CardContent className="space-y-3">
+          <iframe
+            className="h-[76vh] min-h-[720px] w-full rounded-md border border-[#d7dde5] bg-white"
+            src={`${pdfPath}#toolbar=1&navpanes=0`}
+            title={`Tenancy agreement for ${agreement.tenant_name_snapshot ?? "tenant"}`}
           />
+          <p className="text-xs text-gray-500">
+            Use Open PDF / Print if your phone does not display the embedded
+            preview.
+          </p>
         </CardContent>
       </Card>
 
