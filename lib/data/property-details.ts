@@ -2,6 +2,10 @@ import { notFound } from "next/navigation";
 import { getProperties } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  normalizePropertyTenancySettings,
+  type PropertyTenancySettings,
+} from "@/lib/tenancy/property-settings";
 
 type DataClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -117,6 +121,7 @@ export type PropertyDetailsView = {
     latestStatus: string | null;
     latestPaymentDate: string | null;
   };
+  agreementSettings: PropertyTenancySettings;
 };
 
 export async function getPropertyDetails(propertyId: string): Promise<PropertyDetailsView> {
@@ -137,11 +142,12 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
     depositPaymentsResult,
     depositSubmissionsResult,
     utilityBillsResult,
+    agreementSettingsResult,
   ] =
     await Promise.all([
       supabase
         .from("properties")
-        .select("id, company_id, name, address, property_code, area, location, city, is_commercial, payment_qr_url")
+        .select("id, company_id, name, address, property_code, area, location, city, property_type, is_commercial, payment_qr_url")
         .eq("id", propertyId)
         .single(),
       supabase
@@ -184,6 +190,13 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .eq("billing_scope", "property")
         .order("bill_month", { ascending: false })
         .order("created_at", { ascending: false }),
+      supabase
+        .from("property_tenancy_settings")
+        .select(
+          "property_type, facilities, water_mode, electricity_mode, air_conditioner_mode, air_conditioner_free_quota_kwh, optional_clauses, inventory, emergency_contact_name, emergency_contact_phone, key_handover_notes",
+        )
+        .eq("property_id", propertyId)
+        .maybeSingle(),
     ]);
 
   if (propertyResult.error || !propertyResult.data) {
@@ -339,6 +352,10 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       latestStatus: latestUtilityBill?.status ?? null,
       latestPaymentDate: latestUtilityBill?.payment_date ?? null,
     },
+    agreementSettings: normalizePropertyTenancySettings(
+      agreementSettingsResult.data,
+      Boolean(property.is_commercial),
+    ),
   };
 }
 

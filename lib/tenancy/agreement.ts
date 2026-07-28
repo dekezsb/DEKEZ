@@ -11,6 +11,11 @@ import {
   STANDARD_AGREEMENT_NAME,
   STANDARD_AGREEMENT_VERSION,
 } from "@/lib/tenancy/standard-agreement";
+import {
+  loadPropertyTenancySettings,
+  propertyAgreementVariables,
+  type PropertyTenancySettings,
+} from "@/lib/tenancy/property-settings";
 
 type AgreementType = "original" | "renewal";
 
@@ -41,6 +46,7 @@ type TenancyContext = {
     name: string;
     address: string | null;
     is_commercial: boolean;
+    property_type: string | null;
   } | null;
   rooms: {
     name: string | null;
@@ -84,7 +90,7 @@ async function loadTenancyContext(
   const { data } = await supabase
     .from("tenancies")
     .select(
-      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, status, billing_status, tenants(full_name, phone, identity_number), properties(name, address, is_commercial), rooms(name, room_number)",
+      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, status, billing_status, tenants(full_name, phone, identity_number), properties(name, address, is_commercial, property_type), rooms(name, room_number)",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -101,28 +107,40 @@ async function loadTenancyContext(
   } as TenancyContext;
 }
 
-async function ensureStandardTemplate(
+async function ensureMasterTemplate(
   supabase: SupabaseClient,
-  propertyId: string,
   userId: string,
 ) {
   const { data: existing } = await supabase
     .from("tenancy_agreement_templates")
     .select("id, template_content")
-    .eq("property_id", propertyId)
+    .is("property_id", null)
     .eq("name", STANDARD_AGREEMENT_NAME)
     .eq("version", STANDARD_AGREEMENT_VERSION)
     .limit(1)
     .maybeSingle();
 
   if (existing) {
+    if (existing.template_content !== defaultAgreementTemplate) {
+      const { data: updated } = await supabase
+        .from("tenancy_agreement_templates")
+        .update({
+          template_content: defaultAgreementTemplate,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id)
+        .select("id, template_content")
+        .single();
+      return updated ?? existing;
+    }
     return existing;
   }
 
   const { data, error } = await supabase
     .from("tenancy_agreement_templates")
     .insert({
-      property_id: propertyId,
+      property_id: null,
       name: STANDARD_AGREEMENT_NAME,
       template_content: defaultAgreementTemplate,
       version: STANDARD_AGREEMENT_VERSION,
@@ -133,13 +151,16 @@ async function ensureStandardTemplate(
     .single();
 
   if (error || !data) {
-    throw new Error(error?.message ?? "Unable to create the standard tenancy template.");
+    const { data: concurrent } = await supabase
+      .from("tenancy_agreement_templates")
+      .select("id, template_content")
+      .is("property_id", null)
+      .eq("name", STANDARD_AGREEMENT_NAME)
+      .eq("version", STANDARD_AGREEMENT_VERSION)
+      .maybeSingle();
+    if (concurrent) return concurrent;
+    throw new Error(error?.message ?? "Unable to create the master tenancy template.");
   }
-
-  await supabase
-    .from("properties")
-    .update({ default_ta_template_id: data.id })
-    .eq("id", propertyId);
 
   return data;
 }
@@ -151,6 +172,7 @@ function renderAgreement(
   endDate: string,
   durationMonths: number,
   monthlyRent: number,
+  propertySettings: PropertyTenancySettings,
 ) {
   return renderAgreementTemplate(templateContent, {
     agreement_date: formatMalaysiaDate(malaysiaToday()),
@@ -167,6 +189,7 @@ function renderAgreement(
     contract_duration_months: durationMonths,
     first_payment_due_date: formatMalaysiaDate(addDays(startDate, 7)),
     tenant_signature: "[Pending tenant signature]",
+    ...propertyAgreementVariables(propertySettings),
   });
 }
 
@@ -209,13 +232,18 @@ async function createTermAgreement(
     return { id: sameTerm.id, created: false };
   }
 
-  const [{ data: agreements }, template] = await Promise.all([
+  const [{ data: agreements }, template, propertySettings] = await Promise.all([
     supabase
       .from("tenancy_agreements")
       .select("id, version_number, term_start_date, term_end_date, status")
       .eq("tenancy_id", context.id)
       .order("term_end_date", { ascending: false }),
-    ensureStandardTemplate(supabase, context.property_id, userId),
+    ensureMasterTemplate(supabase, userId),
+    loadPropertyTenancySettings(
+      supabase,
+      context.property_id,
+      context.properties?.is_commercial ?? false,
+    ),
   ]);
   const existing = (agreements ?? []) as ExistingAgreement[];
   const previous = existing[0] ?? null;
@@ -237,6 +265,7 @@ async function createTermAgreement(
         endDate,
         durationMonths,
         monthlyRent,
+        propertySettings,
       ),
       monthly_rent_snapshot: monthlyRent,
       term_start_date: startDate,

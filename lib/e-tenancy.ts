@@ -75,6 +75,15 @@ export function plainTextToHtml(content: string) {
       continue;
     }
 
+    if (line === "[TENANT_DOCUMENT_APPENDIX]") {
+      closeList();
+      output.push("<h2>13. IC Appendix</h2>");
+      output.push(
+        "<p>Tenant identity and supporting documents are attached to the printable PDF.</p>",
+      );
+      continue;
+    }
+
     if (line.startsWith("# ")) {
       closeList();
       output.push(`<h1>${escapeHtml(line.slice(2))}</h1>`);
@@ -98,7 +107,22 @@ export function plainTextToHtml(content: string) {
         output.push("<ul>");
         listOpen = true;
       }
-      output.push(`<li>${escapeHtml(line.slice(2))}</li>`);
+      const item = line.slice(2);
+      if (item.startsWith("[INCLUDED] ")) {
+        output.push(
+          `<li><strong class="text-emerald-700">&#10003; Included</strong> - ${escapeHtml(
+            item.slice("[INCLUDED] ".length),
+          )}</li>`,
+        );
+      } else if (item.startsWith("[NOT INCLUDED] ")) {
+        output.push(
+          `<li><strong class="text-red-600">&#10007; Not Included</strong> - ${escapeHtml(
+            item.slice("[NOT INCLUDED] ".length),
+          )}</li>`,
+        );
+      } else {
+        output.push(`<li>${escapeHtml(item)}</li>`);
+      }
       continue;
     }
 

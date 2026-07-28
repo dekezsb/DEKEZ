@@ -40,7 +40,9 @@ import {
   generateRoomAgreement,
   sendRoomAgreement,
   updateProperty,
+  updatePropertyTenancySettings,
 } from "./actions";
+import { AgreementSettingsForm } from "./agreement-settings-form";
 import {
   InlineRoomField,
   PaymentQrCell,
@@ -67,6 +69,7 @@ const messages: Record<string, string> = {
   rooms_remove: "The vacant rooms could not be removed.",
   tenancy: "A tenancy could not be prepared for this tenant.",
   agreement: "The tenancy agreement could not be generated.",
+  agreement_settings: "The master agreement settings could not be saved.",
   qr_file: "Choose a JPG, PNG or WebP QR image smaller than 5 MB.",
   qr_room: "The selected room could not be found.",
   qr_upload: "The room payment QR could not be uploaded.",
@@ -262,6 +265,25 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tenancy Agreement Settings</CardTitle>
+          <CardDescription>
+            {canManage
+              ? "Configure this property for the DEKEZ Master Tenancy Agreement."
+              : "Agreement settings are read-only for Owner access."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AgreementSettingsForm
+            action={updatePropertyTenancySettings}
+            propertyId={details.property.id}
+            readOnly={!canManage}
+            settings={details.agreementSettings}
+          />
         </CardContent>
       </Card>
 

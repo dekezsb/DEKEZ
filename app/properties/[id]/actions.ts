@@ -18,6 +18,11 @@ import {
   uploadTenantDocuments,
 } from "@/lib/tenant-documents";
 import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
+import {
+  FACILITY_OPTIONS,
+  OPTIONAL_CLAUSES,
+  PROPERTY_TYPES,
+} from "@/lib/tenancy/property-settings";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -295,6 +300,110 @@ export async function updateProperty(formData: FormData) {
   revalidatePath("/properties");
   revalidatePath(propertyPath(property.id));
   redirect(propertyPath(property.id, "?saved=property"));
+}
+
+export async function updatePropertyTenancySettings(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const propertyId = textValue(formData, "propertyId");
+  const property = await accessibleProperty(propertyId);
+  if (!user || !property) {
+    redirect("/properties");
+  }
+
+  const propertyType = textValue(formData, "propertyType");
+  const waterMode = textValue(formData, "waterMode");
+  const electricityMode = textValue(formData, "electricityMode");
+  const airConditionerMode = textValue(formData, "airConditionerMode");
+  const validPropertyTypes = new Set(PROPERTY_TYPES.map((item) => item.value));
+  const validUtilityModes = new Set(["included", "tenant_pays", "smart_meter"]);
+  const validAirConditionerModes = new Set([
+    "included",
+    "smart_meter",
+    "monthly_free_quota",
+    "none",
+  ]);
+
+  if (
+    !validPropertyTypes.has(
+      propertyType as (typeof PROPERTY_TYPES)[number]["value"],
+    ) ||
+    !validUtilityModes.has(waterMode) ||
+    !validUtilityModes.has(electricityMode) ||
+    !validAirConditionerModes.has(airConditionerMode)
+  ) {
+    redirect(propertyPath(property.id, "?error=agreement_settings"));
+  }
+
+  const facilities = Object.fromEntries(
+    FACILITY_OPTIONS.map((item) => [
+      item.code,
+      formData.get(`facility.${item.code}`) === "on",
+    ]),
+  );
+  const optionalClauses = Object.fromEntries(
+    OPTIONAL_CLAUSES.map((item) => [
+      item.code,
+      formData.get(`clause.${item.code}`) === "on",
+    ]),
+  );
+  const names = formData.getAll("inventoryName");
+  const quantities = formData.getAll("inventoryQuantity");
+  const notes = formData.getAll("inventoryNotes");
+  const inventory = names
+    .map((value, index) => ({
+      name: typeof value === "string" ? value.trim() : "",
+      quantity: Math.max(
+        1,
+        Math.floor(
+          Number(
+            typeof quantities[index] === "string" ? quantities[index] : 1,
+          ) || 1,
+        ),
+      ),
+      notes:
+        typeof notes[index] === "string" ? notes[index].trim() : "",
+    }))
+    .filter((item) => item.name);
+  const quotaText = textValue(formData, "airConditionerFreeQuotaKwh");
+  const quota = quotaText ? Number(quotaText) : null;
+  if (quota !== null && (!Number.isFinite(quota) || quota < 0)) {
+    redirect(propertyPath(property.id, "?error=agreement_settings"));
+  }
+
+  const supabase = await getAdmin();
+  const { error } = await supabase.from("property_tenancy_settings").upsert(
+    {
+      property_id: property.id,
+      property_type: propertyType,
+      facilities,
+      water_mode: waterMode,
+      electricity_mode: electricityMode,
+      air_conditioner_mode: airConditionerMode,
+      air_conditioner_free_quota_kwh:
+        airConditionerMode === "monthly_free_quota" ? quota ?? 0 : null,
+      optional_clauses: optionalClauses,
+      inventory,
+      emergency_contact_name: textValue(formData, "emergencyContactName") || null,
+      emergency_contact_phone:
+        textValue(formData, "emergencyContactPhone") || null,
+      key_handover_notes: textValue(formData, "keyHandoverNotes") || null,
+      created_by: user.id,
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "property_id" },
+  );
+
+  if (error) {
+    redirect(propertyPath(property.id, "?error=agreement_settings"));
+  }
+
+  revalidatePath(propertyPath(property.id));
+  redirect(propertyPath(property.id, "?saved=agreement_settings"));
 }
 
 export async function updatePaymentQr(formData: FormData) {

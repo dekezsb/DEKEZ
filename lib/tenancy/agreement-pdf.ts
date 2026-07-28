@@ -19,6 +19,8 @@ const BODY_LINE_HEIGHT = 13.5;
 const GOLD = rgb(0.68, 0.48, 0.16);
 const INK = rgb(0.08, 0.08, 0.08);
 const MUTED = rgb(0.36, 0.39, 0.43);
+const INCLUDED = rgb(0.05, 0.48, 0.3);
+const NOT_INCLUDED = rgb(0.78, 0.12, 0.12);
 
 type DrawState = {
   document: PDFDocument;
@@ -207,7 +209,10 @@ export function prepareAgreementPdfContent(content: string) {
       "Company Registration No. (New): 202501054747",
     );
 
-  const signatureIndex = normalized.indexOf("## SIGNATURES");
+  const signatureMatch = normalized.match(
+    /^## (?:\d+\.\s+)?SIGNATURES\s*$/m,
+  );
+  const signatureIndex = signatureMatch?.index ?? -1;
   if (signatureIndex === -1) {
     return normalized;
   }
@@ -275,6 +280,56 @@ function drawSectionHeading(state: DrawState, heading: string) {
     color: GOLD,
   });
   state.y -= 14;
+}
+
+function drawFacilityStatus(
+  state: DrawState,
+  label: string,
+  included: boolean,
+) {
+  const color = included ? INCLUDED : NOT_INCLUDED;
+  const text = `${included ? "Included" : "Not Included"} - ${label}`;
+  const indent = 22;
+  const lines = wrapText(
+    text,
+    state.regular,
+    BODY_SIZE,
+    PAGE_WIDTH - MARGIN_X * 2 - indent,
+  );
+  ensureSpace(state, lines.length * BODY_LINE_HEIGHT + 4);
+  const iconX = MARGIN_X + 4;
+  const iconY = state.y + 3;
+
+  if (included) {
+    state.page.drawLine({
+      start: { x: iconX, y: iconY - 4 },
+      end: { x: iconX + 4, y: iconY - 8 },
+      thickness: 1.5,
+      color,
+    });
+    state.page.drawLine({
+      start: { x: iconX + 4, y: iconY - 8 },
+      end: { x: iconX + 11, y: iconY + 1 },
+      thickness: 1.5,
+      color,
+    });
+  } else {
+    state.page.drawLine({
+      start: { x: iconX, y: iconY },
+      end: { x: iconX + 10, y: iconY - 10 },
+      thickness: 1.4,
+      color,
+    });
+    state.page.drawLine({
+      start: { x: iconX + 10, y: iconY },
+      end: { x: iconX, y: iconY - 10 },
+      thickness: 1.4,
+      color,
+    });
+  }
+
+  drawLines(state, lines, { indent, color });
+  state.y -= 3;
 }
 
 function drawLandlordSignature(
@@ -396,7 +451,7 @@ function drawAppendixPageHeading(
   document: AgreementAppendixDocument,
   pageNumber?: { current: number; total: number },
 ) {
-  drawSectionHeading(state, "APPENDIX");
+  drawSectionHeading(state, "13. IC APPENDIX");
   const pageLabel = pageNumber
     ? ` - Page ${pageNumber.current} of ${pageNumber.total}`
     : "";
@@ -588,9 +643,27 @@ export async function createAgreementPdf({
   };
   const preparedContent = prepareAgreementPdfContent(content);
   let skipTemplateAppendix = false;
+  let appendedDocuments = false;
 
   for (const rawLine of preparedContent.split("\n")) {
     const line = rawLine.trim();
+
+    if (line === "[TENANT_DOCUMENT_APPENDIX]") {
+      appendedDocuments = true;
+      if (appendixDocuments.length) {
+        await appendAgreementDocuments(state, appendixDocuments);
+      } else {
+        addPage(state);
+        drawSectionHeading(state, "13. IC APPENDIX");
+        drawParagraph(
+          state,
+          "No tenant identity or supporting document was attached when this agreement was generated.",
+          { color: MUTED },
+        );
+      }
+      addPage(state);
+      continue;
+    }
 
     if (line === "## APPENDIX") {
       skipTemplateAppendix = true;
@@ -644,7 +717,7 @@ export async function createAgreementPdf({
     }
 
     if (line.startsWith("## ")) {
-      if (line === "## SIGNATURES") {
+      if (/^## (?:\d+\.\s+)?SIGNATURES$/.test(line)) {
         addPage(state);
       }
       drawSectionHeading(state, line.slice(3));
@@ -662,6 +735,24 @@ export async function createAgreementPdf({
       continue;
     }
 
+    if (line.startsWith("- [INCLUDED] ")) {
+      drawFacilityStatus(
+        state,
+        line.slice("- [INCLUDED] ".length),
+        true,
+      );
+      continue;
+    }
+
+    if (line.startsWith("- [NOT INCLUDED] ")) {
+      drawFacilityStatus(
+        state,
+        line.slice("- [NOT INCLUDED] ".length),
+        false,
+      );
+      continue;
+    }
+
     if (line.startsWith("- ")) {
       drawParagraph(state, line.slice(2), {
         bullet: true,
@@ -674,7 +765,9 @@ export async function createAgreementPdf({
     drawParagraph(state, line);
   }
 
-  await appendAgreementDocuments(state, appendixDocuments);
+  if (!appendedDocuments) {
+    await appendAgreementDocuments(state, appendixDocuments);
+  }
   addPageFurniture(document, regular, bold, logo);
   document.setTitle("DEKEZ Tenancy Agreement");
   document.setSubject("Room tenancy agreement");
