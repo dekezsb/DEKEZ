@@ -156,16 +156,22 @@ function dueTiming(room: RentMapRoom, today: string) {
   };
 }
 
+function compactRoomLabel(roomNumber: string) {
+  const number = roomNumber.trim().replace(/^room\s*/i, "");
+  return /^r/i.test(number) ? number.toUpperCase() : `R${number}`;
+}
+
 function RoomCard({ room, today }: { room: RentMapRoom; today: string }) {
   const timing = dueTiming(room, today);
+  const roomLabel = compactRoomLabel(room.roomNumber);
 
   return (
     <Link
       href={`/properties/${room.propertyId}/rooms/${room.id}`}
-      aria-label={`Open Room ${room.roomNumber}, due day ${room.dueDay ?? "not set"}, ${timing.label}`}
+      aria-label={`Open ${roomLabel}, due day ${room.dueDay ?? "not set"}, ${timing.label}`}
       className={`group rounded-lg border p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a2c] ${dueUrgencyStyles[timing.urgency]}`}
     >
-      <p className="font-semibold">Room {room.roomNumber}</p>
+      <p className="font-semibold">{roomLabel}</p>
       <p className="mt-1 text-xs font-medium text-current/75">
         Due day {room.dueDay ?? "-"}
       </p>
