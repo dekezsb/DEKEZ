@@ -28,6 +28,7 @@ type RentDueActionsProps = {
   receiptUrl?: string | null;
   latestSubmissionId?: string | null;
   latestSubmissionStatus?: string | null;
+  compact?: boolean;
 };
 
 export function RentDueActions({
@@ -44,6 +45,7 @@ export function RentDueActions({
   receiptUrl,
   latestSubmissionId,
   latestSubmissionStatus,
+  compact = false,
 }: RentDueActionsProps) {
   const [reminderOpen, setReminderOpen] = useState(false);
   const [paidOpen, setPaidOpen] = useState(false);
@@ -57,7 +59,7 @@ export function RentDueActions({
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
         <Button size="sm" type="button" variant="outline" onClick={() => setReminderOpen(true)}>
-          <MessageCircle aria-hidden="true" className="size-4" />
+          {compact ? null : <MessageCircle aria-hidden="true" className="size-4" />}
           WhatsApp
         </Button>
         <Button
@@ -66,7 +68,7 @@ export function RentDueActions({
           type="button"
           onClick={() => setPaidOpen(true)}
         >
-          <Banknote aria-hidden="true" className="size-4" />
+          {compact ? null : <Banknote aria-hidden="true" className="size-4" />}
           Cash received
         </Button>
         <Button
@@ -81,29 +83,37 @@ export function RentDueActions({
           {canVerify ? "Slip submitted" : "Online"}
         </Button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button asChild size="sm" variant="ghost">
-          <Link href={`/payments?bill=${billId}`}>View Bill</Link>
-        </Button>
-      {receiptUrl ? (
-        <DocumentPreview
-          label="Payment slip"
-          showName={false}
-          size="sm"
-          url={receiptUrl}
-        />
-      ) : null}
-      {canVerify ? (
-        <Button size="sm" type="button" onClick={() => setVerifyOpen(true)}>
-          Verify Payment
-        </Button>
-      ) : null}
-      {canVerify ? (
-        <Button className="border-red-200 text-red-700 hover:bg-red-50" size="sm" type="button" variant="outline" onClick={() => setRejectOpen(true)}>
-          Reject Payment
-        </Button>
-      ) : null}
-      </div>
+      {compact ? null : (
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="sm" variant="ghost">
+            <Link href={`/payments?bill=${billId}`}>View Bill</Link>
+          </Button>
+          {receiptUrl ? (
+            <DocumentPreview
+              label="Payment slip"
+              showName={false}
+              size="sm"
+              url={receiptUrl}
+            />
+          ) : null}
+          {canVerify ? (
+            <Button size="sm" type="button" onClick={() => setVerifyOpen(true)}>
+              Verify Payment
+            </Button>
+          ) : null}
+          {canVerify ? (
+            <Button
+              className="border-red-200 text-red-700 hover:bg-red-50"
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => setRejectOpen(true)}
+            >
+              Reject Payment
+            </Button>
+          ) : null}
+        </div>
+      )}
 
       {reminderOpen ? (
         <Modal title="Send WhatsApp reminder" onClose={() => setReminderOpen(false)}>

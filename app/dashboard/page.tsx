@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CompanyCashInHand } from "@/components/dashboard/company-cash-in-hand";
+import { CompactRentDueTracker } from "@/components/dashboard/compact-rent-due-tracker";
 import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
 import { TenantHome } from "@/components/tenant/tenant-portal";
 import { requireRole } from "@/lib/auth/session";
@@ -98,6 +99,7 @@ export default async function DashboardPage({
     cash_error?: string;
     cash_saved?: string;
     cash_cancelled?: string;
+    rentBucket?: string;
   }>;
 }) {
   const query = await searchParams;
@@ -256,6 +258,7 @@ async function AdminDashboard({
     cash_error?: string;
     cash_saved?: string;
     cash_cancelled?: string;
+    rentBucket?: string;
   };
 }) {
   const [summary, rentDueSummary, depositSummary, cashSummary] = await Promise.all([
@@ -358,25 +361,10 @@ async function AdminDashboard({
 
       <DepositOutstanding canManage summary={depositSummary} />
 
-      <div className="mx-auto max-w-4xl space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase text-[#b98a2c]">Rent Due</p>
-            <h2 className="text-xl font-semibold text-[#07142f]">Rent Due Tracker</h2>
-          </div>
-          <Button asChild variant="outline">
-            <Link href="/rent-due-tracker">Open tracker</Link>
-          </Button>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard label="Due Today" value={rentDueSummary.dueToday} detail="Bills due today" />
-          <StatCard label="Coming Up in 7 Days" value={rentDueSummary.comingUpIn7Days} detail="Upcoming unpaid bills" />
-          <StatCard label="Overdue Tenants" value={rentDueSummary.overdueTenants} detail="Bills past due date" />
-          <StatCard label="Total Outstanding" value={money(rentDueSummary.totalOutstanding)} detail="Unpaid rent balance" />
-          <StatCard label="Payment Slips Pending Verification" value={rentDueSummary.pendingPaymentSlips} detail="Uploaded but not counted as paid" />
-          <StatCard label="Rent Collected This Month" value={money(rentDueSummary.rentCollectedThisMonth)} detail="Verified rent payments only" />
-        </div>
-      </div>
+      <CompactRentDueTracker
+        selectedBucket={query.rentBucket}
+        summary={rentDueSummary}
+      />
     </section>
   );
 }
