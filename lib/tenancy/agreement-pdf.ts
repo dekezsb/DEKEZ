@@ -451,7 +451,7 @@ function drawAppendixPageHeading(
   document: AgreementAppendixDocument,
   pageNumber?: { current: number; total: number },
 ) {
-  drawSectionHeading(state, "13. IC APPENDIX");
+  drawSectionHeading(state, "ATTACHMENT - TENANT DOCUMENTS");
   const pageLabel = pageNumber
     ? ` - Page ${pageNumber.current} of ${pageNumber.total}`
     : "";
@@ -644,24 +644,27 @@ export async function createAgreementPdf({
   const preparedContent = prepareAgreementPdfContent(content);
   let skipTemplateAppendix = false;
   let appendedDocuments = false;
+  const contentLines = preparedContent.split("\n");
 
-  for (const rawLine of preparedContent.split("\n")) {
+  for (const [lineIndex, rawLine] of contentLines.entries()) {
     const line = rawLine.trim();
 
     if (line === "[TENANT_DOCUMENT_APPENDIX]") {
       appendedDocuments = true;
       if (appendixDocuments.length) {
         await appendAgreementDocuments(state, appendixDocuments);
-      } else {
-        addPage(state);
-        drawSectionHeading(state, "13. IC APPENDIX");
-        drawParagraph(
-          state,
-          "No tenant identity or supporting document was attached when this agreement was generated.",
-          { color: MUTED },
-        );
       }
-      addPage(state);
+      const nextLine = contentLines
+        .slice(lineIndex + 1)
+        .map((candidate) => candidate.trim())
+        .find(Boolean);
+      if (nextLine && nextLine !== "## END OF AGREEMENT") {
+        addPage(state);
+      }
+      continue;
+    }
+
+    if (line === "## END OF AGREEMENT") {
       continue;
     }
 
@@ -717,7 +720,10 @@ export async function createAgreementPdf({
     }
 
     if (line.startsWith("## ")) {
-      if (/^## (?:\d+\.\s+)?SIGNATURES$/.test(line)) {
+      if (
+        /^## (?:\d+\.\s+)?SIGNATURES$/.test(line) ||
+        line === "## ATTACHMENTS"
+      ) {
         addPage(state);
       }
       drawSectionHeading(state, line.slice(3));
@@ -725,6 +731,9 @@ export async function createAgreementPdf({
     }
 
     if (line.startsWith("### ")) {
+      if (/^### SCHEDULE \d+$/.test(line)) {
+        addPage(state);
+      }
       drawParagraph(state, line.slice(4), {
         font: bold,
         size: 10.5,

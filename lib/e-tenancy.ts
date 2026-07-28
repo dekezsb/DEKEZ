@@ -77,10 +77,11 @@ export function plainTextToHtml(content: string) {
 
     if (line === "[TENANT_DOCUMENT_APPENDIX]") {
       closeList();
-      output.push("<h2>13. IC Appendix</h2>");
-      output.push(
-        "<p>Tenant identity and supporting documents are attached to the printable PDF.</p>",
-      );
+      continue;
+    }
+
+    if (line === "## END OF AGREEMENT") {
+      closeList();
       continue;
     }
 

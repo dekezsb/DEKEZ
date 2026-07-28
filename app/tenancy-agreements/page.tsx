@@ -5,9 +5,15 @@ import { requireRole } from "@/lib/auth/session";
 import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { RegenerateMasterButton } from "./regenerate-master-button";
 
 type PageProps = {
-  searchParams: Promise<{ occupancy?: string }>;
+  searchParams: Promise<{
+    occupancy?: string;
+    regenerated?: string;
+    skipped?: string;
+    errors?: string;
+  }>;
 };
 
 export default async function TenancyAgreementsPage({
@@ -37,10 +43,27 @@ export default async function TenancyAgreementsPage({
             after a tenant checks out.
           </p>
         </div>
-        <Badge className="w-fit bg-[#f6edd9] text-[#7a5618]">
-          {archive.agreements.length} agreement terms
-        </Badge>
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge className="w-fit bg-[#f6edd9] text-[#7a5618]">
+            {archive.agreements.length} agreement terms
+          </Badge>
+          {role !== "owner" ? <RegenerateMasterButton /> : null}
+        </div>
       </div>
+
+      {params.regenerated ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+          {params.regenerated} agreement
+          {params.regenerated === "1" ? "" : "s"} regenerated with the latest
+          DEKEZ master wording.
+          {params.skipped && params.skipped !== "0"
+            ? ` ${params.skipped} agreement(s) were skipped.`
+            : ""}
+          {params.errors && params.errors !== "0"
+            ? ` ${params.errors} agreement(s) need review.`
+            : ""}
+        </div>
+      ) : null}
 
       {archive.error ? (
         <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">

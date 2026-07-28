@@ -308,6 +308,42 @@ function propertyTypeWording(type: PropertyType) {
   return wording[type];
 }
 
+function permittedUse(type: PropertyType) {
+  const wording: Record<PropertyType, string> = {
+    residential_room:
+      "Private residential occupation by the approved Tenant only.",
+    whole_house:
+      "Private residential occupation of the whole house by the approved Tenant and permitted occupants only.",
+    office: "Approved office use only. Residential occupation is prohibited.",
+    shop_lot:
+      "Approved commercial shop-lot use only, subject to the required licences and approvals.",
+  };
+  return wording[type];
+}
+
+function facilityStatus(included: boolean) {
+  return included ? "Included in Monthly Rental" : "Not Included";
+}
+
+function utilityStatus(mode: UtilityMode) {
+  if (mode === "included") return "Included in Monthly Rental";
+  if (mode === "smart_meter") return "Charged According to Smart Meter";
+  return "Tenant Pays Separately";
+}
+
+function airConditionerStatus(settings: PropertyTenancySettings) {
+  if (settings.airConditionerMode === "none") return "Not Available";
+  if (settings.airConditionerMode === "included") {
+    return "Included in Monthly Rental";
+  }
+  if (settings.airConditionerMode === "monthly_free_quota") {
+    return `Charged According to Smart Meter with ${(
+      settings.airConditionerFreeQuotaKwh ?? 0
+    ).toFixed(2)} kWh Monthly Free Quota`;
+  }
+  return "Charged According to Smart Meter";
+}
+
 function utilityClause(
   label: string,
   mode: UtilityMode,
@@ -379,9 +415,38 @@ export function propertyAgreementVariables(
         )
         .join("\n")
     : "- No property inventory items have been assigned.";
+  const inventoryNames = settings.inventory.length
+    ? settings.inventory.map((item) => item.name).join(", ")
+    : "See Schedule 2";
+  const inventoryQuantity = settings.inventory.length
+    ? String(
+        settings.inventory.reduce(
+          (total, item) => total + item.quantity,
+          0,
+        ),
+      )
+    : "-";
+  const inventoryCondition =
+    settings.inventory
+      .map((item) => item.notes)
+      .filter(Boolean)
+      .join("; ") || "As recorded at check-in";
+  const enabledClauseLabels = OPTIONAL_CLAUSES.filter(
+    (clause) => settings.optionalClauses[clause.code],
+  ).map((clause) => clause.label);
+  const smartMeterEnabled =
+    settings.waterMode === "smart_meter" ||
+    settings.electricityMode === "smart_meter" ||
+    ["smart_meter", "monthly_free_quota"].includes(
+      settings.airConditionerMode,
+    );
+  const cookingAllowed =
+    settings.facilities.cooking_allowed ||
+    settings.optionalClauses.cooking_allowed;
 
   return {
     property_type: type?.label ?? "Residential Room",
+    permitted_use: permittedUse(settings.propertyType),
     property_type_clause: propertyTypeWording(settings.propertyType),
     facility_matrix: facilities,
     utility_clauses: [
@@ -396,7 +461,63 @@ export function propertyAgreementVariables(
       settings.emergencyContactName || "DEKEZ Management",
     emergency_contact_phone:
       settings.emergencyContactPhone || "Registered DEKEZ support channel",
+    emergency_contact_relationship: "-",
     key_handover_items: keyHandoverItems(settings),
     key_handover_notes: settings.keyHandoverNotes || "-",
+    wifi_status: facilityStatus(settings.facilities.wifi),
+    water_status: utilityStatus(settings.waterMode),
+    electricity_status: utilityStatus(settings.electricityMode),
+    aircond_status: airConditionerStatus(settings),
+    smart_meter_status: smartMeterEnabled
+      ? "Smart Meter"
+      : "Not Included",
+    parking_status: facilityStatus(settings.facilities.parking),
+    kitchen_status: facilityStatus(settings.facilities.kitchen_access),
+    cooking_status: cookingAllowed ? "Allowed" : "Not Allowed",
+    washing_machine_status: facilityStatus(
+      settings.facilities.washing_machine,
+    ),
+    refrigerator_status: facilityStatus(settings.facilities.refrigerator),
+    water_heater_status: facilityStatus(settings.facilities.water_heater),
+    cleaning_status: facilityStatus(
+      settings.facilities.cleaning_service ||
+        settings.optionalClauses.cleaning_included,
+    ),
+    smart_lock_status: facilityStatus(settings.facilities.smart_lock),
+    access_card_status: facilityStatus(settings.facilities.access_card),
+    visitor_status: "Allowed subject to the House Rules",
+    overnight_visitor_status: settings.optionalClauses.visitors_overnight
+      ? "Allowed subject to prior approval"
+      : "Not Allowed",
+    pet_status: settings.optionalClauses.pets_allowed
+      ? "Allowed subject to prior approval"
+      : "Not Allowed",
+    smoking_status: settings.optionalClauses.smoking_allowed
+      ? "Allowed only in a designated area"
+      : "Not Allowed",
+    inventory_item: inventoryNames,
+    quantity: inventoryQuantity,
+    condition: inventoryCondition,
+    replacement_cost: "0.00",
+    electricity_rate: "0.00",
+    electricity_free_quota_kwh:
+      settings.airConditionerMode === "monthly_free_quota"
+        ? (settings.airConditionerFreeQuotaKwh ?? 0).toFixed(2)
+        : "No Free Quota",
+    electricity_free_quota_amount: "0.00",
+    smart_meter_rate: "As stated on the applicable utility bill",
+    utility_quota:
+      settings.airConditionerMode === "monthly_free_quota"
+        ? `${(settings.airConditionerFreeQuotaKwh ?? 0).toFixed(2)} kWh`
+        : "No Free Quota",
+    special_conditions: enabledClauseLabels.length
+      ? enabledClauseLabels.join(", ")
+      : "None",
+    room_key_quantity: "1",
+    main_key_quantity: "0",
+    access_card_quantity: settings.facilities.access_card ? "1" : "0",
+    smart_lock_access: settings.facilities.smart_lock
+      ? "Enabled"
+      : "Not Included",
   };
 }

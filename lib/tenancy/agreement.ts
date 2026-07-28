@@ -4,7 +4,6 @@ import {
   addDays,
   calculateTermEndDate,
   defaultAgreementTemplate,
-  money,
   renderAgreementTemplate,
 } from "@/lib/e-tenancy";
 import {
@@ -35,16 +34,19 @@ type TenancyContext = {
   check_in_date: string | null;
   checkout_date: string | null;
   contract_duration_months: number | null;
+  rent_due_day: number | null;
   status: string;
   billing_status: string | null;
   tenants: {
     full_name: string;
+    email: string | null;
     phone: string | null;
     identity_number: string | null;
   } | null;
   properties: {
     name: string;
     address: string | null;
+    property_code: string | null;
     is_commercial: boolean;
     property_type: string | null;
   } | null;
@@ -60,6 +62,11 @@ type ExistingAgreement = {
   term_start_date: string | null;
   term_end_date: string | null;
   status: string;
+};
+
+type RegenerableAgreement = ExistingAgreement & {
+  tenancy_id: string;
+  monthly_rent_snapshot: number | string | null;
 };
 
 function first<T>(value: T | T[] | null | undefined) {
@@ -83,6 +90,13 @@ function agreementStatusForTerm(endDate: string) {
   return endDate < malaysiaToday() ? "expired" : "pending_signature";
 }
 
+function agreementAmount(value: number | string | null | undefined) {
+  return new Intl.NumberFormat("en-MY", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value ?? 0));
+}
+
 async function loadTenancyContext(
   supabase: SupabaseClient,
   tenancyId: string,
@@ -90,7 +104,7 @@ async function loadTenancyContext(
   const { data } = await supabase
     .from("tenancies")
     .select(
-      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, status, billing_status, tenants(full_name, phone, identity_number), properties(name, address, is_commercial, property_type), rooms(name, room_number)",
+      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, status, billing_status, tenants(full_name, email, phone, identity_number), properties(name, address, property_code, is_commercial, property_type), rooms(name, room_number)",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -109,11 +123,11 @@ async function loadTenancyContext(
 
 async function ensureMasterTemplate(
   supabase: SupabaseClient,
-  userId: string,
+  userId: string | null,
 ) {
   const { data: existing } = await supabase
     .from("tenancy_agreement_templates")
-    .select("id, template_content")
+    .select("id, template_content, is_active")
     .is("property_id", null)
     .eq("name", STANDARD_AGREEMENT_NAME)
     .eq("version", STANDARD_AGREEMENT_VERSION)
@@ -121,7 +135,20 @@ async function ensureMasterTemplate(
     .maybeSingle();
 
   if (existing) {
-    if (existing.template_content !== defaultAgreementTemplate) {
+    await supabase
+      .from("tenancy_agreement_templates")
+      .update({
+        is_active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .is("property_id", null)
+      .eq("name", STANDARD_AGREEMENT_NAME)
+      .neq("version", STANDARD_AGREEMENT_VERSION);
+
+    if (
+      existing.template_content !== defaultAgreementTemplate ||
+      !existing.is_active
+    ) {
       const { data: updated } = await supabase
         .from("tenancy_agreement_templates")
         .update({
@@ -136,6 +163,15 @@ async function ensureMasterTemplate(
     }
     return existing;
   }
+
+  await supabase
+    .from("tenancy_agreement_templates")
+    .update({
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .is("property_id", null)
+    .eq("name", STANDARD_AGREEMENT_NAME);
 
   const { data, error } = await supabase
     .from("tenancy_agreement_templates")
@@ -175,22 +211,118 @@ function renderAgreement(
   propertySettings: PropertyTenancySettings,
 ) {
   return renderAgreementTemplate(templateContent, {
-    agreement_date: formatMalaysiaDate(malaysiaToday()),
+    agreement_date: formatMalaysiaDate(startDate),
+    landlord_address:
+      "Lot 30, Kian Yap Industrial Estate, Lorong Durian 3, Kota Kinabalu, Sabah, Malaysia",
     tenant_name: context.tenants?.full_name,
     tenant_ic_passport: context.tenants?.identity_number,
     tenant_phone: context.tenants?.phone,
+    tenant_email: context.tenants?.email,
     property_name: context.properties?.name,
+    property_code: context.properties?.property_code,
     room_number: context.rooms?.room_number ?? context.rooms?.name,
     premise_address: context.properties?.address,
-    monthly_rent: money(monthlyRent),
-    deposit_amount: money(context.deposit),
+    property_address: context.properties?.address,
+    monthly_rent: agreementAmount(monthlyRent),
+    deposit_amount: agreementAmount(context.deposit),
+    security_deposit: agreementAmount(context.deposit),
+    utility_deposit: agreementAmount(0),
+    key_deposit: agreementAmount(0),
+    other_deposit: agreementAmount(0),
+    rent_due_day: context.rent_due_day ?? new Date(`${startDate}T00:00:00Z`).getUTCDate(),
     tenancy_start_date: formatMalaysiaDate(startDate),
     tenancy_end_date: formatMalaysiaDate(endDate),
     contract_duration_months: durationMonths,
     first_payment_due_date: formatMalaysiaDate(addDays(startDate, 7)),
+    late_fee_per_day: "0.00",
+    late_fee_start_day: "the day after the due date",
+    deposit_refund_days: 30,
+    utility_payment_days: 7,
+    defect_reporting_days: 2,
+    lost_key_fee: "0.00",
+    lost_card_fee: "0.00",
+    lockout_fee: "0.00",
+    lock_change_fee: "0.00",
+    unauthorised_occupant_fee: "0.00",
+    renewal_notice_months: 1,
+    checkout_notice_months: 1,
+    abandoned_item_days: 30,
+    landlord_representative_name: "Director of DEKEZ",
+    landlord_representative_role: "Director",
+    landlord_representative_ic: "950222-12-5502",
+    landlord_signature: "[LANDLORD_SIGNATURE]",
+    landlord_signature_date: formatMalaysiaDate(startDate),
     tenant_signature: "[Pending tenant signature]",
+    tenant_signature_date: "-",
+    witness_name: "-",
+    witness_ic_passport: "-",
+    witness_signature: "-",
+    witness_signature_date: "-",
     ...propertyAgreementVariables(propertySettings),
   });
+}
+
+function durationForTerm(
+  startDate: string,
+  endDate: string,
+  fallback: number,
+) {
+  const candidates = Array.from(
+    new Set([fallback, 6, 12, ...Array.from({ length: 36 }, (_, index) => index + 1)]),
+  );
+  return (
+    candidates.find(
+      (duration) => calculateTermEndDate(startDate, duration) === endDate,
+    ) ?? fallback
+  );
+}
+
+async function renderExistingAgreement(
+  supabase: SupabaseClient,
+  agreement: RegenerableAgreement,
+  templateContent: string,
+  monthlyRent?: number,
+) {
+  const context = await loadTenancyContext(supabase, agreement.tenancy_id);
+  if (!context) {
+    throw new Error("The tenancy linked to this agreement was not found.");
+  }
+
+  const startDate =
+    agreement.term_start_date ??
+    context.check_in_date ??
+    context.tenancy_start_date ??
+    context.contract_start ??
+    context.start_date;
+  const fallbackDuration =
+    context.contract_duration_months ??
+    renewalDurationMonths(context.properties?.is_commercial ?? false);
+  const endDate =
+    agreement.term_end_date ??
+    context.checkout_date ??
+    context.tenancy_end_date ??
+    context.contract_end ??
+    context.end_date ??
+    calculateTermEndDate(startDate, fallbackDuration);
+  const duration = durationForTerm(startDate, endDate, fallbackDuration);
+  const settings = await loadPropertyTenancySettings(
+    supabase,
+    context.property_id,
+    context.properties?.is_commercial ?? false,
+  );
+
+  return {
+    context,
+    renderedContent: renderAgreement(
+      context,
+      templateContent,
+      startDate,
+      endDate,
+      duration,
+      monthlyRent ?? Number(agreement.monthly_rent_snapshot ?? context.monthly_rental ?? 0),
+      settings,
+    ),
+  };
 }
 
 async function createTermAgreement(
@@ -426,7 +558,9 @@ export async function updateUnsignedAgreementRent(
 
   const { data: agreement, error: agreementError } = await supabase
     .from("tenancy_agreements")
-    .select("id, status, rendered_content")
+    .select(
+      "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot",
+    )
     .eq("id", agreementId)
     .maybeSingle();
 
@@ -437,18 +571,18 @@ export async function updateUnsignedAgreementRent(
     throw new Error("A signed agreement rent cannot be changed.");
   }
 
-  const rentLine = `Monthly Rent: ${money(monthlyRent)}`;
-  const renderedContent = agreement.rendered_content.replace(
-    /^Monthly Rent:.*$/m,
-    rentLine,
+  const template = await ensureMasterTemplate(supabase, null);
+  const { renderedContent } = await renderExistingAgreement(
+    supabase,
+    agreement as RegenerableAgreement,
+    template.template_content,
+    monthlyRent,
   );
-  if (renderedContent === agreement.rendered_content) {
-    throw new Error("The agreement rent line could not be updated.");
-  }
 
   const { data: updated, error: updateError } = await supabase
     .from("tenancy_agreements")
     .update({
+      template_id: template.id,
       monthly_rent_snapshot: monthlyRent,
       rendered_content: renderedContent,
       updated_at: new Date().toISOString(),
@@ -473,6 +607,81 @@ export async function updateUnsignedAgreementRent(
     .eq("new_agreement_id", agreement.id);
 
   return updated.id;
+}
+
+export async function regenerateAllUnsignedAgreements(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const [{ data: agreements, error }, template] = await Promise.all([
+    supabase
+      .from("tenancy_agreements")
+      .select(
+        "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot",
+      )
+      .not("status", "in", "(signed,renewal_signed)")
+      .order("created_at", { ascending: true }),
+    ensureMasterTemplate(supabase, userId),
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const items = (agreements ?? []) as RegenerableAgreement[];
+  let regenerated = 0;
+  let skipped = 0;
+  const errors: Array<{ agreementId: string; message: string }> = [];
+
+  for (let index = 0; index < items.length; index += 10) {
+    const batch = items.slice(index, index + 10);
+    const results = await Promise.all(
+      batch.map(async (agreement) => {
+        try {
+          const { renderedContent } = await renderExistingAgreement(
+            supabase,
+            agreement,
+            template.template_content,
+          );
+          const { data: updated, error: updateError } = await supabase
+            .from("tenancy_agreements")
+            .update({
+              template_id: template.id,
+              rendered_content: renderedContent,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", agreement.id)
+            .not("status", "in", "(signed,renewal_signed)")
+            .select("id")
+            .maybeSingle();
+
+          if (updateError) {
+            throw new Error(updateError.message);
+          }
+          return updated ? "regenerated" : "skipped";
+        } catch (agreementError) {
+          errors.push({
+            agreementId: agreement.id,
+            message:
+              agreementError instanceof Error
+                ? agreementError.message
+                : "Agreement regeneration failed.",
+          });
+          return "skipped";
+        }
+      }),
+    );
+
+    regenerated += results.filter((result) => result === "regenerated").length;
+    skipped += results.filter((result) => result === "skipped").length;
+  }
+
+  return {
+    total: items.length,
+    regenerated,
+    skipped,
+    errors,
+  };
 }
 
 export async function ensureCurrentAgreementTerms(
