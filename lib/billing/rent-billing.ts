@@ -178,7 +178,7 @@ export async function generateRecurringRentBills(
 
   let tenancyQuery = supabase
     .from("tenancies")
-    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!inner(status), tenants(profile_id)")
+    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!tenancies_room_id_fkey!inner(status), tenants(profile_id)")
     .eq("status", "active")
     .eq("billing_status", "active")
     .eq("rooms.status", "occupied");
