@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { Button } from "@/components/ui/button";
 
 type VacantRoom = {
@@ -40,8 +41,15 @@ export function RegistrationForm({
     return [1, 2, 3].map((offset) => {
       const target = new Date(Date.UTC(year, month - 1 + offset, 1));
       const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-      return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(day, lastDay)))
-        .toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short", year: "numeric" });
+      return formatMalaysiaDate(
+        new Date(
+          Date.UTC(
+            target.getUTCFullYear(),
+            target.getUTCMonth(),
+            Math.min(day, lastDay),
+          ),
+        ),
+      );
     });
   })();
 

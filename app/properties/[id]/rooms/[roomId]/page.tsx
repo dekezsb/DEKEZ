@@ -9,6 +9,7 @@ import {
   TenantDocuments,
 } from "@/components/tenant/tenant-records";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { getRoomDetails } from "@/lib/data/property-details";
 import { statusBadgeClass } from "@/lib/status-styles";
 import {
@@ -155,10 +156,10 @@ export default async function RoomDetailsPage({
           <Card>
             <CardHeader><CardTitle className="text-base">Rental Terms</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-3 text-sm">
-              <p><span className="block text-gray-500">Check-in</span>{room.contractStart ?? "-"}</p>
+              <p><span className="block text-gray-500">Check-in</span>{formatMalaysiaDate(room.contractStart)}</p>
               <p><span className="block text-gray-500">Due day</span>{room.dueDay ?? "-"}</p>
               <p><span className="block text-gray-500">Monthly rent</span>{money.format(room.monthlyRent)}</p>
-              <p><span className="block text-gray-500">Contract end</span>{room.contractEnd ?? "-"}</p>
+              <p><span className="block text-gray-500">Contract end</span>{formatMalaysiaDate(room.contractEnd)}</p>
               <p><span className="block text-gray-500">Outstanding</span><span className={room.outstanding > 0 ? "font-semibold text-red-600" : "font-semibold text-emerald-700"}>{money.format(room.outstanding)}</span></p>
             </CardContent>
           </Card>
@@ -237,7 +238,7 @@ export default async function RoomDetailsPage({
                       <TableRow key={bill.id}>
                         <TableCell className="font-medium">{bill.invoice_number}</TableCell>
                         <TableCell>{bill.bill_month}</TableCell>
-                        <TableCell>{bill.invoice_date}</TableCell>
+                        <TableCell>{formatMalaysiaDate(bill.invoice_date)}</TableCell>
                         <TableCell>{money.format(amount)}</TableCell>
                         <TableCell>{money.format(paid)}</TableCell>
                         <TableCell className={outstanding > 0 ? "font-medium text-red-600" : "text-emerald-700"}>{money.format(outstanding)}</TableCell>
@@ -265,7 +266,7 @@ export default async function RoomDetailsPage({
               <div className="flex items-start justify-between gap-4 border-b border-[#e5e9ef] pb-3 last:border-0" key={payment.id}>
                 <div>
                   <p className="font-medium text-gray-950">{money.format(Number(payment.amount ?? 0))}</p>
-                  <p className="text-xs text-gray-500">{payment.payment_date} · {payment.payment_method}</p>
+                  <p className="text-xs text-gray-500">{formatMalaysiaDate(payment.payment_date)} · {payment.payment_method}</p>
                   <p className="text-xs text-gray-500">{payment.reference_number ?? "No reference"}</p>
                 </div>
                 <Badge className={statusBadgeClass(payment.status)}>{payment.status}</Badge>

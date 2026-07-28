@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import {
   addMonths,
   defaultAgreementTemplate,
@@ -99,10 +100,10 @@ export async function createAgreementForTenancy(
       monthly_rent: money(tenancy.monthly_rental),
       deposit_amount: money(tenancy.deposit),
       utility_deposit: money(0),
-      tenancy_start_date: startDate,
-      tenancy_end_date: endDate,
+      tenancy_start_date: formatMalaysiaDate(startDate),
+      tenancy_end_date: formatMalaysiaDate(endDate),
       contract_duration_months: duration,
-      agreement_date: malaysiaToday(),
+      agreement_date: formatMalaysiaDate(malaysiaToday()),
       tenant_signature: "[Pending tenant signature]",
     },
   );

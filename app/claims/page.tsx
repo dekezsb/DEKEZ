@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { createClient } from "@/lib/supabase/server";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
@@ -59,7 +60,7 @@ export default async function ClaimsPage() {
 
                   return (
                     <TableRow key={claim.id}>
-                      <TableCell>{claim.submitted_at ? new Date(claim.submitted_at).toLocaleDateString("en-MY") : "-"}</TableCell>
+                      <TableCell>{formatMalaysiaDate(claim.submitted_at)}</TableCell>
                       <TableCell className="font-medium text-gray-950">{claim.description ?? "-"}</TableCell>
                       <TableCell>{ringgitFormatter.format(Number(claim.labour_cost ?? 0))}</TableCell>
                       <TableCell>{ringgitFormatter.format(Number(claim.material_cost ?? 0))}</TableCell>

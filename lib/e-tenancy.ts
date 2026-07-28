@@ -1,3 +1,8 @@
+import {
+  formatMalaysiaDate,
+  formatMalaysiaDateTime,
+} from "@/lib/date-format";
+
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
   currency: "MYR",
@@ -54,6 +59,9 @@ export function renderAgreementTemplate(
 
 export function plainTextToHtml(content: string) {
   return content
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, (value) =>
+      formatMalaysiaDate(value),
+    )
     .split("\n")
     .map((line) => (line.trim() ? `<p>${escapeHtml(line)}</p>` : "<br />"))
     .join("");
@@ -69,7 +77,7 @@ export function escapeHtml(value: string) {
 }
 
 export function createSignedPdfBytes(content: string, tenantName: string, signedAt: string) {
-  const clean = `${content}\n\nSigned by: ${tenantName}\nSigned at: ${signedAt}`
+  const clean = `${content}\n\nSigned by: ${tenantName}\nSigned at: ${formatMalaysiaDateTime(signedAt)}`
     .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ")
     .slice(0, 3000);
   const escaped = clean.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");

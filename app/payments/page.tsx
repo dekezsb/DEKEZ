@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { getTenantPortalData } from "@/lib/data/tenant-portal";
 import { createClient } from "@/lib/supabase/server";
 import { createPayment } from "./actions";
@@ -205,7 +206,7 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
               <TableBody>
                 {payments.map((payment) => (
                   <TableRow key={payment.id}>
-                    <TableCell>{payment.payment_date ?? "-"}</TableCell>
+                    <TableCell>{formatMalaysiaDate(payment.payment_date)}</TableCell>
                     <TableCell className="font-medium text-gray-950">
                       {tenantById.get(payment.tenant_id ?? "") ??
                         tenantById.get(tenantIdByTenancy.get(payment.tenancy_id ?? "") ?? "") ??

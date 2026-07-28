@@ -35,6 +35,10 @@ import {
 } from "@/lib/auth/access";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeRole, roleLabels } from "@/lib/auth/roles";
+import {
+  formatMalaysiaDate as formatDate,
+  formatMalaysiaDateTime as formatDateTime,
+} from "@/lib/date-format";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { updatePortalUser } from "../../actions";
@@ -71,29 +75,6 @@ const editableRoles = [
   "maintenance_staff",
   "cleaning_staff",
 ] as const;
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en-MY", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Kuala_Lumpur",
-  }).format(new Date(value));
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("en-MY", {
-    dateStyle: "medium",
-    timeZone: "Asia/Kuala_Lumpur",
-  }).format(new Date(`${value.slice(0, 10)}T00:00:00+08:00`));
-}
 
 function formatMoney(value: number | string | null | undefined) {
   return new Intl.NumberFormat("en-MY", {

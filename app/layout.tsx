@@ -50,7 +50,7 @@ async function RootLayoutContent({
   }
 
   return (
-    <html lang="en">
+    <html lang="en-MY">
       <body>
         <AppShell access={access} role={role} userName={userName}>
           {children}

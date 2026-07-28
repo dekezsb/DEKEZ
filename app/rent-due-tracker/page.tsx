@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import {
   getRentDueMap,
   summarizeRentCollections,
@@ -44,13 +45,7 @@ const collectionStatusLabels: Record<RentCollectionStatus, string> = {
 };
 
 function dateLabel(value: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(`${value.slice(0, 10)}T00:00:00+08:00`));
+  return formatMalaysiaDate(value);
 }
 
 function SummaryCard({

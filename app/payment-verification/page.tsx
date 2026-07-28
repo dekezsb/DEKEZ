@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { DocumentPreview } from "@/components/ui/document-preview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { money } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -316,7 +317,7 @@ export async function PaymentVerificationContent({
                       return (
                         <TableRow key={submission.id}>
                           <TableCell className="min-w-40">
-                            <p>{submission.payment_date ?? "-"}</p>
+                            <p>{formatMalaysiaDate(submission.payment_date)}</p>
                             <p className="text-xs text-gray-500">{malaysiaTime(submission.created_at)}</p>
                           </TableCell>
                           <TableCell className="min-w-48 font-medium text-gray-950">{row.tenantName}</TableCell>
@@ -351,7 +352,7 @@ export async function PaymentVerificationContent({
                           <p className="font-semibold text-gray-950">{row.tenantName}</p>
                           <p className="mt-1 text-sm text-gray-600">{row.propertyName} / {row.roomName}</p>
                           <p className="mt-2 text-xl font-bold">{row.amountSubmitted}</p>
-                          <p className="text-xs text-gray-500">{submission.payment_date ?? "-"} {malaysiaTime(submission.created_at)}</p>
+                          <p className="text-xs text-gray-500">{formatMalaysiaDate(submission.payment_date)} {malaysiaTime(submission.created_at)}</p>
                         </div>
                         <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
                       </div>

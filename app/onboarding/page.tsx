@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { getCurrentUser } from "@/lib/data/organization";
 import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
@@ -124,8 +125,8 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
             <p>Monthly rent: {money(latestApplication.monthly_rent)}</p>
             <p>Deposit: {money(latestApplication.deposit)}</p>
             <p>Duration: {latestApplication.contract_duration_months} months</p>
-            <p>Start: {latestApplication.proposed_start_date ?? "-"}</p>
-            <p>End: {latestApplication.proposed_end_date ?? "-"}</p>
+            <p>Start: {formatMalaysiaDate(latestApplication.proposed_start_date)}</p>
+            <p>End: {formatMalaysiaDate(latestApplication.proposed_end_date)}</p>
             <p>Status: {latestApplication.status}</p>
           </CardContent>
         </Card>

@@ -11,6 +11,10 @@ import {
 } from "@/components/ui/card";
 import { DocumentPreview } from "@/components/ui/document-preview";
 import { uploadTenantDocument } from "@/app/tenants/[id]/actions";
+import {
+  formatMalaysiaDate,
+  formatMalaysiaDateTime,
+} from "@/lib/date-format";
 import type {
   TenantAgreementHistoryView,
   TenantDocumentView,
@@ -54,15 +58,6 @@ const resultMessages: Record<string, { className: string; message: string }> = {
     message: "The document could not be uploaded. Please try again.",
   },
 };
-
-function formatDateTime(value: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 export function TenantDocuments({
   tenantKey,
@@ -179,7 +174,7 @@ export function TenantDocuments({
                       {document.fileName}
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
-                      {formatDateTime(document.uploadedAt)}
+                      {formatMalaysiaDateTime(document.uploadedAt)}
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Badge
@@ -238,8 +233,13 @@ export function TenantAgreementHistory({
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-gray-700">
-                    {agreement.termStartDate ?? "Start date not set"} to{" "}
-                    {agreement.termEndDate ?? "Open-ended"}
+                    {agreement.termStartDate
+                      ? formatMalaysiaDate(agreement.termStartDate)
+                      : "Start date not set"}{" "}
+                    to{" "}
+                    {agreement.termEndDate
+                      ? formatMalaysiaDate(agreement.termEndDate)
+                      : "Open-ended"}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
                     {agreement.propertyName ?? "Property"} /{" "}
@@ -250,9 +250,9 @@ export function TenantAgreementHistory({
                     v{agreement.versionNumber}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
-                    Generated {formatDateTime(agreement.generatedAt)}
+                    Generated {formatMalaysiaDateTime(agreement.generatedAt)}
                     {agreement.signedAt
-                      ? ` / Signed ${formatDateTime(agreement.signedAt)}`
+                      ? ` / Signed ${formatMalaysiaDateTime(agreement.signedAt)}`
                       : ""}
                   </p>
                 </div>

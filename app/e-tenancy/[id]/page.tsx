@@ -3,6 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
+import {
+  formatMalaysiaDate,
+  formatMalaysiaDateTime,
+} from "@/lib/date-format";
 import { plainTextToHtml } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
@@ -77,12 +81,12 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
       <Card>
         <CardHeader>
           <CardTitle>Agreement Summary</CardTitle>
-          <CardDescription>Generated {new Date(agreement.generated_at).toLocaleString("en-MY")}</CardDescription>
+          <CardDescription>Generated {formatMalaysiaDateTime(agreement.generated_at)}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm text-gray-600 sm:grid-cols-2">
-          <p>Start: {agreement.term_start_date ?? tenancy?.tenancy_start_date ?? "-"}</p>
-          <p>End: {agreement.term_end_date ?? tenancy?.tenancy_end_date ?? "-"}</p>
-          <p>Signed: {agreement.signed_at ? new Date(agreement.signed_at).toLocaleString("en-MY") : "-"}</p>
+          <p>Start: {formatMalaysiaDate(agreement.term_start_date ?? tenancy?.tenancy_start_date)}</p>
+          <p>End: {formatMalaysiaDate(agreement.term_end_date ?? tenancy?.tenancy_end_date)}</p>
+          <p>Signed: {formatMalaysiaDateTime(agreement.signed_at)}</p>
           <p>PDF: {agreement.pdf_url ? agreement.pdf_url : "Not signed yet"}</p>
         </CardContent>
       </Card>

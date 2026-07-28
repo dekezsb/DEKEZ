@@ -28,6 +28,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import {
+  formatMalaysiaDate,
+  formatMalaysiaDateTime,
+} from "@/lib/date-format";
 import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -465,7 +469,7 @@ function UserRegistrations({
                     </p>
                     <p className="mt-2 text-xs text-gray-500">
                       Registered{" "}
-                      {new Date(user.created_at).toLocaleString("en-MY")}
+                      {formatMalaysiaDateTime(user.created_at)}
                     </p>
                     <p className="mt-2 text-sm text-gray-600">
                       Current permission: {user.role.replaceAll("_", " ")}
@@ -685,7 +689,7 @@ function ClaimBills({
                   return (
                     <TableRow key={claim.id}>
                       <TableCell>
-                        {new Date(claim.submitted_at).toLocaleDateString("en-MY")}
+                        {formatMalaysiaDate(claim.submitted_at)}
                       </TableCell>
                       <TableCell>
                         {profiles.get(claim.submitted_by)?.full_name ??
@@ -984,8 +988,10 @@ function tenancyDisplay(tenancy: TenancyItem) {
     tenant,
     property,
     room,
-    start: tenancy.tenancy_start_date ?? tenancy.contract_start ?? "-",
-    end: tenancy.tenancy_end_date ?? tenancy.contract_end ?? "-",
+    start: formatMalaysiaDate(
+      tenancy.tenancy_start_date ?? tenancy.contract_start,
+    ),
+    end: formatMalaysiaDate(tenancy.tenancy_end_date ?? tenancy.contract_end),
   };
 }
 
@@ -1100,7 +1106,7 @@ function SignatureActions({ agreement }: { agreement?: AgreementItem }) {
         </form>
       ) : (
         <p className="text-xs font-medium text-[#126b5f]">
-          Signed {agreement.signed_at ? new Date(agreement.signed_at).toLocaleDateString("en-MY") : ""}
+          Signed {agreement.signed_at ? formatMalaysiaDate(agreement.signed_at) : ""}
         </p>
       )}
     </div>

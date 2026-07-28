@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
 import { createUtilityBill, updateUtilityBill } from "./actions";
@@ -96,14 +97,7 @@ function monthLabel(value: string) {
 }
 
 function dateLabel(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(`${value.slice(0, 10)}T00:00:00Z`);
-  return new Intl.DateTimeFormat("en-MY", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "Asia/Kuala_Lumpur",
-  }).format(date);
+  return formatMalaysiaDate(value);
 }
 
 function fieldClass() {

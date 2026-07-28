@@ -29,6 +29,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DocumentPreview } from "@/components/ui/document-preview";
+import {
+  formatMalaysiaDate,
+  formatMalaysiaDateTime,
+} from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
 import { PaymentSubmitButton } from "./payment-submit-button";
@@ -43,20 +47,11 @@ function money(value: number) {
 }
 
 function date(value: string | null | undefined) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    dateStyle: "medium",
-  }).format(new Date(`${value.slice(0, 10)}T00:00:00+08:00`));
+  return formatMalaysiaDate(value);
 }
 
 function dateTime(value: string | null | undefined) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("en-MY", {
-    timeZone: "Asia/Kuala_Lumpur",
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatMalaysiaDateTime(value);
 }
 
 function titleCase(value: string) {

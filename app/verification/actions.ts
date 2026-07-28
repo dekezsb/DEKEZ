@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeRole } from "@/lib/auth/roles";
 import { getCurrentUser } from "@/lib/data/organization";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import {
   addMonths,
   defaultAgreementTemplate,
@@ -465,10 +466,10 @@ export async function requestRenewalSignature(formData: FormData) {
         monthly_rent: money(tenancy.monthly_rental),
         deposit_amount: money(tenancy.deposit),
         utility_deposit: money(0),
-        tenancy_start_date: startDate,
-        tenancy_end_date: endDate,
+        tenancy_start_date: formatMalaysiaDate(startDate),
+        tenancy_end_date: formatMalaysiaDate(endDate),
         contract_duration_months: duration,
-        agreement_date: new Date().toISOString().slice(0, 10),
+        agreement_date: formatMalaysiaDate(new Date()),
         tenant_signature: "[Pending tenant signature]",
       },
     );

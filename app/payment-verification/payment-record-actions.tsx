@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatMalaysiaDateTime } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { reviewPaymentSubmission } from "./actions";
 
@@ -59,7 +60,7 @@ export function PaymentRecordActions({
       {status === "verified" ? (
         <div className="text-xs leading-5 text-gray-500">
           <p>Verified by {verifiedBy ?? "-"}</p>
-          <p>{verifiedAt ? new Date(verifiedAt).toLocaleString("en-MY") : "-"}</p>
+          <p>{formatMalaysiaDateTime(verifiedAt)}</p>
         </div>
       ) : null}
       {status === "rejected" ? (

@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import {
   getPropertyDetails,
   type PropertyRoomView,
@@ -597,7 +598,7 @@ function DesktopRoomRow({
           />
         ) : <span className="text-gray-400">-</span>}
       </TableCell>
-      <TableCell>{room.contractStart ?? "-"}</TableCell>
+      <TableCell>{formatMalaysiaDate(room.contractStart)}</TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
           <InlineRoomField
@@ -778,7 +779,7 @@ function MobileRoomCard({
             </div>
             <div>
               <dt className="text-gray-500">Contract Start</dt>
-              <dd className="mt-1 font-medium">{room.contractStart ?? "-"}</dd>
+              <dd className="mt-1 font-medium">{formatMalaysiaDate(room.contractStart)}</dd>
             </div>
             <div>
               <dt className="text-gray-500">Contract End</dt>

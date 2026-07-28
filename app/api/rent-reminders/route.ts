@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { dayDifference } from "@/lib/data/rent-due";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
@@ -113,7 +114,7 @@ export async function GET(request: Request) {
       roomName: room?.room_number ?? room?.name ?? "your room",
       amount,
       outstandingAmount,
-      dueDate: bill.due_date,
+      dueDate: formatMalaysiaDate(bill.due_date),
       daysUntilDue,
     });
 

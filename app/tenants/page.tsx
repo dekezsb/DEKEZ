@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { formatMalaysiaDate } from "@/lib/date-format";
 import { getProperties, getRooms, getTenantRecords } from "@/lib/data/organization";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
@@ -135,7 +136,7 @@ export default async function TenantsPage({ searchParams }: TenantsPageProps) {
                     <TableCell>{tenant.room_id ? roomById.get(tenant.room_id) ?? "-" : "-"}</TableCell>
                     <TableCell>{ringgitFormatter.format(tenant.monthly_rent)}</TableCell>
                     <TableCell>{ringgitFormatter.format(tenant.deposit)}</TableCell>
-                    <TableCell>{tenant.contract_start ?? "-"} to {tenant.contract_end ?? "-"}</TableCell>
+                    <TableCell>{formatMalaysiaDate(tenant.contract_start)} to {formatMalaysiaDate(tenant.contract_end)}</TableCell>
                     <TableCell>{tenant.due_day ? `Day ${tenant.due_day}` : "-"}</TableCell>
                     <TableCell><Badge className={statusBadgeClass(tenant.status)}>{tenant.status}</Badge></TableCell>
                   </TableRow>

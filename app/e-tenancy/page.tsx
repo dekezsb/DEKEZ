@@ -6,6 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { getProperties } from "@/lib/data/organization";
+import {
+  formatMalaysiaDate,
+  formatMalaysiaDateTime,
+} from "@/lib/date-format";
 import { defaultAgreementTemplate } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
@@ -194,10 +198,10 @@ export default async function ETenancyPage({ searchParams }: PageProps) {
                       <TableCell>{agreement.property_name_snapshot ?? property?.name ?? "-"}</TableCell>
                       <TableCell>{agreement.room_name_snapshot ?? room?.name ?? "-"}</TableCell>
                       <TableCell>{tenancy?.contract_duration_months ? `${tenancy.contract_duration_months} months` : "-"}</TableCell>
-                      <TableCell>{agreement.term_start_date ?? tenancy?.tenancy_start_date ?? "-"}</TableCell>
-                      <TableCell>{agreement.term_end_date ?? tenancy?.tenancy_end_date ?? "-"}</TableCell>
+                      <TableCell>{formatMalaysiaDate(agreement.term_start_date ?? tenancy?.tenancy_start_date)}</TableCell>
+                      <TableCell>{formatMalaysiaDate(agreement.term_end_date ?? tenancy?.tenancy_end_date)}</TableCell>
                       <TableCell><Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge></TableCell>
-                      <TableCell>{agreement.signed_at ? new Date(agreement.signed_at).toLocaleDateString("en-MY") : "-"}</TableCell>
+                      <TableCell>{formatMalaysiaDate(agreement.signed_at)}</TableCell>
                       <TableCell>
                         <Button asChild variant="outline">
                           <Link href={`/e-tenancy/${agreement.id}`}>View</Link>
@@ -252,10 +256,10 @@ async function TenantAgreementList() {
                 </div>
               </CardHeader>
               <CardContent className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
-                <p>Start: {agreement.term_start_date ?? tenancy?.tenancy_start_date ?? "-"}</p>
-                <p>End: {termEndDate ?? "-"}</p>
+                <p>Start: {formatMalaysiaDate(agreement.term_start_date ?? tenancy?.tenancy_start_date)}</p>
+                <p>End: {formatMalaysiaDate(termEndDate)}</p>
                 <p>Days remaining: {daysRemaining ?? "-"}</p>
-                <p>Signed: {agreement.signed_at ? new Date(agreement.signed_at).toLocaleString("en-MY") : "-"}</p>
+                <p>Signed: {formatMalaysiaDateTime(agreement.signed_at)}</p>
                 <Button asChild className="sm:col-span-2">
                   <Link href={`/e-tenancy/${agreement.id}`}>
                     {agreement.status === "pending_signature" ? "Review and sign" : "View agreement"}

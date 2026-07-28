@@ -1,3 +1,5 @@
+import { formatMalaysiaDate } from "@/lib/date-format";
+
 const ones = [
   "",
   "One",
@@ -96,10 +98,5 @@ export function invoiceMonth(dateText: string) {
 }
 
 export function invoiceDate(dateText: string) {
-  return new Intl.DateTimeFormat("en-MY", {
-    day: "2-digit",
-    month: "long",
-    timeZone: "Asia/Kuala_Lumpur",
-    year: "numeric",
-  }).format(new Date(`${dateText.slice(0, 10)}T00:00:00+08:00`));
+  return formatMalaysiaDate(dateText.slice(0, 10));
 }
