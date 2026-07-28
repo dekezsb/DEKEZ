@@ -38,6 +38,7 @@ export type AgreementArchiveItem = {
   tenant_name_snapshot: string | null;
   property_name_snapshot: string | null;
   room_name_snapshot: string | null;
+  monthly_rent_snapshot: number | string | null;
   tenancies:
     | {
         status: string;

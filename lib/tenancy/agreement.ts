@@ -150,6 +150,7 @@ function renderAgreement(
   startDate: string,
   endDate: string,
   durationMonths: number,
+  monthlyRent: number,
 ) {
   return renderAgreementTemplate(templateContent, {
     agreement_date: formatMalaysiaDate(malaysiaToday()),
@@ -159,7 +160,7 @@ function renderAgreement(
     property_name: context.properties?.name,
     room_number: context.rooms?.room_number ?? context.rooms?.name,
     premise_address: context.properties?.address,
-    monthly_rent: money(context.monthly_rental),
+    monthly_rent: money(monthlyRent),
     deposit_amount: money(context.deposit),
     tenancy_start_date: formatMalaysiaDate(startDate),
     tenancy_end_date: formatMalaysiaDate(endDate),
@@ -178,16 +179,20 @@ async function createTermAgreement(
     startDate,
     endDate,
     durationMonths,
+    monthlyRent,
+    updateExistingRent,
   }: {
     agreementType: AgreementType;
     startDate: string;
     endDate: string;
     durationMonths: number;
+    monthlyRent: number;
+    updateExistingRent: boolean;
   },
 ) {
   const { data: sameTerm } = await supabase
     .from("tenancy_agreements")
-    .select("id")
+    .select("id, status")
     .eq("tenancy_id", context.id)
     .eq("term_start_date", startDate)
     .eq("term_end_date", endDate)
@@ -195,6 +200,12 @@ async function createTermAgreement(
     .maybeSingle();
 
   if (sameTerm) {
+    if (
+      updateExistingRent &&
+      !["signed", "renewal_signed"].includes(sameTerm.status)
+    ) {
+      await updateUnsignedAgreementRent(supabase, sameTerm.id, monthlyRent);
+    }
     return { id: sameTerm.id, created: false };
   }
 
@@ -225,7 +236,9 @@ async function createTermAgreement(
         startDate,
         endDate,
         durationMonths,
+        monthlyRent,
       ),
+      monthly_rent_snapshot: monthlyRent,
       term_start_date: startDate,
       term_end_date: endDate,
       tenant_name_snapshot: context.tenants?.full_name ?? null,
@@ -266,6 +279,7 @@ async function createTermAgreement(
       new_start_date: startDate,
       new_end_date: endDate,
       new_agreement_id: agreement.id,
+      new_monthly_rent: monthlyRent,
       created_by: userId,
     });
   }
@@ -277,6 +291,7 @@ export async function createAgreementForTenancy(
   supabase: SupabaseClient,
   tenancyId: string,
   userId: string,
+  monthlyRent?: number,
 ) {
   const context = await loadTenancyContext(supabase, tenancyId);
   if (!context) {
@@ -303,6 +318,8 @@ export async function createAgreementForTenancy(
     startDate,
     endDate,
     durationMonths: duration,
+    monthlyRent: monthlyRent ?? Number(context.monthly_rental ?? 0),
+    updateExistingRent: monthlyRent !== undefined,
   });
 
   return agreement.id;
@@ -312,6 +329,7 @@ export async function prepareNextRenewalAgreement(
   supabase: SupabaseClient,
   tenancyId: string,
   userId: string,
+  monthlyRent?: number,
 ) {
   const context = await loadTenancyContext(supabase, tenancyId);
   if (
@@ -351,6 +369,8 @@ export async function prepareNextRenewalAgreement(
     startDate,
     endDate,
     durationMonths: duration,
+    monthlyRent: monthlyRent ?? Number(context.monthly_rental ?? 0),
+    updateExistingRent: monthlyRent !== undefined,
   });
 
   if (agreement.created && endDate >= malaysiaToday()) {
@@ -364,6 +384,66 @@ export async function prepareNextRenewalAgreement(
   }
 
   return agreement.id;
+}
+
+export async function updateUnsignedAgreementRent(
+  supabase: SupabaseClient,
+  agreementId: string,
+  monthlyRent: number,
+) {
+  if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+    throw new Error("Enter a valid monthly rent for this agreement term.");
+  }
+
+  const { data: agreement, error: agreementError } = await supabase
+    .from("tenancy_agreements")
+    .select("id, status, rendered_content")
+    .eq("id", agreementId)
+    .maybeSingle();
+
+  if (agreementError || !agreement) {
+    throw new Error(agreementError?.message ?? "Agreement not found.");
+  }
+  if (["signed", "renewal_signed"].includes(agreement.status)) {
+    throw new Error("A signed agreement rent cannot be changed.");
+  }
+
+  const rentLine = `Monthly Rent: ${money(monthlyRent)}`;
+  const renderedContent = agreement.rendered_content.replace(
+    /^Monthly Rent:.*$/m,
+    rentLine,
+  );
+  if (renderedContent === agreement.rendered_content) {
+    throw new Error("The agreement rent line could not be updated.");
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("tenancy_agreements")
+    .update({
+      monthly_rent_snapshot: monthlyRent,
+      rendered_content: renderedContent,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", agreement.id)
+    .not("status", "in", "(signed,renewal_signed)")
+    .select("id")
+    .maybeSingle();
+
+  if (updateError || !updated) {
+    throw new Error(
+      updateError?.message ?? "The agreement rent could not be updated.",
+    );
+  }
+
+  await supabase
+    .from("tenancy_renewals")
+    .update({
+      new_monthly_rent: monthlyRent,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("new_agreement_id", agreement.id);
+
+  return updated.id;
 }
 
 export async function ensureCurrentAgreementTerms(

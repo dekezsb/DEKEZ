@@ -50,6 +50,7 @@ import {
   reviewClaim,
   reviewUserRegistration,
   sendAgreementWhatsApp,
+  updateAgreementTermRent,
 } from "./actions";
 
 type PageProps = {
@@ -59,6 +60,7 @@ type PageProps = {
     sent?: string;
     renewal?: string;
     checkout?: string;
+    updated?: string;
     error?: string;
     status?: string;
     property?: string;
@@ -105,6 +107,8 @@ const errorMessages: Record<string, string> = {
   whatsapp_failed: "The WhatsApp request could not be sent. The failed attempt was logged.",
   renewal_missing: "The active tenancy does not have enough information for renewal.",
   renewal_create: "The renewal agreement could not be prepared.",
+  agreement_rent:
+    "The agreement rent could not be changed. Signed agreements are locked.",
 };
 
 async function getAdmin() {
@@ -173,7 +177,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .not("claim_id", "is", null),
     supabase
       .from("tenancies")
-      .select("id, tenant_id, property_id, room_id, tenancy_start_date, tenancy_end_date, contract_start, contract_end, status, renewal_status, checkout_date, tenants(full_name, phone), properties(name, is_commercial), rooms(name, room_number, status)")
+      .select("id, tenant_id, property_id, room_id, monthly_rental, tenancy_start_date, tenancy_end_date, contract_start, contract_end, status, renewal_status, checkout_date, tenants(full_name, phone), properties(name, is_commercial), rooms(name, room_number, status)")
       .eq("status", "active")
       .order("created_at", { ascending: false }),
     supabase
@@ -418,6 +422,8 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
       ? "Agreement signature request sent by WhatsApp."
       : params.renewal
         ? "Renewal agreement prepared and sent by WhatsApp."
+        : params.updated === "rent"
+          ? "Agreement rent updated for this unsigned term."
         : params.checkout
           ? "Tenant checked out and future billing stopped."
           : null;
@@ -910,6 +916,7 @@ function TenancyProgress({
     id: string;
     property_id: string;
     room_id: string;
+    monthly_rental: number | string | null;
     tenancy_start_date: string | null;
     tenancy_end_date: string | null;
     contract_start: string | null;
@@ -942,6 +949,7 @@ function TenancyProgress({
       term_end_date: string | null;
       generated_at: string;
       signed_at: string | null;
+      monthly_rent_snapshot: number | string | null;
     }
   >;
 }) {
@@ -1201,13 +1209,34 @@ function SignatureActions({
         <Link href={`/e-tenancy/${agreement.id}`}>View Agreement</Link>
       </Button>
       {!signed ? (
-        <form action={sendAgreementWhatsApp}>
-          <input name="agreementId" type="hidden" value={agreement.id} />
-          <Button className="w-full" size="sm" type="submit">
-            <Send className="h-4 w-4" />
-            Send / Resend WhatsApp
-          </Button>
-        </form>
+        <>
+          <form
+            action={updateAgreementTermRent}
+            className="grid grid-cols-[1fr_auto] gap-2"
+          >
+            <input name="agreementId" type="hidden" value={agreement.id} />
+            <input
+              aria-label="Agreement monthly rent"
+              className="min-w-0 rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
+              defaultValue={Number(agreement.monthly_rent_snapshot ?? 0)}
+              min="0.01"
+              name="termMonthlyRent"
+              step="0.01"
+              type="number"
+              required
+            />
+            <Button size="sm" type="submit" variant="outline">
+              Save Rent
+            </Button>
+          </form>
+          <form action={sendAgreementWhatsApp}>
+            <input name="agreementId" type="hidden" value={agreement.id} />
+            <Button className="w-full" size="sm" type="submit">
+              <Send className="h-4 w-4" />
+              Send / Resend WhatsApp
+            </Button>
+          </form>
+        </>
       ) : (
         <p className="text-xs font-medium text-[#126b5f]">
           Signed {agreement.signed_at ? formatMalaysiaDate(agreement.signed_at) : ""}
@@ -1228,6 +1257,18 @@ function RenewalAndCheckout({ tenancy }: { tenancy: TenancyItem }) {
         <p className="text-xs text-gray-500">
           {duration}-month {property?.is_commercial ? "commercial" : "non-commercial"} renewal
         </p>
+        <label className="grid gap-1 text-xs font-medium text-gray-600">
+          Renewal rent (RM)
+          <input
+            className="rounded-md border border-[#d7dde5] px-3 py-2 text-sm text-gray-950"
+            defaultValue={Number(tenancy.monthly_rental ?? 0)}
+            min="0.01"
+            name="renewalMonthlyRent"
+            step="0.01"
+            type="number"
+            required
+          />
+        </label>
         <Button size="sm" type="submit" variant="outline">
           Prepare & Send Renewal
         </Button>

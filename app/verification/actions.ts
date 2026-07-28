@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createAgreementForTenancy,
   prepareNextRenewalAgreement,
+  updateUnsignedAgreementRent,
 } from "@/lib/tenancy/agreement";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
@@ -558,6 +559,31 @@ export async function generateInitialAgreement(formData: FormData) {
   redirect(verificationPath("tenancy", "created=agreement"));
 }
 
+export async function updateAgreementTermRent(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const agreementId = textValue(formData, "agreementId");
+  const monthlyRent = Number(textValue(formData, "termMonthlyRent"));
+
+  if (!agreementId || !Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+    redirect(verificationPath("tenancy", "error=agreement_rent"));
+  }
+
+  const supabase = await adminClient();
+  try {
+    await updateUnsignedAgreementRent(supabase, agreementId, monthlyRent);
+  } catch {
+    redirect(verificationPath("tenancy", "error=agreement_rent"));
+  }
+
+  revalidatePath("/verification");
+  revalidatePath("/e-tenancy");
+  revalidatePath(`/e-tenancy/${agreementId}`);
+  redirect(verificationPath("tenancy", "updated=rent"));
+}
+
 export async function requestRenewalSignature(formData: FormData) {
   await requireRole(["super_admin", "admin"], {
     module: "verification",
@@ -565,8 +591,16 @@ export async function requestRenewalSignature(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
+  const renewalMonthlyRent = Number(
+    textValue(formData, "renewalMonthlyRent"),
+  );
 
-  if (!user || !tenancyId) {
+  if (
+    !user ||
+    !tenancyId ||
+    !Number.isFinite(renewalMonthlyRent) ||
+    renewalMonthlyRent <= 0
+  ) {
     redirect(verificationPath("tenancy", "error=renewal_missing"));
   }
 
@@ -582,12 +616,23 @@ export async function requestRenewalSignature(formData: FormData) {
     .maybeSingle();
 
   let agreementId: string | null = existing?.id ?? null;
-  if (!agreementId) {
+  if (agreementId) {
+    try {
+      await updateUnsignedAgreementRent(
+        supabase,
+        agreementId,
+        renewalMonthlyRent,
+      );
+    } catch {
+      redirect(verificationPath("tenancy", "error=renewal_create"));
+    }
+  } else {
     try {
       agreementId = await prepareNextRenewalAgreement(
         supabase,
         tenancyId,
         user.id,
+        renewalMonthlyRent,
       );
     } catch {
       redirect(verificationPath("tenancy", "error=renewal_create"));

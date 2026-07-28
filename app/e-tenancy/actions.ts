@@ -56,7 +56,7 @@ export async function signAgreement(formData: FormData) {
   const { data: agreement, error: agreementError } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, rendered_content, tenancy_id, agreement_type, status, term_start_date, term_end_date",
+      "id, rendered_content, tenancy_id, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot",
     )
     .eq("id", agreementId)
     .maybeSingle();
@@ -297,6 +297,7 @@ export async function signAgreement(formData: FormData) {
         tenancy_end_date: agreement.term_end_date,
         contract_start: agreement.term_start_date,
         contract_end: agreement.term_end_date,
+        monthly_rental: agreement.monthly_rent_snapshot,
         renewal_status: "signed",
         updated_at: signedAt,
       })
