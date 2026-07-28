@@ -19,7 +19,6 @@ import {
   type RentCollectionStatus,
   type RentMapProperty,
   type RentMapRoom,
-  type RentMapStatus,
 } from "@/lib/data/rent-due-map";
 import { money } from "@/lib/e-tenancy";
 
@@ -28,36 +27,6 @@ type PageProps = {
     property?: string;
     month?: string;
   }>;
-};
-
-const roomStyles: Record<RentMapStatus, string> = {
-  paid: "border-emerald-300 bg-emerald-50 text-emerald-950 hover:border-emerald-500",
-  unpaid: "border-red-300 bg-red-50 text-red-950 hover:border-red-500",
-  partially_paid: "border-amber-300 bg-amber-50 text-amber-950 hover:border-amber-500",
-  vacant: "border-gray-300 bg-gray-100 text-gray-700 hover:border-gray-500",
-  reserved: "border-blue-300 bg-blue-50 text-blue-950 hover:border-blue-500",
-  maintenance: "border-rose-300 bg-rose-50 text-rose-950 hover:border-rose-500",
-  no_bill: "border-dashed border-gray-300 bg-white text-gray-700 hover:border-gray-500",
-};
-
-const statusLabels: Record<RentMapStatus, string> = {
-  paid: "Paid",
-  unpaid: "Unpaid",
-  partially_paid: "Partially paid",
-  vacant: "Vacant",
-  reserved: "Reserved",
-  maintenance: "Maintenance",
-  no_bill: "No bill",
-};
-
-const statusDots: Record<RentMapStatus, string> = {
-  paid: "bg-emerald-500",
-  unpaid: "bg-red-500",
-  partially_paid: "bg-amber-500",
-  vacant: "bg-gray-400",
-  reserved: "bg-blue-500",
-  maintenance: "bg-rose-500",
-  no_bill: "bg-gray-300",
 };
 
 const collectionStatusClasses: Record<RentCollectionStatus, string> = {
@@ -121,34 +90,86 @@ function CollectionBadge({ status }: { status: RentCollectionStatus }) {
   );
 }
 
-function RoomCard({ room }: { room: RentMapRoom }) {
-  const displayStatus = room.paymentStatus === "pending_verification"
-    ? "Pending verification"
-    : statusLabels[room.status];
-  const displayDot = room.paymentStatus === "pending_verification"
-    ? "bg-yellow-500"
-    : statusDots[room.status];
+type DueUrgency = "future" | "due_today" | "overdue" | "severely_overdue";
+
+const dueUrgencyStyles: Record<DueUrgency, string> = {
+  future: "border-gray-300 bg-white text-gray-950 hover:border-gray-500",
+  due_today: "border-yellow-400 bg-yellow-50 text-yellow-950 hover:border-yellow-500",
+  overdue: "border-orange-400 bg-orange-50 text-orange-950 hover:border-orange-500",
+  severely_overdue: "border-red-400 bg-red-50 text-red-950 hover:border-red-500",
+};
+
+function malaysiaToday() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
+}
+
+function dateOnlyValue(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function dueTiming(room: RentMapRoom, today: string) {
+  if (!room.dueDate) {
+    return {
+      urgency: "future" as DueUrgency,
+      label: `Due day ${room.dueDay ?? "-"}`,
+    };
+  }
+
+  const daysOverdue = Math.round(
+    (dateOnlyValue(today) - dateOnlyValue(room.dueDate)) / 86_400_000,
+  );
+
+  if (daysOverdue >= 7) {
+    return {
+      urgency: "severely_overdue" as DueUrgency,
+      label: `${daysOverdue} days overdue`,
+    };
+  }
+
+  if (daysOverdue > 0) {
+    return {
+      urgency: "overdue" as DueUrgency,
+      label: `${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue`,
+    };
+  }
+
+  if (daysOverdue === 0) {
+    return {
+      urgency: "due_today" as DueUrgency,
+      label: "Due today",
+    };
+  }
+
+  const daysUntilDue = Math.abs(daysOverdue);
+  return {
+    urgency: "future" as DueUrgency,
+    label: `Due in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}`,
+  };
+}
+
+function RoomCard({ room, today }: { room: RentMapRoom; today: string }) {
+  const timing = dueTiming(room, today);
 
   return (
     <Link
       href={`/properties/${room.propertyId}/rooms/${room.id}`}
-      className={`group flex items-center justify-between gap-3 rounded-lg border p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a2c] ${roomStyles[room.status]}`}
+      aria-label={`Open Room ${room.roomNumber}, due day ${room.dueDay ?? "not set"}, ${timing.label}`}
+      className={`group rounded-lg border p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a2c] ${dueUrgencyStyles[timing.urgency]}`}
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-semibold">Room {room.roomNumber}</h3>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium">
-            <span className={`size-2 shrink-0 rounded-full ${displayDot}`} />
-            {displayStatus}
-          </span>
-        </div>
-        <p className="mt-1 truncate text-sm">{room.tenantName}</p>
-        <p className="mt-1 text-xs text-current/70">
-          Due {room.dueDay ?? "-"} |{" "}
-          <span className="font-semibold text-current">{money(room.outstanding)} outstanding</span>
-        </p>
-      </div>
-      <ArrowRight className="size-4 shrink-0 transition-transform group-hover:translate-x-1" />
+      <p className="font-semibold">Room {room.roomNumber}</p>
+      <p className="mt-1 text-xs font-medium text-current/75">
+        Due day {room.dueDay ?? "-"}
+      </p>
+      <p className="mt-0.5 text-xs font-semibold">{timing.label}</p>
     </Link>
   );
 }
@@ -340,6 +361,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   await requireRole(["super_admin", "owner", "admin"]);
   const params = await searchParams;
   const tracker = await getRentDueMap(params.month);
+  const today = malaysiaToday();
   const selectedProperty = tracker.properties.some(
     (property) => property.id === params.property,
   )
@@ -478,17 +500,21 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
         </div>
 
         <div className="flex flex-wrap gap-x-5 gap-y-2 border-y border-[#d8dee8] py-3 text-xs font-medium text-[#42516a]">
-          {(["unpaid", "partially_paid"] as const).map(
-            (status) => (
-              <span key={status} className="inline-flex items-center gap-2">
-                <span className={`size-2.5 rounded-full ${statusDots[status]}`} />
-                {statusLabels[status]}
-              </span>
-            ),
-          )}
           <span className="inline-flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-yellow-500" />
-            Pending verification
+            <span className="size-2.5 rounded-full bg-gray-300" />
+            Not due yet
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="size-2.5 rounded-full bg-yellow-400" />
+            Due today
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="size-2.5 rounded-full bg-orange-500" />
+            1-6 days overdue
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="size-2.5 rounded-full bg-red-500" />
+            7+ days overdue
           </span>
         </div>
 
@@ -512,9 +538,9 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
                   {property.rooms.map((room) => (
-                    <RoomCard key={room.id} room={room} />
+                    <RoomCard key={room.id} room={room} today={today} />
                   ))}
                 </div>
               </section>

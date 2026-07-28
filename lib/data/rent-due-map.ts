@@ -101,6 +101,7 @@ export type RentMapRoom = {
   roomNumber: string;
   tenantName: string | null;
   dueDay: number | null;
+  dueDate: string | null;
   outstanding: number;
   previousOutstanding: number;
   billedAmount: number;
@@ -565,6 +566,7 @@ export async function getRentDueMap(
         ?? tenancy?.due_day
         ?? tenantRecord?.due_day
         ?? null,
+      dueDate: collection?.dueDate ?? null,
       outstanding: collection?.outstanding ?? 0,
       previousOutstanding: collection?.previousOutstanding ?? 0,
       billedAmount: collection?.currentAmountDue ?? 0,
