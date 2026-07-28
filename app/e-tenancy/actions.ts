@@ -6,7 +6,6 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { agreementPdfName } from "@/lib/tenancy/agreement-filename";
 import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 
@@ -15,16 +14,21 @@ function textValue(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function getAdmin() {
-  try {
-    return createAdminClient();
-  } catch {
-    return createClient();
-  }
-}
-
-function single<T>(value: T | T[] | null | undefined) {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+function signingError(
+  agreementId: string,
+  code:
+    | "agreement_unavailable"
+    | "already_signed"
+    | "configuration"
+    | "pdf_generation"
+    | "save_failed"
+    | "signature_invalid"
+    | "signature_missing"
+    | "upload_failed",
+): never {
+  redirect(
+    `/e-tenancy/${encodeURIComponent(agreementId)}?error=${encodeURIComponent(code)}`,
+  );
 }
 
 export async function signAgreement(formData: FormData) {
@@ -38,31 +42,139 @@ export async function signAgreement(formData: FormData) {
   const confirm = textValue(formData, "confirmAgreement");
 
   if (!user || !agreementId || !signatureData || confirm !== "on") {
-    redirect(`/e-tenancy/${agreementId}?error=signature_missing`);
+    signingError(agreementId, "signature_missing");
   }
 
-  const supabase = await getAdmin();
-  const { data: agreement } = await supabase
-    .from("tenancy_agreements")
-    .select("id, rendered_content, tenancy_id, agreement_type, term_start_date, term_end_date, tenancies(tenant_id, tenants(profile_id, full_name), properties(property_code, name), rooms(room_number, name))")
-    .eq("id", agreementId)
-    .single();
+  let supabase;
+  try {
+    supabase = createAdminClient();
+  } catch (error) {
+    console.error("Unable to initialize tenancy signing.", error);
+    signingError(agreementId, "configuration");
+  }
 
-  const tenancy = Array.isArray(agreement?.tenancies) ? agreement?.tenancies[0] : agreement?.tenancies;
-  const tenant = single(tenancy?.tenants);
-  const property = single(tenancy?.properties);
-  const room = single(tenancy?.rooms);
-  if (!agreement || tenant?.profile_id !== user.id) {
-    redirect("/dashboard");
+  const { data: agreement, error: agreementError } = await supabase
+    .from("tenancy_agreements")
+    .select(
+      "id, rendered_content, tenancy_id, agreement_type, status, term_start_date, term_end_date",
+    )
+    .eq("id", agreementId)
+    .maybeSingle();
+
+  if (agreementError || !agreement) {
+    console.error("Unable to load agreement for signing.", {
+      agreementId,
+      error: agreementError?.message,
+    });
+    signingError(agreementId, "agreement_unavailable");
+  }
+
+  if (["signed", "renewal_signed"].includes(agreement.status)) {
+    signingError(agreementId, "already_signed");
+  }
+
+  const signableStatuses = [
+    "pending_signature",
+    "renewal_pending",
+    "renewal_sent",
+  ];
+  if (!signableStatuses.includes(agreement.status)) {
+    signingError(agreementId, "agreement_unavailable");
+  }
+
+  const { data: tenancy, error: tenancyError } = await supabase
+    .from("tenancies")
+    .select("id, tenant_id, property_id, room_id")
+    .eq("id", agreement.tenancy_id)
+    .maybeSingle();
+
+  if (tenancyError || !tenancy) {
+    console.error("Unable to load tenancy for signing.", {
+      agreementId,
+      error: tenancyError?.message,
+    });
+    signingError(agreementId, "agreement_unavailable");
+  }
+
+  const [tenantResult, propertyResult, roomResult, signatureResult] =
+    await Promise.all([
+      supabase
+        .from("tenants")
+        .select("id, profile_id, full_name")
+        .eq("id", tenancy.tenant_id)
+        .maybeSingle(),
+      supabase
+        .from("properties")
+        .select("id, property_code, name")
+        .eq("id", tenancy.property_id)
+        .maybeSingle(),
+      supabase
+        .from("rooms")
+        .select("id, room_number, name")
+        .eq("id", tenancy.room_id)
+        .maybeSingle(),
+      supabase
+        .from("tenancy_agreement_signatures")
+        .select("id")
+        .eq("agreement_id", agreement.id)
+        .maybeSingle(),
+    ]);
+
+  const tenant = tenantResult.data;
+  const property = propertyResult.data;
+  const room = roomResult.data;
+
+  if (
+    tenantResult.error ||
+    !tenant ||
+    tenant.profile_id !== user.id
+  ) {
+    console.error("Tenant is not authorized to sign this agreement.", {
+      agreementId,
+      tenantError: tenantResult.error?.message,
+    });
+    signingError(agreementId, "agreement_unavailable");
+  }
+
+  if (signatureResult.error) {
+    console.error("Unable to check existing agreement signature.", {
+      agreementId,
+      error: signatureResult.error.message,
+    });
+    signingError(agreementId, "save_failed");
+  }
+  if (signatureResult.data) {
+    signingError(agreementId, "already_signed");
+  }
+
+  const signatureMatch = signatureData.match(
+    /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/,
+  );
+  if (!signatureMatch) {
+    signingError(agreementId, "signature_invalid");
+  }
+
+  const signatureBytes = Buffer.from(signatureMatch[1], "base64");
+  if (signatureBytes.length < 100 || signatureBytes.length > 5 * 1024 * 1024) {
+    signingError(agreementId, "signature_invalid");
   }
 
   const signedAt = new Date().toISOString();
-  const signatureBytes = Buffer.from(signatureData.split(",")[1] ?? "", "base64");
   const signaturePath = `${user.id}/${agreement.id}/signature-${Date.now()}.png`;
-  await supabase.storage.from("tenancy-signatures").upload(signaturePath, signatureBytes, {
-    contentType: "image/png",
-    upsert: true,
-  });
+  const { error: signatureUploadError } = await supabase.storage
+    .from("tenancy-signatures")
+    .upload(signaturePath, signatureBytes, {
+      contentType: "image/png",
+      upsert: false,
+    });
+
+  if (signatureUploadError) {
+    console.error("Unable to upload tenancy signature.", {
+      agreementId,
+      error: signatureUploadError.message,
+    });
+    signingError(agreementId, "upload_failed");
+  }
 
   const signerName =
     tenant.full_name ??
@@ -74,12 +186,25 @@ export async function signAgreement(formData: FormData) {
     "[Pending tenant signature]",
     `Signed digitally by ${signerName}`,
   );
-  const pdfBytes = await createSignedAgreementPdf({
-    content: signedContent,
-    signerName,
-    signedAt,
-    signatureBytes,
-  });
+  let pdfBytes: Uint8Array;
+  try {
+    pdfBytes = await createSignedAgreementPdf({
+      content: signedContent,
+      signerName,
+      signedAt,
+      signatureBytes,
+    });
+  } catch (error) {
+    await supabase.storage
+      .from("tenancy-signatures")
+      .remove([signaturePath]);
+    console.error("Unable to generate signed tenancy agreement PDF.", {
+      agreementId,
+      error,
+    });
+    signingError(agreementId, "pdf_generation");
+  }
+
   const pdfFileName = agreementPdfName({
     tenantName: tenant.full_name,
     propertyCode: property?.property_code ?? property?.name,
@@ -87,22 +212,51 @@ export async function signAgreement(formData: FormData) {
     termStartDate: agreement.term_start_date,
   });
   const pdfPath = `${user.id}/${agreement.id}/${pdfFileName}`;
-  await supabase.storage.from("tenancy-agreements").upload(pdfPath, pdfBytes, {
-    contentType: "application/pdf",
-    upsert: true,
-  });
+  const { error: pdfUploadError } = await supabase.storage
+    .from("tenancy-agreements")
+    .upload(pdfPath, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+
+  if (pdfUploadError) {
+    await supabase.storage
+      .from("tenancy-signatures")
+      .remove([signaturePath]);
+    console.error("Unable to upload signed tenancy agreement PDF.", {
+      agreementId,
+      error: pdfUploadError.message,
+    });
+    signingError(agreementId, "upload_failed");
+  }
 
   const requestHeaders = await headers();
-  await supabase.from("tenancy_agreement_signatures").insert({
-    agreement_id: agreement.id,
-    tenant_id: user.id,
-    signature_url: signaturePath,
-    signed_at: signedAt,
-    ip_address: requestHeaders.get("x-forwarded-for") ?? null,
-    user_agent: requestHeaders.get("user-agent") ?? null,
-  });
+  const { data: signatureRecord, error: signatureInsertError } = await supabase
+    .from("tenancy_agreement_signatures")
+    .insert({
+      agreement_id: agreement.id,
+      tenant_id: user.id,
+      signature_url: signaturePath,
+      signed_at: signedAt,
+      ip_address: requestHeaders.get("x-forwarded-for") ?? null,
+      user_agent: requestHeaders.get("user-agent") ?? null,
+    })
+    .select("id")
+    .single();
 
-  await supabase
+  if (signatureInsertError || !signatureRecord) {
+    await Promise.all([
+      supabase.storage.from("tenancy-signatures").remove([signaturePath]),
+      supabase.storage.from("tenancy-agreements").remove([pdfPath]),
+    ]);
+    console.error("Unable to save tenancy signature record.", {
+      agreementId,
+      error: signatureInsertError?.message,
+    });
+    signingError(agreementId, "save_failed");
+  }
+
+  const { data: updatedAgreement, error: agreementUpdateError } = await supabase
     .from("tenancy_agreements")
     .update({
       status: agreement.agreement_type === "renewal" ? "renewal_signed" : "signed",
@@ -110,14 +264,33 @@ export async function signAgreement(formData: FormData) {
       pdf_url: pdfPath,
       rendered_content: signedContent,
     })
-    .eq("id", agreement.id);
+    .eq("id", agreement.id)
+    .in("status", signableStatuses)
+    .select("id")
+    .maybeSingle();
+
+  if (agreementUpdateError || !updatedAgreement) {
+    await Promise.all([
+      supabase
+        .from("tenancy_agreement_signatures")
+        .delete()
+        .eq("id", signatureRecord.id),
+      supabase.storage.from("tenancy-signatures").remove([signaturePath]),
+      supabase.storage.from("tenancy-agreements").remove([pdfPath]),
+    ]);
+    console.error("Unable to finalize signed tenancy agreement.", {
+      agreementId,
+      error: agreementUpdateError?.message,
+    });
+    signingError(agreementId, "save_failed");
+  }
 
   if (
     agreement.agreement_type === "renewal" &&
     agreement.term_start_date &&
     agreement.term_end_date
   ) {
-    await supabase
+    const { error: renewalUpdateError } = await supabase
       .from("tenancies")
       .update({
         tenancy_start_date: agreement.term_start_date,
@@ -128,6 +301,13 @@ export async function signAgreement(formData: FormData) {
         updated_at: signedAt,
       })
       .eq("id", agreement.tenancy_id);
+
+    if (renewalUpdateError) {
+      console.error("Signed renewal did not update the tenancy dates.", {
+        agreementId,
+        error: renewalUpdateError.message,
+      });
+    }
   }
 
   revalidatePath("/e-tenancy");

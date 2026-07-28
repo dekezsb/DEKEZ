@@ -11,7 +11,7 @@ import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { signAgreement } from "../actions";
-import { SignaturePad } from "../signature-pad";
+import { TenantSignatureForm } from "../tenant-signature-form";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -63,6 +63,23 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const backPath =
     role === "tenant" ? "/e-tenancy" : "/tenancy-agreements";
   const pdfPath = `/api/tenancy-agreements/${agreement.id}/pdf`;
+  const signingErrors: Record<string, string> = {
+    agreement_unavailable:
+      "This agreement is no longer available for signing. Please contact DEKEZ.",
+    already_signed: "This agreement has already been signed.",
+    configuration:
+      "Signing is temporarily unavailable. Please contact DEKEZ support.",
+    pdf_generation:
+      "The signed PDF could not be prepared. Your agreement was not changed. Please try again.",
+    save_failed:
+      "Your signature could not be saved. Your agreement was not changed. Please try again.",
+    signature_invalid:
+      "The signature could not be read. Clear the box and sign again.",
+    signature_missing:
+      "Please accept the agreement and draw your signature before signing.",
+    upload_failed:
+      "The signature could not be uploaded. Please check your connection and try again.",
+  };
 
   return (
     <section className="space-y-6">
@@ -88,7 +105,8 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
       ) : null}
       {query.error ? (
         <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
-          Please confirm the agreement and draw your signature before signing.
+          {signingErrors[query.error] ??
+            "The agreement could not be signed. Please try again."}
         </div>
       ) : null}
 
@@ -140,18 +158,16 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
         <Card>
           <CardHeader>
             <CardTitle>Tenant Digital Signature</CardTitle>
-            <CardDescription>Your signed agreement will be locked and stored permanently.</CardDescription>
+            <CardDescription>
+              Read the agreement, confirm your acceptance, then sign using your
+              finger. Your signed copy will be locked and stored permanently.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <form action={signAgreement} className="space-y-4">
-              <input name="agreementId" type="hidden" value={agreement.id} />
-              <label className="flex items-start gap-2 text-sm text-gray-700">
-                <input className="mt-1" name="confirmAgreement" type="checkbox" />
-                I confirm that I have read and agree to the tenancy agreement.
-              </label>
-              <SignaturePad />
-              <Button type="submit">Sign agreement</Button>
-            </form>
+            <TenantSignatureForm
+              agreementId={agreement.id}
+              action={signAgreement}
+            />
           </CardContent>
         </Card>
       ) : null}
