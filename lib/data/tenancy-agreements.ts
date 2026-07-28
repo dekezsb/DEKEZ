@@ -58,7 +58,7 @@ export async function loadTenancyAgreementArchive(
   const tenanciesResult = await supabase
     .from("tenancies")
     .select(
-      "id, status, checkout_date, tenants(full_name), properties(name, property_code), rooms(name, room_number)",
+      "id, status, checkout_date, tenants(full_name), properties(name, property_code), rooms!tenancies_room_id_fkey(name, room_number)",
     )
     .in("id", tenancyIds);
 

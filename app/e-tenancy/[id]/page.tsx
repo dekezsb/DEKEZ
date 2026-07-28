@@ -52,7 +52,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
 
   const { data: tenancy } = await supabase
     .from("tenancies")
-    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name, room_number)")
+    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms!tenancies_room_id_fkey(name, room_number)")
     .eq("id", agreement.tenancy_id)
     .maybeSingle();
   const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
