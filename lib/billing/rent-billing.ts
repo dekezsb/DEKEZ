@@ -18,6 +18,7 @@ type TenancyBillingRow = {
   unit_id: string | null;
   room_id: string;
   monthly_rental: number | string | null;
+  deposit: number | string | null;
   contract_start: string;
   contract_end: string | null;
   tenancy_start_date?: string | null;
@@ -41,6 +42,7 @@ type TenantRecordBillingRow = {
   unit_id: string | null;
   room_id: string;
   monthly_rent: number | string | null;
+  deposit: number | string | null;
   contract_start: string | null;
   contract_end: string | null;
   due_day: number | null;
@@ -76,7 +78,7 @@ export function invoiceDueDateForBillMonth(
   checkInDate: string,
 ) {
   const recurringDueDate = dueDateForBillMonth(billMonth, dueDay);
-  return billMonth === billMonthForDate(checkInDate) && recurringDueDate < checkInDate
+  return billMonth === billMonthForDate(checkInDate)
     ? checkInDate
     : recurringDueDate;
 }
@@ -176,7 +178,7 @@ export async function generateRecurringRentBills(
 
   let tenancyQuery = supabase
     .from("tenancies")
-    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!inner(status), tenants(profile_id)")
+    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!inner(status), tenants(profile_id)")
     .eq("status", "active")
     .eq("billing_status", "active")
     .eq("rooms.status", "occupied");
@@ -227,6 +229,10 @@ export async function generateRecurringRentBills(
           due_date: dueDate,
           invoice_date: dueDate,
           amount: Number(tenancy.monthly_rental ?? 0),
+          deposit_amount:
+            billMonth === billMonthForDate(startDate)
+              ? Number(tenancy.deposit ?? 0)
+              : 0,
           paid_amount: 0,
           status: "unpaid",
           created_by: options.createdBy ?? null,
@@ -244,7 +250,7 @@ export async function generateRecurringRentBills(
   if (options.includeTenantRecords !== false) {
     const { data: tenantRecords, error: tenantRecordError } = await supabase
       .from("tenant_records")
-      .select("id, tenancy_id, company_id, property_id, unit_id, room_id, monthly_rent, contract_start, contract_end, due_day, rooms!inner(status)")
+      .select("id, tenancy_id, company_id, property_id, unit_id, room_id, monthly_rent, deposit, contract_start, contract_end, due_day, rooms!inner(status)")
       .eq("status", "active")
       .eq("rooms.status", "occupied")
       .is("tenancy_id", null)
@@ -290,6 +296,10 @@ export async function generateRecurringRentBills(
             due_date: dueDate,
             invoice_date: dueDate,
             amount: Number(tenant.monthly_rent ?? 0),
+            deposit_amount:
+              billMonth === billMonthForDate(contractStart)
+                ? Number(tenant.deposit ?? 0)
+                : 0,
             paid_amount: 0,
             status: "unpaid",
             created_by: options.createdBy ?? null,

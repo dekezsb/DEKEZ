@@ -2,6 +2,10 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  getVerifiedDepositPaymentMaps,
+  verifiedDepositPaid,
+} from "@/lib/invoices/deposit-payments";
 
 type Relation<T> = T | T[] | null;
 
@@ -203,6 +207,7 @@ export async function getTenantPortalData() {
     bill_month: string;
     due_date: string;
     amount: number | string;
+    deposit_amount: number | string;
     paid_amount: number | string;
     status: string;
     created_at: string;
@@ -236,7 +241,7 @@ export async function getTenantPortalData() {
   }> = [];
 
   const billColumns =
-    "id, tenancy_id, property_id, room_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status, created_at, properties(name), rooms(name, room_number)";
+    "id, tenancy_id, property_id, room_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, deposit_amount, paid_amount, status, created_at, properties(name), rooms(name, room_number)";
   const [tenancyBillsResult, directBillsResult] = await Promise.all([
     tenancyIds.length
       ? dataClient
@@ -258,6 +263,48 @@ export async function getTenantPortalData() {
       ),
     ).values(),
   ).sort((left, right) => right.bill_month.localeCompare(left.bill_month)) as typeof bills;
+  const depositPaymentMaps = await getVerifiedDepositPaymentMaps(
+    dataClient,
+    tenancyIds,
+    [],
+  );
+  const invoiceBills = bills.map((bill) => {
+    const amount = numberValue(bill.amount);
+    const paidAmount = numberValue(bill.paid_amount);
+    const depositAmount = numberValue(bill.deposit_amount);
+    const depositPaidAmount = verifiedDepositPaid(depositPaymentMaps, {
+      tenancyId: bill.tenancy_id,
+      tenantRecordId: null,
+      depositAmount,
+    });
+    const invoiceTotal = amount + depositAmount;
+    const invoicePaidAmount = Math.min(
+      paidAmount + depositPaidAmount,
+      invoiceTotal,
+    );
+    const outstanding = ["cancelled", "waived"].includes(String(bill.status))
+      ? 0
+      : Math.max(invoiceTotal - invoicePaidAmount, 0);
+    const invoiceStatus = ["cancelled", "waived"].includes(String(bill.status))
+      ? String(bill.status)
+      : outstanding <= 0.005
+        ? "paid"
+        : invoicePaidAmount > 0
+          ? "partial"
+          : String(bill.status);
+
+    return {
+      ...bill,
+      amount,
+      depositAmount,
+      depositPaidAmount,
+      invoiceTotal,
+      paidAmount,
+      invoicePaidAmount,
+      outstanding,
+      invoiceStatus,
+    };
+  });
 
   if (tenancyIds.length) {
     const [paymentsResult, agreementsResult] = await Promise.all([
@@ -345,21 +392,17 @@ export async function getTenantPortalData() {
           "room-payment-qr",
           tenancyRoom?.payment_qr_path ?? null,
         );
-        const tenancyOutstanding = bills
+        const tenancyOutstanding = invoiceBills
           .filter(
             (bill) =>
               bill.tenancy_id === tenancy.id &&
               !["draft", "paid", "cancelled", "waived"].includes(
-                String(bill.status),
+                bill.invoiceStatus,
               ),
           )
           .reduce(
             (total, bill) =>
-              total +
-              Math.max(
-                0,
-                numberValue(bill.amount) - numberValue(bill.paid_amount),
-              ),
+              total + bill.outstanding,
             0,
           );
 
@@ -399,16 +442,15 @@ export async function getTenantPortalData() {
     tenantRecords[0] ??
     null;
   const profile = profileResult.data;
-  const outstandingAmount = bills
+  const outstandingAmount = invoiceBills
     .filter(
       (bill) =>
         !["draft", "paid", "cancelled", "waived"].includes(
-          String(bill.status),
+          bill.invoiceStatus,
         ),
     )
     .reduce(
-      (total, bill) =>
-        total + Math.max(0, numberValue(bill.amount) - numberValue(bill.paid_amount)),
+      (total, bill) => total + bill.outstanding,
       0,
     );
 
@@ -431,19 +473,11 @@ export async function getTenantPortalData() {
     tenancy: currentPortalTenancy,
     tenancies: portalTenancies,
     outstandingAmount,
-    bills: bills.map((bill) => ({
+    bills: invoiceBills.map((bill) => ({
       ...bill,
       propertyName: one(bill.properties)?.name ?? "Property",
       roomName:
         one(bill.rooms)?.room_number ?? one(bill.rooms)?.name ?? "Room",
-      amount: numberValue(bill.amount),
-      paidAmount: numberValue(bill.paid_amount),
-      outstanding: ["cancelled", "waived"].includes(String(bill.status))
-        ? 0
-        : Math.max(
-            0,
-            numberValue(bill.amount) - numberValue(bill.paid_amount),
-          ),
     })),
     payments: payments.map((payment) => ({
       ...payment,

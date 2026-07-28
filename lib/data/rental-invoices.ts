@@ -1,4 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
+import {
+  getVerifiedDepositPaymentMaps,
+  verifiedDepositPaid,
+} from "@/lib/invoices/deposit-payments";
 
 type BillRow = {
   id: string;
@@ -15,6 +19,7 @@ type BillRow = {
   bill_month: string;
   due_date: string;
   amount: number | string;
+  deposit_amount: number | string;
   paid_amount: number | string;
   status: string;
   notes: string | null;
@@ -62,9 +67,14 @@ export type RentalInvoiceView = {
   billMonth: string;
   dueDate: string;
   amount: number;
+  depositAmount: number;
+  depositPaidAmount: number;
+  invoiceTotal: number;
+  invoicePaidAmount: number;
   paidAmount: number;
   outstanding: number;
   status: string;
+  invoiceStatus: string;
   invoiceSource: string;
   notes: string | null;
   removedAt: string | null;
@@ -107,6 +117,7 @@ function billSelect() {
     "bill_month",
     "due_date",
     "amount",
+    "deposit_amount",
     "paid_amount",
     "status",
     "notes",
@@ -197,6 +208,11 @@ async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
       >
     ).map((record) => [record.id, record]),
   );
+  const depositPaymentMaps = await getVerifiedDepositPaymentMaps(
+    supabase,
+    tenancyIds,
+    tenantRecordIds,
+  );
 
   return bills.map((bill) => {
     const property = propertyById.get(bill.property_id);
@@ -213,6 +229,27 @@ async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
     const tenant = canonicalTenant ?? importedTenant;
     const amount = numberValue(bill.amount);
     const paidAmount = numberValue(bill.paid_amount);
+    const depositAmount = numberValue(bill.deposit_amount);
+    const depositPaidAmount = verifiedDepositPaid(depositPaymentMaps, {
+      tenancyId: bill.tenancy_id,
+      tenantRecordId: bill.tenant_record_id,
+      depositAmount,
+    });
+    const invoiceTotal = amount + depositAmount;
+    const invoicePaidAmount = Math.min(
+      paidAmount + depositPaidAmount,
+      invoiceTotal,
+    );
+    const outstanding = ["cancelled", "waived"].includes(bill.status)
+      ? 0
+      : Math.max(invoiceTotal - invoicePaidAmount, 0);
+    const invoiceStatus = ["cancelled", "waived"].includes(bill.status)
+      ? bill.status
+      : outstanding <= 0.005
+        ? "paid"
+        : invoicePaidAmount > 0
+          ? "partial"
+          : bill.status;
 
     return {
       id: bill.id,
@@ -222,11 +259,14 @@ async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
       billMonth: bill.bill_month,
       dueDate: bill.due_date,
       amount,
+      depositAmount,
+      depositPaidAmount,
+      invoiceTotal,
+      invoicePaidAmount,
       paidAmount,
-      outstanding: ["cancelled", "waived"].includes(bill.status)
-        ? 0
-        : Math.max(amount - paidAmount, 0),
+      outstanding,
       status: bill.status,
+      invoiceStatus,
       invoiceSource: bill.invoice_source,
       notes: bill.notes,
       removedAt: bill.removed_at,

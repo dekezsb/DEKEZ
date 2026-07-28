@@ -251,7 +251,7 @@ export default async function RentalInvoicesPage({
                           {invoice.propertyCode || invoice.propertyName} /{" "}
                           {invoice.roomName}
                         </TableCell>
-                        <TableCell>{money.format(invoice.amount)}</TableCell>
+                        <TableCell>{money.format(invoice.invoiceTotal)}</TableCell>
                         <TableCell
                           className={
                             invoice.outstanding > 0
@@ -262,8 +262,8 @@ export default async function RentalInvoicesPage({
                           {money.format(invoice.outstanding)}
                         </TableCell>
                         <TableCell>
-                          <Badge className={statusBadgeClass(invoice.status)}>
-                            {invoice.status.replaceAll("_", " ")}
+                          <Badge className={statusBadgeClass(invoice.invoiceStatus)}>
+                            {invoice.invoiceStatus.replaceAll("_", " ")}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -311,8 +311,8 @@ export default async function RentalInvoicesPage({
                           {invoice.roomName}
                         </p>
                       </div>
-                      <Badge className={statusBadgeClass(invoice.status)}>
-                        {invoice.status.replaceAll("_", " ")}
+                      <Badge className={statusBadgeClass(invoice.invoiceStatus)}>
+                        {invoice.invoiceStatus.replaceAll("_", " ")}
                       </Badge>
                     </div>
                     <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -326,7 +326,7 @@ export default async function RentalInvoicesPage({
                       </div>
                       <div>
                         <dt className="text-gray-500">Amount</dt>
-                        <dd>{money.format(invoice.amount)}</dd>
+                        <dd>{money.format(invoice.invoiceTotal)}</dd>
                       </div>
                       <div>
                         <dt className="text-gray-500">Outstanding</dt>

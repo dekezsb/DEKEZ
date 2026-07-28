@@ -589,8 +589,8 @@ export function TenantBills({
                     <p className="font-semibold text-gray-950">
                       {bill.invoice_number}
                     </p>
-                    <Badge className={statusBadgeClass(bill.status)}>
-                      {titleCase(bill.status)}
+                    <Badge className={statusBadgeClass(bill.invoiceStatus)}>
+                      {titleCase(bill.invoiceStatus)}
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-gray-600">
@@ -600,6 +600,12 @@ export function TenantBills({
                     Rental month {date(bill.bill_month)} / Invoice date{" "}
                     {date(bill.invoice_date)}
                   </p>
+                  {bill.depositAmount > 0 ? (
+                    <p className="mt-1 text-sm font-medium text-[#8a641d]">
+                      Includes first-invoice deposit of{" "}
+                      {money(bill.depositAmount)}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-col items-start gap-3 sm:items-end">
                   <div className="text-left sm:text-right">

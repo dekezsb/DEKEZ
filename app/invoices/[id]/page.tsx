@@ -87,8 +87,8 @@ export default async function RentalInvoicePage({ params }: PageProps) {
             <p className="mt-3 text-sm font-semibold">
               {invoice.invoiceNumber}
             </p>
-            <Badge className={`mt-2 ${statusBadgeClass(invoice.status)}`}>
-              {invoice.status.replaceAll("_", " ")}
+            <Badge className={`mt-2 ${statusBadgeClass(invoice.invoiceStatus)}`}>
+              {invoice.invoiceStatus.replaceAll("_", " ")}
             </Badge>
           </div>
         </header>
@@ -142,13 +142,27 @@ export default async function RentalInvoicePage({ params }: PageProps) {
             <span className="text-center">UOM</span>
             <span className="text-right">Total</span>
           </div>
-          <div className="grid min-h-32 grid-cols-[3rem_1fr_4rem_5rem_7rem] px-3 py-4 text-sm">
+          <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] px-3 py-4 text-sm">
             <span>1</span>
             <span className="pr-4 font-medium">{description}</span>
             <span className="text-center">1</span>
             <span className="text-center">UNIT</span>
             <span className="text-right">{money.format(invoice.amount)}</span>
           </div>
+          {invoice.depositAmount > 0 ? (
+            <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm">
+              <span>2</span>
+              <span className="pr-4 font-medium">
+                SECURITY DEPOSIT - FIRST TENANCY INVOICE
+              </span>
+              <span className="text-center">1</span>
+              <span className="text-center">UNIT</span>
+              <span className="text-right">
+                {money.format(invoice.depositAmount)}
+              </span>
+            </div>
+          ) : null}
+          <div className="min-h-16" />
         </section>
 
         <section className="grid gap-8 border-b border-[#b9c0c9] py-6 sm:grid-cols-[1fr_18rem]">
@@ -157,14 +171,14 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               Amount In Words
             </p>
             <p className="mt-2 text-sm font-medium">
-              {ringgitInWords(invoice.amount)}
+              {ringgitInWords(invoice.invoiceTotal)}
             </p>
           </div>
           <dl className="grid grid-cols-[1fr_auto] gap-x-5 gap-y-2 text-sm">
             <dt>Subtotal</dt>
-            <dd>{money.format(invoice.amount)}</dd>
+            <dd>{money.format(invoice.invoiceTotal)}</dd>
             <dt>Paid</dt>
-            <dd>{money.format(invoice.paidAmount)}</dd>
+            <dd>{money.format(invoice.invoicePaidAmount)}</dd>
             <dt className="border-t border-[#17130d] pt-2 text-base font-bold">
               Outstanding
             </dt>
