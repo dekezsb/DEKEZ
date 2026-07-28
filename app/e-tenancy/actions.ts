@@ -57,7 +57,7 @@ export async function signAgreement(formData: FormData) {
   const { data: agreement, error: agreementError } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, rendered_content, tenancy_id, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot",
+      "id, rendered_content, tenancy_id, term_type, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot",
     )
     .eq("id", agreementId)
     .maybeSingle();
@@ -265,7 +265,7 @@ export async function signAgreement(formData: FormData) {
   const { data: updatedAgreement, error: agreementUpdateError } = await supabase
     .from("tenancy_agreements")
     .update({
-      status: agreement.agreement_type === "renewal" ? "renewal_signed" : "signed",
+      status: agreement.term_type === "renewal" ? "renewal_signed" : "signed",
       signed_at: signedAt,
       pdf_url: pdfPath,
       rendered_content: signedContent,
@@ -292,7 +292,7 @@ export async function signAgreement(formData: FormData) {
   }
 
   if (
-    agreement.agreement_type === "renewal" &&
+    agreement.term_type === "renewal" &&
     agreement.term_start_date &&
     agreement.term_end_date
   ) {

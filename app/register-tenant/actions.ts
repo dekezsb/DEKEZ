@@ -54,6 +54,26 @@ export async function submitAdminTenantApplication(formData: FormData) {
   const deposit = Math.max(0, numberValue(formData, "deposit"));
   const contractStart = textValue(formData, "contractStart");
   const contractEnd = textValue(formData, "contractEnd") || null;
+  const tenantType = textValue(formData, "tenantType") || "individual";
+  const businessName = textValue(formData, "businessName");
+  const businessRegistrationNumber = textValue(
+    formData,
+    "businessRegistrationNumber",
+  );
+  const registeredAddress = textValue(formData, "registeredAddress");
+  const authorisedRepresentativeName = textValue(
+    formData,
+    "authorisedRepresentativeName",
+  );
+  const representativeIdentityNumber = textValue(
+    formData,
+    "representativeIdentityNumber",
+  );
+  const businessContactNumber = textValue(
+    formData,
+    "businessContactNumber",
+  );
+  const businessEmail = textValue(formData, "businessEmail");
   const icFront = formFile(formData, "icFront");
   const icBack = formFile(formData, "icBack");
   const passportPhoto = formFile(formData, "passportPhoto");
@@ -102,6 +122,19 @@ export async function submitAdminTenantApplication(formData: FormData) {
   }
   if (property.is_commercial && !commercialSupportingDocument) {
     fail("commercial_document", propertyId, roomId);
+  }
+  if (
+    property.is_commercial &&
+    (!["company", "sole_proprietor"].includes(tenantType) ||
+      !businessName ||
+      !businessRegistrationNumber ||
+      !registeredAddress ||
+      !authorisedRepresentativeName ||
+      !representativeIdentityNumber ||
+      !businessContactNumber ||
+      !businessEmail)
+  ) {
+    fail("missing", propertyId, roomId);
   }
 
   const supabase = await getAdmin();
@@ -162,6 +195,25 @@ export async function submitAdminTenantApplication(formData: FormData) {
     .from("tenant_applications")
     .insert({
       tenant_id: null,
+      agreement_type: property.is_commercial
+        ? "commercial_office"
+        : "residential_room",
+      tenant_type: property.is_commercial ? tenantType : "individual",
+      business_name: property.is_commercial ? businessName : null,
+      business_registration_number: property.is_commercial
+        ? businessRegistrationNumber
+        : null,
+      registered_address: property.is_commercial ? registeredAddress : null,
+      authorised_representative_name: property.is_commercial
+        ? authorisedRepresentativeName
+        : null,
+      representative_identity_number: property.is_commercial
+        ? representativeIdentityNumber
+        : null,
+      business_contact_number: property.is_commercial
+        ? businessContactNumber
+        : null,
+      business_email: property.is_commercial ? businessEmail : null,
       submitted_by: user.id,
       submission_source: "admin_assisted",
       identity_type: identityType,

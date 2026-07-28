@@ -35,6 +35,7 @@ import {
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
+import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { PaymentSubmitButton } from "./payment-submit-button";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
@@ -707,10 +708,15 @@ export function TenantBills({
                   <div className="flex flex-wrap items-center gap-2">
                     <FileCheck2 className="h-5 w-5 text-[#b8892c]" />
                     <p className="font-semibold">
-                      {agreement.agreement_type === "renewal"
-                        ? "Renewal Agreement"
-                        : "Tenancy Agreement"}{" "}
-                      v{agreement.version_number}
+                      {agreement.term_type === "renewal"
+                        ? "Renewal"
+                        : "Original"}{" "}
+                      v{agreement.version_number} -{" "}
+                      {agreementTypeLabel(
+                        agreement.agreement_type === "commercial_office"
+                          ? "commercial_office"
+                          : "residential_room",
+                      )}
                     </p>
                     <Badge className={statusBadgeClass(agreement.status)}>
                       {titleCase(agreement.status)}

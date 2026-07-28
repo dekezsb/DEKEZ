@@ -230,6 +230,7 @@ export async function getTenantPortalData() {
   let agreements: Array<{
     id: string;
     tenancy_id: string;
+    term_type: string;
     agreement_type: string;
     version_number: number;
     status: string;
@@ -318,7 +319,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("tenancy_agreements")
         .select(
-          "id, tenancy_id, agreement_type, version_number, status, generated_at, signed_at, pdf_url, term_start_date, term_end_date",
+          "id, tenancy_id, term_type, agreement_type, version_number, status, generated_at, signed_at, pdf_url, term_start_date, term_end_date",
         )
         .in("tenancy_id", tenancyIds)
         .order("generated_at", { ascending: false }),

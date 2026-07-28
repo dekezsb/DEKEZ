@@ -86,6 +86,7 @@ export type TenantDocumentView = {
 
 export type TenantAgreementHistoryView = {
   id: string;
+  termType: string;
   agreementType: string;
   versionNumber: number;
   status: string;
@@ -193,7 +194,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       supabase
         .from("property_tenancy_settings")
         .select(
-          "property_type, facilities, water_mode, electricity_mode, air_conditioner_mode, air_conditioner_free_quota_kwh, optional_clauses, inventory, emergency_contact_name, emergency_contact_phone, key_handover_notes",
+          "default_agreement_type, property_type, facilities, water_mode, electricity_mode, air_conditioner_mode, air_conditioner_free_quota_kwh, water_monthly_quota, water_rate, electricity_monthly_quota, electricity_rate, employee_limit, optional_clauses, inventory, emergency_contact_name, emergency_contact_phone, key_handover_notes",
         )
         .eq("property_id", propertyId)
         .maybeSingle(),
@@ -515,7 +516,7 @@ export async function getRoomDetails(
   const agreementsResult = tenancyIds.length
     ? await supabase
         .from("tenancy_agreements")
-        .select("id, tenancy_id, agreement_type, version_number, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, generated_at, signed_at, pdf_url, tenancies(tenancy_start_date, tenancy_end_date, contract_start, contract_end, properties(name), rooms(name, room_number))")
+        .select("id, tenancy_id, term_type, agreement_type, version_number, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, generated_at, signed_at, pdf_url, tenancies(tenancy_start_date, tenancy_end_date, contract_start, contract_end, properties(name), rooms(name, room_number))")
         .in("tenancy_id", tenancyIds)
         .order("term_start_date", { ascending: false, nullsFirst: false })
         .order("generated_at", { ascending: false })
@@ -528,6 +529,7 @@ export async function getRoomDetails(
       const agreementRoom = relatedOne(tenancy?.rooms);
       return {
         id: agreement.id,
+        termType: agreement.term_type,
         agreementType: agreement.agreement_type,
         versionNumber: agreement.version_number,
         status: agreement.status,

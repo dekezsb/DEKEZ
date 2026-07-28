@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
-import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
 
 type ConvertApplicationOptions = {
   actorId: string;
@@ -32,7 +31,7 @@ export async function convertTenantApplication(
   const { data: application } = await supabase
     .from("tenant_applications")
     .select(
-      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, verification_status, payment_status, status",
+      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
     )
     .eq("id", applicationId)
     .maybeSingle();
@@ -124,6 +123,17 @@ export async function convertTenantApplication(
         full_name: application.full_name,
         phone: application.whatsapp_number,
         identity_number: application.ic_passport_number,
+        tenant_type: application.tenant_type ?? "individual",
+        business_name: application.business_name,
+        business_registration_number:
+          application.business_registration_number,
+        registered_address: application.registered_address,
+        authorised_representative_name:
+          application.authorised_representative_name,
+        representative_identity_number:
+          application.representative_identity_number,
+        business_contact_number: application.business_contact_number,
+        business_email: application.business_email,
         status: "active",
       })
       .select("id")
@@ -134,6 +144,48 @@ export async function convertTenantApplication(
     }
     tenant = data;
     createdTenant = true;
+  } else {
+    const businessDetails = {
+      ...(application.business_name
+        ? { business_name: application.business_name }
+        : {}),
+      ...(application.business_registration_number
+        ? {
+            business_registration_number:
+              application.business_registration_number,
+          }
+        : {}),
+      ...(application.registered_address
+        ? { registered_address: application.registered_address }
+        : {}),
+      ...(application.authorised_representative_name
+        ? {
+            authorised_representative_name:
+              application.authorised_representative_name,
+          }
+        : {}),
+      ...(application.representative_identity_number
+        ? {
+            representative_identity_number:
+              application.representative_identity_number,
+          }
+        : {}),
+      ...(application.business_contact_number
+        ? { business_contact_number: application.business_contact_number }
+        : {}),
+      ...(application.business_email
+        ? { business_email: application.business_email }
+        : {}),
+    };
+
+    await supabase
+      .from("tenants")
+      .update({
+        tenant_type: application.tenant_type ?? "individual",
+        ...businessDetails,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tenant.id);
   }
 
   const dueDay = Number(application.proposed_start_date.slice(8, 10));
@@ -249,7 +301,5 @@ export async function convertTenantApplication(
     tenancyId: tenancy.id,
     includeTenantRecords: false,
   });
-  await createAgreementForTenancy(supabase, tenancy.id, actorId);
-
   return { ok: true, tenancyId: tenancy.id };
 }

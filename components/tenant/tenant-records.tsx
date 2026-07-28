@@ -244,10 +244,13 @@ export function TenantAgreementHistory({
                   <p className="mt-1 text-xs text-gray-500">
                     {agreement.propertyName ?? "Property"} /{" "}
                     {agreement.roomName ?? "Room"} /{" "}
-                    {agreement.agreementType === "renewal"
+                    {agreement.termType === "renewal"
                       ? "Renewal"
                       : "Original"}{" "}
-                    v{agreement.versionNumber}
+                    v{agreement.versionNumber} /{" "}
+                    {agreement.agreementType === "commercial_office"
+                      ? "Commercial Office"
+                      : "Residential Room"}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
                     Generated {formatMalaysiaDateTime(agreement.generatedAt)}

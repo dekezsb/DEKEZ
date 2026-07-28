@@ -480,10 +480,21 @@ function AgreementActions({
     if (!canManage) {
       return <span className="text-xs text-gray-400">Not available</span>;
     }
+    if (room.tenancyId) {
+      return (
+        <Button asChild size="sm" variant="outline">
+          <Link href={`/tenancy-agreements/preview/${room.tenancyId}`}>
+            Generate
+          </Link>
+        </Button>
+      );
+    }
     return (
       <form action={generateRoomAgreement}>
         <HiddenRoomFields propertyId={propertyId} room={room} />
-        <Button size="sm" type="submit" variant="outline">Generate</Button>
+        <Button size="sm" type="submit" variant="outline">
+          Prepare
+        </Button>
       </form>
     );
   }

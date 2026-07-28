@@ -8,6 +8,7 @@ import {
   formatMalaysiaDateTime,
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { signAgreement } from "../actions";
@@ -28,7 +29,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
       : await createClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, tenancy_id, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until")
+    .select("id, tenancy_id, term_type, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until")
     .eq("id", id)
     .single();
 
@@ -90,8 +91,9 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
             <h1 className="text-2xl font-semibold sm:text-3xl">{agreement.property_name_snapshot ?? property?.name ?? "Tenancy Agreement"}</h1>
             <p className="mt-2 text-sm text-gray-600">
               Room {agreement.room_name_snapshot ?? room?.room_number ?? room?.name ?? "-"} -{" "}
-              {agreement.agreement_type === "renewal" ? "Renewal" : "Original"}{" "}
-              term v{agreement.version_number}
+              {agreement.term_type === "renewal" ? "Renewal" : "Original"}{" "}
+              term v{agreement.version_number} -{" "}
+              {agreementTypeLabel(agreement.agreement_type)}
             </p>
           </div>
           <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>

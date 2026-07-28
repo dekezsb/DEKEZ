@@ -45,7 +45,10 @@ import {
 } from "@/components/verification/agreement-archive";
 import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import {
-  generateInitialAgreement,
+  AGREEMENT_TYPES,
+  agreementTypeLabel,
+} from "@/lib/tenancy/agreement-types";
+import {
   requestRenewalSignature,
   reviewClaim,
   reviewUserRegistration,
@@ -942,6 +945,7 @@ function TenancyProgress({
     {
       id: string;
       tenancy_id: string;
+      term_type: "original" | "renewal";
       agreement_type: string;
       version_number: number;
       status: string;
@@ -1132,7 +1136,13 @@ function TenancyRow({
               {agreement.status.replaceAll("_", " ")}
             </Badge>
             <p className="mt-1 text-xs text-gray-500">
-              {agreement.agreement_type} v{agreement.version_number}
+              {agreement.term_type === "renewal" ? "Renewal" : "Original"}{" "}
+              v{agreement.version_number} -{" "}
+              {agreementTypeLabel(
+                agreement.agreement_type === "commercial_office"
+                  ? "commercial_office"
+                  : "residential_room",
+              )}
             </p>
           </>
         ) : (
@@ -1193,12 +1203,11 @@ function SignatureActions({
 }) {
   if (!agreement) {
     return (
-      <form action={generateInitialAgreement}>
-        <input name="tenancyId" type="hidden" value={tenancyId} />
-        <Button className="w-full" size="sm" type="submit" variant="outline">
+      <Button asChild className="w-full" size="sm" variant="outline">
+        <Link href={`/tenancy-agreements/preview/${tenancyId}`}>
           Generate Agreement
-        </Button>
-      </form>
+        </Link>
+      </Button>
     );
   }
 
@@ -1254,6 +1263,25 @@ function RenewalAndCheckout({ tenancy }: { tenancy: TenancyItem }) {
     <div className="grid gap-3">
       <form action={requestRenewalSignature} className="grid gap-2">
         <input name="tenancyId" type="hidden" value={tenancy.id} />
+        <label className="grid gap-1 text-xs font-medium text-gray-600">
+          Agreement type
+          <select
+            className="rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-sm text-gray-950"
+            defaultValue={
+              property?.is_commercial
+                ? "commercial_office"
+                : "residential_room"
+            }
+            name="agreementType"
+            required
+          >
+            {AGREEMENT_TYPES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.shortLabel}
+              </option>
+            ))}
+          </select>
+        </label>
         <p className="text-xs text-gray-500">
           {duration}-month {property?.is_commercial ? "commercial" : "non-commercial"} renewal
         </p>

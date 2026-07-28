@@ -4,6 +4,10 @@ import { useState } from "react";
 import { FileSignature, Plus, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  AGREEMENT_TYPES,
+  type AgreementDocumentType,
+} from "@/lib/tenancy/agreement-types";
+import {
   FACILITY_OPTIONS,
   OPTIONAL_CLAUSES,
   PROPERTY_TYPES,
@@ -36,7 +40,22 @@ export function AgreementSettingsForm({
   const [airConditionerMode, setAirConditionerMode] = useState(
     settings.airConditionerMode,
   );
+  const [agreementType, setAgreementType] = useState<AgreementDocumentType>(
+    settings.defaultAgreementType,
+  );
+  const [waterMode, setWaterMode] = useState(settings.waterMode);
+  const [electricityMode, setElectricityMode] = useState(
+    settings.electricityMode,
+  );
   const [inventory, setInventory] = useState(settings.inventory);
+  const applicableFacilities = FACILITY_OPTIONS.filter(
+    (option) =>
+      option.appliesTo === "both" || option.appliesTo === agreementType,
+  );
+  const applicableClauses = OPTIONAL_CLAUSES.filter(
+    (option) =>
+      option.appliesTo === "both" || option.appliesTo === agreementType,
+  );
 
   function updateInventory(
     index: number,
@@ -79,6 +98,27 @@ export function AgreementSettingsForm({
           Property & Utilities
         </legend>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <label className="block md:col-span-2">
+            <span className="text-sm font-medium text-gray-700">
+              Default agreement type
+            </span>
+            <select
+              className={`${inputClass} mt-1.5`}
+              name="defaultAgreementType"
+              onChange={(event) =>
+                setAgreementType(
+                  event.target.value as AgreementDocumentType,
+                )
+              }
+              value={agreementType}
+            >
+              {AGREEMENT_TYPES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">Property type</span>
             <select
@@ -97,24 +137,37 @@ export function AgreementSettingsForm({
             <span className="text-sm font-medium text-gray-700">Water</span>
             <select
               className={`${inputClass} mt-1.5`}
-              defaultValue={settings.waterMode}
               name="waterMode"
+              onChange={(event) =>
+                setWaterMode(
+                  event.target.value as PropertyTenancySettings["waterMode"],
+                )
+              }
+              value={waterMode}
             >
               <option value="included">Included</option>
               <option value="tenant_pays">Tenant Pays</option>
               <option value="smart_meter">Smart Meter</option>
+              <option value="monthly_quota">Monthly Quota</option>
             </select>
           </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">Electricity</span>
             <select
               className={`${inputClass} mt-1.5`}
-              defaultValue={settings.electricityMode}
               name="electricityMode"
+              onChange={(event) =>
+                setElectricityMode(
+                  event.target
+                    .value as PropertyTenancySettings["electricityMode"],
+                )
+              }
+              value={electricityMode}
             >
               <option value="included">Included</option>
               <option value="tenant_pays">Tenant Pays</option>
               <option value="smart_meter">Smart Meter</option>
+              <option value="monthly_quota">Monthly Quota</option>
             </select>
           </label>
           <label className="block">
@@ -136,6 +189,86 @@ export function AgreementSettingsForm({
             </select>
           </label>
         </div>
+        {waterMode === "smart_meter" || waterMode === "monthly_quota" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {waterMode === "monthly_quota" ? (
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">
+                  Water monthly quota
+                </span>
+                <input
+                  className={`${inputClass} mt-1.5`}
+                  defaultValue={settings.waterMonthlyQuota ?? ""}
+                  min="0"
+                  name="waterMonthlyQuota"
+                  step="0.01"
+                  type="number"
+                />
+              </label>
+            ) : null}
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">
+                Water rate per unit (RM)
+              </span>
+              <input
+                className={`${inputClass} mt-1.5`}
+                defaultValue={settings.waterRate ?? ""}
+                min="0"
+                name="waterRate"
+                step="0.0001"
+                type="number"
+              />
+            </label>
+          </div>
+        ) : null}
+        {electricityMode === "smart_meter" ||
+        electricityMode === "monthly_quota" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {electricityMode === "monthly_quota" ? (
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">
+                  Electricity monthly quota (kWh)
+                </span>
+                <input
+                  className={`${inputClass} mt-1.5`}
+                  defaultValue={settings.electricityMonthlyQuota ?? ""}
+                  min="0"
+                  name="electricityMonthlyQuota"
+                  step="0.01"
+                  type="number"
+                />
+              </label>
+            ) : null}
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">
+                Electricity rate per kWh (RM)
+              </span>
+              <input
+                className={`${inputClass} mt-1.5`}
+                defaultValue={settings.electricityRate ?? ""}
+                min="0"
+                name="electricityRate"
+                step="0.0001"
+                type="number"
+              />
+            </label>
+          </div>
+        ) : null}
+        {agreementType === "commercial_office" ? (
+          <label className="block max-w-sm">
+            <span className="text-sm font-medium text-gray-700">
+              Maximum employees / authorised users
+            </span>
+            <input
+              className={`${inputClass} mt-1.5`}
+              defaultValue={settings.employeeLimit ?? ""}
+              min="1"
+              name="employeeLimit"
+              step="1"
+              type="number"
+            />
+          </label>
+        ) : null}
         {airConditionerMode === "monthly_free_quota" ? (
           <label className="block max-w-sm">
             <span className="text-sm font-medium text-gray-700">
@@ -158,7 +291,7 @@ export function AgreementSettingsForm({
           Included Facilities
         </legend>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {FACILITY_OPTIONS.map((option) => {
+          {applicableFacilities.map((option) => {
             const included = facilities[option.code];
             return (
               <label
@@ -204,7 +337,7 @@ export function AgreementSettingsForm({
           Optional Clauses
         </legend>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {OPTIONAL_CLAUSES.map((option) => (
+          {applicableClauses.map((option) => (
             <label
               className={`flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 text-sm ${
                 clauses[option.code]

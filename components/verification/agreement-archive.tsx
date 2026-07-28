@@ -26,7 +26,8 @@ import { statusBadgeClass } from "@/lib/status-styles";
 export type AgreementArchiveItem = {
   id: string;
   tenancy_id: string;
-  agreement_type: "original" | "renewal";
+  term_type: "original" | "renewal";
+  agreement_type: "residential_room" | "commercial_office";
   version_number: number;
   status: string;
   term_start_date: string | null;
@@ -204,7 +205,11 @@ export function AgreementArchive({
                         {agreement.status.replaceAll("_", " ")}
                       </Badge>
                       <p className="mt-1 text-xs text-gray-500">
-                        {agreement.agreement_type} v{agreement.version_number}
+                        {agreement.term_type} ·{" "}
+                        {agreement.agreement_type === "commercial_office"
+                          ? "Commercial Office"
+                          : "Residential Room"}{" "}
+                        · v{agreement.version_number}
                       </p>
                     </TableCell>
                     <TableCell>

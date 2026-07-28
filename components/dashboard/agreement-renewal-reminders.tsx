@@ -58,7 +58,7 @@ export function AgreementRenewalReminders({
                 {reminder.propertyName} - {reminder.roomName}
               </p>
               <p className="mt-1 text-xs text-gray-500">
-                {reminder.agreementType === "renewal" ? "Renewal" : "Original"}{" "}
+                {reminder.termType === "renewal" ? "Renewal" : "Original"}{" "}
                 term: {formatMalaysiaDate(reminder.termStartDate)} to{" "}
                 {formatMalaysiaDate(reminder.termEndDate)} -{" "}
                 {reminder.isCommercial

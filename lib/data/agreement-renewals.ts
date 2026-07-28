@@ -6,7 +6,8 @@ function first<T>(value: T | T[] | null | undefined) {
 
 export type AgreementReminder = {
   id: string;
-  agreementType: "original" | "renewal";
+  termType: "original" | "renewal";
+  agreementType: "residential_room" | "commercial_office";
   status: string;
   termStartDate: string | null;
   termEndDate: string | null;
@@ -22,7 +23,7 @@ export async function getAgreementRenewalReminders() {
   const { data } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, agreement_type, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(status, checkout_date, tenants(full_name, phone), properties(name, is_commercial), rooms(name, room_number))",
+      "id, term_type, agreement_type, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(status, checkout_date, tenants(full_name, phone), properties(name, is_commercial), rooms(name, room_number))",
     )
     .in("status", [
       "pending_signature",
@@ -49,6 +50,7 @@ export async function getAgreementRenewalReminders() {
 
       return {
         id: agreement.id,
+        termType: agreement.term_type,
         agreementType: agreement.agreement_type,
         status: agreement.status,
         termStartDate: agreement.term_start_date,

@@ -17,7 +17,7 @@ import {
   type TenantDocumentType,
   uploadTenantDocuments,
 } from "@/lib/tenant-documents";
-import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
+import { isAgreementDocumentType } from "@/lib/tenancy/agreement-types";
 import {
   FACILITY_OPTIONS,
   OPTIONAL_CLAUSES,
@@ -32,6 +32,13 @@ function textValue(formData: FormData, key: string) {
 function numberValue(formData: FormData, key: string) {
   const value = Number(textValue(formData, key));
   return Number.isFinite(value) ? value : 0;
+}
+
+function optionalNumberValue(formData: FormData, key: string) {
+  const text = textValue(formData, key);
+  if (!text) return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : Number.NaN;
 }
 
 async function getAdmin() {
@@ -315,11 +322,20 @@ export async function updatePropertyTenancySettings(formData: FormData) {
   }
 
   const propertyType = textValue(formData, "propertyType");
+  const defaultAgreementType = textValue(
+    formData,
+    "defaultAgreementType",
+  );
   const waterMode = textValue(formData, "waterMode");
   const electricityMode = textValue(formData, "electricityMode");
   const airConditionerMode = textValue(formData, "airConditionerMode");
   const validPropertyTypes = new Set(PROPERTY_TYPES.map((item) => item.value));
-  const validUtilityModes = new Set(["included", "tenant_pays", "smart_meter"]);
+  const validUtilityModes = new Set([
+    "included",
+    "tenant_pays",
+    "smart_meter",
+    "monthly_quota",
+  ]);
   const validAirConditionerModes = new Set([
     "included",
     "smart_meter",
@@ -328,6 +344,7 @@ export async function updatePropertyTenancySettings(formData: FormData) {
   ]);
 
   if (
+    !isAgreementDocumentType(defaultAgreementType) ||
     !validPropertyTypes.has(
       propertyType as (typeof PROPERTY_TYPES)[number]["value"],
     ) ||
@@ -370,7 +387,31 @@ export async function updatePropertyTenancySettings(formData: FormData) {
     .filter((item) => item.name);
   const quotaText = textValue(formData, "airConditionerFreeQuotaKwh");
   const quota = quotaText ? Number(quotaText) : null;
-  if (quota !== null && (!Number.isFinite(quota) || quota < 0)) {
+  const waterMonthlyQuota = optionalNumberValue(
+    formData,
+    "waterMonthlyQuota",
+  );
+  const waterRate = optionalNumberValue(formData, "waterRate");
+  const electricityMonthlyQuota = optionalNumberValue(
+    formData,
+    "electricityMonthlyQuota",
+  );
+  const electricityRate = optionalNumberValue(formData, "electricityRate");
+  const employeeLimit = optionalNumberValue(formData, "employeeLimit");
+  const optionalValues = [
+    waterMonthlyQuota,
+    waterRate,
+    electricityMonthlyQuota,
+    electricityRate,
+  ];
+  if (
+    (quota !== null && (!Number.isFinite(quota) || quota < 0)) ||
+    optionalValues.some(
+      (value) => value !== null && (!Number.isFinite(value) || value < 0),
+    ) ||
+    (employeeLimit !== null &&
+      (!Number.isFinite(employeeLimit) || employeeLimit < 1))
+  ) {
     redirect(propertyPath(property.id, "?error=agreement_settings"));
   }
 
@@ -378,6 +419,7 @@ export async function updatePropertyTenancySettings(formData: FormData) {
   const { error } = await supabase.from("property_tenancy_settings").upsert(
     {
       property_id: property.id,
+      default_agreement_type: defaultAgreementType,
       property_type: propertyType,
       facilities,
       water_mode: waterMode,
@@ -385,6 +427,25 @@ export async function updatePropertyTenancySettings(formData: FormData) {
       air_conditioner_mode: airConditionerMode,
       air_conditioner_free_quota_kwh:
         airConditionerMode === "monthly_free_quota" ? quota ?? 0 : null,
+      water_monthly_quota:
+        waterMode === "monthly_quota" ? waterMonthlyQuota : null,
+      water_rate:
+        ["smart_meter", "monthly_quota"].includes(waterMode)
+          ? waterRate
+          : null,
+      electricity_monthly_quota:
+        electricityMode === "monthly_quota"
+          ? electricityMonthlyQuota
+          : null,
+      electricity_rate:
+        ["smart_meter", "monthly_quota"].includes(electricityMode)
+          ? electricityRate
+          : null,
+      employee_limit:
+        defaultAgreementType === "commercial_office" &&
+        employeeLimit !== null
+          ? Math.floor(employeeLimit)
+          : null,
       optional_clauses: optionalClauses,
       inventory,
       emergency_contact_name: textValue(formData, "emergencyContactName") || null,
@@ -842,13 +903,7 @@ export async function generateRoomAgreement(formData: FormData) {
   if (!tenancyId) {
     redirect(propertyPath(property.id, "?error=tenancy"));
   }
-  const agreementId = await createAgreementForTenancy(supabase, tenancyId, user.id);
-  if (!agreementId) {
-    redirect(propertyPath(property.id, "?error=agreement"));
-  }
-  revalidatePath(propertyPath(property.id));
-  revalidatePath("/e-tenancy");
-  redirect(propertyPath(property.id, "?saved=agreement"));
+  redirect(`/tenancy-agreements/preview/${encodeURIComponent(tenancyId)}`);
 }
 
 export async function sendRoomAgreement(formData: FormData) {
@@ -1120,8 +1175,6 @@ export async function registerTenant(formData: FormData) {
     tenancyId: tenancy.id,
     includeTenantRecords: false,
   });
-  await createAgreementForTenancy(supabase, tenancy.id, user.id);
-
   revalidatePath(propertyPath(property.id));
   revalidatePath("/dashboard");
   revalidatePath("/rent-due-tracker");

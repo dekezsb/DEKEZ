@@ -17,6 +17,7 @@ import {
 } from "@/lib/date-format";
 import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function ETenancyPage() {
@@ -50,7 +51,7 @@ async function TenantAgreementList() {
       </div>
 
       <div className="grid gap-4">
-        {(agreements ?? []).map((agreement) => {
+        {agreements.map((agreement) => {
           const tenancy = Array.isArray(agreement.tenancies)
             ? agreement.tenancies[0]
             : agreement.tenancies;
@@ -60,7 +61,6 @@ async function TenantAgreementList() {
           const room = Array.isArray(tenancy?.rooms)
             ? tenancy?.rooms[0]
             : tenancy?.rooms;
-          const termEndDate = agreement.term_end_date;
 
           return (
             <Card key={agreement.id}>
@@ -77,8 +77,12 @@ async function TenantAgreementList() {
                         room?.room_number ??
                         room?.name ??
                         "Room"}{" "}
-                      · {agreement.agreement_type === "renewal" ? "Renewal" : "Original"} term v
-                      {agreement.version_number}
+                      -{" "}
+                      {agreement.term_type === "renewal"
+                        ? "Renewal"
+                        : "Original"}{" "}
+                      term v{agreement.version_number} -{" "}
+                      {agreementTypeLabel(agreement.agreement_type)}
                     </CardDescription>
                   </div>
                   <Badge className={statusBadgeClass(agreement.status)}>
@@ -87,10 +91,8 @@ async function TenantAgreementList() {
                 </div>
               </CardHeader>
               <CardContent className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
-                <p>
-                  Start: {formatMalaysiaDate(agreement.term_start_date)}
-                </p>
-                <p>End: {formatMalaysiaDate(termEndDate)}</p>
+                <p>Start: {formatMalaysiaDate(agreement.term_start_date)}</p>
+                <p>End: {formatMalaysiaDate(agreement.term_end_date)}</p>
                 <p>
                   Generated: {formatMalaysiaDateTime(agreement.generated_at)}
                 </p>

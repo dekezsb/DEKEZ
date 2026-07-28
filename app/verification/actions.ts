@@ -12,6 +12,7 @@ import {
   prepareNextRenewalAgreement,
   updateUnsignedAgreementRent,
 } from "@/lib/tenancy/agreement";
+import { isAgreementDocumentType } from "@/lib/tenancy/agreement-types";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -424,7 +425,7 @@ async function sendAgreementRequest(
 ) {
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, tenancy_id, agreement_type, status, term_start_date, term_end_date, tenancies(tenant_id, tenants(id, profile_id, full_name, phone))")
+    .select("id, tenancy_id, term_type, agreement_type, status, term_start_date, term_end_date, tenancies(tenant_id, tenants(id, profile_id, full_name, phone))")
     .eq("id", agreementId)
     .maybeSingle();
   const tenancy = Array.isArray(agreement?.tenancies)
@@ -440,7 +441,7 @@ async function sendAgreementRequest(
 
   const normalizedPhone = normalizePhoneNumber(tenant.phone);
   const agreementUrl = `${baseUrl()}/e-tenancy/${agreement.id}`;
-  const isRenewal = agreement.agreement_type === "renewal";
+  const isRenewal = agreement.term_type === "renewal";
   const message = [
     `Hello ${tenant.full_name ?? "Tenant"},`,
     isRenewal
@@ -542,14 +543,17 @@ export async function generateInitialAgreement(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
+  const agreementType = textValue(formData, "agreementType");
 
-  if (!user || !tenancyId) {
+  if (!user || !tenancyId || !isAgreementDocumentType(agreementType)) {
     redirect(verificationPath("tenancy", "error=agreement_missing"));
   }
 
   const supabase = await adminClient();
   try {
-    await createAgreementForTenancy(supabase, tenancyId, user.id);
+    await createAgreementForTenancy(supabase, tenancyId, user.id, {
+      agreementType,
+    });
   } catch {
     redirect(verificationPath("tenancy", "error=agreement_create"));
   }
@@ -591,6 +595,7 @@ export async function requestRenewalSignature(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
+  const agreementType = textValue(formData, "agreementType");
   const renewalMonthlyRent = Number(
     textValue(formData, "renewalMonthlyRent"),
   );
@@ -598,6 +603,7 @@ export async function requestRenewalSignature(formData: FormData) {
   if (
     !user ||
     !tenancyId ||
+    !isAgreementDocumentType(agreementType) ||
     !Number.isFinite(renewalMonthlyRent) ||
     renewalMonthlyRent <= 0
   ) {
@@ -609,7 +615,7 @@ export async function requestRenewalSignature(formData: FormData) {
     .from("tenancy_agreements")
     .select("id")
     .eq("tenancy_id", tenancyId)
-    .eq("agreement_type", "renewal")
+    .eq("term_type", "renewal")
     .in("status", ["renewal_pending", "renewal_sent", "pending_signature"])
     .order("term_end_date", { ascending: false })
     .limit(1)
@@ -622,6 +628,7 @@ export async function requestRenewalSignature(formData: FormData) {
         supabase,
         agreementId,
         renewalMonthlyRent,
+        agreementType,
       );
     } catch {
       redirect(verificationPath("tenancy", "error=renewal_create"));
@@ -632,7 +639,10 @@ export async function requestRenewalSignature(formData: FormData) {
         supabase,
         tenancyId,
         user.id,
-        renewalMonthlyRent,
+        {
+          agreementType,
+          monthlyRent: renewalMonthlyRent,
+        },
       );
     } catch {
       redirect(verificationPath("tenancy", "error=renewal_create"));

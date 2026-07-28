@@ -11,12 +11,16 @@ import {
   STANDARD_AGREEMENT_VERSION,
 } from "@/lib/tenancy/standard-agreement";
 import {
+  agreementTypeVariables,
+  type AgreementDocumentType,
+} from "@/lib/tenancy/agreement-types";
+import {
   loadPropertyTenancySettings,
   propertyAgreementVariables,
   type PropertyTenancySettings,
 } from "@/lib/tenancy/property-settings";
 
-type AgreementType = "original" | "renewal";
+type AgreementTermType = "original" | "renewal";
 
 type TenancyContext = {
   id: string;
@@ -42,6 +46,16 @@ type TenancyContext = {
     email: string | null;
     phone: string | null;
     identity_number: string | null;
+    emergency_contact_name: string | null;
+    emergency_contact_phone: string | null;
+    tenant_type: string | null;
+    business_name: string | null;
+    business_registration_number: string | null;
+    registered_address: string | null;
+    authorised_representative_name: string | null;
+    representative_identity_number: string | null;
+    business_contact_number: string | null;
+    business_email: string | null;
   } | null;
   properties: {
     name: string;
@@ -62,6 +76,7 @@ type ExistingAgreement = {
   term_start_date: string | null;
   term_end_date: string | null;
   status: string;
+  agreement_type: AgreementDocumentType;
 };
 
 type RegenerableAgreement = ExistingAgreement & {
@@ -115,7 +130,9 @@ async function loadTenancyContext(
   const [tenantResult, propertyResult, roomResult] = await Promise.all([
     supabase
       .from("tenants")
-      .select("full_name, email, phone, identity_number")
+      .select(
+        "full_name, email, phone, identity_number, emergency_contact_name, emergency_contact_phone, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
+      )
       .eq("id", tenancy.tenant_id)
       .maybeSingle(),
     supabase
@@ -234,6 +251,7 @@ function renderAgreement(
   durationMonths: number,
   monthlyRent: number,
   propertySettings: PropertyTenancySettings,
+  agreementType: AgreementDocumentType,
 ) {
   return renderAgreementTemplate(templateContent, {
     agreement_date: formatMalaysiaDate(startDate),
@@ -283,7 +301,26 @@ function renderAgreement(
     witness_ic_passport: "-",
     witness_signature: "-",
     witness_signature_date: "-",
-    ...propertyAgreementVariables(propertySettings),
+    ...agreementTypeVariables(agreementType, {
+      fullName: context.tenants?.full_name,
+      identityNumber: context.tenants?.identity_number,
+      phone: context.tenants?.phone,
+      email: context.tenants?.email,
+      emergencyContactName: context.tenants?.emergency_contact_name,
+      emergencyContactPhone: context.tenants?.emergency_contact_phone,
+      tenantType: context.tenants?.tenant_type,
+      businessName: context.tenants?.business_name,
+      businessRegistrationNumber:
+        context.tenants?.business_registration_number,
+      registeredAddress: context.tenants?.registered_address,
+      authorisedRepresentativeName:
+        context.tenants?.authorised_representative_name,
+      representativeIdentityNumber:
+        context.tenants?.representative_identity_number,
+      businessContactNumber: context.tenants?.business_contact_number,
+      businessEmail: context.tenants?.business_email,
+    }),
+    ...propertyAgreementVariables(propertySettings, agreementType),
   });
 }
 
@@ -346,6 +383,7 @@ async function renderExistingAgreement(
       duration,
       monthlyRent ?? Number(agreement.monthly_rent_snapshot ?? context.monthly_rental ?? 0),
       settings,
+      agreement.agreement_type,
     ),
   };
 }
@@ -355,6 +393,7 @@ async function createTermAgreement(
   context: TenancyContext,
   userId: string,
   {
+    termType,
     agreementType,
     startDate,
     endDate,
@@ -362,7 +401,8 @@ async function createTermAgreement(
     monthlyRent,
     updateExistingRent,
   }: {
-    agreementType: AgreementType;
+    termType: AgreementTermType;
+    agreementType: AgreementDocumentType;
     startDate: string;
     endDate: string;
     durationMonths: number;
@@ -372,7 +412,7 @@ async function createTermAgreement(
 ) {
   const { data: sameTerm } = await supabase
     .from("tenancy_agreements")
-    .select("id, status")
+    .select("id, status, agreement_type, monthly_rent_snapshot")
     .eq("tenancy_id", context.id)
     .eq("term_start_date", startDate)
     .eq("term_end_date", endDate)
@@ -381,10 +421,17 @@ async function createTermAgreement(
 
   if (sameTerm) {
     if (
-      updateExistingRent &&
+      (updateExistingRent || sameTerm.agreement_type !== agreementType) &&
       !["signed", "renewal_signed"].includes(sameTerm.status)
     ) {
-      await updateUnsignedAgreementRent(supabase, sameTerm.id, monthlyRent);
+      await updateUnsignedAgreementRent(
+        supabase,
+        sameTerm.id,
+        updateExistingRent
+          ? monthlyRent
+          : Number(sameTerm.monthly_rent_snapshot ?? monthlyRent),
+        agreementType,
+      );
     }
     return { id: sameTerm.id, created: false };
   }
@@ -392,7 +439,9 @@ async function createTermAgreement(
   const [{ data: agreements }, template, propertySettings] = await Promise.all([
     supabase
       .from("tenancy_agreements")
-      .select("id, version_number, term_start_date, term_end_date, status")
+      .select(
+        "id, version_number, term_start_date, term_end_date, status, agreement_type",
+      )
       .eq("tenancy_id", context.id)
       .order("term_end_date", { ascending: false }),
     ensureMasterTemplate(supabase, userId),
@@ -412,6 +461,7 @@ async function createTermAgreement(
     .insert({
       tenancy_id: context.id,
       template_id: template.id,
+      term_type: termType,
       agreement_type: agreementType,
       version_number: versionNumber,
       status: agreementStatusForTerm(endDate),
@@ -423,6 +473,7 @@ async function createTermAgreement(
         durationMonths,
         monthlyRent,
         propertySettings,
+        agreementType,
       ),
       monthly_rent_snapshot: monthlyRent,
       term_start_date: startDate,
@@ -446,7 +497,7 @@ async function createTermAgreement(
       tenancy_id: context.id,
       agreement_id: agreement.id,
       notification_type:
-        agreementType === "renewal"
+        termType === "renewal"
           ? "renewal_signature_request"
           : "signature_request",
       status: "pending",
@@ -454,7 +505,7 @@ async function createTermAgreement(
     });
   }
 
-  if (agreementType === "renewal") {
+  if (termType === "renewal") {
     await supabase.from("tenancy_renewals").insert({
       tenancy_id: context.id,
       selected_duration_months: durationMonths,
@@ -477,7 +528,10 @@ export async function createAgreementForTenancy(
   supabase: SupabaseClient,
   tenancyId: string,
   userId: string,
-  monthlyRent?: number,
+  options: {
+    agreementType?: AgreementDocumentType;
+    monthlyRent?: number;
+  } = {},
 ) {
   const context = await loadTenancyContext(supabase, tenancyId);
   if (!context) {
@@ -498,14 +552,22 @@ export async function createAgreementForTenancy(
     context.contract_end ??
     context.end_date ??
     calculateTermEndDate(startDate, duration);
+  const settings = await loadPropertyTenancySettings(
+    supabase,
+    context.property_id,
+    context.properties?.is_commercial ?? false,
+  );
+  const agreementType =
+    options.agreementType ?? settings.defaultAgreementType;
 
   const agreement = await createTermAgreement(supabase, context, userId, {
-    agreementType: "original",
+    termType: "original",
+    agreementType,
     startDate,
     endDate,
     durationMonths: duration,
-    monthlyRent: monthlyRent ?? Number(context.monthly_rental ?? 0),
-    updateExistingRent: monthlyRent !== undefined,
+    monthlyRent: options.monthlyRent ?? Number(context.monthly_rental ?? 0),
+    updateExistingRent: options.monthlyRent !== undefined,
   });
 
   return agreement.id;
@@ -515,7 +577,10 @@ export async function prepareNextRenewalAgreement(
   supabase: SupabaseClient,
   tenancyId: string,
   userId: string,
-  monthlyRent?: number,
+  options: {
+    agreementType?: AgreementDocumentType;
+    monthlyRent?: number;
+  } = {},
 ) {
   const context = await loadTenancyContext(supabase, tenancyId);
   if (
@@ -528,11 +593,15 @@ export async function prepareNextRenewalAgreement(
     return null;
   }
 
-  await createAgreementForTenancy(supabase, tenancyId, userId);
+  await createAgreementForTenancy(supabase, tenancyId, userId, {
+    agreementType: options.agreementType,
+  });
 
   const { data: agreements } = await supabase
     .from("tenancy_agreements")
-    .select("id, version_number, term_start_date, term_end_date, status")
+    .select(
+      "id, version_number, term_start_date, term_end_date, status, agreement_type",
+    )
     .eq("tenancy_id", tenancyId)
     .order("term_end_date", { ascending: false });
   const latest = ((agreements ?? []) as ExistingAgreement[])[0];
@@ -551,12 +620,19 @@ export async function prepareNextRenewalAgreement(
   const startDate = addDays(latest.term_end_date, 1);
   const endDate = calculateTermEndDate(startDate, duration);
   const agreement = await createTermAgreement(supabase, context, userId, {
-    agreementType: "renewal",
+    termType: "renewal",
+    agreementType:
+      options.agreementType ??
+      latest.agreement_type ??
+      (context.properties?.is_commercial
+        ? "commercial_office"
+        : "residential_room"),
     startDate,
     endDate,
     durationMonths: duration,
-    monthlyRent: monthlyRent ?? Number(context.monthly_rental ?? 0),
-    updateExistingRent: monthlyRent !== undefined,
+    monthlyRent:
+      options.monthlyRent ?? Number(context.monthly_rental ?? 0),
+    updateExistingRent: options.monthlyRent !== undefined,
   });
 
   if (agreement.created && endDate >= malaysiaToday()) {
@@ -576,6 +652,7 @@ export async function updateUnsignedAgreementRent(
   supabase: SupabaseClient,
   agreementId: string,
   monthlyRent: number,
+  agreementType?: AgreementDocumentType,
 ) {
   if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) {
     throw new Error("Enter a valid monthly rent for this agreement term.");
@@ -584,7 +661,7 @@ export async function updateUnsignedAgreementRent(
   const { data: agreement, error: agreementError } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot",
+      "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot, agreement_type",
     )
     .eq("id", agreementId)
     .maybeSingle();
@@ -597,9 +674,13 @@ export async function updateUnsignedAgreementRent(
   }
 
   const template = await ensureMasterTemplate(supabase, null);
+  const targetAgreement = {
+    ...agreement,
+    agreement_type: agreementType ?? agreement.agreement_type,
+  } as RegenerableAgreement;
   const { renderedContent } = await renderExistingAgreement(
     supabase,
-    agreement as RegenerableAgreement,
+    targetAgreement,
     template.template_content,
     monthlyRent,
   );
@@ -608,6 +689,7 @@ export async function updateUnsignedAgreementRent(
     .from("tenancy_agreements")
     .update({
       template_id: template.id,
+      agreement_type: targetAgreement.agreement_type,
       monthly_rent_snapshot: monthlyRent,
       rendered_content: renderedContent,
       updated_at: new Date().toISOString(),
@@ -642,7 +724,7 @@ export async function regenerateAllUnsignedAgreements(
     supabase
       .from("tenancy_agreements")
       .select(
-        "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot",
+        "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot, agreement_type",
       )
       .not("status", "in", "(signed,renewal_signed)")
       .order("created_at", { ascending: true }),
@@ -724,7 +806,7 @@ export async function ensureCurrentAgreementTerms(
     .from("tenancy_agreements")
     .select("id")
     .eq("tenancy_id", tenancyId)
-    .eq("agreement_type", "original")
+    .eq("term_type", "original")
     .limit(1)
     .maybeSingle();
   const originalId = await createAgreementForTenancy(

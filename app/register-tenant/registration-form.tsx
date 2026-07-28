@@ -90,6 +90,9 @@ export function RegistrationForm({
     String(initialRoom?.monthlyRent ?? 0),
   );
   const [identityType, setIdentityType] = useState<"ic" | "passport">("ic");
+  const [tenantType, setTenantType] = useState<"company" | "sole_proprietor">(
+    "sole_proprietor",
+  );
   const selectedProperty = properties.find(
     (property) => property.id === propertyId,
   );
@@ -101,6 +104,12 @@ export function RegistrationForm({
     );
     setRoomId(firstRoom?.id ?? "");
     setMonthlyRent(String(firstRoom?.monthlyRent ?? 0));
+    const nextProperty = properties.find(
+      (property) => property.id === nextPropertyId,
+    );
+    if (!nextProperty?.isCommercial) {
+      setTenantType("sole_proprietor");
+    }
   }
 
   function selectRoom(nextRoomId: string) {
@@ -128,6 +137,110 @@ export function RegistrationForm({
           ))}
         </select>
       </label>
+
+      {selectedProperty?.isCommercial ? (
+        <fieldset className="grid gap-4 rounded-md border border-[#d7dde5] p-4 sm:col-span-2 sm:grid-cols-2">
+          <legend className="px-1 text-sm font-semibold text-[#07142f]">
+            Commercial Tenant Details
+          </legend>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Tenant type
+            </span>
+            <select
+              className={fieldClass()}
+              name="tenantType"
+              onChange={(event) =>
+                setTenantType(
+                  event.target.value as "company" | "sole_proprietor",
+                )
+              }
+              required
+              value={tenantType}
+            >
+              <option value="company">Company</option>
+              <option value="sole_proprietor">
+                Sole proprietor / enterprise
+              </option>
+            </select>
+          </label>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Company / business name
+            </span>
+            <input
+              className={fieldClass()}
+              name="businessName"
+              required
+            />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Registration number
+            </span>
+            <input
+              className={fieldClass()}
+              name="businessRegistrationNumber"
+              required
+            />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Authorised representative
+            </span>
+            <input
+              className={fieldClass()}
+              name="authorisedRepresentativeName"
+              required
+            />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Representative IC / Passport
+            </span>
+            <input
+              className={fieldClass()}
+              name="representativeIdentityNumber"
+              required
+            />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Business contact number
+            </span>
+            <input
+              className={fieldClass()}
+              inputMode="tel"
+              name="businessContactNumber"
+              required
+              type="tel"
+            />
+          </label>
+          <label className="sm:col-span-2">
+            <span className="text-sm font-medium text-[#17223b]">
+              Registered address
+            </span>
+            <textarea
+              className={`${fieldClass()} min-h-24 py-3`}
+              name="registeredAddress"
+              required
+            />
+          </label>
+          <label className="sm:col-span-2">
+            <span className="text-sm font-medium text-[#17223b]">
+              Business email
+            </span>
+            <input
+              className={fieldClass()}
+              name="businessEmail"
+              required
+              type="email"
+            />
+          </label>
+        </fieldset>
+      ) : (
+        <input name="tenantType" type="hidden" value="individual" />
+      )}
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
