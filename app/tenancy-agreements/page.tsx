@@ -13,6 +13,7 @@ type PageProps = {
     regenerated?: string;
     skipped?: string;
     errors?: string;
+    detail?: string;
   }>;
 };
 
@@ -62,6 +63,7 @@ export default async function TenancyAgreementsPage({
           {params.errors && params.errors !== "0"
             ? ` ${params.errors} agreement(s) need review.`
             : ""}
+          {params.detail ? ` ${params.detail}` : ""}
         </div>
       ) : null}
 

@@ -22,7 +22,7 @@ type TenancyContext = {
   id: string;
   tenant_id: string;
   property_id: string;
-  room_id: string;
+  room_id: string | null;
   monthly_rental: number | string | null;
   deposit: number | string | null;
   start_date: string;
@@ -69,10 +69,6 @@ type RegenerableAgreement = ExistingAgreement & {
   monthly_rent_snapshot: number | string | null;
 };
 
-function first<T>(value: T | T[] | null | undefined) {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
-}
-
 export function malaysiaToday() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kuala_Lumpur",
@@ -101,23 +97,52 @@ async function loadTenancyContext(
   supabase: SupabaseClient,
   tenancyId: string,
 ): Promise<TenancyContext | null> {
-  const { data } = await supabase
+  const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
     .select(
-      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, status, billing_status, tenants(full_name, email, phone, identity_number), properties(name, address, property_code, is_commercial, property_type), rooms(name, room_number)",
+      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, status, billing_status",
     )
     .eq("id", tenancyId)
     .maybeSingle();
 
-  if (!data?.property_id) {
+  if (tenancyError) {
+    throw new Error(`Unable to load tenancy: ${tenancyError.message}`);
+  }
+  if (!tenancy?.property_id) {
     return null;
   }
 
+  const [tenantResult, propertyResult, roomResult] = await Promise.all([
+    supabase
+      .from("tenants")
+      .select("full_name, email, phone, identity_number")
+      .eq("id", tenancy.tenant_id)
+      .maybeSingle(),
+    supabase
+      .from("properties")
+      .select("name, address, property_code, is_commercial, property_type")
+      .eq("id", tenancy.property_id)
+      .maybeSingle(),
+    tenancy.room_id
+      ? supabase
+          .from("rooms")
+          .select("name, room_number")
+          .eq("id", tenancy.room_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  const linkedError =
+    tenantResult.error ?? propertyResult.error ?? roomResult.error;
+  if (linkedError) {
+    throw new Error(`Unable to load tenancy details: ${linkedError.message}`);
+  }
+
   return {
-    ...data,
-    tenants: first(data.tenants),
-    properties: first(data.properties),
-    rooms: first(data.rooms),
+    ...tenancy,
+    tenants: tenantResult.data,
+    properties: propertyResult.data,
+    rooms: roomResult.data,
   } as TenancyContext;
 }
 

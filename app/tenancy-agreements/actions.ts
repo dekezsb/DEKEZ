@@ -32,5 +32,8 @@ export async function regenerateMasterAgreementArchive() {
     skipped: String(result.skipped),
     errors: String(result.errors.length),
   });
+  if (result.errors[0]?.message) {
+    query.set("detail", result.errors[0].message.slice(0, 300));
+  }
   redirect(`/tenancy-agreements?${query.toString()}`);
 }
