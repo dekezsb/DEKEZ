@@ -153,8 +153,12 @@ function dueTiming(room: RentMapRoom, today: string) {
 }
 
 function compactRoomLabel(roomNumber: string) {
-  const number = roomNumber.trim().replace(/^room\s*/i, "");
-  return /^r/i.test(number) ? number.toUpperCase() : `R${number}`;
+  const number = roomNumber
+    .trim()
+    .replace(/^(?:(?:room|r)\s*)+/i, "")
+    .replace(/\s+/g, "")
+    .toUpperCase();
+  return number ? `R${number}` : "Room";
 }
 
 function RoomCard({ room, today }: { room: RentMapRoom; today: string }) {
@@ -259,15 +263,13 @@ function CollectionDetails({
       {collections.length ? (
         <>
           <div className="hidden overflow-x-auto rounded-lg border border-[#d8dee8] bg-white lg:block">
-            <table className="w-full min-w-[1480px] text-left text-sm">
+            <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="border-b border-[#d8dee8] bg-[#f8fafc] text-xs uppercase text-[#60708a]">
                 <tr>
                   <th className="px-3 py-3">Property</th>
                   <th className="px-3 py-3">Room / Tenant</th>
-                  <th className="px-3 py-3 text-right">Monthly rent</th>
                   <th className="px-3 py-3 text-right">Previous outstanding</th>
                   <th className="px-3 py-3 text-right">Current due</th>
-                  <th className="px-3 py-3 text-right">Paid</th>
                   <th className="px-3 py-3 text-right">Current outstanding</th>
                   <th className="px-3 py-3">Due / Payment date</th>
                   <th className="px-3 py-3">Payment status</th>
@@ -283,21 +285,12 @@ function CollectionDetails({
                         href={`/properties/${collection.propertyId}/rooms/${collection.roomId}`}
                         className="font-semibold text-[#0b1733] hover:text-[#9a6b12] hover:underline"
                       >
-                        Room {collection.roomNumber}
+                        {compactRoomLabel(collection.roomNumber)}
                       </Link>
                       <p className="mt-1 max-w-48 text-xs text-muted-foreground">{collection.tenantName}</p>
                     </td>
-                    <td className="px-3 py-4 text-right">{money(collection.monthlyRent)}</td>
                     <td className="px-3 py-4 text-right">{money(collection.previousOutstanding)}</td>
                     <td className="px-3 py-4 text-right">{money(collection.currentAmountDue)}</td>
-                    <td className="px-3 py-4 text-right font-medium text-emerald-700">
-                      {money(collection.paidAmount)}
-                      {collection.paymentCount > 1 ? (
-                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                          {collection.paymentCount} payments
-                        </span>
-                      ) : null}
-                    </td>
                     <td className="px-3 py-4 text-right font-semibold text-red-700">
                       {money(collection.outstanding)}
                       {collection.previousOutstanding > 0 ? (
@@ -323,7 +316,7 @@ function CollectionDetails({
                           outstandingLabel={money(collection.outstanding)}
                           paymentDateDefault={paymentDateDefault}
                           propertyName={collection.propertyName}
-                          roomName={`Room ${collection.roomNumber}`}
+                          roomName={compactRoomLabel(collection.roomNumber)}
                           tenantName={collection.tenantName}
                         />
                       </td>
@@ -344,14 +337,13 @@ function CollectionDetails({
                       href={`/properties/${collection.propertyId}/rooms/${collection.roomId}`}
                       className="mt-1 block font-semibold text-[#0b1733]"
                     >
-                      Room {collection.roomNumber} - {collection.tenantName}
+                      {compactRoomLabel(collection.roomNumber)} - {collection.tenantName}
                     </Link>
                   </div>
                   <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <p><span className="block text-xs text-muted-foreground">Current due</span>{money(collection.currentAmountDue)}</p>
-                  <p><span className="block text-xs text-muted-foreground">Verified paid</span>{money(collection.paidAmount)}</p>
                   <p><span className="block text-xs text-muted-foreground">Previous balance</span>{money(collection.previousOutstanding)}</p>
                   <p><span className="block text-xs text-muted-foreground">Current outstanding</span><span className="font-semibold text-red-700">{money(collection.outstanding)}</span></p>
                   <p><span className="block text-xs text-muted-foreground">Due date</span>{dateLabel(collection.dueDate)}</p>
@@ -368,7 +360,7 @@ function CollectionDetails({
                       outstandingLabel={money(collection.outstanding)}
                       paymentDateDefault={paymentDateDefault}
                       propertyName={collection.propertyName}
-                      roomName={`Room ${collection.roomNumber}`}
+                      roomName={compactRoomLabel(collection.roomNumber)}
                       tenantName={collection.tenantName}
                     />
                   </div>
