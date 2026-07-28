@@ -77,8 +77,14 @@ export async function createExpense(formData: FormData) {
   const amount = numberValue(formData, "amount");
   const categoryId = textValue(formData, "categoryId");
   const receipt = fileValue(formData, "receipt");
+  const fundingSource = textValue(formData, "fundingSource") || "company_cash";
 
-  if (!user || amount <= 0 || !categoryId) {
+  if (
+    !user
+    || amount <= 0
+    || !categoryId
+    || !["company_cash", "company_bank", "staff_personal"].includes(fundingSource)
+  ) {
     redirect("/expenses?error=missing");
   }
 
@@ -131,6 +137,7 @@ export async function createExpense(formData: FormData) {
       description: textValue(formData, "description") || null,
       paid_by: textValue(formData, "paidBy") || user.id,
       payment_method: textValue(formData, "paymentMethod") || "cash",
+      funding_source: fundingSource,
       charge_to: textValue(formData, "chargeTo") || "company",
       status: role === "admin" || role === "super_admin" ? "verified" : "pending_verification",
       tax_claimable: textValue(formData, "taxClaimable") === "on",
@@ -182,8 +189,16 @@ export async function reviewExpense(formData: FormData) {
   const user = await getCurrentUser();
   const expenseId = textValue(formData, "expenseId");
   const decision = textValue(formData, "decision");
+  const fundingSource = textValue(formData, "fundingSource") || "company_cash";
+  const reimbursementSource = textValue(formData, "reimbursementSource");
 
-  if (!user || !expenseId || !["verified", "rejected", "reimbursed"].includes(decision)) {
+  if (
+    !user
+    || !expenseId
+    || !["verified", "rejected", "reimbursed"].includes(decision)
+    || !["company_cash", "company_bank", "staff_personal"].includes(fundingSource)
+    || (decision === "reimbursed" && !["company_cash", "company_bank"].includes(reimbursementSource))
+  ) {
     redirect("/expenses?error=review_missing");
   }
 
@@ -195,6 +210,9 @@ export async function reviewExpense(formData: FormData) {
       category_id: textValue(formData, "categoryId") || null,
       amount: numberValue(formData, "amount"),
       property_id: textValue(formData, "propertyId") || null,
+      funding_source: fundingSource,
+      reimbursement_source: decision === "reimbursed" ? reimbursementSource : null,
+      reimbursed_at: decision === "reimbursed" ? new Date().toISOString() : null,
       charge_to: textValue(formData, "chargeTo") || "company",
       rejection_reason: textValue(formData, "rejectionReason") || null,
       verified_by: decision === "verified" || decision === "reimbursed" ? user.id : null,

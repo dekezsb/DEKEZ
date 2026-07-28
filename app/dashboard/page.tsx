@@ -16,9 +16,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CompanyCashInHand } from "@/components/dashboard/company-cash-in-hand";
 import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
 import { TenantHome } from "@/components/tenant/tenant-portal";
 import { requireRole } from "@/lib/auth/session";
+import { getCashManagementSummary } from "@/lib/data/cash-management";
 import { getDepositOutstandingSummary } from "@/lib/data/deposit-outstanding";
 import { getDashboardSummary } from "@/lib/data/organization";
 import { getOwnerPortalSummary, getStaffPortalSummary } from "@/lib/data/portal";
@@ -91,7 +93,12 @@ function ModuleCard({
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    cash_error?: string;
+    cash_saved?: string;
+    cash_cancelled?: string;
+  }>;
 }) {
   const query = await searchParams;
   const role = await requireRole([
@@ -134,7 +141,7 @@ export default async function DashboardPage({
   return (
     <>
       <AccessNotice show={query.error === "access_denied"} />
-      <AdminDashboard />
+      <AdminDashboard query={query} />
     </>
   );
 }
@@ -242,11 +249,20 @@ async function OwnerDashboard() {
   );
 }
 
-async function AdminDashboard() {
-  const [summary, rentDueSummary, depositSummary] = await Promise.all([
+async function AdminDashboard({
+  query,
+}: {
+  query: {
+    cash_error?: string;
+    cash_saved?: string;
+    cash_cancelled?: string;
+  };
+}) {
+  const [summary, rentDueSummary, depositSummary, cashSummary] = await Promise.all([
     getDashboardSummary(),
     getRentDueSummary(),
     getDepositOutstandingSummary(),
+    getCashManagementSummary(),
   ]);
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
@@ -332,6 +348,13 @@ async function AdminDashboard() {
         <StatCard label="Maintenance Rooms" value={summary.maintenanceRooms} detail="Rooms under maintenance" />
         <StatCard label="Properties" value={summary.totalProperties} detail="Managed properties" />
       </div>
+
+      <CompanyCashInHand
+        cashCancelled={query.cash_cancelled === "1"}
+        cashError={query.cash_error}
+        cashSaved={query.cash_saved === "1"}
+        summary={cashSummary}
+      />
 
       <DepositOutstanding canManage summary={depositSummary} />
 

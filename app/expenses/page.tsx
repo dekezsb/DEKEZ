@@ -30,6 +30,8 @@ type ExpenseRecord = {
   description: string | null;
   paid_by: string | null;
   payment_method: string;
+  funding_source: string;
+  reimbursement_source: string | null;
   charge_to: string;
   status: string;
   tax_claimable: boolean;
@@ -145,7 +147,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
 
   let expenseQuery = supabase
     .from("expenses")
-    .select("id, property_id, unit_id, room_id, maintenance_ticket_id, claim_id, category_id, expense_date, amount, tax_amount, supplier, description, paid_by, payment_method, charge_to, status, tax_claimable, uploaded_by, verified_at, created_at, expense_categories(name), properties(name), units(name), rooms(name, room_number), maintenance_tickets(ticket_number)")
+    .select("id, property_id, unit_id, room_id, maintenance_ticket_id, claim_id, category_id, expense_date, amount, tax_amount, supplier, description, paid_by, payment_method, funding_source, reimbursement_source, charge_to, status, tax_claimable, uploaded_by, verified_at, created_at, expense_categories(name), properties(name), units(name), rooms(name, room_number), maintenance_tickets(ticket_number)")
     .order("expense_date", { ascending: false });
 
   if (selectedMonth && selectedYear) {
@@ -375,6 +377,10 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                           <p>Supplier: {expense.supplier ?? "-"}</p>
                           <p>Description: {expense.description ?? "-"}</p>
                           <p>Payment method: {expense.payment_method}</p>
+                          <p>Paid from: {expense.funding_source.replaceAll("_", " ")}</p>
+                          {expense.reimbursement_source ? (
+                            <p>Reimbursed from: {expense.reimbursement_source.replaceAll("_", " ")}</p>
+                          ) : null}
                           <p>Tax amount: {money(expense.tax_amount)}</p>
                           <p>Tax claimable: {expense.tax_claimable ? "Yes" : "No"}</p>
                           <p>Maintenance ticket: {ticket?.ticket_number ?? "-"}</p>
@@ -414,6 +420,21 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                                   <option value="company">Company</option>
                                   <option value="owner">Owner</option>
                                   <option value="tenant">Tenant</option>
+                                </select>
+                              </label>
+                              <label className="block">
+                                <span className="text-sm font-medium text-gray-700">Originally paid from</span>
+                                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="fundingSource" defaultValue={expense.funding_source}>
+                                  <option value="company_cash">Company cash</option>
+                                  <option value="company_bank">Company bank</option>
+                                  <option value="staff_personal">Staff personal money</option>
+                                </select>
+                              </label>
+                              <label className="block">
+                                <span className="text-sm font-medium text-gray-700">When reimbursing, pay from</span>
+                                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="reimbursementSource" defaultValue={expense.reimbursement_source ?? "company_bank"}>
+                                  <option value="company_bank">Company bank</option>
+                                  <option value="company_cash">Company cash</option>
                                 </select>
                               </label>
                               <input className="rounded-md border border-[#d7dde5] px-3 py-2" name="rejectionReason" placeholder="Reason if rejecting" />
@@ -534,6 +555,17 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                     <option value="card">Card</option>
                     <option value="other">Other</option>
                   </select>
+                </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-gray-700">Paid from</span>
+                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="fundingSource" defaultValue="company_cash">
+                    <option value="company_cash">Company cash in hand</option>
+                    <option value="company_bank">Company bank account</option>
+                    <option value="staff_personal">Staff personal money (company owes staff)</option>
+                  </select>
+                  <span className="mt-1 block text-xs text-gray-500">
+                    This controls the Cash in Hand and Owed to Staff dashboard totals.
+                  </span>
                 </label>
                 <label className="block">
                   <span className="text-sm font-medium text-gray-700">Charge to</span>
