@@ -15,6 +15,7 @@ import {
   formatMalaysiaDate,
   formatMalaysiaDateTime,
 } from "@/lib/date-format";
+import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,7 +23,7 @@ export default async function ETenancyPage() {
   const role = await requireRole(["super_admin", "owner", "admin", "tenant"]);
 
   if (role !== "tenant") {
-    redirect("/verification?view=tenancy");
+    redirect("/tenancy-agreements");
   }
 
   return <TenantAgreementList />;
@@ -30,12 +31,8 @@ export default async function ETenancyPage() {
 
 async function TenantAgreementList() {
   const supabase = await createClient();
-  const { data: agreements } = await supabase
-    .from("tenancy_agreements")
-    .select(
-      "id, agreement_type, version_number, status, signed_at, generated_at, pdf_url, term_start_date, term_end_date, property_name_snapshot, room_name_snapshot, tenancies(tenancy_start_date, tenancy_end_date, properties(name), rooms(name, room_number))",
-    )
-    .order("term_start_date", { ascending: false });
+  const archive = await loadTenancyAgreementArchive(supabase);
+  const agreements = archive.agreements;
 
   return (
     <section className="space-y-6">
@@ -63,8 +60,7 @@ async function TenantAgreementList() {
           const room = Array.isArray(tenancy?.rooms)
             ? tenancy?.rooms[0]
             : tenancy?.rooms;
-          const termEndDate =
-            agreement.term_end_date ?? tenancy?.tenancy_end_date;
+          const termEndDate = agreement.term_end_date;
 
           return (
             <Card key={agreement.id}>
@@ -92,11 +88,7 @@ async function TenantAgreementList() {
               </CardHeader>
               <CardContent className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
                 <p>
-                  Start:{" "}
-                  {formatMalaysiaDate(
-                    agreement.term_start_date ??
-                      tenancy?.tenancy_start_date,
-                  )}
+                  Start: {formatMalaysiaDate(agreement.term_start_date)}
                 </p>
                 <p>End: {formatMalaysiaDate(termEndDate)}</p>
                 <p>
@@ -119,7 +111,7 @@ async function TenantAgreementList() {
           );
         })}
 
-        {!agreements?.length ? (
+        {!agreements.length ? (
           <Card>
             <CardHeader>
               <FileText className="h-5 w-5 text-[#126b5f]" />

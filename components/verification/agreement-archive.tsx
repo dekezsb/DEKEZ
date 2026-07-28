@@ -25,6 +25,7 @@ import { statusBadgeClass } from "@/lib/status-styles";
 
 export type AgreementArchiveItem = {
   id: string;
+  tenancy_id: string;
   agreement_type: "original" | "renewal";
   version_number: number;
   status: string;

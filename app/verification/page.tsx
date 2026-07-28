@@ -43,6 +43,7 @@ import {
   AgreementArchive,
   type AgreementArchiveItem,
 } from "@/components/verification/agreement-archive";
+import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import {
   generateInitialAgreement,
   requestRenewalSignature,
@@ -142,7 +143,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     claimsResult,
     claimExpensesResult,
     tenanciesResult,
-    agreementsResult,
     paymentSubmissionsResult,
     profilesResult,
     profileDocumentsResult,
@@ -176,10 +176,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .eq("status", "active")
       .order("created_at", { ascending: false }),
     supabase
-      .from("tenancy_agreements")
-      .select("id, tenancy_id, agreement_type, version_number, status, term_start_date, term_end_date, generated_at, signed_at, retention_until, pdf_url, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(status, checkout_date, tenants(full_name), properties(name, property_code), rooms(name, room_number))")
-      .order("generated_at", { ascending: false }),
-    supabase
       .from("payment_submissions")
       .select("id, verification_status"),
     supabase.from("profiles").select("id, full_name, phone"),
@@ -196,7 +192,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const claims = claimsResult.data ?? [];
   const claimExpenses = claimExpensesResult.data ?? [];
   const tenancies = tenanciesResult.data ?? [];
-  const agreements = agreementsResult.data ?? [];
+  const agreementArchive = await loadTenancyAgreementArchive(supabase);
+  const agreements = agreementArchive.agreements;
   const paymentSubmissions = paymentSubmissionsResult.data ?? [];
   const profiles = new Map(
     (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
@@ -263,14 +260,14 @@ export default async function VerificationPage({ searchParams }: PageProps) {
           "expiring_soon",
         ].includes(agreement.status),
       ).length,
-    agreements: 0,
+    agreements: agreements.length,
     payments: paymentSubmissions.filter(
       (submission) =>
         submission.verification_status === "pending_verification",
     ).length,
   };
-  const totalPending = Object.values(pendingCounts).reduce(
-    (total, count) => total + count,
+  const totalPending = Object.entries(pendingCounts).reduce(
+    (total, [view, count]) => total + (view === "agreements" ? 0 : count),
     0,
   );
 
@@ -298,6 +295,12 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       </div>
 
       <StatusMessage params={params} />
+
+      {agreementArchive.error ? (
+        <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+          {agreementArchive.error}
+        </div>
+      ) : null}
 
       <div
         aria-label="Verification sections"

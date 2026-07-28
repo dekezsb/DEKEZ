@@ -220,6 +220,7 @@ export function moduleForPath(pathname: string): AccessModule | null {
     ["/rent-due-tracker", "rent_due_tracker"],
     ["/payments", "payments"],
     ["/e-tenancy", "tenancy_agreements"],
+    ["/tenancy-agreements", "tenancy_agreements"],
     ["/utility-bills", "utility_bills"],
     ["/expenses", "expenses"],
     ["/maintenance", "maintenance"],

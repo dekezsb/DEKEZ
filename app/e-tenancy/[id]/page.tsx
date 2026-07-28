@@ -9,6 +9,7 @@ import {
 } from "@/lib/date-format";
 import { plainTextToHtml } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { signAgreement } from "../actions";
 import { SignaturePad } from "../signature-pad";
@@ -23,10 +24,13 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const role = await requireRole(["super_admin", "owner", "admin", "tenant"]);
   const { id } = await params;
   const query = await searchParams;
-  const supabase = await createClient();
+  const supabase =
+    role === "super_admin" || role === "admin"
+      ? createAdminClient()
+      : await createClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until, tenancies(tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name, room_number))")
+    .select("id, tenancy_id, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until")
     .eq("id", id)
     .single();
 
@@ -46,7 +50,11 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
     );
   }
 
-  const tenancy = Array.isArray(agreement.tenancies) ? agreement.tenancies[0] : agreement.tenancies;
+  const { data: tenancy } = await supabase
+    .from("tenancies")
+    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name, room_number)")
+    .eq("id", agreement.tenancy_id)
+    .maybeSingle();
   const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
   const room = Array.isArray(tenancy?.rooms) ? tenancy?.rooms[0] : tenancy?.rooms;
   const canSign =
@@ -55,7 +63,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
       agreement.status,
     );
   const backPath =
-    role === "tenant" ? "/e-tenancy" : "/verification?view=agreements";
+    role === "tenant" ? "/e-tenancy" : "/tenancy-agreements";
   const { data: signedPdf } = agreement.pdf_url
     ? await supabase.storage
         .from("tenancy-agreements")

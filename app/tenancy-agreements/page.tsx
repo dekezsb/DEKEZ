@@ -1,0 +1,57 @@
+import { FileSignature } from "lucide-react";
+import { AgreementArchive } from "@/components/verification/agreement-archive";
+import { Badge } from "@/components/ui/badge";
+import { requireRole } from "@/lib/auth/session";
+import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+
+type PageProps = {
+  searchParams: Promise<{ occupancy?: string }>;
+};
+
+export default async function TenancyAgreementsPage({
+  searchParams,
+}: PageProps) {
+  const role = await requireRole(["super_admin", "admin", "owner"], {
+    module: "tenancy_agreements",
+  });
+  const params = await searchParams;
+  const supabase =
+    role === "owner" ? await createClient() : createAdminClient();
+  const archive = await loadTenancyAgreementArchive(supabase);
+
+  return (
+    <section className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase text-[#b98a2c]">
+            <FileSignature className="h-4 w-4" />
+            Tenancy Records
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
+            Tenancy Agreements
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
+            View every original and renewal term, including agreements retained
+            after a tenant checks out.
+          </p>
+        </div>
+        <Badge className="w-fit bg-[#f6edd9] text-[#7a5618]">
+          {archive.agreements.length} agreement terms
+        </Badge>
+      </div>
+
+      {archive.error ? (
+        <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+          {archive.error}
+        </div>
+      ) : null}
+
+      <AgreementArchive
+        agreements={archive.agreements}
+        occupancy={params.occupancy ?? "all"}
+      />
+    </section>
+  );
+}
