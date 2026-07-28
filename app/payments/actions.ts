@@ -177,13 +177,34 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
 
   const { data: bill } = await supabase
     .from("rent_bills")
-    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount")
+    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount, status")
     .eq("id", rentBillId)
     .in("tenancy_id", tenancyIds)
     .maybeSingle();
 
   if (!bill) {
     redirect("/payments?error=proof_missing");
+  }
+
+  if (["paid", "cancelled", "waived"].includes(String(bill.status))) {
+    redirect("/payments?error=proof_closed");
+  }
+
+  const { data: existingSubmission } = await supabase
+    .from("payment_submissions")
+    .select("id, verification_status")
+    .eq("rent_bill_id", bill.id)
+    .in("verification_status", ["pending_verification", "verified"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingSubmission?.verification_status === "pending_verification") {
+    redirect("/payments?proof=1");
+  }
+
+  if (existingSubmission?.verification_status === "verified") {
+    redirect("/payments?error=proof_verified");
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -221,6 +242,10 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     .single();
 
   if (error || !submission) {
+    await supabase.storage.from("payment-receipts").remove([path]);
+    if (error?.code === "23505") {
+      redirect("/payments?proof=1");
+    }
     redirect("/payments?error=proof_create");
   }
 

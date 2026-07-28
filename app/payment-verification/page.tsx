@@ -71,6 +71,43 @@ function isImagePath(path: string | null | undefined) {
   return Boolean(path?.match(/\.(png|jpg|jpeg|webp|gif)$/i));
 }
 
+function malaysiaDate(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function malaysiaTime(value: string) {
+  return new Intl.DateTimeFormat("en-MY", {
+    timeZone: "Asia/Kuala_Lumpur",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }).format(new Date(value));
+}
+
+function latestSubmissionPerBill<
+  T extends { id: string; rent_bill_id: string | null },
+>(submissions: T[]) {
+  const seen = new Set<string>();
+
+  return submissions.filter((submission) => {
+    const key = submission.rent_bill_id
+      ? `bill:${submission.rent_bill_id}`
+      : `submission:${submission.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export default async function PaymentVerificationPage({
   searchParams,
 }: PaymentVerificationPageProps) {
@@ -89,7 +126,7 @@ export async function PaymentVerificationContent({
   const params = await searchParams;
   const supabase = await getAdmin();
   const statusFilter = params.status || "pending_verification";
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = malaysiaDate().slice(0, 7);
   const monthFilter = params.month ?? "";
 
   let query = supabase
@@ -97,9 +134,6 @@ export async function PaymentVerificationContent({
     .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, status)")
     .order("created_at", { ascending: false });
 
-  if (statusFilter !== "all") {
-    query = query.eq("verification_status", statusFilter);
-  }
   if (params.property) {
     query = query.eq("property_id", params.property);
   }
@@ -120,11 +154,22 @@ export async function PaymentVerificationContent({
     supabase.from("properties").select("id, name").order("name", { ascending: true }),
     supabase
       .from("payment_submissions")
-      .select("id, amount, verification_status, verified_at, payment_date"),
+      .select("id, rent_bill_id, amount, verification_status, verified_at, payment_date, created_at")
+      .order("created_at", { ascending: false }),
   ]);
 
-  const submissions = (submissionsResult.data ?? []) as SubmissionRecord[];
-  const allSubmissions = allSubmissionsResult.data ?? [];
+  const latestFilteredSubmissions = latestSubmissionPerBill(
+    (submissionsResult.data ?? []) as SubmissionRecord[],
+  );
+  const submissions =
+    statusFilter === "all"
+      ? latestFilteredSubmissions
+      : latestFilteredSubmissions.filter(
+          (submission) => submission.verification_status === statusFilter,
+        );
+  const allSubmissions = latestSubmissionPerBill(
+    allSubmissionsResult.data ?? [],
+  );
   const profiles = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
   const tenantRecords = new Map((tenantRecordsResult.data ?? []).map((tenant) => [tenant.id, tenant]));
   const properties = propertiesResult.data ?? [];
@@ -139,11 +184,20 @@ export async function PaymentVerificationContent({
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = malaysiaDate();
   const pendingPayments = allSubmissions.filter((submission) => submission.verification_status === "pending_verification");
   const verifiedPayments = allSubmissions.filter((submission) => submission.verification_status === "verified");
-  const verifiedToday = verifiedPayments.filter((submission) => submission.verified_at?.slice(0, 10) === today).length;
-  const verifiedThisMonth = verifiedPayments.filter((submission) => submission.verified_at?.slice(0, 7) === currentMonth);
+  const verifiedToday = verifiedPayments.filter(
+    (submission) =>
+      submission.verified_at &&
+      malaysiaDate(new Date(submission.verified_at)) === today,
+  ).length;
+  const verifiedThisMonth = verifiedPayments.filter(
+    (submission) =>
+      submission.verified_at &&
+      malaysiaDate(new Date(submission.verified_at)).slice(0, 7) ===
+        currentMonth,
+  );
   const totalAmountPending = pendingPayments.reduce((total, submission) => total + Number(submission.amount ?? 0), 0);
   const totalAmountVerified = verifiedThisMonth.reduce((total, submission) => total + Number(submission.amount ?? 0), 0);
 
@@ -263,7 +317,7 @@ export async function PaymentVerificationContent({
                         <TableRow key={submission.id}>
                           <TableCell className="min-w-40">
                             <p>{submission.payment_date ?? "-"}</p>
-                            <p className="text-xs text-gray-500">{new Date(submission.created_at).toLocaleTimeString("en-MY")}</p>
+                            <p className="text-xs text-gray-500">{malaysiaTime(submission.created_at)}</p>
                           </TableCell>
                           <TableCell className="min-w-48 font-medium text-gray-950">{row.tenantName}</TableCell>
                           <TableCell>{row.propertyName}</TableCell>
@@ -297,7 +351,7 @@ export async function PaymentVerificationContent({
                           <p className="font-semibold text-gray-950">{row.tenantName}</p>
                           <p className="mt-1 text-sm text-gray-600">{row.propertyName} / {row.roomName}</p>
                           <p className="mt-2 text-xl font-bold">{row.amountSubmitted}</p>
-                          <p className="text-xs text-gray-500">{submission.payment_date ?? "-"} {new Date(submission.created_at).toLocaleTimeString("en-MY")}</p>
+                          <p className="text-xs text-gray-500">{submission.payment_date ?? "-"} {malaysiaTime(submission.created_at)}</p>
                         </div>
                         <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
                       </div>

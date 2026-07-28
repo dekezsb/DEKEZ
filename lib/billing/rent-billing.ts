@@ -209,21 +209,29 @@ export async function generateRecurringRentBills(
     });
     const missingBills = targetMonths
       .filter((month) => !existingMonths.has(month))
-      .map((billMonth) => ({
-        organization_id: tenancy.organization_id,
-        tenancy_id: tenancy.id,
-        tenant_id: profileId,
-        tenant_record_id: null,
-        property_id: tenancy.property_id,
-        unit_id: tenancy.unit_id,
-        room_id: tenancy.room_id,
-        bill_month: billMonth,
-        due_date: invoiceDueDateForBillMonth(billMonth, dueDay, startDate),
-        amount: Number(tenancy.monthly_rental ?? 0),
-        paid_amount: 0,
-        status: "unpaid",
-        created_by: options.createdBy ?? null,
-      }));
+      .map((billMonth) => {
+        const dueDate = invoiceDueDateForBillMonth(
+          billMonth,
+          dueDay,
+          startDate,
+        );
+        return {
+          organization_id: tenancy.organization_id,
+          tenancy_id: tenancy.id,
+          tenant_id: profileId,
+          tenant_record_id: null,
+          property_id: tenancy.property_id,
+          unit_id: tenancy.unit_id,
+          room_id: tenancy.room_id,
+          bill_month: billMonth,
+          due_date: dueDate,
+          invoice_date: dueDate,
+          amount: Number(tenancy.monthly_rental ?? 0),
+          paid_amount: 0,
+          status: "unpaid",
+          created_by: options.createdBy ?? null,
+        };
+      });
 
     result.skippedBills += targetMonths.length - missingBills.length;
     const inserted = await insertMissingBills(supabase, missingBills);
@@ -264,25 +272,29 @@ export async function generateRecurringRentBills(
       });
       const missingBills = targetMonths
         .filter((month) => !existingMonths.has(month))
-        .map((billMonth) => ({
-          organization_id: null,
-          tenancy_id: null,
-          tenant_id: null,
-          tenant_record_id: tenant.id,
-          property_id: tenant.property_id,
-          unit_id: tenant.unit_id,
-          room_id: tenant.room_id,
-          bill_month: billMonth,
-          due_date: invoiceDueDateForBillMonth(
+        .map((billMonth) => {
+          const dueDate = invoiceDueDateForBillMonth(
             billMonth,
             dueDay,
             contractStart,
-          ),
-          amount: Number(tenant.monthly_rent ?? 0),
-          paid_amount: 0,
-          status: "unpaid",
-          created_by: options.createdBy ?? null,
-        }));
+          );
+          return {
+            organization_id: null,
+            tenancy_id: null,
+            tenant_id: null,
+            tenant_record_id: tenant.id,
+            property_id: tenant.property_id,
+            unit_id: tenant.unit_id,
+            room_id: tenant.room_id,
+            bill_month: billMonth,
+            due_date: dueDate,
+            invoice_date: dueDate,
+            amount: Number(tenant.monthly_rent ?? 0),
+            paid_amount: 0,
+            status: "unpaid",
+            created_by: options.createdBy ?? null,
+          };
+        });
 
       result.skippedBills += targetMonths.length - missingBills.length;
       const inserted = await insertMissingBills(supabase, missingBills);

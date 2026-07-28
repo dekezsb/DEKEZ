@@ -14,6 +14,21 @@ function numberValue(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function latestSubmissionPerBill<
+  T extends { id: string; rent_bill_id: string | null },
+>(submissions: T[]) {
+  const seen = new Set<string>();
+
+  return submissions.filter((submission) => {
+    const key = submission.rent_bill_id
+      ? `bill:${submission.rent_bill_id}`
+      : `submission:${submission.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function signedUrl(
   supabase:
     | Awaited<ReturnType<typeof createClient>>
@@ -421,10 +436,12 @@ export async function getTenantPortalData() {
       ...payment,
       amount: numberValue(payment.amount),
     })),
-    submissions: (submissionsResult.data ?? []).map((submission) => ({
-      ...submission,
-      amount: numberValue(submission.amount),
-    })),
+    submissions: latestSubmissionPerBill(submissionsResult.data ?? []).map(
+      (submission) => ({
+        ...submission,
+        amount: numberValue(submission.amount),
+      }),
+    ),
     tickets,
     documents,
     agreements,

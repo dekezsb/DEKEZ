@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Camera,
   CheckCircle2,
+  Clock,
   FileCheck2,
   FileText,
   House,
@@ -13,7 +14,6 @@ import {
   Paperclip,
   Phone,
   ReceiptText,
-  Upload,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/card";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
+import { PaymentSubmitButton } from "./payment-submit-button";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -78,9 +79,24 @@ function UnassignedNotice() {
 }
 
 function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
+  const latestSubmissionByBill = new Map(
+    data.submissions
+      .filter((submission) => submission.rent_bill_id)
+      .map((submission) => [submission.rent_bill_id, submission]),
+  );
+  const pendingSubmissions = data.submissions.filter(
+    (submission) => submission.verification_status === "pending_verification",
+  );
   const pendingBills = data.bills.filter(
-    (bill) =>
-      !["draft", "paid", "cancelled", "waived"].includes(String(bill.status)),
+    (bill) => {
+      const submission = latestSubmissionByBill.get(bill.id);
+      return (
+        !["draft", "paid", "cancelled", "waived"].includes(
+          String(bill.status),
+        ) &&
+        (!submission || submission.verification_status === "rejected")
+      );
+    },
   );
 
   return (
@@ -92,6 +108,18 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {pendingSubmissions.length ? (
+          <div className="mb-5 flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+            <Clock className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p>Submitted successfully - Pending Verification</p>
+              <p className="mt-1 font-normal">
+                The submitted invoice is hidden from the payment selection until
+                Management verifies or rejects it.
+              </p>
+            </div>
+          </div>
+        ) : null}
         {pendingBills.length ? (
           <div className="space-y-5">
             {data.tenancies.some((tenancy) => tenancy.paymentQrUrl) ? (
@@ -222,10 +250,7 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
               </span>
             </label>
 
-            <Button className="h-12 w-full sm:w-auto" type="submit">
-              <Upload className="h-4 w-4" />
-              Submit payment
-            </Button>
+            <PaymentSubmitButton />
             </form>
           </div>
         ) : (
@@ -516,7 +541,7 @@ export function TenantBills({
 
       {proofSubmitted ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-          Payment proof submitted and pending Admin verification.
+          Submitted successfully - Pending Verification.
         </p>
       ) : null}
       {error ? (
