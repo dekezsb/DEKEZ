@@ -33,6 +33,15 @@ type AgreementPdfInput = {
   signerName?: string | null;
   signedAt?: string | null;
   tenantSignatureBytes?: Uint8Array | null;
+  appendixDocuments?: AgreementAppendixDocument[];
+};
+
+export type AgreementAppendixDocument = {
+  documentType: string;
+  label: string;
+  fileName: string;
+  contentType: string;
+  bytes: Uint8Array;
 };
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
@@ -273,11 +282,11 @@ function drawLandlordSignature(
   authorisedSignature: PDFImage | null,
   companyChop: PDFImage | null,
 ) {
-  ensureSpace(state, 115);
+  ensureSpace(state, 145);
   const top = state.y;
 
   if (authorisedSignature) {
-    const scaled = authorisedSignature.scaleToFit(205, 48);
+    const scaled = authorisedSignature.scaleToFit(215, 62);
     state.page.drawImage(authorisedSignature, {
       x: MARGIN_X,
       y: top - scaled.height,
@@ -287,7 +296,7 @@ function drawLandlordSignature(
   }
 
   if (companyChop) {
-    const scaled = companyChop.scaleToFit(72, 72);
+    const scaled = companyChop.scaleToFit(88, 88);
     state.page.drawImage(companyChop, {
       x: MARGIN_X + 282,
       y: top - scaled.height - 2,
@@ -296,7 +305,7 @@ function drawLandlordSignature(
     });
   }
 
-  const lineY = top - 76;
+  const lineY = top - 103;
   state.page.drawLine({
     start: { x: MARGIN_X, y: lineY },
     end: { x: MARGIN_X + 210, y: lineY },
@@ -326,11 +335,11 @@ function drawTenantSignature(
   signerName: string,
   signedAt?: string | null,
 ) {
-  ensureSpace(state, 120);
+  ensureSpace(state, 175);
   const top = state.y;
 
   if (tenantSignature) {
-    const scaled = tenantSignature.scaleToFit(190, 58);
+    const scaled = tenantSignature.scaleToFit(220, 92);
     state.page.drawImage(tenantSignature, {
       x: MARGIN_X,
       y: top - scaled.height,
@@ -339,7 +348,7 @@ function drawTenantSignature(
     });
   }
 
-  const lineY = top - 66;
+  const lineY = top - 112;
   state.page.drawLine({
     start: { x: MARGIN_X, y: lineY },
     end: { x: MARGIN_X + 210, y: lineY },
@@ -366,8 +375,8 @@ function drawTenantSignature(
 }
 
 function drawPendingTenantSignature(state: DrawState) {
-  ensureSpace(state, 50);
-  state.y -= 18;
+  ensureSpace(state, 150);
+  state.y -= 112;
   state.page.drawLine({
     start: { x: MARGIN_X, y: state.y },
     end: { x: MARGIN_X + 210, y: state.y },
@@ -380,6 +389,99 @@ function drawPendingTenantSignature(state: DrawState) {
     color: MUTED,
     after: 4,
   });
+}
+
+function drawAppendixPageHeading(
+  state: DrawState,
+  document: AgreementAppendixDocument,
+  pageNumber?: { current: number; total: number },
+) {
+  drawSectionHeading(state, "APPENDIX");
+  const pageLabel = pageNumber
+    ? ` - Page ${pageNumber.current} of ${pageNumber.total}`
+    : "";
+  drawParagraph(state, `${document.label}${pageLabel}`, {
+    font: state.bold,
+    size: 10.5,
+    after: 2,
+  });
+  drawParagraph(state, document.fileName, {
+    size: 8,
+    color: MUTED,
+    after: 10,
+  });
+}
+
+function drawFittedAppendixImage(
+  state: DrawState,
+  image: PDFImage,
+) {
+  const availableWidth = PAGE_WIDTH - MARGIN_X * 2;
+  const availableHeight = state.y - BOTTOM_Y - 12;
+  const scale = Math.min(
+    availableWidth / image.width,
+    availableHeight / image.height,
+    1,
+  );
+  const width = image.width * scale;
+  const height = image.height * scale;
+  state.page.drawImage(image, {
+    x: (PAGE_WIDTH - width) / 2,
+    y: BOTTOM_Y + Math.max(0, (availableHeight - height) / 2),
+    width,
+    height,
+  });
+}
+
+async function appendAgreementDocuments(
+  state: DrawState,
+  documents: AgreementAppendixDocument[],
+) {
+  for (const appendixDocument of documents) {
+    if (appendixDocument.contentType === "application/pdf") {
+      try {
+        const pages = await state.document.embedPdf(appendixDocument.bytes);
+        for (const [index, page] of pages.entries()) {
+          addPage(state);
+          drawAppendixPageHeading(state, appendixDocument, {
+            current: index + 1,
+            total: pages.length,
+          });
+          const availableWidth = PAGE_WIDTH - MARGIN_X * 2;
+          const availableHeight = state.y - BOTTOM_Y - 12;
+          const scale = Math.min(
+            availableWidth / page.width,
+            availableHeight / page.height,
+          );
+          const width = page.width * scale;
+          const height = page.height * scale;
+          state.page.drawPage(page, {
+            x: (PAGE_WIDTH - width) / 2,
+            y: BOTTOM_Y + Math.max(0, (availableHeight - height) / 2),
+            width,
+            height,
+          });
+        }
+        continue;
+      } catch {
+        // Fall through to the unavailable-preview page below.
+      }
+    }
+
+    const image = await embedImage(state.document, appendixDocument.bytes);
+    addPage(state);
+    drawAppendixPageHeading(state, appendixDocument);
+
+    if (image) {
+      drawFittedAppendixImage(state, image);
+    } else {
+      drawParagraph(
+        state,
+        "This uploaded file is retained with the tenant record, but a printable preview is not available.",
+        { color: MUTED },
+      );
+    }
+  }
 }
 
 function addPageFurniture(
@@ -455,6 +557,7 @@ export async function createAgreementPdf({
   signerName,
   signedAt,
   tenantSignatureBytes,
+  appendixDocuments = [],
 }: AgreementPdfInput) {
   const document = await PDFDocument.create();
   const regular = await document.embedFont(StandardFonts.Helvetica);
@@ -484,9 +587,20 @@ export async function createAgreementPdf({
     y: TOP_Y,
   };
   const preparedContent = prepareAgreementPdfContent(content);
+  let skipTemplateAppendix = false;
 
   for (const rawLine of preparedContent.split("\n")) {
     const line = rawLine.trim();
+
+    if (line === "## APPENDIX") {
+      skipTemplateAppendix = true;
+      continue;
+    }
+
+    if (skipTemplateAppendix) {
+      continue;
+    }
+
     if (!line) {
       state.y -= 5;
       continue;
@@ -530,7 +644,7 @@ export async function createAgreementPdf({
     }
 
     if (line.startsWith("## ")) {
-      if (line === "## SIGNATURES" && state.y < TOP_Y - 40) {
+      if (line === "## SIGNATURES") {
         addPage(state);
       }
       drawSectionHeading(state, line.slice(3));
@@ -560,6 +674,7 @@ export async function createAgreementPdf({
     drawParagraph(state, line);
   }
 
+  await appendAgreementDocuments(state, appendixDocuments);
   addPageFurniture(document, regular, bold, logo);
   document.setTitle("DEKEZ Tenancy Agreement");
   document.setSubject("Room tenancy agreement");
@@ -575,16 +690,19 @@ export async function createSignedAgreementPdf({
   signerName,
   signedAt,
   signatureBytes,
+  appendixDocuments,
 }: {
   content: string;
   signerName: string;
   signedAt: string;
   signatureBytes?: Uint8Array | null;
+  appendixDocuments?: AgreementAppendixDocument[];
 }) {
   return createAgreementPdf({
     content,
     signerName,
     signedAt,
     tenantSignatureBytes: signatureBytes,
+    appendixDocuments,
   });
 }

@@ -509,12 +509,6 @@ export async function getRoomDetails(
       const tenancy = relatedOne(agreement.tenancies);
       const agreementProperty = relatedOne(tenancy?.properties);
       const agreementRoom = relatedOne(tenancy?.rooms);
-      const signedPdf = agreement.pdf_url
-        ? await supabase.storage
-            .from("tenancy-agreements")
-            .createSignedUrl(agreement.pdf_url, 60 * 15)
-        : { data: null };
-
       return {
         id: agreement.id,
         agreementType: agreement.agreement_type,
@@ -540,7 +534,9 @@ export async function getRoomDetails(
           null,
         generatedAt: agreement.generated_at,
         signedAt: agreement.signed_at,
-        signedPdfUrl: signedPdf.data?.signedUrl ?? null,
+        signedPdfUrl: agreement.pdf_url
+          ? `/api/tenancy-agreements/${agreement.id}/pdf`
+          : null,
       };
     }),
   );

@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { agreementPdfName } from "@/lib/tenancy/agreement-filename";
+import { loadAgreementAppendixDocuments } from "@/lib/tenancy/agreement-appendix";
 import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 
 function textValue(formData: FormData, key: string) {
@@ -186,6 +187,10 @@ export async function signAgreement(formData: FormData) {
     "[Pending tenant signature]",
     `Signed digitally by ${signerName}`,
   );
+  const appendixDocuments = await loadAgreementAppendixDocuments(supabase, {
+    tenancyId: agreement.tenancy_id,
+    tenantProfileId: tenant.profile_id,
+  });
   let pdfBytes: Uint8Array;
   try {
     pdfBytes = await createSignedAgreementPdf({
@@ -193,6 +198,7 @@ export async function signAgreement(formData: FormData) {
       signerName,
       signedAt,
       signatureBytes,
+      appendixDocuments,
     });
   } catch (error) {
     await supabase.storage

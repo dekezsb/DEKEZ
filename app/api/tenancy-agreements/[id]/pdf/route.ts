@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { agreementPdfName } from "@/lib/tenancy/agreement-filename";
+import { loadAgreementAppendixDocuments } from "@/lib/tenancy/agreement-appendix";
 import { createAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 
 export const runtime = "nodejs";
@@ -52,7 +53,7 @@ export async function GET(_request: Request, { params }: RouteProps) {
       tenancy?.tenant_id
         ? admin
             .from("tenants")
-            .select("full_name")
+            .select("full_name, profile_id")
             .eq("id", tenancy.tenant_id)
             .maybeSingle()
         : Promise.resolve({ data: null }),
@@ -88,6 +89,12 @@ export async function GET(_request: Request, { params }: RouteProps) {
       signatureBytes = new Uint8Array(await signatureFile.arrayBuffer());
     }
   }
+  const appendixDocuments = tenancy
+    ? await loadAgreementAppendixDocuments(admin, {
+        tenancyId: agreement.tenancy_id,
+        tenantProfileId: tenant?.profile_id,
+      })
+    : [];
 
   const signerName =
     agreement.status === "signed" || agreement.status === "renewal_signed"
@@ -98,6 +105,7 @@ export async function GET(_request: Request, { params }: RouteProps) {
     signerName,
     signedAt: signatureRecord?.signed_at ?? agreement.signed_at,
     tenantSignatureBytes: signatureBytes,
+    appendixDocuments,
   });
   const filename = agreementPdfName({
     tenantName: agreement.tenant_name_snapshot ?? tenant?.full_name,
