@@ -163,7 +163,8 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .from("rent_bills")
         .select("id, room_id, tenancy_id, tenant_record_id, amount, paid_amount, status, due_date")
         .eq("property_id", propertyId)
-        .eq("bill_month", billMonth),
+        .eq("bill_month", billMonth)
+        .not("status", "in", "(draft,cancelled,waived)"),
       supabase
         .from("payments")
         .select("room_id, amount")
@@ -347,6 +348,8 @@ export async function getRoomDetails(
   options: {
     includeSensitiveDocuments?: boolean;
     includeAllTenantTerms?: boolean;
+    tenantId?: string | null;
+    tenantRecordId?: string | null;
   } = {},
 ) {
   const propertyDetails = await getPropertyDetails(propertyId);
@@ -359,7 +362,7 @@ export async function getRoomDetails(
   const [billsResult, paymentsResult, maintenanceResult, metersResult] = await Promise.all([
     supabase
       .from("rent_bills")
-      .select("id, invoice_number, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status")
+      .select("id, tenancy_id, tenant_record_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status")
       .eq("room_id", roomId)
       .order("bill_month", { ascending: false }),
     supabase
@@ -388,24 +391,31 @@ export async function getRoomDetails(
         .order("reading_date", { ascending: false })
     : { data: [], error: null };
   const readings = readingsResult.data ?? [];
+  const selectedTenantId = options.tenantId ?? room.tenantId;
+  const selectedTenantRecordId =
+    options.tenantRecordId ?? room.tenantRecordId;
   const [relatedTenantRecordsResult, relatedTenanciesResult] = await Promise.all([
-    room.tenantId
+    selectedTenantId
       ? supabase
           .from("tenant_records")
           .select("id")
-          .eq("tenant_id", room.tenantId)
-      : Promise.resolve({ data: room.tenantRecordId ? [{ id: room.tenantRecordId }] : [] }),
-    room.tenantId && options.includeAllTenantTerms
+          .eq("tenant_id", selectedTenantId)
+      : Promise.resolve({
+          data: selectedTenantRecordId
+            ? [{ id: selectedTenantRecordId }]
+            : [],
+        }),
+    selectedTenantId && options.includeAllTenantTerms
       ? supabase
           .from("tenancies")
           .select("id")
-          .eq("tenant_id", room.tenantId)
+          .eq("tenant_id", selectedTenantId)
           .order("created_at", { ascending: false })
-      : room.tenantId
+      : selectedTenantId
         ? supabase
             .from("tenancies")
             .select("id")
-            .eq("tenant_id", room.tenantId)
+            .eq("tenant_id", selectedTenantId)
             .eq("room_id", roomId)
             .order("created_at", { ascending: false })
         : Promise.resolve({ data: room.tenancyId ? [{ id: room.tenancyId }] : [] }),
@@ -414,7 +424,7 @@ export async function getRoomDetails(
     new Set(
       (relatedTenantRecordsResult.data ?? [])
         .map((record) => record.id)
-        .concat(room.tenantRecordId ? [room.tenantRecordId] : []),
+        .concat(selectedTenantRecordId ? [selectedTenantRecordId] : []),
     ),
   );
   const tenancyIds = Array.from(
@@ -424,6 +434,15 @@ export async function getRoomDetails(
         .concat(room.tenancyId ? [room.tenancyId] : []),
     ),
   );
+  const roomBills = billsResult.data ?? [];
+  const scopedBills = options.includeAllTenantTerms
+    ? roomBills.filter(
+        (bill) =>
+          (bill.tenancy_id && tenancyIds.includes(bill.tenancy_id)) ||
+          (bill.tenant_record_id &&
+            tenantRecordIds.includes(bill.tenant_record_id)),
+      )
+    : roomBills;
 
   const tenantDocumentRows: Array<{
     id: string;
@@ -529,7 +548,7 @@ export async function getRoomDetails(
   return {
     property: propertyDetails.property,
     room,
-    bills: billsResult.data ?? [],
+    bills: scopedBills,
     payments: paymentsResult.data ?? [],
     maintenance: maintenanceResult.data ?? [],
     smartMeters: meters.map((meter) => ({
@@ -548,7 +567,7 @@ export async function getTenantProfile(
   const supabase = await getDataClient();
   const { data: importedTenant } = await supabase
     .from("tenant_records")
-    .select("id, property_id, room_id")
+    .select("id, tenant_id, property_id, room_id")
     .eq("id", tenantKey)
     .maybeSingle();
 
@@ -556,14 +575,15 @@ export async function getTenantProfile(
     return getRoomDetails(importedTenant.property_id, importedTenant.room_id, {
       ...options,
       includeAllTenantTerms: true,
+      tenantId: importedTenant.tenant_id,
+      tenantRecordId: importedTenant.id,
     });
   }
 
   const { data: tenancy } = await supabase
     .from("tenancies")
-    .select("property_id, room_id")
+    .select("tenant_id, property_id, room_id")
     .eq("tenant_id", tenantKey)
-    .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -575,5 +595,6 @@ export async function getTenantProfile(
   return getRoomDetails(tenancy.property_id, tenancy.room_id, {
     ...options,
     includeAllTenantTerms: true,
+    tenantId: tenancy.tenant_id,
   });
 }

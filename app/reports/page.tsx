@@ -35,6 +35,9 @@ export default async function ReportsPage() {
   const utilityBills = utilityBillsResult.data ?? [];
   const claims = claimsResult.data ?? [];
   const rentBills = rentBillsResult.data ?? [];
+  const activeRentBills = rentBills.filter(
+    (bill) => !["draft", "cancelled", "waived"].includes(String(bill.status)),
+  );
   const rooms = roomsResult.data ?? [];
   const expenses = expensesResult.data ?? [];
   const properties = propertiesResult.data ?? [];
@@ -69,7 +72,8 @@ export default async function ReportsPage() {
     "amount",
   );
   const totalExpenses = utilityPayments + claimExpenses + expenseBills;
-  const outstandingRent = sum(rentBills, "amount") - sum(rentBills, "paid_amount");
+  const outstandingRent =
+    sum(activeRentBills, "amount") - sum(activeRentBills, "paid_amount");
   const expectedRent = sum(rooms, "monthly_rent");
 
   const reportCards = [

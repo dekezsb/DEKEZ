@@ -228,14 +228,19 @@ export default async function RoomDetailsPage({
                   {details.bills.map((bill) => {
                     const amount = Number(bill.amount ?? 0);
                     const paid = Number(bill.paid_amount ?? 0);
+                    const outstanding = ["cancelled", "waived"].includes(
+                      bill.status,
+                    )
+                      ? 0
+                      : Math.max(amount - paid, 0);
                     return (
                       <TableRow key={bill.id}>
                         <TableCell className="font-medium">{bill.invoice_number}</TableCell>
                         <TableCell>{bill.bill_month}</TableCell>
-                        <TableCell>{bill.due_date}</TableCell>
+                        <TableCell>{bill.invoice_date}</TableCell>
                         <TableCell>{money.format(amount)}</TableCell>
                         <TableCell>{money.format(paid)}</TableCell>
-                        <TableCell className={amount - paid > 0 ? "font-medium text-red-600" : "text-emerald-700"}>{money.format(Math.max(amount - paid, 0))}</TableCell>
+                        <TableCell className={outstanding > 0 ? "font-medium text-red-600" : "text-emerald-700"}>{money.format(outstanding)}</TableCell>
                         <TableCell><Badge className={statusBadgeClass(bill.status)}>{bill.status}</Badge></TableCell>
                         <TableCell>
                           <Button asChild size="sm" variant="outline">

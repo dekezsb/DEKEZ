@@ -39,7 +39,7 @@ export default async function RentalInvoicePage({ params }: PageProps) {
   }
 
   const month = invoiceMonth(invoice.billMonth);
-  const dueDate = invoiceDate(invoice.dueDate);
+  const invoiceDateLabel = invoiceDate(invoice.invoiceDate);
   const propertyLabel = [invoice.propertyCode, invoice.propertyName]
     .filter(Boolean)
     .join(" - ");
@@ -93,6 +93,17 @@ export default async function RentalInvoicePage({ params }: PageProps) {
           </div>
         </header>
 
+        {invoice.status === "cancelled" ? (
+          <section className="border-b-2 border-red-700 bg-red-50 px-4 py-3 text-center text-red-800">
+            <p className="text-lg font-bold uppercase tracking-normal">
+              Cancelled / Voided
+            </p>
+            {invoice.removalReason ? (
+              <p className="mt-1 text-xs">Reason: {invoice.removalReason}</p>
+            ) : null}
+          </section>
+        ) : null}
+
         <section className="grid gap-8 py-8 sm:grid-cols-2">
           <div>
             <p className="text-xs font-semibold uppercase text-gray-500">
@@ -117,7 +128,7 @@ export default async function RentalInvoicePage({ params }: PageProps) {
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-sm sm:justify-self-end">
             <dt className="font-semibold text-gray-600">Invoice Date</dt>
-            <dd>{dueDate}</dd>
+            <dd>{invoiceDateLabel}</dd>
             <dt className="font-semibold text-gray-600">Terms</dt>
             <dd>C.O.D.</dd>
           </dl>
@@ -175,6 +186,12 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               Please include the invoice number as the payment reference.
               Payments are reflected only after verification by DEKEZ.
             </p>
+            {invoice.notes ? (
+              <p className="mt-4 max-w-xl">
+                <span className="font-semibold text-[#17130d]">Notes:</span>{" "}
+                {invoice.notes}
+              </p>
+            ) : null}
           </div>
           <div className="min-w-64 pt-8 text-center">
             <p

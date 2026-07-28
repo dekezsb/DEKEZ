@@ -63,7 +63,7 @@ export async function GET(request: Request) {
   const { data: bills } = await supabase
     .from("rent_bills")
     .select("id, tenant_id, property_id, room_id, due_date, amount, paid_amount, status, properties(name), rooms(name, room_number)")
-    .not("status", "in", "(paid,cancelled,waived)")
+    .not("status", "in", "(draft,paid,cancelled,waived)")
     .order("due_date", { ascending: true });
 
   const tenantIds = Array.from(new Set((bills ?? []).map((bill) => bill.tenant_id)));

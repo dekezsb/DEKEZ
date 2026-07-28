@@ -18,9 +18,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
-import { getRentalInvoiceArchive } from "@/lib/data/rental-invoices";
+import {
+  getHistoricalInvoiceOptions,
+  getRentalInvoiceArchive,
+} from "@/lib/data/rental-invoices";
 import { invoiceDate, invoiceMonth } from "@/lib/invoices/format";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { HistoricalInvoiceForm } from "./historical-invoice-form";
+import { InvoiceActions } from "./invoice-actions";
 
 type PageProps = {
   searchParams: Promise<{
@@ -28,6 +33,10 @@ type PageProps = {
     month?: string;
     page?: string;
     status?: string;
+    created?: string;
+    existing?: string;
+    removed?: string;
+    error?: string;
   }>;
 };
 
@@ -38,16 +47,28 @@ const money = new Intl.NumberFormat("en-MY", {
 
 const statuses = [
   "all",
+  "draft",
   "upcoming",
   "due_today",
   "overdue",
   "payment_submitted",
   "pending_verification",
   "partially_paid",
+  "partial",
   "paid",
   "waived",
   "cancelled",
 ];
+
+const errorMessages: Record<string, string> = {
+  missing: "Complete all required invoice fields and check the amounts.",
+  balance: "The outstanding amount does not match the selected payment status.",
+  selection: "The selected tenant, property, or room could not be verified.",
+  duplicate: "An invoice already exists for this tenant and rental month.",
+  create: "The historical invoice could not be created.",
+  remove_reason: "A reason is required before removing an invoice.",
+  remove: "The invoice could not be removed or voided.",
+};
 
 function archiveHref(
   query: Awaited<PageProps["searchParams"]>,
@@ -64,18 +85,24 @@ function archiveHref(
 export default async function RentalInvoicesPage({
   searchParams,
 }: PageProps) {
-  await requireRole(["super_admin", "admin", "owner"], {
+  const role = await requireRole(["super_admin", "admin", "owner"], {
     module: "rent_due_tracker",
     level: "view",
   });
   const query = await searchParams;
   const page = Math.max(Number(query.page ?? 1) || 1, 1);
-  const archive = await getRentalInvoiceArchive({
-    invoiceNumber: query.invoice,
-    month: query.month,
-    page,
-    status: query.status,
-  });
+  const canManage = role === "super_admin" || role === "admin";
+  const [archive, options] = await Promise.all([
+    getRentalInvoiceArchive({
+      invoiceNumber: query.invoice,
+      month: query.month,
+      page,
+      status: query.status,
+    }),
+    canManage
+      ? getHistoricalInvoiceOptions()
+      : Promise.resolve({ tenants: [], properties: [], rooms: [] }),
+  ]);
   const pageCount = Math.max(
     Math.ceil(archive.total / archive.pageSize),
     1,
@@ -94,6 +121,54 @@ export default async function RentalInvoicesPage({
           Permanent monthly rental invoices with running invoice numbers.
         </p>
       </div>
+
+      {query.error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessages[query.error] ?? "The invoice action could not be completed."}
+        </div>
+      ) : null}
+      {query.created ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Historical rental invoice created with the next running invoice number.
+        </div>
+      ) : null}
+      {query.removed === "deleted" ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          The clean draft invoice was removed. Its original details remain in the audit log.
+        </div>
+      ) : null}
+      {query.removed === "voided" ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          The invoice was marked Cancelled and retained with its audit history.
+        </div>
+      ) : null}
+      {query.existing ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span>An invoice already exists for that tenant and rental month.</span>
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/invoices/${query.existing}`}>Open Existing Invoice</Link>
+          </Button>
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <Card id="historical-invoice">
+          <CardHeader>
+            <CardTitle>Add Missing Historical Invoice</CardTitle>
+            <CardDescription>
+              Add an accounting invoice for a current or former tenant without
+              reopening their tenancy or changing payment history.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <HistoricalInvoiceForm
+              properties={options.properties}
+              rooms={options.rooms}
+              tenants={options.tenants}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -165,7 +240,7 @@ export default async function RentalInvoicesPage({
                   </TableHeader>
                   <TableBody>
                     {archive.invoices.map((invoice) => (
-                      <TableRow key={invoice.id}>
+                      <TableRow id={`invoice-${invoice.id}`} key={invoice.id}>
                         <TableCell className="font-semibold">
                           {invoice.invoiceNumber}
                         </TableCell>
@@ -195,11 +270,20 @@ export default async function RentalInvoicesPage({
                           {invoiceDate(invoice.retainUntil)}
                         </TableCell>
                         <TableCell>
-                          <Button asChild size="sm" variant="outline">
-                            <Link href={`/invoices/${invoice.id}`}>
-                              View / Print
-                            </Link>
-                          </Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button asChild size="sm" variant="outline">
+                              <Link href={`/invoices/${invoice.id}`}>
+                                View / Print
+                              </Link>
+                            </Button>
+                            {canManage && invoice.status !== "cancelled" ? (
+                              <InvoiceActions
+                                invoiceId={invoice.id}
+                                invoiceNumber={invoice.invoiceNumber}
+                                tenantName={invoice.tenantName}
+                              />
+                            ) : null}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -211,6 +295,7 @@ export default async function RentalInvoicesPage({
                 {archive.invoices.map((invoice) => (
                   <article
                     className="rounded-md border border-[#d7dde5] p-4"
+                    id={`invoice-${invoice.id}`}
                     key={invoice.id}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -256,11 +341,20 @@ export default async function RentalInvoicesPage({
                         </dd>
                       </div>
                     </dl>
-                    <Button asChild className="mt-4 w-full" variant="outline">
-                      <Link href={`/invoices/${invoice.id}`}>
-                        View / Print
-                      </Link>
-                    </Button>
+                    <div className="mt-4 grid gap-2">
+                      <Button asChild className="w-full" variant="outline">
+                        <Link href={`/invoices/${invoice.id}`}>
+                          View / Print
+                        </Link>
+                      </Button>
+                      {canManage && invoice.status !== "cancelled" ? (
+                        <InvoiceActions
+                          invoiceId={invoice.id}
+                          invoiceNumber={invoice.invoiceNumber}
+                          tenantName={invoice.tenantName}
+                        />
+                      ) : null}
+                    </div>
                   </article>
                 ))}
               </div>

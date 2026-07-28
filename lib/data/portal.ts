@@ -32,6 +32,9 @@ export async function getOwnerPortalSummary() {
   const properties = propertiesResult.data ?? [];
   const rooms = roomsResult.data ?? [];
   const rentBills = rentBillsResult.data ?? [];
+  const activeRentBills = rentBills.filter(
+    (bill) => !["draft", "cancelled", "waived"].includes(String(bill.status)),
+  );
   const utilityBills = utilityBillsResult.data ?? [];
   const claims = claimsResult.data ?? [];
   const tickets = ticketsResult.data ?? [];
@@ -45,8 +48,10 @@ export async function getOwnerPortalSummary() {
     occupiedRooms: rooms.filter((room) => room.status === "occupied").length,
     vacantRooms: rooms.filter((room) => room.status === "vacant").length,
     monthlyRentalExpected: sumAmount(rooms, "monthly_rent"),
-    monthlyRentalCollected: sumAmount(rentBills, "paid_amount"),
-    outstandingRental: sumAmount(rentBills, "amount") - sumAmount(rentBills, "paid_amount"),
+    monthlyRentalCollected: sumAmount(activeRentBills, "paid_amount"),
+    outstandingRental:
+      sumAmount(activeRentBills, "amount") -
+      sumAmount(activeRentBills, "paid_amount"),
     waterBills: sumAmount(waterBills, "amount"),
     electricityBills: sumAmount(electricityBills, "amount"),
     maintenanceExpenses: approvedClaims.reduce(

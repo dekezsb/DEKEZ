@@ -177,7 +177,7 @@ export async function getRentDueSummary(filters?: {
   let billsQuery = supabase
     .from("rent_bills")
     .select("id, tenancy_id, tenant_id, tenant_record_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
-    .not("status", "in", "(paid,cancelled,waived)")
+    .not("status", "in", "(draft,paid,cancelled,waived)")
     .order("due_date", { ascending: true });
 
   if (filters?.property) {

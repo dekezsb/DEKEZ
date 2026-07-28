@@ -140,12 +140,16 @@ export default async function TenantProfilePage({
                   {details.bills.map((bill) => {
                     const amount = Number(bill.amount ?? 0);
                     const paid = Number(bill.paid_amount ?? 0);
-                    const outstanding = Math.max(amount - paid, 0);
+                    const outstanding = ["cancelled", "waived"].includes(
+                      bill.status,
+                    )
+                      ? 0
+                      : Math.max(amount - paid, 0);
                     return (
                       <TableRow key={bill.id}>
                         <TableCell className="font-medium">{bill.invoice_number}</TableCell>
                         <TableCell>{bill.bill_month}</TableCell>
-                        <TableCell>{bill.due_date}</TableCell>
+                        <TableCell>{bill.invoice_date}</TableCell>
                         <TableCell>{money.format(amount)}</TableCell>
                         <TableCell>{money.format(paid)}</TableCell>
                         <TableCell className={outstanding > 0 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>

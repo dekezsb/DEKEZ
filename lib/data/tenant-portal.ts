@@ -179,7 +179,10 @@ export async function getTenantPortalData() {
   let bills: Array<{
     id: string;
     tenancy_id: string | null;
+    property_id: string;
+    room_id: string;
     invoice_number: string;
+    invoice_date: string;
     issued_at: string;
     retain_until: string;
     bill_month: string;
@@ -188,6 +191,8 @@ export async function getTenantPortalData() {
     paid_amount: number | string;
     status: string;
     created_at: string;
+    properties: Relation<{ name: string }>;
+    rooms: Relation<{ name: string | null; room_number: string | null }>;
   }> = [];
   let payments: Array<{
     id: string;
@@ -215,15 +220,32 @@ export async function getTenantPortalData() {
     term_end_date: string | null;
   }> = [];
 
+  const billColumns =
+    "id, tenancy_id, property_id, room_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status, created_at, properties(name), rooms(name, room_number)";
+  const [tenancyBillsResult, directBillsResult] = await Promise.all([
+    tenancyIds.length
+      ? dataClient
+          .from("rent_bills")
+          .select(billColumns)
+          .in("tenancy_id", tenancyIds)
+          .order("bill_month", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    dataClient
+      .from("rent_bills")
+      .select(billColumns)
+      .eq("tenant_id", user.id)
+      .order("bill_month", { ascending: false }),
+  ]);
+  bills = Array.from(
+    new Map(
+      [...(tenancyBillsResult.data ?? []), ...(directBillsResult.data ?? [])].map(
+        (bill) => [bill.id, bill],
+      ),
+    ).values(),
+  ).sort((left, right) => right.bill_month.localeCompare(left.bill_month)) as typeof bills;
+
   if (tenancyIds.length) {
-    const [billsResult, paymentsResult, agreementsResult] = await Promise.all([
-      dataClient
-        .from("rent_bills")
-        .select(
-          "id, tenancy_id, invoice_number, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status, created_at",
-        )
-        .in("tenancy_id", tenancyIds)
-        .order("bill_month", { ascending: false }),
+    const [paymentsResult, agreementsResult] = await Promise.all([
       dataClient
         .from("payments")
         .select(
@@ -239,7 +261,6 @@ export async function getTenantPortalData() {
         .in("tenancy_id", tenancyIds)
         .order("generated_at", { ascending: false }),
     ]);
-    bills = (billsResult.data ?? []) as typeof bills;
     payments = (paymentsResult.data ?? []) as typeof payments;
     agreements = (agreementsResult.data ?? []) as typeof agreements;
   }
@@ -300,7 +321,9 @@ export async function getTenantPortalData() {
           .filter(
             (bill) =>
               bill.tenancy_id === tenancy.id &&
-              !["paid", "cancelled", "waived"].includes(String(bill.status)),
+              !["draft", "paid", "cancelled", "waived"].includes(
+                String(bill.status),
+              ),
           )
           .reduce(
             (total, bill) =>
@@ -349,7 +372,12 @@ export async function getTenantPortalData() {
     null;
   const profile = profileResult.data;
   const outstandingAmount = bills
-    .filter((bill) => !["paid", "cancelled", "waived"].includes(String(bill.status)))
+    .filter(
+      (bill) =>
+        !["draft", "paid", "cancelled", "waived"].includes(
+          String(bill.status),
+        ),
+    )
     .reduce(
       (total, bill) =>
         total + Math.max(0, numberValue(bill.amount) - numberValue(bill.paid_amount)),
@@ -377,18 +405,17 @@ export async function getTenantPortalData() {
     outstandingAmount,
     bills: bills.map((bill) => ({
       ...bill,
-      propertyName:
-        portalTenancies.find((tenancy) => tenancy.id === bill.tenancy_id)
-          ?.propertyName ?? "Property",
+      propertyName: one(bill.properties)?.name ?? "Property",
       roomName:
-        portalTenancies.find((tenancy) => tenancy.id === bill.tenancy_id)
-          ?.roomName ?? "Room",
+        one(bill.rooms)?.room_number ?? one(bill.rooms)?.name ?? "Room",
       amount: numberValue(bill.amount),
       paidAmount: numberValue(bill.paid_amount),
-      outstanding: Math.max(
-        0,
-        numberValue(bill.amount) - numberValue(bill.paid_amount),
-      ),
+      outstanding: ["cancelled", "waived"].includes(String(bill.status))
+        ? 0
+        : Math.max(
+            0,
+            numberValue(bill.amount) - numberValue(bill.paid_amount),
+          ),
     })),
     payments: payments.map((payment) => ({
       ...payment,

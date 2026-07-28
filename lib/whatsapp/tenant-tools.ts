@@ -84,7 +84,7 @@ export async function getMyOutstandingRent(supabase: SupabaseAdmin, tenant: Tena
     .from("rent_bills")
     .select("id, bill_month, due_date, amount, paid_amount, status")
     .eq("tenant_id", tenant.id)
-    .neq("status", "paid")
+    .not("status", "in", "(draft,paid,cancelled,waived)")
     .order("due_date", { ascending: true });
 
   const outstanding = (bills ?? []).reduce((sum, bill) => {

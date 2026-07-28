@@ -79,7 +79,8 @@ function UnassignedNotice() {
 
 function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
   const pendingBills = data.bills.filter(
-    (bill) => !["paid", "cancelled", "waived"].includes(String(bill.status)),
+    (bill) =>
+      !["draft", "paid", "cancelled", "waived"].includes(String(bill.status)),
   );
 
   return (
@@ -576,7 +577,7 @@ export function TenantBills({
                   </p>
                   <p className="mt-1 text-sm text-gray-600">
                     Rental month {date(bill.bill_month)} / Invoice date{" "}
-                    {date(bill.due_date)}
+                    {date(bill.invoice_date)}
                   </p>
                 </div>
                 <div className="flex flex-col items-start gap-3 sm:items-end">
