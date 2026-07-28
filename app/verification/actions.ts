@@ -5,15 +5,12 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { normalizeRole } from "@/lib/auth/roles";
 import { getCurrentUser } from "@/lib/data/organization";
-import { formatMalaysiaDate } from "@/lib/date-format";
-import {
-  addMonths,
-  defaultAgreementTemplate,
-  money,
-  renderAgreementTemplate,
-} from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  createAgreementForTenancy,
+  prepareNextRenewalAgreement,
+} from "@/lib/tenancy/agreement";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -34,12 +31,6 @@ function baseUrl() {
     return `https://${process.env.VERCEL_URL}`;
   }
   return "https://dekez.vercel.app";
-}
-
-function nextDate(dateText: string) {
-  const date = new Date(`${dateText}T00:00:00+08:00`);
-  date.setDate(date.getDate() + 1);
-  return date.toISOString().slice(0, 10);
 }
 
 async function adminClient() {
@@ -375,6 +366,30 @@ export async function sendAgreementWhatsApp(formData: FormData) {
   );
 }
 
+export async function generateInitialAgreement(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const tenancyId = textValue(formData, "tenancyId");
+
+  if (!user || !tenancyId) {
+    redirect(verificationPath("tenancy", "error=agreement_missing"));
+  }
+
+  const supabase = await adminClient();
+  try {
+    await createAgreementForTenancy(supabase, tenancyId, user.id);
+  } catch {
+    redirect(verificationPath("tenancy", "error=agreement_create"));
+  }
+
+  revalidatePath("/verification");
+  revalidatePath("/dashboard");
+  redirect(verificationPath("tenancy", "created=agreement"));
+}
+
 export async function requestRenewalSignature(formData: FormData) {
   await requireRole(["super_admin", "admin"], {
     module: "verification",
@@ -382,129 +397,38 @@ export async function requestRenewalSignature(formData: FormData) {
   });
   const user = await getCurrentUser();
   const tenancyId = textValue(formData, "tenancyId");
-  const duration = Number(textValue(formData, "duration") || "12");
 
-  if (!user || !tenancyId || ![6, 12].includes(duration)) {
+  if (!user || !tenancyId) {
     redirect(verificationPath("tenancy", "error=renewal_missing"));
   }
 
   const supabase = await adminClient();
-  const { data: tenancy } = await supabase
-    .from("tenancies")
-    .select("id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, tenancy_start_date, tenancy_end_date, contract_start, contract_end, tenants(full_name, phone, identity_number), properties(name, address, default_ta_template_id), rooms(name, room_number), units(name)")
-    .eq("id", tenancyId)
-    .eq("status", "active")
-    .maybeSingle();
-
-  if (!tenancy) {
-    redirect(verificationPath("tenancy", "error=renewal_missing"));
-  }
-
-  const tenant = Array.isArray(tenancy.tenants) ? tenancy.tenants[0] : tenancy.tenants;
-  const property = Array.isArray(tenancy.properties) ? tenancy.properties[0] : tenancy.properties;
-  const room = Array.isArray(tenancy.rooms) ? tenancy.rooms[0] : tenancy.rooms;
-  const unit = Array.isArray(tenancy.units) ? tenancy.units[0] : tenancy.units;
-  const currentEnd = tenancy.tenancy_end_date ?? tenancy.contract_end;
-
-  if (!currentEnd || !property) {
-    redirect(verificationPath("tenancy", "error=renewal_missing"));
-  }
-
-  const startDate = nextDate(currentEnd);
-  const endDate = addMonths(startDate, duration);
   const { data: existing } = await supabase
     .from("tenancy_agreements")
     .select("id")
-    .eq("tenancy_id", tenancy.id)
-    .eq("term_start_date", startDate)
-    .eq("term_end_date", endDate)
+    .eq("tenancy_id", tenancyId)
+    .eq("agreement_type", "renewal")
+    .in("status", ["renewal_pending", "renewal_sent", "pending_signature"])
+    .order("term_end_date", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
-  let agreementId = existing?.id ?? null;
+  let agreementId: string | null = existing?.id ?? null;
   if (!agreementId) {
-    let template: { id: string; template_content: string } | null = null;
-    if (property.default_ta_template_id) {
-      const { data } = await supabase
-        .from("tenancy_agreement_templates")
-        .select("id, template_content")
-        .eq("id", property.default_ta_template_id)
-        .maybeSingle();
-      template = data;
-    }
-
-    if (!template) {
-      const { data } = await supabase
-        .from("tenancy_agreement_templates")
-        .insert({
-          property_id: tenancy.property_id,
-          name: `${property.name} Default TA`,
-          template_content: defaultAgreementTemplate,
-          is_active: true,
-          created_by: user.id,
-        })
-        .select("id, template_content")
-        .single();
-      template = data;
-    }
-
-    const { data: previousAgreements } = await supabase
-      .from("tenancy_agreements")
-      .select("id, version_number")
-      .eq("tenancy_id", tenancy.id)
-      .order("version_number", { ascending: false });
-    const previous = previousAgreements?.[0] ?? null;
-    const rendered = renderAgreementTemplate(
-      template?.template_content ?? defaultAgreementTemplate,
-      {
-        tenant_name: tenant?.full_name,
-        tenant_ic_passport: tenant?.identity_number,
-        tenant_phone: tenant?.phone,
-        property_name: property.name,
-        property_address: property.address,
-        unit_number: unit?.name,
-        room_number: room?.room_number ?? room?.name,
-        monthly_rent: money(tenancy.monthly_rental),
-        deposit_amount: money(tenancy.deposit),
-        utility_deposit: money(0),
-        tenancy_start_date: formatMalaysiaDate(startDate),
-        tenancy_end_date: formatMalaysiaDate(endDate),
-        contract_duration_months: duration,
-        agreement_date: formatMalaysiaDate(new Date()),
-        tenant_signature: "[Pending tenant signature]",
-      },
-    );
-
-    const { data: agreement, error } = await supabase
-      .from("tenancy_agreements")
-      .insert({
-        tenancy_id: tenancy.id,
-        template_id: template?.id ?? null,
-        agreement_type: "renewal",
-        version_number: Number(previous?.version_number ?? 0) + 1,
-        status: "renewal_pending",
-        rendered_content: rendered,
-        term_start_date: startDate,
-        term_end_date: endDate,
-        tenant_name_snapshot: tenant?.full_name ?? null,
-        property_name_snapshot: property.name,
-        room_name_snapshot: room?.room_number ?? room?.name ?? null,
-        previous_agreement_id: previous?.id ?? null,
-        created_by: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (error || !agreement) {
+    try {
+      agreementId = await prepareNextRenewalAgreement(
+        supabase,
+        tenancyId,
+        user.id,
+      );
+    } catch {
       redirect(verificationPath("tenancy", "error=renewal_create"));
     }
-    agreementId = agreement.id;
   }
 
-  await supabase
-    .from("tenancies")
-    .update({ renewal_status: "pending_signature", updated_at: new Date().toISOString() })
-    .eq("id", tenancy.id);
-
+  if (!agreementId) {
+    redirect(verificationPath("tenancy", "error=renewal_missing"));
+  }
   const result = await sendAgreementRequest(supabase, agreementId);
   revalidatePath("/verification");
   revalidatePath("/e-tenancy");

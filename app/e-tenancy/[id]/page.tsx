@@ -26,7 +26,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const supabase = await createClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name))")
+    .select("id, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until, tenancies(tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms(name, room_number))")
     .eq("id", id)
     .single();
 
@@ -49,7 +49,18 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const tenancy = Array.isArray(agreement.tenancies) ? agreement.tenancies[0] : agreement.tenancies;
   const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
   const room = Array.isArray(tenancy?.rooms) ? tenancy?.rooms[0] : tenancy?.rooms;
-  const canSign = role === "tenant" && agreement.status === "pending_signature";
+  const canSign =
+    role === "tenant" &&
+    ["pending_signature", "renewal_pending", "renewal_sent"].includes(
+      agreement.status,
+    );
+  const backPath =
+    role === "tenant" ? "/e-tenancy" : "/verification?view=agreements";
+  const { data: signedPdf } = agreement.pdf_url
+    ? await supabase.storage
+        .from("tenancy-agreements")
+        .createSignedUrl(agreement.pdf_url, 60 * 10)
+    : { data: null };
 
   return (
     <section className="space-y-6">
@@ -60,7 +71,9 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
           <div>
             <h1 className="text-2xl font-semibold sm:text-3xl">{agreement.property_name_snapshot ?? property?.name ?? "Tenancy Agreement"}</h1>
             <p className="mt-2 text-sm text-gray-600">
-              {agreement.room_name_snapshot ?? room?.name ?? "Room"} - {tenancy?.contract_duration_months ?? "-"} months
+              Room {agreement.room_name_snapshot ?? room?.room_number ?? room?.name ?? "-"} -{" "}
+              {agreement.agreement_type === "renewal" ? "Renewal" : "Original"}{" "}
+              term v{agreement.version_number}
             </p>
           </div>
           <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>
@@ -87,7 +100,23 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
           <p>Start: {formatMalaysiaDate(agreement.term_start_date ?? tenancy?.tenancy_start_date)}</p>
           <p>End: {formatMalaysiaDate(agreement.term_end_date ?? tenancy?.tenancy_end_date)}</p>
           <p>Signed: {formatMalaysiaDateTime(agreement.signed_at)}</p>
-          <p>PDF: {agreement.pdf_url ? agreement.pdf_url : "Not signed yet"}</p>
+          <p>Keep until: {formatMalaysiaDate(agreement.retention_until)}</p>
+          <div className="flex flex-wrap gap-2 sm:col-span-2">
+            <Button asChild size="sm" variant="outline">
+              <Link href={backPath}>Back to archive</Link>
+            </Button>
+            {signedPdf?.signedUrl ? (
+              <Button asChild size="sm">
+                <a
+                  href={signedPdf.signedUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Open signed PDF
+                </a>
+              </Button>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 

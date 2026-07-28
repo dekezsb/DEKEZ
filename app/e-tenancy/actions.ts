@@ -5,25 +5,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
-import { formatMalaysiaDate } from "@/lib/date-format";
-import {
-  addMonths,
-  createSignedPdfBytes,
-  defaultAgreementTemplate,
-  money,
-  renderAgreementTemplate,
-} from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-function numberValue(formData: FormData, key: string, fallback = 0) {
-  const value = Number(textValue(formData, key));
-  return Number.isFinite(value) ? value : fallback;
 }
 
 async function getAdmin() {
@@ -34,185 +22,41 @@ async function getAdmin() {
   }
 }
 
-export async function createAgreementTemplate(formData: FormData) {
-  await requireRole(["super_admin", "admin"], {
-    module: "tenancy_agreements",
-    level: "manage",
-  });
-  const user = await getCurrentUser();
-  const propertyId = textValue(formData, "propertyId");
-  const name = textValue(formData, "name");
-  const content = textValue(formData, "templateContent") || defaultAgreementTemplate;
-  const isActive = textValue(formData, "isActive") === "on";
-
-  if (!user || !propertyId || !name) {
-    redirect("/e-tenancy?error=template_missing");
-  }
-
-  const supabase = await getAdmin();
-  const { data, error } = await supabase
-    .from("tenancy_agreement_templates")
-    .insert({
-      property_id: propertyId,
-      name,
-      template_content: content,
-      is_active: isActive,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    redirect("/e-tenancy?error=template_create");
-  }
-
-  await supabase
-    .from("properties")
-    .update({ default_ta_template_id: data.id })
-    .eq("id", propertyId);
-
-  revalidatePath("/e-tenancy");
-  redirect("/e-tenancy?created=template");
+function single<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
-export async function generateAgreement(formData: FormData) {
-  await requireRole(["super_admin", "admin"], {
-    module: "tenancy_agreements",
-    level: "manage",
-  });
-  const user = await getCurrentUser();
-  const tenancyId = textValue(formData, "tenancyId");
-  const duration = numberValue(formData, "contractDurationMonths", 12);
-  const startDate = textValue(formData, "startDate");
+function filenamePart(value: string | null | undefined, fallback: string) {
+  const normalized = (value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
 
-  if (!user || !tenancyId || ![6, 12].includes(duration) || !startDate) {
-    redirect("/e-tenancy?error=agreement_missing");
-  }
-
-  const supabase = await getAdmin();
-  const { data: tenancy } = await supabase
-    .from("tenancies")
-    .select("id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, due_day")
-    .eq("id", tenancyId)
-    .single();
-
-  if (!tenancy) {
-    redirect("/e-tenancy?error=agreement_missing");
-  }
-
-  const endDate = addMonths(startDate, duration);
-  await supabase
-    .from("tenancies")
-    .update({
-      tenancy_start_date: startDate,
-      tenancy_end_date: endDate,
-      contract_start: startDate,
-      contract_end: endDate,
-      contract_duration_months: duration,
-    })
-    .eq("id", tenancy.id);
-
-  const [{ data: tenant }, { data: property }, { data: unit }, { data: room }] = await Promise.all([
-    supabase.from("tenants").select("full_name, phone, identity_number").eq("id", tenancy.tenant_id).maybeSingle(),
-    supabase.from("properties").select("name, address, default_ta_template_id").eq("id", tenancy.property_id).maybeSingle(),
-    tenancy.unit_id ? supabase.from("units").select("name").eq("id", tenancy.unit_id).maybeSingle() : Promise.resolve({ data: null }),
-    supabase.from("rooms").select("name, room_number").eq("id", tenancy.room_id).maybeSingle(),
-  ]);
-
-  let template = null;
-  if (property?.default_ta_template_id) {
-    const { data } = await supabase
-      .from("tenancy_agreement_templates")
-      .select("id, template_content")
-      .eq("id", property.default_ta_template_id)
-      .maybeSingle();
-    template = data;
-  }
-
-  if (!template) {
-    const { data } = await supabase
-      .from("tenancy_agreement_templates")
-      .insert({
-        property_id: tenancy.property_id,
-        name: "Default Tenancy Agreement",
-        template_content: defaultAgreementTemplate,
-        is_active: true,
-        created_by: user.id,
-      })
-      .select("id, template_content")
-      .single();
-    template = data;
-  }
-
-  const rendered = renderAgreementTemplate(template?.template_content ?? defaultAgreementTemplate, {
-    tenant_name: tenant?.full_name,
-    tenant_ic_passport: tenant?.identity_number,
-    tenant_phone: tenant?.phone,
-    property_name: property?.name,
-    property_address: property?.address,
-    unit_number: unit?.name,
-    room_number: room?.room_number ?? room?.name,
-    monthly_rent: money(tenancy.monthly_rental),
-    deposit_amount: money(tenancy.deposit),
-    utility_deposit: money(0),
-    tenancy_start_date: formatMalaysiaDate(startDate),
-    tenancy_end_date: formatMalaysiaDate(endDate),
-    contract_duration_months: duration,
-    agreement_date: formatMalaysiaDate(new Date()),
-    tenant_signature: "[Pending tenant signature]",
-  });
-
-  const { data: existingAgreements } = await supabase
-    .from("tenancy_agreements")
-    .select("id, version_number, term_start_date, term_end_date")
-    .eq("tenancy_id", tenancy.id)
-    .order("generated_at", { ascending: false });
-  const agreements = existingAgreements ?? [];
-  const existingTerm = agreements.find(
-    (agreement) =>
-      agreement.term_start_date === startDate &&
-      agreement.term_end_date === endDate,
-  );
-  if (existingTerm) {
-    redirect(`/e-tenancy/${existingTerm.id}`);
-  }
-  const previousAgreement = agreements[0] ?? null;
-  const versionNumber =
-    Math.max(0, ...agreements.map((agreement) => agreement.version_number)) + 1;
-
-  const { error } = await supabase.from("tenancy_agreements").insert({
-    tenancy_id: tenancy.id,
-    template_id: template?.id ?? null,
-    agreement_type: agreements.length ? "renewal" : "original",
-    version_number: versionNumber,
-    status: "pending_signature",
-    rendered_content: rendered,
-    term_start_date: startDate,
-    term_end_date: endDate,
-    tenant_name_snapshot: tenant?.full_name ?? null,
-    property_name_snapshot: property?.name ?? null,
-    room_name_snapshot: room?.room_number ?? room?.name ?? null,
-    previous_agreement_id: previousAgreement?.id ?? null,
-    created_by: user.id,
-  });
-
-  if (error) {
-    redirect("/e-tenancy?error=agreement_create");
-  }
-
-  revalidatePath("/e-tenancy");
-  redirect("/e-tenancy?created=agreement");
+  return normalized || fallback;
 }
 
-export async function refreshAgreementExpiry() {
-  await requireRole(["super_admin", "admin"], {
-    module: "tenancy_agreements",
-    level: "manage",
-  });
-  const supabase = await getAdmin();
-  await supabase.rpc("refresh_tenancy_agreement_expiry");
-  revalidatePath("/e-tenancy");
-  redirect("/e-tenancy?created=expiry");
+function compactDate(value: string | null | undefined) {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}${match[2]}${match[1]}` : "UNDATED";
+}
+
+function agreementPdfName(input: {
+  tenantName: string | null | undefined;
+  propertyCode: string | null | undefined;
+  roomNumber: string | null | undefined;
+  termStartDate: string | null | undefined;
+}) {
+  const room = filenamePart(input.roomNumber, "ROOM")
+    .replace(/^ROOM_?/, "")
+    .replace(/^R/, "");
+
+  return [
+    filenamePart(input.tenantName, "TENANT"),
+    `${filenamePart(input.propertyCode, "PROPERTY")}R${room}`,
+    compactDate(input.termStartDate),
+  ].join("_") + ".pdf";
 }
 
 export async function signAgreement(formData: FormData) {
@@ -232,14 +76,14 @@ export async function signAgreement(formData: FormData) {
   const supabase = await getAdmin();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, rendered_content, tenancy_id, agreement_type, term_start_date, term_end_date, tenancies(tenant_id, tenants(profile_id))")
+    .select("id, rendered_content, tenancy_id, agreement_type, term_start_date, term_end_date, tenancies(tenant_id, tenants(profile_id, full_name), properties(property_code, name), rooms(room_number, name))")
     .eq("id", agreementId)
     .single();
 
   const tenancy = Array.isArray(agreement?.tenancies) ? agreement?.tenancies[0] : agreement?.tenancies;
-  const tenant = Array.isArray(tenancy?.tenants)
-    ? tenancy?.tenants[0]
-    : tenancy?.tenants;
+  const tenant = single(tenancy?.tenants);
+  const property = single(tenancy?.properties);
+  const room = single(tenancy?.rooms);
   if (!agreement || tenant?.profile_id !== user.id) {
     redirect("/dashboard");
   }
@@ -252,9 +96,29 @@ export async function signAgreement(formData: FormData) {
     upsert: true,
   });
 
-  const signedContent = agreement.rendered_content.replace("[Pending tenant signature]", `Signed digitally by ${user.email ?? user.phone ?? user.id}`);
-  const pdfBytes = createSignedPdfBytes(signedContent, user.user_metadata?.full_name ?? user.email ?? user.id, signedAt);
-  const pdfPath = `${user.id}/${agreement.id}/signed-ta-${Date.now()}.pdf`;
+  const signerName =
+    tenant.full_name ??
+    user.user_metadata?.full_name ??
+    user.phone ??
+    user.email ??
+    user.id;
+  const signedContent = agreement.rendered_content.replace(
+    "[Pending tenant signature]",
+    `Signed digitally by ${signerName}`,
+  );
+  const pdfBytes = await createSignedAgreementPdf({
+    content: signedContent,
+    signerName,
+    signedAt,
+    signatureBytes,
+  });
+  const pdfFileName = agreementPdfName({
+    tenantName: tenant.full_name,
+    propertyCode: property?.property_code ?? property?.name,
+    roomNumber: room?.room_number ?? room?.name,
+    termStartDate: agreement.term_start_date,
+  });
+  const pdfPath = `${user.id}/${agreement.id}/${pdfFileName}`;
   await supabase.storage.from("tenancy-agreements").upload(pdfPath, pdfBytes, {
     contentType: "application/pdf",
     upsert: true,
@@ -300,6 +164,7 @@ export async function signAgreement(formData: FormData) {
 
   revalidatePath("/e-tenancy");
   revalidatePath("/verification");
+  revalidatePath("/verification?view=agreements");
   revalidatePath(`/e-tenancy/${agreement.id}`);
   redirect(`/e-tenancy/${agreement.id}?signed=1`);
 }

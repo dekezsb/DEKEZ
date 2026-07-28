@@ -40,6 +40,11 @@ import { checkoutRoom } from "@/app/properties/[id]/actions";
 import { PaymentVerificationContent } from "@/app/payment-verification/page";
 import { TenantVerificationContent } from "@/app/tenant-verification/page";
 import {
+  AgreementArchive,
+  type AgreementArchiveItem,
+} from "@/components/verification/agreement-archive";
+import {
+  generateInitialAgreement,
   requestRenewalSignature,
   reviewClaim,
   reviewUserRegistration,
@@ -59,10 +64,17 @@ type PageProps = {
     tenant?: string;
     month?: string;
     method?: string;
+    occupancy?: string;
   }>;
 };
 
-type VerificationView = "users" | "tenants" | "claims" | "tenancy" | "payments";
+type VerificationView =
+  | "users"
+  | "tenants"
+  | "claims"
+  | "tenancy"
+  | "agreements"
+  | "payments";
 
 const views: {
   key: VerificationView;
@@ -73,6 +85,7 @@ const views: {
   { key: "tenants", label: "Tenant & Room", icon: UserCheck },
   { key: "claims", label: "Claim Bills", icon: ClipboardCheck },
   { key: "tenancy", label: "Tenancy Progress", icon: FileSignature },
+  { key: "agreements", label: "Agreement Archive", icon: FileSignature },
   { key: "payments", label: "Payment Verification", icon: CreditCard },
 ];
 
@@ -159,12 +172,12 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .not("claim_id", "is", null),
     supabase
       .from("tenancies")
-      .select("id, tenant_id, property_id, room_id, tenancy_start_date, tenancy_end_date, contract_start, contract_end, status, renewal_status, checkout_date, tenants(full_name, phone), properties(name), rooms(name, room_number, status)")
+      .select("id, tenant_id, property_id, room_id, tenancy_start_date, tenancy_end_date, contract_start, contract_end, status, renewal_status, checkout_date, tenants(full_name, phone), properties(name, is_commercial), rooms(name, room_number, status)")
       .eq("status", "active")
       .order("created_at", { ascending: false }),
     supabase
       .from("tenancy_agreements")
-      .select("id, tenancy_id, agreement_type, version_number, status, term_start_date, term_end_date, generated_at, signed_at")
+      .select("id, tenancy_id, agreement_type, version_number, status, term_start_date, term_end_date, generated_at, signed_at, retention_until, pdf_url, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(status, checkout_date, tenants(full_name), properties(name, property_code), rooms(name, room_number))")
       .order("generated_at", { ascending: false }),
     supabase
       .from("payment_submissions")
@@ -250,6 +263,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
           "expiring_soon",
         ].includes(agreement.status),
       ).length,
+    agreements: 0,
     payments: paymentSubmissions.filter(
       (submission) =>
         submission.verification_status === "pending_verification",
@@ -347,6 +361,13 @@ export default async function VerificationPage({ searchParams }: PageProps) {
           applications={tenantApplications}
           agreementsByTenancy={agreementsByTenancy}
           tenancies={tenancies}
+        />
+      ) : null}
+
+      {activeView === "agreements" ? (
+        <AgreementArchive
+          agreements={agreements as AgreementArchiveItem[]}
+          occupancy={params.occupancy ?? "all"}
         />
       ) : null}
 
@@ -829,7 +850,10 @@ function TenancyProgress({
       | { full_name: string; phone: string | null }
       | { full_name: string; phone: string | null }[]
       | null;
-    properties: { name: string } | { name: string }[] | null;
+    properties:
+      | { name: string; is_commercial: boolean }
+      | { name: string; is_commercial: boolean }[]
+      | null;
     rooms:
       | { name: string; room_number: string | null; status: string }
       | { name: string; room_number: string | null; status: string }[]
@@ -923,8 +947,8 @@ function TenancyProgress({
         <CardHeader>
           <CardTitle>Active Tenancies & Renewals</CardTitle>
           <CardDescription>
-            Send or resend unsigned agreements by WhatsApp. For renewal, choose
-            a new signature request or check the tenant out.
+            Send unsigned agreements by WhatsApp or check the tenant out. Renewal
+            terms are 12 months for commercial properties and 6 months otherwise.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1037,7 +1061,7 @@ function TenancyRow({
         )}
       </TableCell>
       <TableCell>
-        <SignatureActions agreement={agreement} />
+        <SignatureActions agreement={agreement} tenancyId={tenancy.id} />
       </TableCell>
       <TableCell>
         <RenewalAndCheckout tenancy={tenancy} />
@@ -1074,19 +1098,28 @@ function TenancyCard({
         {display.start} to {display.end}
       </p>
       <div className="mt-4 grid gap-3">
-        <SignatureActions agreement={agreement} />
+        <SignatureActions agreement={agreement} tenancyId={tenancy.id} />
         <RenewalAndCheckout tenancy={tenancy} />
       </div>
     </div>
   );
 }
 
-function SignatureActions({ agreement }: { agreement?: AgreementItem }) {
+function SignatureActions({
+  agreement,
+  tenancyId,
+}: {
+  agreement?: AgreementItem;
+  tenancyId: string;
+}) {
   if (!agreement) {
     return (
-      <Button asChild size="sm" variant="outline">
-        <Link href="/e-tenancy">Prepare Agreement</Link>
-      </Button>
+      <form action={generateInitialAgreement}>
+        <input name="tenancyId" type="hidden" value={tenancyId} />
+        <Button className="w-full" size="sm" type="submit" variant="outline">
+          Generate Agreement
+        </Button>
+      </form>
     );
   }
 
@@ -1115,24 +1148,17 @@ function SignatureActions({ agreement }: { agreement?: AgreementItem }) {
 
 function RenewalAndCheckout({ tenancy }: { tenancy: TenancyItem }) {
   const display = tenancyDisplay(tenancy);
+  const property = single(tenancy.properties);
+  const duration = property?.is_commercial ? 12 : 6;
   return (
     <div className="grid gap-3">
-      <form
-        action={requestRenewalSignature}
-        className="grid gap-2 sm:grid-cols-[100px_1fr]"
-      >
+      <form action={requestRenewalSignature} className="grid gap-2">
         <input name="tenancyId" type="hidden" value={tenancy.id} />
-        <select
-          aria-label="Renewal duration"
-          className="rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
-          name="duration"
-          defaultValue="12"
-        >
-          <option value="6">6 months</option>
-          <option value="12">12 months</option>
-        </select>
+        <p className="text-xs text-gray-500">
+          {duration}-month {property?.is_commercial ? "commercial" : "non-commercial"} renewal
+        </p>
         <Button size="sm" type="submit" variant="outline">
-          Request Renewal Signature
+          Prepare & Send Renewal
         </Button>
       </form>
       <form

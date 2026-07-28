@@ -1,13 +1,66 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import {
-  addMonths,
+  addDays,
+  calculateTermEndDate,
   defaultAgreementTemplate,
   money,
   renderAgreementTemplate,
 } from "@/lib/e-tenancy";
+import {
+  STANDARD_AGREEMENT_NAME,
+  STANDARD_AGREEMENT_VERSION,
+} from "@/lib/tenancy/standard-agreement";
 
-function malaysiaToday() {
+type AgreementType = "original" | "renewal";
+
+type TenancyContext = {
+  id: string;
+  tenant_id: string;
+  property_id: string;
+  room_id: string;
+  monthly_rental: number | string | null;
+  deposit: number | string | null;
+  start_date: string;
+  end_date: string | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  tenancy_start_date: string | null;
+  tenancy_end_date: string | null;
+  check_in_date: string | null;
+  checkout_date: string | null;
+  contract_duration_months: number | null;
+  status: string;
+  billing_status: string | null;
+  tenants: {
+    full_name: string;
+    phone: string | null;
+    identity_number: string | null;
+  } | null;
+  properties: {
+    name: string;
+    address: string | null;
+    is_commercial: boolean;
+  } | null;
+  rooms: {
+    name: string | null;
+    room_number: string;
+  } | null;
+};
+
+type ExistingAgreement = {
+  id: string;
+  version_number: number;
+  term_start_date: string | null;
+  term_end_date: string | null;
+  status: string;
+};
+
+function first<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export function malaysiaToday() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kuala_Lumpur",
     year: "numeric",
@@ -16,8 +69,208 @@ function malaysiaToday() {
   }).format(new Date());
 }
 
-function first<T>(value: T | T[] | null | undefined) {
-  return Array.isArray(value) ? value[0] : value;
+export function renewalDurationMonths(isCommercial: boolean) {
+  return isCommercial ? 12 : 6;
+}
+
+function agreementStatusForTerm(endDate: string) {
+  return endDate < malaysiaToday() ? "expired" : "pending_signature";
+}
+
+async function loadTenancyContext(
+  supabase: SupabaseClient,
+  tenancyId: string,
+): Promise<TenancyContext | null> {
+  const { data } = await supabase
+    .from("tenancies")
+    .select(
+      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, status, billing_status, tenants(full_name, phone, identity_number), properties(name, address, is_commercial), rooms(name, room_number)",
+    )
+    .eq("id", tenancyId)
+    .maybeSingle();
+
+  if (!data?.property_id) {
+    return null;
+  }
+
+  return {
+    ...data,
+    tenants: first(data.tenants),
+    properties: first(data.properties),
+    rooms: first(data.rooms),
+  } as TenancyContext;
+}
+
+async function ensureStandardTemplate(
+  supabase: SupabaseClient,
+  propertyId: string,
+  userId: string,
+) {
+  const { data: existing } = await supabase
+    .from("tenancy_agreement_templates")
+    .select("id, template_content")
+    .eq("property_id", propertyId)
+    .eq("name", STANDARD_AGREEMENT_NAME)
+    .eq("version", STANDARD_AGREEMENT_VERSION)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    return existing;
+  }
+
+  const { data, error } = await supabase
+    .from("tenancy_agreement_templates")
+    .insert({
+      property_id: propertyId,
+      name: STANDARD_AGREEMENT_NAME,
+      template_content: defaultAgreementTemplate,
+      version: STANDARD_AGREEMENT_VERSION,
+      is_active: true,
+      created_by: userId,
+    })
+    .select("id, template_content")
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? "Unable to create the standard tenancy template.");
+  }
+
+  await supabase
+    .from("properties")
+    .update({ default_ta_template_id: data.id })
+    .eq("id", propertyId);
+
+  return data;
+}
+
+function renderAgreement(
+  context: TenancyContext,
+  templateContent: string,
+  startDate: string,
+  endDate: string,
+  durationMonths: number,
+) {
+  return renderAgreementTemplate(templateContent, {
+    agreement_date: formatMalaysiaDate(malaysiaToday()),
+    tenant_name: context.tenants?.full_name,
+    tenant_ic_passport: context.tenants?.identity_number,
+    tenant_phone: context.tenants?.phone,
+    property_name: context.properties?.name,
+    room_number: context.rooms?.room_number ?? context.rooms?.name,
+    premise_address: context.properties?.address,
+    monthly_rent: money(context.monthly_rental),
+    deposit_amount: money(context.deposit),
+    tenancy_start_date: formatMalaysiaDate(startDate),
+    tenancy_end_date: formatMalaysiaDate(endDate),
+    contract_duration_months: durationMonths,
+    first_payment_due_date: formatMalaysiaDate(addDays(startDate, 7)),
+    tenant_signature: "[Pending tenant signature]",
+  });
+}
+
+async function createTermAgreement(
+  supabase: SupabaseClient,
+  context: TenancyContext,
+  userId: string,
+  {
+    agreementType,
+    startDate,
+    endDate,
+    durationMonths,
+  }: {
+    agreementType: AgreementType;
+    startDate: string;
+    endDate: string;
+    durationMonths: number;
+  },
+) {
+  const { data: sameTerm } = await supabase
+    .from("tenancy_agreements")
+    .select("id")
+    .eq("tenancy_id", context.id)
+    .eq("term_start_date", startDate)
+    .eq("term_end_date", endDate)
+    .limit(1)
+    .maybeSingle();
+
+  if (sameTerm) {
+    return { id: sameTerm.id, created: false };
+  }
+
+  const [{ data: agreements }, template] = await Promise.all([
+    supabase
+      .from("tenancy_agreements")
+      .select("id, version_number, term_start_date, term_end_date, status")
+      .eq("tenancy_id", context.id)
+      .order("term_end_date", { ascending: false }),
+    ensureStandardTemplate(supabase, context.property_id, userId),
+  ]);
+  const existing = (agreements ?? []) as ExistingAgreement[];
+  const previous = existing[0] ?? null;
+  const versionNumber =
+    Math.max(0, ...existing.map((agreement) => agreement.version_number ?? 0)) + 1;
+
+  const { data: agreement, error } = await supabase
+    .from("tenancy_agreements")
+    .insert({
+      tenancy_id: context.id,
+      template_id: template.id,
+      agreement_type: agreementType,
+      version_number: versionNumber,
+      status: agreementStatusForTerm(endDate),
+      rendered_content: renderAgreement(
+        context,
+        template.template_content,
+        startDate,
+        endDate,
+        durationMonths,
+      ),
+      term_start_date: startDate,
+      term_end_date: endDate,
+      tenant_name_snapshot: context.tenants?.full_name ?? null,
+      property_name_snapshot: context.properties?.name ?? null,
+      room_name_snapshot:
+        context.rooms?.room_number ?? context.rooms?.name ?? null,
+      previous_agreement_id: previous?.id ?? null,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+
+  if (error || !agreement) {
+    throw new Error(error?.message ?? "Unable to create the tenancy agreement.");
+  }
+
+  if (agreementStatusForTerm(endDate) !== "expired") {
+    await supabase.from("agreement_notifications").insert({
+      tenancy_id: context.id,
+      agreement_id: agreement.id,
+      notification_type:
+        agreementType === "renewal"
+          ? "renewal_signature_request"
+          : "signature_request",
+      status: "pending",
+      due_at: new Date().toISOString(),
+    });
+  }
+
+  if (agreementType === "renewal") {
+    await supabase.from("tenancy_renewals").insert({
+      tenancy_id: context.id,
+      selected_duration_months: durationMonths,
+      renewal_status:
+        agreementStatusForTerm(endDate) === "expired"
+          ? "expired"
+          : "renewal_pending",
+      new_start_date: startDate,
+      new_end_date: endDate,
+      new_agreement_id: agreement.id,
+      created_by: userId,
+    });
+  }
+
+  return { id: agreement.id, created: true };
 }
 
 export async function createAgreementForTenancy(
@@ -25,107 +278,164 @@ export async function createAgreementForTenancy(
   tenancyId: string,
   userId: string,
 ) {
-  const { data: existing } = await supabase
+  const context = await loadTenancyContext(supabase, tenancyId);
+  if (!context) {
+    return null;
+  }
+
+  const startDate =
+    context.check_in_date ??
+    context.tenancy_start_date ??
+    context.contract_start ??
+    context.start_date;
+  const duration =
+    context.contract_duration_months ??
+    renewalDurationMonths(context.properties?.is_commercial ?? false);
+  const endDate =
+    context.checkout_date ??
+    context.tenancy_end_date ??
+    context.contract_end ??
+    context.end_date ??
+    calculateTermEndDate(startDate, duration);
+
+  const agreement = await createTermAgreement(supabase, context, userId, {
+    agreementType: "original",
+    startDate,
+    endDate,
+    durationMonths: duration,
+  });
+
+  return agreement.id;
+}
+
+export async function prepareNextRenewalAgreement(
+  supabase: SupabaseClient,
+  tenancyId: string,
+  userId: string,
+) {
+  const context = await loadTenancyContext(supabase, tenancyId);
+  if (
+    !context ||
+    context.status !== "active" ||
+    context.checkout_date ||
+    context.billing_status === "terminated" ||
+    context.billing_status === "completed"
+  ) {
+    return null;
+  }
+
+  await createAgreementForTenancy(supabase, tenancyId, userId);
+
+  const { data: agreements } = await supabase
+    .from("tenancy_agreements")
+    .select("id, version_number, term_start_date, term_end_date, status")
+    .eq("tenancy_id", tenancyId)
+    .order("term_end_date", { ascending: false });
+  const latest = ((agreements ?? []) as ExistingAgreement[])[0];
+  if (!latest?.term_end_date) {
+    return null;
+  }
+
+  const reminderDate = addDays(latest.term_end_date, -30);
+  if (reminderDate > malaysiaToday()) {
+    return null;
+  }
+
+  const duration = renewalDurationMonths(
+    context.properties?.is_commercial ?? false,
+  );
+  const startDate = addDays(latest.term_end_date, 1);
+  const endDate = calculateTermEndDate(startDate, duration);
+  const agreement = await createTermAgreement(supabase, context, userId, {
+    agreementType: "renewal",
+    startDate,
+    endDate,
+    durationMonths: duration,
+  });
+
+  if (agreement.created && endDate >= malaysiaToday()) {
+    await supabase
+      .from("tenancies")
+      .update({
+        renewal_status: "pending_signature",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tenancyId);
+  }
+
+  return agreement.id;
+}
+
+export async function ensureCurrentAgreementTerms(
+  supabase: SupabaseClient,
+  tenancyId: string,
+  userId: string,
+) {
+  const context = await loadTenancyContext(supabase, tenancyId);
+  if (!context) {
+    return [];
+  }
+
+  const created: string[] = [];
+  const { data: existingOriginal } = await supabase
     .from("tenancy_agreements")
     .select("id")
     .eq("tenancy_id", tenancyId)
     .eq("agreement_type", "original")
+    .limit(1)
     .maybeSingle();
-
-  if (existing) {
-    return existing.id;
+  const originalId = await createAgreementForTenancy(
+    supabase,
+    tenancyId,
+    userId,
+  );
+  if (originalId && !existingOriginal) {
+    created.push(originalId);
   }
 
-  const { data: tenancy } = await supabase
-    .from("tenancies")
-    .select(
-      "id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, contract_duration_months, tenants(full_name, phone, identity_number), properties(name, address, default_ta_template_id), rooms(name, room_number)",
-    )
-    .eq("id", tenancyId)
-    .single();
-
-  if (!tenancy) {
-    return null;
+  if (
+    context.status !== "active" ||
+    context.checkout_date ||
+    ["terminated", "completed"].includes(context.billing_status ?? "")
+  ) {
+    return created;
   }
 
-  const tenant = first(tenancy.tenants);
-  const property = first(tenancy.properties);
-  const room = first(tenancy.rooms);
-  const duration = tenancy.contract_duration_months ?? 12;
-  const startDate = tenancy.contract_start ?? malaysiaToday();
-  const endDate = tenancy.contract_end ?? addMonths(startDate, duration);
-  let template: { id: string; template_content: string } | null = null;
-
-  if (property?.default_ta_template_id) {
-    const { data } = await supabase
-      .from("tenancy_agreement_templates")
-      .select("id, template_content")
-      .eq("id", property.default_ta_template_id)
+  for (let index = 0; index < 24; index += 1) {
+    const { data: latest } = await supabase
+      .from("tenancy_agreements")
+      .select("id, term_end_date")
+      .eq("tenancy_id", tenancyId)
+      .order("term_end_date", { ascending: false })
+      .limit(1)
       .maybeSingle();
-    template = data;
-  }
 
-  if (!template) {
-    const { data } = await supabase
-      .from("tenancy_agreement_templates")
-      .insert({
-        property_id: tenancy.property_id,
-        name: `${property?.name ?? "Property"} Default TA`,
-        template_content: defaultAgreementTemplate,
-        is_active: true,
-        created_by: userId,
-      })
-      .select("id, template_content")
+    if (
+      !latest?.term_end_date ||
+      addDays(latest.term_end_date, -30) > malaysiaToday()
+    ) {
+      break;
+    }
+
+    const renewalId = await prepareNextRenewalAgreement(
+      supabase,
+      tenancyId,
+      userId,
+    );
+    if (!renewalId || renewalId === latest.id) {
+      break;
+    }
+    created.push(renewalId);
+
+    const { data: renewal } = await supabase
+      .from("tenancy_agreements")
+      .select("term_end_date")
+      .eq("id", renewalId)
       .single();
-    template = data;
-
-    if (template?.id) {
-      await supabase
-        .from("properties")
-        .update({ default_ta_template_id: template.id })
-        .eq("id", tenancy.property_id);
+    if (renewal?.term_end_date && renewal.term_end_date >= malaysiaToday()) {
+      break;
     }
   }
 
-  const rendered = renderAgreementTemplate(
-    template?.template_content ?? defaultAgreementTemplate,
-    {
-      tenant_name: tenant?.full_name,
-      tenant_ic_passport: tenant?.identity_number,
-      tenant_phone: tenant?.phone,
-      property_name: property?.name,
-      property_address: property?.address,
-      unit_number: "-",
-      room_number: room?.room_number ?? room?.name,
-      monthly_rent: money(tenancy.monthly_rental),
-      deposit_amount: money(tenancy.deposit),
-      utility_deposit: money(0),
-      tenancy_start_date: formatMalaysiaDate(startDate),
-      tenancy_end_date: formatMalaysiaDate(endDate),
-      contract_duration_months: duration,
-      agreement_date: formatMalaysiaDate(malaysiaToday()),
-      tenant_signature: "[Pending tenant signature]",
-    },
-  );
-
-  const { data: agreement } = await supabase
-    .from("tenancy_agreements")
-    .insert({
-      tenancy_id: tenancy.id,
-      template_id: template?.id ?? null,
-      agreement_type: "original",
-      version_number: 1,
-      status: "draft",
-      rendered_content: rendered,
-      term_start_date: startDate,
-      term_end_date: endDate,
-      tenant_name_snapshot: tenant?.full_name ?? null,
-      property_name_snapshot: property?.name ?? null,
-      room_name_snapshot: room?.room_number ?? room?.name ?? null,
-      created_by: userId,
-    })
-    .select("id")
-    .single();
-
-  return agreement?.id ?? null;
+  return created;
 }

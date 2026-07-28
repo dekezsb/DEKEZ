@@ -16,11 +16,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AgreementRenewalReminders } from "@/components/dashboard/agreement-renewal-reminders";
 import { CompanyCashInHand } from "@/components/dashboard/company-cash-in-hand";
 import { CompactRentDueTracker } from "@/components/dashboard/compact-rent-due-tracker";
 import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
 import { TenantHome } from "@/components/tenant/tenant-portal";
 import { requireRole } from "@/lib/auth/session";
+import { getAgreementRenewalReminders } from "@/lib/data/agreement-renewals";
 import { getCashManagementSummary } from "@/lib/data/cash-management";
 import { getDepositOutstandingSummary } from "@/lib/data/deposit-outstanding";
 import { getDashboardSummary } from "@/lib/data/organization";
@@ -261,11 +263,18 @@ async function AdminDashboard({
     rentBucket?: string;
   };
 }) {
-  const [summary, rentDueSummary, depositSummary, cashSummary] = await Promise.all([
+  const [
+    summary,
+    rentDueSummary,
+    depositSummary,
+    cashSummary,
+    agreementReminders,
+  ] = await Promise.all([
     getDashboardSummary(),
     getRentDueSummary(),
     getDepositOutstandingSummary(),
     getCashManagementSummary(),
+    getAgreementRenewalReminders(),
   ]);
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
@@ -360,6 +369,8 @@ async function AdminDashboard({
       />
 
       <DepositOutstanding canManage summary={depositSummary} />
+
+      <AgreementRenewalReminders reminders={agreementReminders} />
 
       <CompactRentDueTracker
         selectedBucket={query.rentBucket}
