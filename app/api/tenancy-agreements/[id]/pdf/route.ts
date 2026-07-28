@@ -11,10 +11,6 @@ type RouteProps = {
   params: Promise<{ id: string }>;
 };
 
-function single<T>(value: T | T[] | null | undefined) {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
-}
-
 export async function GET(_request: Request, { params }: RouteProps) {
   const role = await requireRole(
     ["super_admin", "admin", "owner", "tenant"],
@@ -22,24 +18,59 @@ export async function GET(_request: Request, { params }: RouteProps) {
   );
   const { id } = await params;
   const scopedClient =
-    role === "super_admin" ? createAdminClient() : await createClient();
-  const { data: agreement } = await scopedClient
+    role === "super_admin" || role === "admin"
+      ? createAdminClient()
+      : await createClient();
+  const { data: agreement, error: agreementError } = await scopedClient
     .from("tenancy_agreements")
     .select(
-      "id, rendered_content, status, signed_at, term_start_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, tenancies(tenants(full_name), properties(property_code, name), rooms(room_number, name))",
+      "id, tenancy_id, rendered_content, status, signed_at, term_start_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot",
     )
     .eq("id", id)
     .maybeSingle();
+
+  if (agreementError) {
+    console.error("Unable to load tenancy agreement PDF.", {
+      code: agreementError.code,
+      message: agreementError.message,
+    });
+    return new Response("Unable to load agreement PDF.", { status: 500 });
+  }
 
   if (!agreement) {
     return new Response("Agreement not found.", { status: 404 });
   }
 
-  const tenancy = single(agreement.tenancies);
-  const tenant = single(tenancy?.tenants);
-  const property = single(tenancy?.properties);
-  const room = single(tenancy?.rooms);
   const admin = createAdminClient();
+  const { data: tenancy } = await admin
+    .from("tenancies")
+    .select("tenant_id, property_id, room_id")
+    .eq("id", agreement.tenancy_id)
+    .maybeSingle();
+  const [{ data: tenant }, { data: property }, { data: room }] =
+    await Promise.all([
+      tenancy?.tenant_id
+        ? admin
+            .from("tenants")
+            .select("full_name")
+            .eq("id", tenancy.tenant_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      tenancy?.property_id
+        ? admin
+            .from("properties")
+            .select("property_code, name")
+            .eq("id", tenancy.property_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      tenancy?.room_id
+        ? admin
+            .from("rooms")
+            .select("room_number, name")
+            .eq("id", tenancy.room_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
   const { data: signatureRecord } = await admin
     .from("tenancy_agreement_signatures")
     .select("signature_url, signed_at")
