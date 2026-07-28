@@ -323,7 +323,7 @@ export async function markRentBillPaid(formData: FormData) {
 }
 
 export async function uploadRentPaymentSlip(formData: FormData) {
-  await requireRole(["super_admin", "owner", "admin"], {
+  await requireRole(["super_admin", "admin"], {
     module: "rent_due_tracker",
     level: "manage",
   });

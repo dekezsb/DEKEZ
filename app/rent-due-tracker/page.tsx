@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
+import { AdminPaymentSlipUpload } from "./admin-payment-slip-upload";
 import {
   getRentDueMap,
   summarizeRentCollections,
@@ -238,9 +239,13 @@ function PropertySummaryTable({
 }
 
 function CollectionDetails({
+  canUploadSlip,
   collections,
+  paymentDateDefault,
 }: {
+  canUploadSlip: boolean;
   collections: RentCollectionRow[];
+  paymentDateDefault: string;
 }) {
   return (
     <section className="space-y-4">
@@ -254,7 +259,7 @@ function CollectionDetails({
       {collections.length ? (
         <>
           <div className="hidden overflow-x-auto rounded-lg border border-[#d8dee8] bg-white lg:block">
-            <table className="w-full min-w-[1380px] text-left text-sm">
+            <table className="w-full min-w-[1480px] text-left text-sm">
               <thead className="border-b border-[#d8dee8] bg-[#f8fafc] text-xs uppercase text-[#60708a]">
                 <tr>
                   <th className="px-3 py-3">Property</th>
@@ -266,6 +271,7 @@ function CollectionDetails({
                   <th className="px-3 py-3 text-right">Current outstanding</th>
                   <th className="px-3 py-3">Due / Payment date</th>
                   <th className="px-3 py-3">Payment status</th>
+                  {canUploadSlip ? <th className="px-3 py-3">Action</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -309,6 +315,19 @@ function CollectionDetails({
                     <td className="px-3 py-4">
                       <CollectionBadge status={collection.paymentStatus} />
                     </td>
+                    {canUploadSlip ? (
+                      <td className="px-3 py-4">
+                        <AdminPaymentSlipUpload
+                          billId={collection.billId}
+                          outstandingAmount={collection.outstanding}
+                          outstandingLabel={money(collection.outstanding)}
+                          paymentDateDefault={paymentDateDefault}
+                          propertyName={collection.propertyName}
+                          roomName={`Room ${collection.roomNumber}`}
+                          tenantName={collection.tenantName}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -341,6 +360,19 @@ function CollectionDetails({
                 <div className="mt-4">
                   <CollectionBadge status={collection.paymentStatus} />
                 </div>
+                {canUploadSlip ? (
+                  <div className="mt-4">
+                    <AdminPaymentSlipUpload
+                      billId={collection.billId}
+                      outstandingAmount={collection.outstanding}
+                      outstandingLabel={money(collection.outstanding)}
+                      paymentDateDefault={paymentDateDefault}
+                      propertyName={collection.propertyName}
+                      roomName={`Room ${collection.roomNumber}`}
+                      tenantName={collection.tenantName}
+                    />
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -359,7 +391,8 @@ function CollectionDetails({
 }
 
 export default async function RentDueTrackerPage({ searchParams }: PageProps) {
-  await requireRole(["super_admin", "owner", "admin"]);
+  const role = await requireRole(["super_admin", "owner", "admin"]);
+  const canUploadSlip = role === "super_admin" || role === "admin";
   const params = await searchParams;
   const tracker = await getRentDueMap(params.month);
   const today = malaysiaToday();
@@ -375,7 +408,9 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
     (property) => property.collections,
   );
   const outstandingCollections = visibleCollections.filter(
-    (collection) => collection.outstanding > 0,
+    (collection) =>
+      collection.outstanding > 0
+      && collection.paymentStatus !== "pending_verification",
   );
   const propertiesWithUnpaidRooms = visibleProperties
     .map((property) => ({
@@ -385,6 +420,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           Boolean(room.tenantName)
           && Boolean(room.billId)
           && room.outstanding > 0
+          && room.paymentStatus !== "pending_verification"
           && (room.status === "unpaid" || room.status === "partially_paid"),
       ),
     }))
@@ -560,7 +596,11 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
         )}
       </section>
 
-      <CollectionDetails collections={outstandingCollections} />
+      <CollectionDetails
+        canUploadSlip={canUploadSlip}
+        collections={outstandingCollections}
+        paymentDateDefault={today}
+      />
     </section>
   );
 }
