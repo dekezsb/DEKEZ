@@ -307,6 +307,89 @@ export function InlineRoomField({
   );
 }
 
+export function InlineTermSelector({
+  propertyId,
+  roomId,
+  tenantRecordId,
+  tenancyId,
+  value,
+  label,
+  editable = true,
+}: {
+  propertyId: string;
+  roomId: string;
+  tenantRecordId: string | null;
+  tenancyId: string | null;
+  value: 6 | 12 | null;
+  label: string;
+  editable?: boolean;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [selectedValue, setSelectedValue] = useState(value ? String(value) : "");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    setSelectedValue(value ? String(value) : "");
+  }, [value]);
+
+  async function save(formData: FormData) {
+    setStatus("saving");
+    setErrorMessage("");
+    const result = await updateRoomField(formData);
+    if (result.ok) {
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1600);
+      return;
+    }
+    setErrorMessage(result.error ?? "Save failed");
+    setStatus("error");
+  }
+
+  if (!editable) {
+    return (
+      <span className="font-medium text-gray-950">
+        {value ? `${value} months` : "-"}
+      </span>
+    );
+  }
+
+  return (
+    <form ref={formRef} action={save} className="min-w-32">
+      <input name="propertyId" type="hidden" value={propertyId} />
+      <input name="roomId" type="hidden" value={roomId} />
+      <input name="tenantRecordId" type="hidden" value={tenantRecordId ?? ""} />
+      <input name="tenancyId" type="hidden" value={tenancyId ?? ""} />
+      <input name="field" type="hidden" value="contractDuration" />
+      <select
+        aria-label={label}
+        className="h-9 w-32 rounded-md border border-[#d7dde5] bg-white px-2 text-sm text-gray-950 outline-none focus:border-[#b98a29] focus:ring-2 focus:ring-[#b98a29]/20"
+        name="value"
+        value={selectedValue}
+        onChange={(event) => {
+          setSelectedValue(event.currentTarget.value);
+          window.setTimeout(() => formRef.current?.requestSubmit(), 0);
+        }}
+      >
+        <option value="">Select term</option>
+        <option value="6">6 months</option>
+        <option value="12">12 months</option>
+      </select>
+      <span
+        aria-live="polite"
+        className={`mt-1 flex min-h-4 max-w-44 items-start gap-1 text-[11px] ${
+          status === "error" ? "text-red-600" : "text-gray-500"
+        }`}
+      >
+        {status === "saving" ? <><LoaderCircle className="h-3 w-3 animate-spin" /> Saving</> : null}
+        {status === "saved" ? <><Check className="h-3 w-3 text-emerald-600" /> Saved</> : null}
+        {status === "error" ? errorMessage : null}
+        {status === "idle" ? "Auto-saves" : null}
+      </span>
+    </form>
+  );
+}
+
 export function RoomNavigationRow({
   href,
   className,

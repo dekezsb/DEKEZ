@@ -18,6 +18,7 @@ import {
   uploadTenantDocuments,
 } from "@/lib/tenant-documents";
 import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
+import { calculateTermEndDate } from "@/lib/e-tenancy";
 import {
   FACILITY_OPTIONS,
   OPTIONAL_CLAUSES,
@@ -569,6 +570,7 @@ export async function updateRoomField(formData: FormData) {
     "deposit",
     "depositReceived",
     "dueDay",
+    "contractDuration",
     "contractEnd",
   ];
   if (!user || !property || !roomId || !supportedFields.includes(field)) {
@@ -766,6 +768,63 @@ export async function updateRoomField(formData: FormData) {
     const updateResults = await Promise.all(updates);
     if (updateResults.some((result) => result.error)) {
       return { ok: false, error: "Contract end date could not be saved." };
+    }
+  }
+
+  if (field === "contractDuration") {
+    const duration = Math.floor(numberValue(formData, "value"));
+    if (duration !== 6 && duration !== 12) {
+      return { ok: false, error: "Choose a 6-month or 12-month term." };
+    }
+    if (!tenancyId) {
+      return { ok: false, error: "This room needs an active tenancy first." };
+    }
+
+    const { data: tenancy } = await supabase
+      .from("tenancies")
+      .select("id, contract_start, tenancy_start_date, check_in_date, start_date")
+      .eq("id", tenancyId)
+      .eq("room_id", roomId)
+      .eq("property_id", property.id)
+      .eq("status", "active")
+      .maybeSingle();
+    const contractStart =
+      tenancy?.contract_start ??
+      tenancy?.tenancy_start_date ??
+      tenancy?.check_in_date ??
+      tenancy?.start_date ??
+      null;
+    if (!tenancy || !contractStart) {
+      return { ok: false, error: "Add the contract start date before choosing a term." };
+    }
+
+    const contractEnd = calculateTermEndDate(contractStart, duration);
+    const { error: tenancyError } = await supabase
+      .from("tenancies")
+      .update({
+        contract_duration_months: duration,
+        end_date: contractEnd,
+        contract_end: contractEnd,
+        tenancy_end_date: contractEnd,
+      })
+      .eq("id", tenancy.id)
+      .eq("room_id", roomId)
+      .eq("property_id", property.id)
+      .eq("status", "active");
+    if (tenancyError) {
+      return { ok: false, error: "The tenancy term could not be saved." };
+    }
+
+    if (tenantRecordId) {
+      const { error: recordError } = await supabase
+        .from("tenant_records")
+        .update({ contract_end: contractEnd })
+        .eq("id", tenantRecordId)
+        .eq("room_id", roomId)
+        .eq("property_id", property.id);
+      if (recordError) {
+        return { ok: false, error: "The tenant record end date could not be synchronized." };
+      }
     }
   }
 

@@ -45,6 +45,7 @@ import {
 import { AgreementSettingsForm } from "./agreement-settings-form";
 import {
   InlineRoomField,
+  InlineTermSelector,
   PaymentQrCell,
   PropertyInformationForm,
   RoomNavigationRow,
@@ -378,6 +379,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                   <TableHead>Deposit Received</TableHead>
                   <TableHead>Rent Due Day</TableHead>
                   <TableHead>Contract Start</TableHead>
+                  <TableHead>Term</TableHead>
                   <TableHead>Contract End Date</TableHead>
                   <TableHead>Agreement</TableHead>
                   <TableHead>Payment Status</TableHead>
@@ -637,6 +639,19 @@ function DesktopRoomRow({
       <TableCell>{formatMalaysiaDate(room.contractStart)}</TableCell>
       <TableCell>
         {vacant ? <span className="text-gray-400">-</span> : (
+          <InlineTermSelector
+            propertyId={propertyId}
+            roomId={room.id}
+            tenantRecordId={room.tenantRecordId}
+            tenancyId={room.tenancyId}
+            value={room.contractDurationMonths}
+            label={`${room.roomNumber} tenancy term`}
+            editable={canManage}
+          />
+        )}
+      </TableCell>
+      <TableCell>
+        {vacant ? <span className="text-gray-400">-</span> : (
           <InlineRoomField
             propertyId={propertyId}
             roomId={room.id}
@@ -816,6 +831,20 @@ function MobileRoomCard({
             <div>
               <dt className="text-gray-500">Contract Start</dt>
               <dd className="mt-1 font-medium">{formatMalaysiaDate(room.contractStart)}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Term</dt>
+              <dd className="mt-1">
+                <InlineTermSelector
+                  propertyId={propertyId}
+                  roomId={room.id}
+                  tenantRecordId={room.tenantRecordId}
+                  tenancyId={room.tenancyId}
+                  value={room.contractDurationMonths}
+                  label={`${room.roomNumber} tenancy term`}
+                  editable={canManage}
+                />
+              </dd>
             </div>
             <div>
               <dt className="text-gray-500">Contract End</dt>

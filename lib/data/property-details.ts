@@ -6,6 +6,7 @@ import {
   normalizePropertyTenancySettings,
   type PropertyTenancySettings,
 } from "@/lib/tenancy/property-settings";
+import { calculateTermEndDate } from "@/lib/e-tenancy";
 
 type DataClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -62,6 +63,7 @@ export type PropertyRoomView = {
   dueDay: number | null;
   contractStart: string | null;
   contractEnd: string | null;
+  contractDurationMonths: 6 | 12 | null;
   billId: string | null;
   billStatus: string | null;
   billDueDate: string | null;
@@ -163,7 +165,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .eq("status", "active"),
       supabase
         .from("tenancies")
-        .select("id, tenant_id, room_id, monthly_rental, deposit, due_day, rent_due_day, contract_start, contract_end, status, tenants(full_name, phone, identity_number, profile_id)")
+        .select("id, tenant_id, room_id, monthly_rental, deposit, due_day, rent_due_day, contract_start, contract_end, contract_duration_months, status, tenants(full_name, phone, identity_number, profile_id)")
         .eq("property_id", propertyId)
         .eq("status", "active"),
       supabase
@@ -268,6 +270,15 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       const amountReceived = Number(bill?.paid_amount ?? 0);
       const deposit = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
       const contractEnd = tenancy?.contract_end ?? tenantRecord?.contract_end ?? null;
+      const storedDuration = Number(tenancy?.contract_duration_months ?? 0);
+      const inferredDuration =
+        tenancy?.contract_start && contractEnd
+          ? ([6, 12] as const).find(
+              (months) =>
+                calculateTermEndDate(tenancy.contract_start, months) ===
+                contractEnd,
+            ) ?? null
+          : null;
       // A verified submission is only used when no canonical payment exists, so verification
       // workflows that copy submissions into payments cannot double-count the deposit.
       const depositReceived =
@@ -294,6 +305,10 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         dueDay: tenancy?.rent_due_day ?? tenancy?.due_day ?? tenantRecord?.due_day ?? null,
         contractStart: tenancy?.contract_start ?? tenantRecord?.contract_start ?? null,
         contractEnd,
+        contractDurationMonths:
+          storedDuration === 6 || storedDuration === 12
+            ? storedDuration
+            : inferredDuration,
         billId: bill?.id ?? null,
         billStatus: bill?.status ?? null,
         billDueDate: bill?.due_date ?? null,
