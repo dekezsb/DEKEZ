@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink, Paperclip, X } from "lucide-react";
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DocumentPreview } from "@/components/ui/document-preview";
 import type { RentalInvoiceReceipt } from "@/lib/data/rental-invoices";
@@ -15,7 +15,14 @@ export function InvoiceReceiptPreview({
 }: InvoiceReceiptPreviewProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const [isOpen, setIsOpen] = useState(false);
   const availableReceipts = receipts.filter((receipt) => receipt.signedUrl);
+
+  useEffect(() => {
+    if (isOpen && !dialogRef.current?.open) {
+      dialogRef.current?.showModal();
+    }
+  }, [isOpen]);
 
   if (!availableReceipts.length) {
     return <span className="text-gray-400">-</span>;
@@ -24,7 +31,7 @@ export function InvoiceReceiptPreview({
   return (
     <>
       <Button
-        onClick={() => dialogRef.current?.showModal()}
+        onClick={() => setIsOpen(true)}
         size="sm"
         type="button"
         variant="outline"
@@ -44,9 +51,10 @@ export function InvoiceReceiptPreview({
             dialogRef.current?.close();
           }
         }}
+        onClose={() => setIsOpen(false)}
         ref={dialogRef}
       >
-        <div className="p-5 sm:p-6">
+        {isOpen ? <div className="p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2
@@ -104,7 +112,7 @@ export function InvoiceReceiptPreview({
               </section>
             ))}
           </div>
-        </div>
+        </div> : null}
       </dialog>
     </>
   );
