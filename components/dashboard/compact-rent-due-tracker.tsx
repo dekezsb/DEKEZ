@@ -112,12 +112,32 @@ export function CompactRentDueTracker({
   selectedBucket,
   summary,
 }: CompactRentDueTrackerProps) {
+  const actionableBills = summary.bills.filter(
+    (bill) => bill.paymentStatus !== "pending_verification",
+  );
+  const actionableCounts = Object.fromEntries(
+    buckets.map((item) => [
+      item.bucket,
+      actionableBills.filter((bill) => bill.bucket === item.bucket).length,
+    ]),
+  ) as Record<RentDueBucket, number>;
+  const actionableSummary: RentDueSummary = {
+    ...summary,
+    bills: actionableBills,
+    counts: actionableCounts,
+    totalDueOverdue: actionableBills.filter((bill) =>
+      ["due_today", "overdue", "severely_overdue"].includes(bill.dueStatus),
+    ).length,
+    totalComingUp: actionableBills.filter(
+      (bill) => bill.dueStatus === "coming_up",
+    ).length,
+  };
   const activeBucket = validBucket(selectedBucket)
     ? selectedBucket
-    : defaultBucket(summary);
+    : defaultBucket(actionableSummary);
   const definition =
     buckets.find((item) => item.bucket === activeBucket) ?? buckets[7];
-  const matchingBills = summary.bills.filter(
+  const matchingBills = actionableBills.filter(
     (bill) => bill.bucket === activeBucket,
   );
   const visibleBills = matchingBills.slice(0, 6);
@@ -135,7 +155,7 @@ export function CompactRentDueTracker({
           </h2>
           <div className="flex flex-wrap items-center gap-3 text-sm text-[#496386]">
             <span>
-              {summary.totalDueOverdue} due / overdue · {summary.totalComingUp} coming up
+              {actionableSummary.totalDueOverdue} due / overdue · {actionableSummary.totalComingUp} coming up
             </span>
             <Button asChild size="sm" variant="outline">
               <Link href="/rent-due-tracker">Open full tracker</Link>
@@ -152,7 +172,7 @@ export function CompactRentDueTracker({
             </div>
             <div className="grid grid-cols-[repeat(16,56px)] gap-1">
               {buckets.map((item) => {
-                const count = summary.counts[item.bucket] ?? 0;
+                const count = actionableCounts[item.bucket] ?? 0;
                 const selected = item.bucket === activeBucket;
                 return (
                   <Link

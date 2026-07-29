@@ -474,9 +474,13 @@ export async function getRentDueMap(
     const paidAmount = Math.min(verifiedTotal, currentAmountDue);
     const outstanding = Math.max(currentAmountDue - paidAmount, 0);
     const previousOutstanding = previousOutstandingByOwner.get(balanceOwnerKey(bill)) ?? 0;
-    const pendingVerification = (submissionsByBill.get(bill.id) ?? []).some(
-      (submission) => submission.verification_status === "pending_verification",
-    );
+    const pendingVerification =
+      ["payment_submitted", "pending_verification", "submitted"].includes(
+        String(bill.status),
+      )
+      || (submissionsByBill.get(bill.id) ?? []).some(
+        (submission) => submission.verification_status === "pending_verification",
+      );
     const settlementStatus = outstanding <= 0
       ? "paid"
       : paidAmount > 0

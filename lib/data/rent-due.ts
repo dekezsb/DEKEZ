@@ -283,9 +283,13 @@ export async function getRentDueSummary(filters?: {
     const daysUntilDue = dayDifference(bill.due_date, currentDate);
     const bucket = rentDueBucket(daysUntilDue);
     const calculatedDueStatus = dueStatus(daysUntilDue);
-    const paymentStatus = latestSubmission?.verification_status === "pending_verification"
-      ? "pending_verification"
-      : bill.status;
+    const paymentStatus =
+      ["payment_submitted", "pending_verification", "submitted"].includes(
+        String(bill.status),
+      )
+      || latestSubmission?.verification_status === "pending_verification"
+        ? "pending_verification"
+        : bill.status;
 
     return {
       id: bill.id,
