@@ -137,12 +137,7 @@ IC / Passport: ${valueOrDash(tenant.identityNumber)}
 
 Tenant Signature:
 
-[Pending tenant signature]
-
-### Witness
-Name: ______________________________
-IC / Passport: _____________________
-Signature: _________________________`;
+[Pending tenant signature]`;
 }
 
 function commercialSignatureBlock(tenant: AgreementTenantDetails) {
@@ -163,12 +158,7 @@ IC / Passport: ${valueOrDash(tenant.representativeIdentityNumber ?? tenant.ident
 
 Authorised Representative Signature:
 
-[Pending tenant signature]
-
-### Witness
-Name: ______________________________
-IC / Passport: _____________________
-Signature: _________________________`;
+[Pending tenant signature]`;
 }
 
 export function agreementTypeVariables(

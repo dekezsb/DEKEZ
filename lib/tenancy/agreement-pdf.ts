@@ -209,6 +209,29 @@ export function prepareAgreementPdfContent(content: string) {
       "Company Registration No. (New): 202501054747",
     );
 
+  // Older stored agreements used both Markdown and plain-text section styles.
+  normalized = normalized
+    .replace(
+      /\n+### WITNESS\b[\s\S]*?(?=\n+(?:\[TENANT_DOCUMENT_APPENDIX\]|## |### ))/gi,
+      "\n\n",
+    )
+    .replace(
+      /\n+WITNESS\s*\n[\s\S]*?(?=\n+ATTACHMENTS\b)/gi,
+      "\n\n",
+    )
+    .replace(
+      /\n+## SCHEDULE \d+\s*-\s*EMERGENCY CONTACT\b[\s\S]*?(?=\n+## )/gi,
+      "\n\n",
+    )
+    .replace(
+      /\n+### EMERGENCY CONTACT\b[\s\S]*?(?=\n+(?:## |ATTACHMENTS\b))/gi,
+      "\n\n",
+    )
+    .replace(
+      /\n+EMERGENCY CONTACT\s*\n[\s\S]*?(?=\n+ATTACHMENTS\b)/gi,
+      "\n\n",
+    );
+
   const signatureMatch = normalized.match(
     /^## (?:\d+\.\s+)?SIGNATURES\s*$/m,
   );

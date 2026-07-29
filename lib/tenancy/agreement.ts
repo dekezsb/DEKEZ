@@ -296,10 +296,6 @@ function renderAgreement(
     landlord_signature_date: formatMalaysiaDate(startDate),
     tenant_signature: "[Pending tenant signature]",
     tenant_signature_date: "-",
-    witness_name: "-",
-    witness_ic_passport: "-",
-    witness_signature: "-",
-    witness_signature_date: "-",
     ...agreementTypeVariables(agreementType, {
       fullName: context.tenants?.full_name,
       identityNumber: context.tenants?.identity_number,
