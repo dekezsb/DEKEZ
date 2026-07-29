@@ -190,7 +190,10 @@ export default async function RentalInvoicePage({ params }: PageProps) {
         </section>
 
         {invoice.receipts.length ? (
-          <section className="border-b border-[#b9c0c9] py-7">
+          <section
+            className="border-b border-[#b9c0c9] py-7"
+            id="verified-payment-receipts"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">

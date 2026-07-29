@@ -185,17 +185,22 @@ async function getInvoiceReceipts(
   const signedUrlByPath = new Map<string, string>();
 
   if (signUrls) {
-    await Promise.all(
-      (submissions ?? []).map(async (submission) => {
-        if (!submission.receipt_url) return;
-        const { data } = await supabase.storage
-          .from("payment-receipts")
-          .createSignedUrl(submission.receipt_url, 60 * 60);
-        if (data?.signedUrl) {
-          signedUrlByPath.set(submission.receipt_url, data.signedUrl);
-        }
-      }),
-    );
+    const receiptPaths = [
+      ...new Set(
+        (submissions ?? [])
+          .map((submission) => submission.receipt_url)
+          .filter((path): path is string => Boolean(path)),
+      ),
+    ];
+    const { data: signedReceipts } = await supabase.storage
+      .from("payment-receipts")
+      .createSignedUrls(receiptPaths, 60 * 60);
+
+    for (const receipt of signedReceipts ?? []) {
+      if (receipt.path && receipt.signedUrl) {
+        signedUrlByPath.set(receipt.path, receipt.signedUrl);
+      }
+    }
   }
 
   const receiptsByBill = new Map<string, RentalInvoiceReceipt[]>();
@@ -524,7 +529,9 @@ export async function getRentalInvoiceArchive(input: {
   }
 
   return {
-    invoices: await hydrateInvoices((data ?? []) as unknown as BillRow[]),
+    invoices: await hydrateInvoices((data ?? []) as unknown as BillRow[], {
+      signReceiptUrls: true,
+    }),
     total: count ?? 0,
     page,
     pageSize,
