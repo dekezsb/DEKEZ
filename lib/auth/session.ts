@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import type { JwtPayload, User } from "@supabase/supabase-js";
 import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -11,6 +11,19 @@ import {
   type UserAccess,
 } from "./access";
 import { normalizeRole, type AppRole } from "./roles";
+
+function verifiedUserFromClaims(claims: JwtPayload): User {
+  return {
+    id: claims.sub,
+    app_metadata: claims.app_metadata ?? {},
+    user_metadata: claims.user_metadata ?? {},
+    aud: Array.isArray(claims.aud) ? claims.aud[0] : claims.aud,
+    created_at: new Date(claims.iat * 1000).toISOString(),
+    email: claims.email,
+    phone: claims.phone,
+    role: claims.role,
+  } as User;
+}
 
 export async function resolveUserRole(user: User) {
   const metadataRole = normalizeRole(user.app_metadata?.role);
@@ -37,14 +50,13 @@ export async function resolveUserRole(user: User) {
 
 export const getOptionalUserAccess = cache(async () => {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getClaims();
 
-  if (!user) {
+  if (error || !data?.claims?.sub) {
     return null;
   }
 
+  const user = verifiedUserFromClaims(data.claims);
   const role = await resolveUserRole(user);
   const access = await resolveUserModuleAccess(user, role);
 

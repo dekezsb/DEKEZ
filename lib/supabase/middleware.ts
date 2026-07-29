@@ -33,32 +33,32 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  let user = null;
+  let claims = null;
 
   try {
-    const { data, error } = await supabase.auth.getUser();
-    user = error ? null : data.user;
+    const { data, error } = await supabase.auth.getClaims();
+    claims = error ? null : data?.claims ?? null;
   } catch {
     // Expired or malformed refresh cookies are handled as a signed-out session.
-    user = null;
+    claims = null;
   }
 
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route),
   );
 
-  if (isProtectedRoute && !user) {
+  if (isProtectedRoute && !claims?.sub) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/";
     redirectUrl.searchParams.set("redirectedFrom", request.nextUrl.pathname);
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (isProtectedRoute && user) {
+  if (isProtectedRoute && claims?.sub) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("registration_status, role")
-      .eq("id", user.id)
+      .eq("id", claims.sub)
       .maybeSingle();
 
     if (profile?.registration_status !== "approved") {
@@ -69,7 +69,7 @@ export async function updateSession(request: NextRequest) {
     }
 
     const role =
-      normalizeRole(user.app_metadata?.role) ??
+      normalizeRole(claims.app_metadata?.role) ??
       normalizeRole(profile.role) ??
       "tenant";
     const module = moduleForPath(request.nextUrl.pathname);
@@ -78,7 +78,7 @@ export async function updateSession(request: NextRequest) {
       const { data: permissionRows } = await supabase
         .from("user_module_permissions")
         .select("module_key, access_level")
-        .eq("profile_id", user.id);
+        .eq("profile_id", claims.sub);
       const access = resolveUserAccess(role, permissionRows ?? []);
 
       if (!hasModuleAccess(access, module)) {
