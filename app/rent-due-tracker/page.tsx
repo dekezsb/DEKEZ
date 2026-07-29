@@ -198,6 +198,9 @@ function PropertySummaryTable({
 }: {
   properties: RentMapProperty[];
 }) {
+  const occupiedRooms = (property: RentMapProperty) =>
+    property.rooms.filter((room) => Boolean(room.tenantName)).length;
+
   return (
     <section className="space-y-4">
       <div>
@@ -212,6 +215,7 @@ function PropertySummaryTable({
           <thead className="border-b border-[#d8dee8] bg-[#f8fafc] text-xs uppercase text-[#60708a]">
             <tr>
               <th className="px-4 py-3">Property</th>
+              <th className="px-4 py-3 text-center">Occupied rooms</th>
               <th className="px-4 py-3 text-right">Total due</th>
               <th className="px-4 py-3 text-right">Total paid</th>
               <th className="px-4 py-3 text-right">Outstanding</th>
@@ -224,6 +228,9 @@ function PropertySummaryTable({
             {properties.map((property) => (
               <tr key={property.id} className="border-b border-[#e4e9f0] last:border-b-0">
                 <td className="px-4 py-3 font-medium text-[#0b1733]">{property.name}</td>
+                <td className="px-4 py-3 text-center font-semibold">
+                  {occupiedRooms(property)}
+                </td>
                 <td className="px-4 py-3 text-right">{money(property.summary.totalRentDue)}</td>
                 <td className="px-4 py-3 text-right text-emerald-700">{money(property.summary.totalPaid)}</td>
                 <td className="px-4 py-3 text-right font-semibold text-red-700">
@@ -244,6 +251,7 @@ function PropertySummaryTable({
             <h3 className="font-semibold text-[#0b1733]">{property.name}</h3>
             <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <p><span className="block text-xs text-muted-foreground">Total due</span>{money(property.summary.totalRentDue)}</p>
+              <p><span className="block text-xs text-muted-foreground">Occupied rooms</span>{occupiedRooms(property)}</p>
               <p><span className="block text-xs text-muted-foreground">Total paid</span>{money(property.summary.totalPaid)}</p>
               <p><span className="block text-xs text-muted-foreground">Outstanding</span><span className="font-semibold text-red-700">{money(property.summary.totalOutstanding)}</span></p>
               <p><span className="block text-xs text-muted-foreground">Paid / Partial / Unpaid</span>{property.summary.fullyPaid} / {property.summary.partiallyPaid} / {property.summary.unpaid}</p>
@@ -440,6 +448,11 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
     }))
     .filter((property) => property.rooms.length > 0);
   const visibleSummary = summarizeRentCollections(visibleCollections);
+  const visibleOccupiedRooms = visibleProperties.reduce(
+    (total, property) =>
+      total + property.rooms.filter((room) => Boolean(room.tenantName)).length,
+    0,
+  );
   const pendingVerification = visibleCollections.filter(
     (collection) => collection.paymentStatus === "pending_verification",
   ).length;
@@ -514,7 +527,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           icon={<ReceiptText className="size-5" />}
           label="Total Rent Due"
           value={money(visibleSummary.totalRentDue)}
-          detail={`${visibleSummary.occupiedTenants} billed tenant${visibleSummary.occupiedTenants === 1 ? "" : "s"}`}
+          detail={`${visibleOccupiedRooms} occupied room${visibleOccupiedRooms === 1 ? "" : "s"}`}
         />
         <SummaryCard
           icon={<Banknote className="size-5" />}
