@@ -541,12 +541,15 @@ export async function createAgreementForTenancy(
   const duration =
     context.contract_duration_months ??
     renewalDurationMonths(context.properties?.is_commercial ?? false);
+  const standardEndDate = calculateTermEndDate(startDate, duration);
   const endDate =
     context.checkout_date ??
-    context.tenancy_end_date ??
-    context.contract_end ??
-    context.end_date ??
-    calculateTermEndDate(startDate, duration);
+    (context.properties?.is_commercial
+      ? standardEndDate
+      : context.tenancy_end_date ??
+        context.contract_end ??
+        context.end_date ??
+        standardEndDate);
   const agreementType = agreementTypeForProperty(
     context.properties?.is_commercial ?? false,
   );
