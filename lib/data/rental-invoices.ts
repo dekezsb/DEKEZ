@@ -494,7 +494,7 @@ export async function getRentalInvoiceArchive(input: {
 }) {
   const supabase = await createClient();
   const page = Math.max(input.page ?? 1, 1);
-  const pageSize = Math.min(Math.max(input.pageSize ?? 50, 1), 100);
+  const pageSize = Math.min(Math.max(input.pageSize ?? 25, 1), 100);
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 

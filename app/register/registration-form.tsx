@@ -1,7 +1,7 @@
 "use client";
 
 import { Camera, FileText, Image as ImageIcon } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { FormEvent, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 

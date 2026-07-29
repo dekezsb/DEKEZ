@@ -33,9 +33,15 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    user = error ? null : data.user;
+  } catch {
+    // Expired or malformed refresh cookies are handled as a signed-out session.
+    user = null;
+  }
 
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route),

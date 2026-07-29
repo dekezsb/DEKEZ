@@ -1,5 +1,5 @@
 import { CheckCircle2, KeyRound } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";

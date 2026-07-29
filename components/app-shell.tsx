@@ -1,7 +1,7 @@
 "use client";
 
 import { LogOut, Menu, X } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";

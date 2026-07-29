@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, FileText, Paperclip } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

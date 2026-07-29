@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { FileLock2, FileText, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

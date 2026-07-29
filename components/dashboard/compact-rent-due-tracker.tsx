@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { RentDueActions } from "@/app/rent-due-tracker/rent-due-actions";

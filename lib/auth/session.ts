@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -34,17 +35,30 @@ export async function resolveUserRole(user: User) {
   return normalizeRole(profile?.role) ?? "tenant";
 }
 
-export async function getCurrentUserRole() {
+export const getOptionalUserAccess = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
+    return null;
+  }
+
+  const role = await resolveUserRole(user);
+  const access = await resolveUserModuleAccess(user, role);
+
+  return { access, role, user };
+});
+
+export async function getCurrentUserRole() {
+  const context = await getOptionalUserAccess();
+
+  if (!context) {
     redirect("/");
   }
 
-  return resolveUserRole(user);
+  return context.role;
 }
 
 export async function resolveUserModuleAccess(
@@ -71,18 +85,13 @@ export async function resolveUserModuleAccess(
 }
 
 export async function getCurrentUserAccess() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const context = await getOptionalUserAccess();
 
-  if (!user) {
+  if (!context) {
     redirect("/");
   }
 
-  const role = await resolveUserRole(user);
-  const access = await resolveUserModuleAccess(user, role);
-  return { access, role, user };
+  return context;
 }
 
 export async function requireRole(

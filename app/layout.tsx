@@ -1,11 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
-import {
-  resolveUserModuleAccess,
-  resolveUserRole,
-} from "@/lib/auth/session";
+import { getOptionalUserAccess } from "@/lib/auth/session";
 import type { UserAccess } from "@/lib/auth/access";
-import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -34,16 +30,11 @@ async function RootLayoutContent({
   let access: UserAccess | null = null;
 
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const context = await getOptionalUserAccess();
+    const user = context?.user;
     userName = user?.user_metadata?.full_name ?? user?.phone ?? user?.email ?? null;
-
-    if (user) {
-      role = await resolveUserRole(user);
-      access = await resolveUserModuleAccess(user, role);
-    }
+    role = context?.role ?? null;
+    access = context?.access ?? null;
   } catch {
     role = null;
     access = null;

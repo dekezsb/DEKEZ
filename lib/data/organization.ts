@@ -1,6 +1,7 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveUserRole } from "@/lib/auth/session";
+import { getOptionalUserAccess } from "@/lib/auth/session";
 import type { AppRole } from "@/lib/auth/roles";
 
 export type CompanySummary = {
@@ -74,33 +75,26 @@ export type TenantRecordSummary = {
   notes: string | null;
 };
 
-export async function getCurrentUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getCurrentUser = cache(async () => {
+  const context = await getOptionalUserAccess();
+  return context?.user ?? null;
+});
 
-  return user;
-}
-
-async function getDataClient() {
+const getDataClient = cache(async () => {
   return createClient();
-}
+});
 
-async function getCurrentScope() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+const getCurrentScope = cache(async () => {
+  const context = await getOptionalUserAccess();
 
-  if (!user) {
+  if (!context) {
     return { user: null, role: null as AppRole | null };
   }
 
-  return { user, role: await resolveUserRole(user) };
-}
+  return { user: context.user, role: context.role };
+});
 
-async function getAccessibleCompanyIds() {
+const getAccessibleCompanyIds = cache(async () => {
   const { user, role } = await getCurrentScope();
 
   if (!user) {
@@ -130,9 +124,9 @@ async function getAccessibleCompanyIds() {
   }
 
   return Array.from(companyIds);
-}
+});
 
-async function getAccessiblePropertyIds() {
+const getAccessiblePropertyIds = cache(async () => {
   const { user, role } = await getCurrentScope();
 
   if (!user) {
@@ -177,7 +171,7 @@ async function getAccessiblePropertyIds() {
   }
 
   return Array.from(propertyIds);
-}
+});
 
 export async function getPropertyOwnerData(properties: PropertySummary[]) {
   if (!properties.length) {
@@ -244,7 +238,7 @@ export async function getPropertyOwnerData(properties: PropertySummary[]) {
   };
 }
 
-export async function getUserCompanies() {
+export const getUserCompanies = cache(async () => {
   const companyIds = await getAccessibleCompanyIds();
   const { role } = await getCurrentScope();
   let supabase = await getDataClient();
@@ -276,14 +270,14 @@ export async function getUserCompanies() {
   }
 
   return (data ?? []) as CompanySummary[];
-}
+});
 
 export async function getFirstCompany() {
   const companies = await getUserCompanies();
   return companies[0] ?? null;
 }
 
-export async function getProperties() {
+export const getProperties = cache(async () => {
   const propertyIds = await getAccessiblePropertyIds();
   const supabase = await getDataClient();
   let query = supabase
@@ -305,9 +299,9 @@ export async function getProperties() {
   }
 
   return (data ?? []) as PropertySummary[];
-}
+});
 
-export async function getUnits() {
+export const getUnits = cache(async () => {
   const propertyIds = await getAccessiblePropertyIds();
   const supabase = await getDataClient();
   let query = supabase
@@ -329,9 +323,9 @@ export async function getUnits() {
   }
 
   return (data ?? []) as UnitSummary[];
-}
+});
 
-export async function getRooms() {
+export const getRooms = cache(async () => {
   const propertyIds = await getAccessiblePropertyIds();
   const supabase = await getDataClient();
   let query = supabase
@@ -356,9 +350,9 @@ export async function getRooms() {
     ...room,
     monthly_rent: Number(room.monthly_rent ?? 0),
   })) as RoomSummary[];
-}
+});
 
-export async function getTenantRecords() {
+export const getTenantRecords = cache(async () => {
   const propertyIds = await getAccessiblePropertyIds();
   const supabase = await getDataClient();
   let query = supabase
@@ -384,9 +378,9 @@ export async function getTenantRecords() {
     monthly_rent: Number(tenant.monthly_rent ?? 0),
     deposit: Number(tenant.deposit ?? 0),
   })) as TenantRecordSummary[];
-}
+});
 
-export async function getDashboardSummary() {
+export const getDashboardSummary = cache(async () => {
   const [companies, properties, rooms] = await Promise.all([
     getUserCompanies(),
     getProperties(),
@@ -404,4 +398,4 @@ export async function getDashboardSummary() {
     maintenanceRooms: rooms.filter((room) => room.status === "maintenance").length,
     reservedRooms: rooms.filter((room) => room.status === "reserved").length,
   };
-}
+});

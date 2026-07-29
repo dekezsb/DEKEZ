@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
 import { normalizeRole, roleHome } from "@/lib/auth/roles";

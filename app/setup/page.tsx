@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";

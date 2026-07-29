@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";

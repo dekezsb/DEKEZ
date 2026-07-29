@@ -1,5 +1,5 @@
 import { ArrowLeft, CheckCircle2, Paperclip } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { notFound } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
 import { InvoicePrintButton } from "@/components/invoices/invoice-print-button";

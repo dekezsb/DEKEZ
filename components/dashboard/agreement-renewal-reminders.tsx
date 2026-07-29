@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/components/app-link";
 import { FileSignature, Send } from "lucide-react";
 import { sendAgreementWhatsApp } from "@/app/verification/actions";
 import { Badge } from "@/components/ui/badge";
