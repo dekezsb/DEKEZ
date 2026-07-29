@@ -31,7 +31,7 @@ export async function loadTenancyAgreementArchive(
   const agreementsResult = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, tenancy_id, term_type, agreement_type, version_number, status, term_start_date, term_end_date, generated_at, signed_at, retention_until, pdf_url, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, monthly_rent_snapshot",
+      "id, tenancy_id, term_type, agreement_type, version_number, status, term_start_date, term_end_date, generated_at, signed_at, admin_verified_at, admin_verified_by, retention_until, pdf_url, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, monthly_rent_snapshot",
     )
     .order("generated_at", { ascending: false });
 

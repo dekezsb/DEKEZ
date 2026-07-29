@@ -217,6 +217,57 @@ export async function reviewUserRegistration(formData: FormData) {
   redirect(verificationPath("users", "reviewed=1"));
 }
 
+export async function verifySignedAgreement(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const agreementId = textValue(formData, "agreementId");
+
+  if (!user || !agreementId) {
+    redirect(verificationPath("agreements", "error=agreement_missing"));
+  }
+
+  const supabase = await adminClient();
+  const verifiedAt = new Date().toISOString();
+  const { data: agreement, error } = await supabase
+    .from("tenancy_agreements")
+    .update({
+      admin_verified_at: verifiedAt,
+      admin_verified_by: user.id,
+    })
+    .eq("id", agreementId)
+    .in("status", ["signed", "renewal_signed"])
+    .is("admin_verified_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !agreement) {
+    redirect(verificationPath("agreements", "error=agreement_verify"));
+  }
+
+  const { error: logError } = await supabase
+    .from("tenancy_agreement_verification_logs")
+    .insert({
+      agreement_id: agreement.id,
+      action: "verified",
+      performed_by: user.id,
+      performed_at: verifiedAt,
+    });
+
+  if (logError) {
+    console.error("Signed agreement verification log could not be recorded.", {
+      agreementId,
+      error: logError.message,
+    });
+  }
+
+  revalidatePath("/verification");
+  revalidatePath("/e-tenancy");
+  redirect(verificationPath("agreements", "agreement_verified=1"));
+}
+
 export async function reviewClaim(formData: FormData) {
   await requireRole(["super_admin", "admin"], {
     module: "verification",

@@ -34,6 +34,8 @@ export type AgreementArchiveItem = {
   term_end_date: string | null;
   generated_at: string;
   signed_at: string | null;
+  admin_verified_at: string | null;
+  admin_verified_by: string | null;
   retention_until: string | null;
   pdf_url: string | null;
   tenant_name_snapshot: string | null;

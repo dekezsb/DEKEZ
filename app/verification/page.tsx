@@ -39,10 +39,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkoutRoom } from "@/app/properties/[id]/actions";
 import { PaymentVerificationContent } from "@/app/payment-verification/page";
 import { TenantVerificationContent } from "@/app/tenant-verification/page";
-import {
-  AgreementArchive,
-  type AgreementArchiveItem,
-} from "@/components/verification/agreement-archive";
+import { type AgreementArchiveItem } from "@/components/verification/agreement-archive";
 import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import {
   agreementTypeForProperty,
@@ -54,6 +51,7 @@ import {
   reviewUserRegistration,
   sendAgreementWhatsApp,
   updateAgreementTermRent,
+  verifySignedAgreement,
 } from "./actions";
 
 type PageProps = {
@@ -71,6 +69,7 @@ type PageProps = {
     month?: string;
     method?: string;
     occupancy?: string;
+    agreement_verified?: string;
   }>;
 };
 
@@ -78,7 +77,6 @@ type VerificationView =
   | "users"
   | "tenants"
   | "claims"
-  | "tenancy"
   | "agreements"
   | "payments";
 
@@ -90,8 +88,7 @@ const views: {
   { key: "users", label: "User Permission", icon: Building2 },
   { key: "tenants", label: "Tenant & Room", icon: UserCheck },
   { key: "claims", label: "Claim Bills", icon: ClipboardCheck },
-  { key: "tenancy", label: "Tenancy Progress", icon: FileSignature },
-  { key: "agreements", label: "Agreement Archive", icon: FileSignature },
+  { key: "agreements", label: "Signed Agreement Verification", icon: FileSignature },
   { key: "payments", label: "Payment Verification", icon: CreditCard },
 ];
 
@@ -112,6 +109,8 @@ const errorMessages: Record<string, string> = {
   renewal_create: "The renewal agreement could not be prepared.",
   agreement_rent:
     "The agreement rent could not be changed. Signed agreements are locked.",
+  agreement_verify:
+    "The signed agreement could not be verified. It may already be verified.",
 };
 
 async function getAdmin() {
@@ -150,7 +149,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     tenantApplicationsResult,
     claimsResult,
     claimExpensesResult,
-    tenanciesResult,
     paymentSubmissionsResult,
     profilesResult,
     profileDocumentsResult,
@@ -179,11 +177,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .select("claim_id, funding_source, amount, status")
       .not("claim_id", "is", null),
     supabase
-      .from("tenancies")
-      .select("id, tenant_id, property_id, room_id, monthly_rental, tenancy_start_date, tenancy_end_date, contract_start, contract_end, status, renewal_status, checkout_date, tenants(full_name, phone), properties(name, is_commercial), rooms(name, room_number, status)")
-      .eq("status", "active")
-      .order("created_at", { ascending: false }),
-    supabase
       .from("payment_submissions")
       .select("id, verification_status"),
     supabase.from("profiles").select("id, full_name, phone"),
@@ -199,7 +192,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const tenantApplications = tenantApplicationsResult.data ?? [];
   const claims = claimsResult.data ?? [];
   const claimExpenses = claimExpensesResult.data ?? [];
-  const tenancies = tenanciesResult.data ?? [];
   const agreementArchive = await loadTenancyAgreementArchive(supabase);
   const agreements = agreementArchive.agreements;
   const paymentSubmissions = paymentSubmissionsResult.data ?? [];
@@ -261,12 +253,11 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const permissionUsers = users.filter(
     (user) => !selfRegisteredTenantIds.has(user.id),
   );
-  const agreementsByTenancy = new Map<string, (typeof agreements)[number]>();
-  for (const agreement of agreements) {
-    if (!agreementsByTenancy.has(agreement.tenancy_id)) {
-      agreementsByTenancy.set(agreement.tenancy_id, agreement);
-    }
-  }
+  const signedAgreementsPendingVerification = agreements.filter(
+    (agreement) =>
+      ["signed", "renewal_signed"].includes(agreement.status) &&
+      !agreement.admin_verified_at,
+  );
 
   const pendingCounts: Record<VerificationView, number> = {
     users: permissionUsers.filter(
@@ -278,28 +269,14 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     claims: claims.filter(
       (claim) => claim.status === "pending_owner_approval",
     ).length,
-    tenancy:
-      tenantApplications.filter(
-        (application) =>
-          application.verification_status === "verified" &&
-          application.status !== "converted_to_tenancy",
-      ).length +
-      agreements.filter((agreement) =>
-        [
-          "pending_signature",
-          "renewal_pending",
-          "renewal_sent",
-          "expiring_soon",
-        ].includes(agreement.status),
-      ).length,
-    agreements: agreements.length,
+    agreements: signedAgreementsPendingVerification.length,
     payments: paymentSubmissions.filter(
       (submission) =>
         submission.verification_status === "pending_verification",
     ).length,
   };
-  const totalPending = Object.entries(pendingCounts).reduce(
-    (total, [view, count]) => total + (view === "agreements" ? 0 : count),
+  const totalPending = Object.values(pendingCounts).reduce(
+    (total, count) => total + count,
     0,
   );
 
@@ -314,8 +291,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
             Verification Center
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Review registrations, room assignments, claim bills, tenancy
-            progress and uploaded payment slips from one place.
+            Review registrations, room assignments, claim bills, signed
+            agreements and uploaded payment slips from one place.
           </p>
         </div>
         <div className="rounded-md border border-[#d7dde5] bg-white px-4 py-3 text-sm shadow-sm">
@@ -392,18 +369,11 @@ export default async function VerificationPage({ searchParams }: PageProps) {
         />
       ) : null}
 
-      {activeView === "tenancy" ? (
-        <TenancyProgress
-          applications={tenantApplications}
-          agreementsByTenancy={agreementsByTenancy}
-          tenancies={tenancies}
-        />
-      ) : null}
-
       {activeView === "agreements" ? (
-        <AgreementArchive
-          agreements={agreements as AgreementArchiveItem[]}
-          occupancy={params.occupancy ?? "all"}
+        <SignedAgreementVerification
+          agreements={
+            signedAgreementsPendingVerification as AgreementArchiveItem[]
+          }
         />
       ) : null}
 
@@ -421,6 +391,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> }) {
   const success = params.reviewed
     ? "Verification record updated."
+    : params.agreement_verified
+      ? "Signed tenancy agreement verified."
     : params.sent
       ? "Agreement signature request sent by WhatsApp."
       : params.renewal
@@ -448,6 +420,113 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
   }
 
   return null;
+}
+
+function SignedAgreementVerification({
+  agreements,
+}: {
+  agreements: AgreementArchiveItem[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle>Signed Agreement Verification</CardTitle>
+            <CardDescription>
+              Only agreements already signed by tenants are shown here. Review
+              the signed PDF, then verify it.
+            </CardDescription>
+          </div>
+          <Badge>{agreements.length} pending</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {agreements.length ? (
+          <div className="grid gap-4">
+            {agreements.map((agreement) => {
+              const tenancy = single(agreement.tenancies);
+              const tenant = single(tenancy?.tenants);
+              const property = single(tenancy?.properties);
+              const room = single(tenancy?.rooms);
+              const tenantName =
+                agreement.tenant_name_snapshot ??
+                tenant?.full_name ??
+                "Tenant";
+              const propertyName =
+                agreement.property_name_snapshot ??
+                property?.name ??
+                property?.property_code ??
+                "Property";
+              const roomName =
+                agreement.room_name_snapshot ??
+                room?.room_number ??
+                room?.name ??
+                "-";
+
+              return (
+                <div
+                  className="grid gap-4 rounded-md border border-[#d7dde5] p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                  key={agreement.id}
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-gray-950">{tenantName}</p>
+                      <Badge className="bg-amber-100 text-amber-800">
+                        Awaiting Admin verification
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {propertyName} / R{String(roomName).replace(/^room\s*/i, "")}
+                    </p>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Term {formatMalaysiaDate(agreement.term_start_date)} to{" "}
+                      {formatMalaysiaDate(agreement.term_end_date)}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Signed{" "}
+                      {agreement.signed_at
+                        ? formatMalaysiaDateTime(agreement.signed_at)
+                        : "-"}
+                      {" · "}
+                      {agreement.term_type === "renewal"
+                        ? "Renewal agreement"
+                        : "Original agreement"}
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button asChild type="button" variant="outline">
+                      <Link
+                        href={`/api/tenancy-agreements/${agreement.id}/pdf`}
+                        target="_blank"
+                      >
+                        View Signed PDF
+                      </Link>
+                    </Button>
+                    <form action={verifySignedAgreement}>
+                      <input
+                        name="agreementId"
+                        type="hidden"
+                        value={agreement.id}
+                      />
+                      <Button className="w-full" type="submit">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Verify
+                      </Button>
+                    </form>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-[#d7dde5] px-4 py-10 text-center text-sm text-gray-500">
+            No signed agreements are waiting for verification.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function UserRegistrations({
