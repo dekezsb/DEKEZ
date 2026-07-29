@@ -2,7 +2,6 @@ import { ChevronLeft, ChevronRight, FileText, Paperclip } from "lucide-react";
 import { Link } from "@/components/app-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DocumentPreview } from "@/components/ui/document-preview";
 import {
   Card,
   CardContent,
@@ -27,6 +26,7 @@ import { invoiceDate, invoiceMonth } from "@/lib/invoices/format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { HistoricalInvoiceForm } from "./historical-invoice-form";
 import { InvoiceActions } from "./invoice-actions";
+import { InvoiceReceiptPreview } from "./invoice-receipt-preview";
 
 type PageProps = {
   searchParams: Promise<{
@@ -269,25 +269,7 @@ export default async function RentalInvoicesPage({
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {invoice.receipts[0]?.signedUrl ? (
-                            <div className="flex items-center gap-2">
-                              <DocumentPreview
-                                contentType={invoice.receipts[0].contentType}
-                                fileName={invoice.receipts[0].fileName}
-                                label="Verified payment slip"
-                                showName={false}
-                                size="sm"
-                                url={invoice.receipts[0].signedUrl}
-                              />
-                              {invoice.receiptCount > 1 ? (
-                                <span className="text-xs font-medium text-emerald-700">
-                                  +{invoice.receiptCount - 1}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
+                          <InvoiceReceiptPreview receipts={invoice.receipts} />
                         </TableCell>
                         <TableCell>
                           {invoiceDate(invoice.retainUntil)}
@@ -380,17 +362,8 @@ export default async function RentalInvoicesPage({
                       </div>
                       <div>
                         <dt className="text-gray-500">Receipts</dt>
-                        <dd className={invoice.receiptCount ? "mt-1 text-emerald-700" : ""}>
-                          {invoice.receipts[0]?.signedUrl ? (
-                            <DocumentPreview
-                              contentType={invoice.receipts[0].contentType}
-                              fileName={invoice.receipts[0].fileName}
-                              label="Verified payment slip"
-                              showName={false}
-                              size="sm"
-                              url={invoice.receipts[0].signedUrl}
-                            />
-                          ) : "None"}
+                        <dd className="mt-1">
+                          <InvoiceReceiptPreview receipts={invoice.receipts} />
                         </dd>
                       </div>
                     </dl>
