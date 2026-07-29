@@ -125,7 +125,7 @@ async function logWhatsAppMessage(
 async function getBillContext(supabase: Awaited<ReturnType<typeof getAdmin>>, billId: string) {
   const { data: bill } = await supabase
     .from("rent_bills")
-    .select("id, tenant_id, tenancy_id, tenant_record_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
+    .select("id, tenant_id, tenancy_id, tenant_record_id, property_id, unit_id, room_id, bill_month, due_date, amount, deposit_amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
     .eq("id", billId)
     .single();
 
@@ -501,8 +501,22 @@ export async function verifyRentSubmission(formData: FormData) {
   }
 
   const oldPaidAmount = Number(bill.paid_amount ?? 0);
-  const billAmount = Number(bill.amount ?? 0);
+  const { data: extraChargeItems } = await supabase
+    .from("rental_invoice_line_items")
+    .select("amount")
+    .eq("rent_bill_id", bill.id);
+  const billAmount =
+    Number(bill.amount ?? 0) +
+    Number(bill.deposit_amount ?? 0) +
+    (extraChargeItems ?? []).reduce(
+      (total, item) => total + Number(item.amount ?? 0),
+      0,
+    );
   const submittedAmount = Number(submission.amount ?? 0);
+  const outstandingAmount = Math.max(billAmount - oldPaidAmount, 0);
+  if (submittedAmount - outstandingAmount > 0.005) {
+    redirect("/payment-verification?error=extra_purpose");
+  }
   const newPaidAmount = Math.min(oldPaidAmount + submittedAmount, billAmount);
   const newStatus = newPaidAmount >= billAmount ? "paid" : "partially_paid";
 

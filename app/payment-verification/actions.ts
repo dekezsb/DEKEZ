@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
+import {
+  extraChargeLabel,
+  isExtraChargeCategory,
+  type ExtraChargeCategory,
+} from "@/lib/payments/extra-charges";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { convertTenantApplication } from "@/lib/tenancy/convert-application";
@@ -40,6 +45,14 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const submissionId = textValue(formData, "submissionId");
   const decision = textValue(formData, "decision");
   const notes = textValue(formData, "notes");
+  const extraChargeCategory = textValue(
+    formData,
+    "extraChargeCategory",
+  );
+  const extraChargeDescription = textValue(
+    formData,
+    "extraChargeDescription",
+  );
   const returnTo = returnPath(formData);
 
   if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
@@ -53,7 +66,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status")
+    .select("id, verification_status, rent_bill_id, amount")
     .eq("id", submissionId)
     .single();
 
@@ -71,6 +84,58 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (currentSubmission.verification_status === "verified" && decision === "verified") {
     redirect(withResult(returnTo, "error=already_verified"));
+  }
+
+  let verifiedExtraCharge: {
+    amount: number;
+    category: ExtraChargeCategory;
+    description: string;
+  } | null = null;
+
+  if (
+    decision === "verified" &&
+    currentSubmission.rent_bill_id
+  ) {
+    const [{ data: bill }, { data: existingItems }] = await Promise.all([
+      supabase
+        .from("rent_bills")
+        .select("amount, deposit_amount, paid_amount")
+        .eq("id", currentSubmission.rent_bill_id)
+        .single(),
+      supabase
+        .from("rental_invoice_line_items")
+        .select("amount")
+        .eq("rent_bill_id", currentSubmission.rent_bill_id),
+    ]);
+    const existingExtraTotal = (existingItems ?? []).reduce(
+      (total, item) => total + Number(item.amount ?? 0),
+      0,
+    );
+    const invoiceTotal =
+      Number(bill?.amount ?? 0) +
+      Number(bill?.deposit_amount ?? 0) +
+      existingExtraTotal;
+    const outstanding = Math.max(
+      invoiceTotal - Number(bill?.paid_amount ?? 0),
+      0,
+    );
+    const extraAmount = Math.max(
+      Number(currentSubmission.amount ?? 0) - outstanding,
+      0,
+    );
+
+    if (extraAmount > 0.005) {
+      if (!isExtraChargeCategory(extraChargeCategory)) {
+        redirect(withResult(returnTo, "error=extra_purpose"));
+      }
+      verifiedExtraCharge = {
+        amount: extraAmount,
+        category: extraChargeCategory,
+        description:
+          extraChargeDescription ||
+          extraChargeLabel(extraChargeCategory),
+      };
+    }
   }
 
   const { data: submission, error } = await supabase
@@ -194,13 +259,57 @@ export async function reviewPaymentSubmission(formData: FormData) {
     if (rentBillId) {
       const { data: bill } = await supabase
         .from("rent_bills")
-        .select("id, amount, paid_amount, status")
+        .select("id, amount, deposit_amount, paid_amount, status")
         .eq("id", rentBillId)
         .single();
+      const { data: existingItems } = await supabase
+        .from("rental_invoice_line_items")
+        .select("amount")
+        .eq("rent_bill_id", rentBillId);
+      const existingExtraTotal = (existingItems ?? []).reduce(
+        (total, item) => total + Number(item.amount ?? 0),
+        0,
+      );
+
+      if (verifiedExtraCharge) {
+        const { error: extraChargeError } = await supabase
+          .from("rental_invoice_line_items")
+          .insert({
+            rent_bill_id: rentBillId,
+            payment_submission_id: submission.id,
+            category: verifiedExtraCharge.category,
+            description: verifiedExtraCharge.description,
+            amount: verifiedExtraCharge.amount,
+            created_by: user.id,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (extraChargeError) {
+          await supabase
+            .from("payment_submissions")
+            .update({
+              verification_status: "pending_verification",
+              verified_by: null,
+              verified_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", submission.id);
+          redirect(withResult(returnTo, "error=review"));
+        }
+      }
+
       const oldPaidAmount = Number(bill?.paid_amount ?? 0);
-      const billAmount = Number(bill?.amount ?? 0);
-      const newPaidAmount = Math.min(oldPaidAmount + Number(submission.amount ?? 0), billAmount);
-      const newStatus = newPaidAmount >= billAmount ? "paid" : "partially_paid";
+      const billAmount =
+        Number(bill?.amount ?? 0) +
+        Number(bill?.deposit_amount ?? 0) +
+        existingExtraTotal +
+        Number(verifiedExtraCharge?.amount ?? 0);
+      const newPaidAmount = Math.min(
+        oldPaidAmount + Number(submission.amount ?? 0),
+        billAmount,
+      );
+      const newStatus =
+        newPaidAmount >= billAmount ? "paid" : "partially_paid";
 
       await supabase
         .from("rent_bills")
@@ -219,7 +328,9 @@ export async function reviewPaymentSubmission(formData: FormData) {
         new_status: newStatus,
         old_paid_amount: oldPaidAmount,
         new_paid_amount: newPaidAmount,
-        reason: submission.reference_number || "Tenant payment proof verified",
+        reason: verifiedExtraCharge
+          ? `${extraChargeLabel(verifiedExtraCharge.category)}: ${verifiedExtraCharge.description}`
+          : submission.reference_number || "Tenant payment proof verified",
       });
     }
 
@@ -237,7 +348,9 @@ export async function reviewPaymentSubmission(formData: FormData) {
       payment_date: submission.payment_date,
       payment_method: submission.payment_method,
       reference_number: submission.reference_number,
-      notes: "Verified tenant uploaded payment proof",
+      notes: verifiedExtraCharge
+        ? `Verified tenant payment; extra ${extraChargeLabel(verifiedExtraCharge.category)} RM ${verifiedExtraCharge.amount.toFixed(2)}`
+        : "Verified tenant uploaded payment proof",
       status: "confirmed",
       recorded_by: user.id,
       verified_by: user.id,
@@ -276,5 +389,8 @@ export async function reviewPaymentSubmission(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/e-tenancy");
   revalidatePath("/onboarding");
+  if (submission.rent_bill_id) {
+    revalidatePath(`/invoices/${submission.rent_bill_id}`);
+  }
   redirect(withResult(returnTo, "reviewed=1"));
 }

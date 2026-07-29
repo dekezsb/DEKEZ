@@ -27,6 +27,9 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
   const remaining = selectedBill
     ? Math.max(selectedBill.outstanding - submittedAmount, 0)
     : 0;
+  const extraAmount = selectedBill
+    ? Math.max(submittedAmount - selectedBill.outstanding, 0)
+    : 0;
 
   function selectBill(nextBillId: string) {
     const nextBill = bills.find((bill) => bill.id === nextBillId);
@@ -62,7 +65,6 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
         </span>
         <input
           className="mt-2 h-12 w-full rounded-md border border-[#cfd8e5] px-3 text-base"
-          max={selectedBill?.outstanding}
           min="0.01"
           name="amount"
           onChange={(event) => setAmount(event.target.value)}
@@ -99,6 +101,13 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
             <p className="sm:col-span-2">
               Partial payment accepted. The remaining balance stays open until
               it is fully paid.
+            </p>
+          ) : null}
+          {extraAmount > 0.005 ? (
+            <p className="sm:col-span-2 font-medium text-amber-800">
+              Extra amount submitted: {moneyFormatter.format(extraAmount)}.
+              Admin will confirm its purpose before verification and add it to
+              this invoice.
             </p>
           ) : null}
         </div>

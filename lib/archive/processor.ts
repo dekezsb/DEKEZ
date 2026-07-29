@@ -231,11 +231,21 @@ async function prepareRentalInvoice(
 
   const rentAmount = numberValue(bill.amount);
   const depositAmount = numberValue(bill.deposit_amount);
+  const { data: extraChargeRows, error: extraChargeError } = await supabase
+    .from("rental_invoice_line_items")
+    .select("description, amount")
+    .eq("rent_bill_id", bill.id)
+    .order("created_at", { ascending: true });
+  if (extraChargeError) throw new Error(extraChargeError.message);
+  const extraChargeAmount = (extraChargeRows ?? []).reduce(
+    (sum, item) => sum + numberValue(item.amount),
+    0,
+  );
   const verifiedTotal = (submissions ?? []).reduce(
     (sum, submission) => sum + numberValue(submission.amount),
     0,
   );
-  const invoiceTotal = rentAmount + depositAmount;
+  const invoiceTotal = rentAmount + depositAmount + extraChargeAmount;
   const paidAmount = Math.min(
     Math.max(numberValue(bill.paid_amount), verifiedTotal),
     invoiceTotal,
@@ -277,6 +287,10 @@ async function prepareRentalInvoice(
       rows: [
         [`Rental - ${monthLabel(bill.bill_month)}`, money(rentAmount)],
         ["Deposit", money(depositAmount)],
+        ...(extraChargeRows ?? []).map((item) => [
+          item.description,
+          money(item.amount),
+        ] as [string, string]),
         ["Invoice Total", money(invoiceTotal)],
         ["Verified Paid", money(paidAmount)],
         ["Outstanding", money(outstanding)],

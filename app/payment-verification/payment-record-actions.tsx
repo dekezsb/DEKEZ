@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMalaysiaDateTime } from "@/lib/date-format";
+import { EXTRA_CHARGE_OPTIONS } from "@/lib/payments/extra-charges";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { reviewPaymentSubmission } from "./actions";
 
@@ -15,6 +16,8 @@ type PaymentRecordActionsProps = {
   roomName: string;
   billMonth: string;
   amountSubmitted: string;
+  amountSubmittedValue: number;
+  invoiceOutstanding: number;
   referenceNumber: string;
   receiptUrl?: string | null;
   receiptIsImage: boolean;
@@ -42,6 +45,8 @@ export function PaymentRecordActions({
   roomName,
   billMonth,
   amountSubmitted,
+  amountSubmittedValue,
+  invoiceOutstanding,
   referenceNumber,
   receiptUrl,
   receiptIsImage,
@@ -53,6 +58,11 @@ export function PaymentRecordActions({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const extraAmount = Math.max(
+    amountSubmittedValue - invoiceOutstanding,
+    0,
+  );
+  const hasExtraAmount = extraAmount > 0.005;
 
   return (
     <div className="space-y-3">
@@ -93,13 +103,57 @@ export function PaymentRecordActions({
               <p>Amount submitted: <span className="font-medium text-gray-950">{amountSubmitted}</span></p>
               <p>Reference: <span className="font-medium text-gray-950">{referenceNumber || "-"}</span></p>
             </div>
+            {hasExtraAmount ? (
+              <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-4">
+                <p className="font-semibold text-amber-950">
+                  Extra payment: RM {extraAmount.toFixed(2)}
+                </p>
+                <p className="mt-1 text-sm text-amber-900">
+                  Confirm what this extra amount is for. It will be added as a
+                  separate item on this month&apos;s invoice.
+                </p>
+              </div>
+            ) : null}
             <ReceiptPreview receiptUrl={receiptUrl} receiptIsImage={receiptIsImage} />
-            <form action={reviewPaymentSubmission} className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <form action={reviewPaymentSubmission} className="mt-5 space-y-4">
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="verified" />
               <input name="returnTo" type="hidden" value={returnTo} />
-              <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-              <Button type="submit">Confirm & Verify</Button>
+              {hasExtraAmount ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm font-medium text-gray-800">
+                      Extra payment for
+                    </span>
+                    <select
+                      className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                      name="extraChargeCategory"
+                      required
+                    >
+                      <option value="">Choose purpose</option>
+                      {EXTRA_CHARGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-gray-800">
+                      Details (optional)
+                    </span>
+                    <input
+                      className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                      name="extraChargeDescription"
+                      placeholder="Example: Key lock replacement"
+                    />
+                  </label>
+                </div>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+                <Button type="submit">Confirm & Verify</Button>
+              </div>
             </form>
           </div>
         </div>

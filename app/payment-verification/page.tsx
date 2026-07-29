@@ -46,7 +46,7 @@ type SubmissionRecord = {
   rejection_reason: string | null;
   properties?: { name: string } | { name: string }[] | null;
   rooms?: { name: string; room_number: string | null } | { name: string; room_number: string | null }[] | null;
-  rent_bills?: { bill_month: string | null; due_date: string | null; amount: number | string | null; status: string } | { bill_month: string | null; due_date: string | null; amount: number | string | null; status: string }[] | null;
+  rent_bills?: { bill_month: string | null; due_date: string | null; amount: number | string | null; deposit_amount: number | string | null; paid_amount: number | string | null; status: string } | { bill_month: string | null; due_date: string | null; amount: number | string | null; deposit_amount: number | string | null; paid_amount: number | string | null; status: string }[] | null;
 };
 
 const errorMessages: Record<string, string> = {
@@ -54,6 +54,8 @@ const errorMessages: Record<string, string> = {
   reason: "Please enter a rejection or reversal reason.",
   review: "Payment could not be updated.",
   already_verified: "This payment has already been verified.",
+  extra_purpose:
+    "Choose what the extra payment is for before verification.",
 };
 
 async function getAdmin() {
@@ -132,7 +134,7 @@ export async function PaymentVerificationContent({
 
   let query = supabase
     .from("payment_submissions")
-    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, status)")
+    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status)")
     .order("created_at", { ascending: false });
 
   if (params.property) {
@@ -391,6 +393,13 @@ function buildRow(
   const room = single(submission.rooms);
   const bill = single(submission.rent_bills);
   const receiptUrl = signedUrls.get(submission.id) ?? null;
+  const invoiceTotal =
+    Number(bill?.amount ?? submission.amount ?? 0) +
+    Number(bill?.deposit_amount ?? 0);
+  const invoiceOutstanding = Math.max(
+    invoiceTotal - Number(bill?.paid_amount ?? 0),
+    0,
+  );
 
   return {
     submissionId: submission.id,
@@ -399,8 +408,10 @@ function buildRow(
     propertyName: property?.name ?? "-",
     roomName: room?.room_number ?? room?.name ?? "-",
     billMonth: bill?.bill_month ?? submission.bill_month ?? "-",
-    amountDue: money(bill?.amount ?? submission.amount),
+    amountDue: money(invoiceOutstanding),
     amountSubmitted: money(submission.amount),
+    amountSubmittedValue: Number(submission.amount ?? 0),
+    invoiceOutstanding,
     referenceNumber: submission.reference_number ?? "",
     receiptUrl,
     receiptIsImage: isImagePath(submission.receipt_url),

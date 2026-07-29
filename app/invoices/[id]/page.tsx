@@ -163,6 +163,20 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               </span>
             </div>
           ) : null}
+          {invoice.lineItems.map((item, index) => (
+            <div
+              className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm"
+              key={item.id}
+            >
+              <span>{index + (invoice.depositAmount > 0 ? 3 : 2)}</span>
+              <span className="pr-4 font-medium">
+                {item.description.toUpperCase()}
+              </span>
+              <span className="text-center">1</span>
+              <span className="text-center">UNIT</span>
+              <span className="text-right">{money.format(item.amount)}</span>
+            </div>
+          ))}
           <div className="min-h-16" />
         </section>
 

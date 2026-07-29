@@ -74,6 +74,13 @@ export type RentalInvoiceReceipt = {
   signedUrl: string | null;
 };
 
+export type RentalInvoiceLineItem = {
+  id: string;
+  category: string;
+  description: string;
+  amount: number;
+};
+
 export type RentalInvoiceView = {
   id: string;
   invoiceNumber: string;
@@ -83,6 +90,8 @@ export type RentalInvoiceView = {
   dueDate: string;
   amount: number;
   depositAmount: number;
+  extraChargeAmount: number;
+  lineItems: RentalInvoiceLineItem[];
   depositPaidAmount: number;
   invoiceTotal: number;
   invoicePaidAmount: number;
@@ -256,7 +265,7 @@ async function hydrateInvoices(
     ),
   ];
 
-  const [propertiesResult, roomsResult, tenanciesResult, recordsResult] =
+  const [propertiesResult, roomsResult, tenanciesResult, recordsResult, lineItemsResult] =
     await Promise.all([
       supabase
         .from("properties")
@@ -280,6 +289,14 @@ async function hydrateInvoices(
             .select("id, full_name, phone, email, identification_number")
             .in("id", tenantRecordIds)
         : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("rental_invoice_line_items")
+        .select("id, rent_bill_id, category, description, amount, created_at")
+        .in(
+          "rent_bill_id",
+          bills.map((bill) => bill.id),
+        )
+        .order("created_at", { ascending: true }),
     ]);
 
   const tenancies = (tenanciesResult.data ?? []) as InvoiceTenancy[];
@@ -324,6 +341,17 @@ async function hydrateInvoices(
     bills.map((bill) => bill.id),
     options.signReceiptUrls ?? false,
   );
+  const lineItemsByBill = new Map<string, RentalInvoiceLineItem[]>();
+  for (const item of lineItemsResult.data ?? []) {
+    const lineItems = lineItemsByBill.get(item.rent_bill_id) ?? [];
+    lineItems.push({
+      id: item.id,
+      category: item.category,
+      description: item.description,
+      amount: numberValue(item.amount),
+    });
+    lineItemsByBill.set(item.rent_bill_id, lineItems);
+  }
 
   return bills.map((bill) => {
     const property = propertyById.get(bill.property_id);
@@ -346,7 +374,12 @@ async function hydrateInvoices(
       tenantRecordId: bill.tenant_record_id,
       depositAmount,
     });
-    const invoiceTotal = amount + depositAmount;
+    const lineItems = lineItemsByBill.get(bill.id) ?? [];
+    const extraChargeAmount = lineItems.reduce(
+      (total, item) => total + item.amount,
+      0,
+    );
+    const invoiceTotal = amount + depositAmount + extraChargeAmount;
     const invoicePaidAmount = Math.min(
       paidAmount + depositPaidAmount,
       invoiceTotal,
@@ -372,6 +405,8 @@ async function hydrateInvoices(
       dueDate: bill.due_date,
       amount,
       depositAmount,
+      extraChargeAmount,
+      lineItems,
       depositPaidAmount,
       invoiceTotal,
       invoicePaidAmount,
