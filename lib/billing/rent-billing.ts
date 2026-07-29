@@ -32,6 +32,13 @@ type TenancyBillingRow = {
     | { profile_id: string | null }
     | Array<{ profile_id: string | null }>
     | null;
+  tenancy_agreements:
+    | Array<{
+        term_type: string | null;
+        term_end_date: string | null;
+        status: string | null;
+      }>
+    | null;
 };
 
 type TenantRecordBillingRow = {
@@ -122,8 +129,31 @@ function effectiveEndDate(input: {
   checkoutDate?: string | null;
   tenancyEndDate?: string | null;
   contractEnd?: string | null;
+  renewalEndDate?: string | null;
 }) {
-  return input.checkoutDate ?? input.tenancyEndDate ?? input.contractEnd ?? null;
+  if (input.checkoutDate) return input.checkoutDate;
+
+  return [
+    input.tenancyEndDate,
+    input.contractEnd,
+    input.renewalEndDate,
+  ]
+    .filter((date): date is string => Boolean(date))
+    .sort()
+    .at(-1) ?? null;
+}
+
+function latestPreparedRenewalEndDate(tenancy: TenancyBillingRow) {
+  return (tenancy.tenancy_agreements ?? [])
+    .filter(
+      (agreement) =>
+        agreement.term_type === "renewal" &&
+        agreement.term_end_date &&
+        !["cancelled", "voided", "expired"].includes(agreement.status ?? ""),
+    )
+    .map((agreement) => agreement.term_end_date as string)
+    .sort()
+    .at(-1) ?? null;
 }
 
 function tenantProfileId(tenancy: TenancyBillingRow) {
@@ -178,7 +208,7 @@ export async function generateRecurringRentBills(
 
   let tenancyQuery = supabase
     .from("tenancies")
-    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!tenancies_room_id_fkey!inner(status), tenants(profile_id)")
+    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!tenancies_room_id_fkey!inner(status), tenants(profile_id), tenancy_agreements!tenancy_agreements_tenancy_id_fkey(term_type,term_end_date,status)")
     .eq("status", "active")
     .eq("billing_status", "active")
     .eq("rooms.status", "occupied");
@@ -201,6 +231,7 @@ export async function generateRecurringRentBills(
       checkoutDate: tenancy.checkout_date,
       tenancyEndDate: tenancy.tenancy_end_date,
       contractEnd: tenancy.contract_end,
+      renewalEndDate: latestPreparedRenewalEndDate(tenancy),
     });
     const existingMonths = await existingBillMonths(supabase, "tenancy_id", tenancy.id);
     const targetMonths = targetBillingMonths({
