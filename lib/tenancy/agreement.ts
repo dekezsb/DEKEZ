@@ -47,8 +47,6 @@ type TenancyContext = {
     email: string | null;
     phone: string | null;
     identity_number: string | null;
-    emergency_contact_name: string | null;
-    emergency_contact_phone: string | null;
     tenant_type: string | null;
     business_name: string | null;
     business_registration_number: string | null;
@@ -132,7 +130,7 @@ async function loadTenancyContext(
     supabase
       .from("tenants")
       .select(
-        "full_name, email, phone, identity_number, emergency_contact_name, emergency_contact_phone, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
+        "full_name, email, phone, identity_number, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
       )
       .eq("id", tenancy.tenant_id)
       .maybeSingle(),
@@ -307,8 +305,6 @@ function renderAgreement(
       identityNumber: context.tenants?.identity_number,
       phone: context.tenants?.phone,
       email: context.tenants?.email,
-      emergencyContactName: context.tenants?.emergency_contact_name,
-      emergencyContactPhone: context.tenants?.emergency_contact_phone,
       tenantType: context.tenants?.tenant_type,
       businessName: context.tenants?.business_name,
       businessRegistrationNumber:

@@ -19,8 +19,6 @@ export type AgreementTenantDetails = {
   identityNumber?: string | null;
   phone?: string | null;
   email?: string | null;
-  emergencyContactName?: string | null;
-  emergencyContactPhone?: string | null;
   tenantType?: string | null;
   businessName?: string | null;
   businessRegistrationNumber?: string | null;
@@ -61,8 +59,6 @@ function residentialTenantDetails(tenant: AgreementTenantDetails) {
     `Tenant Name: ${valueOrDash(tenant.fullName)}`,
     `IC / Passport: ${valueOrDash(tenant.identityNumber)}`,
     `Contact Number: ${valueOrDash(tenant.phone)}`,
-    `Emergency Contact: ${valueOrDash(tenant.emergencyContactName)}`,
-    `Emergency Contact Number: ${valueOrDash(tenant.emergencyContactPhone)}`,
   ].join("\n");
 }
 

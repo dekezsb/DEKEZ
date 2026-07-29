@@ -160,14 +160,6 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 <span className="text-sm font-medium text-gray-700">WhatsApp number</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="whatsappNumber" defaultValue={user?.phone ?? ""} />
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Emergency contact name</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="emergencyContactName" />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Emergency contact number</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="emergencyContactNumber" />
-              </label>
               <CommercialPropertyFields
                 properties={properties.map((property) => ({
                   id: property.id,

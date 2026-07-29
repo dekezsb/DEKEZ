@@ -446,9 +446,6 @@ export async function updatePropertyTenancySettings(formData: FormData) {
           : null,
       optional_clauses: optionalClauses,
       inventory,
-      emergency_contact_name: textValue(formData, "emergencyContactName") || null,
-      emergency_contact_phone:
-        textValue(formData, "emergencyContactPhone") || null,
       key_handover_notes: textValue(formData, "keyHandoverNotes") || null,
       created_by: user.id,
       updated_by: user.id,

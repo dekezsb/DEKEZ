@@ -193,8 +193,6 @@ export type PropertyTenancySettings = {
   employeeLimit: number | null;
   optionalClauses: Record<OptionalClauseCode, boolean>;
   inventory: PropertyInventoryItem[];
-  emergencyContactName: string;
-  emergencyContactPhone: string;
   keyHandoverNotes: string;
 };
 
@@ -213,8 +211,6 @@ type RawSettings = {
   employee_limit?: unknown;
   optional_clauses?: unknown;
   inventory?: unknown;
-  emergency_contact_name?: unknown;
-  emergency_contact_phone?: unknown;
   key_handover_notes?: unknown;
 } | null;
 
@@ -282,8 +278,6 @@ export function defaultPropertyTenancySettings(
       common_area_access: !isCommercial,
     },
     inventory: [],
-    emergencyContactName: "",
-    emergencyContactPhone: "",
     keyHandoverNotes: "",
   };
 }
@@ -363,8 +357,6 @@ export function normalizePropertyTenancySettings(
       ]),
     ) as Record<OptionalClauseCode, boolean>,
     inventory,
-    emergencyContactName: stringValue(raw.emergency_contact_name),
-    emergencyContactPhone: stringValue(raw.emergency_contact_phone),
     keyHandoverNotes: stringValue(raw.key_handover_notes),
   };
 }
@@ -377,7 +369,7 @@ export async function loadPropertyTenancySettings(
   const { data } = await supabase
     .from("property_tenancy_settings")
     .select(
-      "default_agreement_type, property_type, facilities, water_mode, electricity_mode, air_conditioner_mode, air_conditioner_free_quota_kwh, water_monthly_quota, water_rate, electricity_monthly_quota, electricity_rate, employee_limit, optional_clauses, inventory, emergency_contact_name, emergency_contact_phone, key_handover_notes",
+      "default_agreement_type, property_type, facilities, water_mode, electricity_mode, air_conditioner_mode, air_conditioner_free_quota_kwh, water_monthly_quota, water_rate, electricity_monthly_quota, electricity_rate, employee_limit, optional_clauses, inventory, key_handover_notes",
     )
     .eq("property_id", propertyId)
     .maybeSingle();
@@ -603,11 +595,6 @@ export function propertyAgreementVariables(
     optional_house_rules:
       clauses || "No optional property permissions are enabled.",
     inventory_checklist: inventory,
-    emergency_contact_name:
-      settings.emergencyContactName || "DEKEZ Management",
-    emergency_contact_phone:
-      settings.emergencyContactPhone || "Registered DEKEZ support channel",
-    emergency_contact_relationship: "-",
     key_handover_items: keyHandoverItems(settings),
     key_handover_notes: settings.keyHandoverNotes || "-",
     wifi_status: facilityStatus(settings.facilities.wifi),

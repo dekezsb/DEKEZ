@@ -131,8 +131,6 @@ export async function submitTenantApplication(formData: FormData) {
       nationality: textValue(formData, "nationality") || null,
       date_of_birth: textValue(formData, "dateOfBirth") || null,
       whatsapp_number: textValue(formData, "whatsappNumber") || user.phone || null,
-      emergency_contact_name: textValue(formData, "emergencyContactName") || null,
-      emergency_contact_number: textValue(formData, "emergencyContactNumber") || null,
       contract_duration_months: finalDuration,
       proposed_start_date: proposedStartDate,
       proposed_end_date: addMonths(proposedStartDate, finalDuration),

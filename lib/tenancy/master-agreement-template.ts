@@ -119,12 +119,7 @@ This Agreement is governed by Malaysian law. The parties submit to the jurisdict
 
 The inventory condition shall be confirmed at handover. Missing or damaged items beyond fair wear and tear may be charged at reasonable replacement or repair cost.
 
-## SCHEDULE 3 - EMERGENCY CONTACT
-
-Name: {{emergency_contact_name}}
-Phone / Contact: {{emergency_contact_phone}}
-
-## SCHEDULE 4 - KEY AND ACCESS HANDOVER
+## SCHEDULE 3 - KEY AND ACCESS HANDOVER
 
 {{key_handover_items}}
 

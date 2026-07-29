@@ -434,30 +434,10 @@ export function AgreementSettingsForm({
 
       <fieldset className="space-y-4" disabled={readOnly}>
         <legend className="text-sm font-semibold text-gray-950">
-          Emergency Contact & Key Handover
+          Key Handover
         </legend>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div>
           <label className="block">
-            <span className="text-sm font-medium text-gray-700">
-              Emergency contact name
-            </span>
-            <input
-              className={`${inputClass} mt-1.5`}
-              defaultValue={settings.emergencyContactName}
-              name="emergencyContactName"
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">
-              Emergency phone / contact
-            </span>
-            <input
-              className={`${inputClass} mt-1.5`}
-              defaultValue={settings.emergencyContactPhone}
-              name="emergencyContactPhone"
-            />
-          </label>
-          <label className="block md:col-span-2">
             <span className="text-sm font-medium text-gray-700">
               Key handover notes
             </span>
