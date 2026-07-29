@@ -125,15 +125,16 @@ export async function reviewPaymentSubmission(formData: FormData) {
     );
 
     if (extraAmount > 0.005) {
-      if (!isExtraChargeCategory(extraChargeCategory)) {
+      if (
+        !isExtraChargeCategory(extraChargeCategory) ||
+        !extraChargeDescription
+      ) {
         redirect(withResult(returnTo, "error=extra_purpose"));
       }
       verifiedExtraCharge = {
         amount: extraAmount,
         category: extraChargeCategory,
-        description:
-          extraChargeDescription ||
-          extraChargeLabel(extraChargeCategory),
+        description: extraChargeDescription,
       };
     }
   }

@@ -106,11 +106,22 @@ export function PaymentRecordActions({
             {hasExtraAmount ? (
               <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-4">
                 <p className="font-semibold text-amber-950">
-                  Extra payment: RM {extraAmount.toFixed(2)}
+                  This payment includes an extra charge
                 </p>
-                <p className="mt-1 text-sm text-amber-900">
-                  Confirm what this extra amount is for. It will be added as a
-                  separate item on this month&apos;s invoice.
+                <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm text-amber-950">
+                  <dt>Current invoice outstanding</dt>
+                  <dd className="font-semibold">RM {invoiceOutstanding.toFixed(2)}</dd>
+                  <dt>Applied to current invoice</dt>
+                  <dd className="font-semibold">
+                    RM {Math.min(amountSubmittedValue, invoiceOutstanding).toFixed(2)}
+                  </dd>
+                  <dt>Extra charge to add</dt>
+                  <dd className="font-bold">RM {extraAmount.toFixed(2)}</dd>
+                </dl>
+                <p className="mt-3 text-sm text-amber-900">
+                  Select the charge type and write exactly what it is for. The
+                  extra amount will appear as a separate item on this
+                  month&apos;s invoice.
                 </p>
               </div>
             ) : null}
@@ -140,12 +151,13 @@ export function PaymentRecordActions({
                   </label>
                   <label className="block">
                     <span className="text-sm font-medium text-gray-800">
-                      Details (optional)
+                      What is this extra charge for?
                     </span>
                     <input
                       className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
                       name="extraChargeDescription"
-                      placeholder="Example: Key lock replacement"
+                      placeholder="Example: Key lock replacement for Room 1"
+                      required
                     />
                   </label>
                 </div>
