@@ -25,6 +25,26 @@ function fileValue(formData: FormData, key: string) {
   return value instanceof File && value.size > 0 ? value : null;
 }
 
+function rentTrackerPath(
+  formData: FormData,
+  resultKey: "error" | "uploaded",
+  resultValue: string,
+) {
+  const params = new URLSearchParams();
+  const month = textValue(formData, "returnMonth");
+  const property = textValue(formData, "returnProperty");
+
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    params.set("month", month);
+  }
+  if (/^[0-9a-f-]{36}$/i.test(property)) {
+    params.set("property", property);
+  }
+
+  params.set(resultKey, resultValue);
+  return `/rent-due-tracker?${params.toString()}`;
+}
+
 async function getAdmin() {
   try {
     return createAdminClient();
@@ -336,7 +356,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   const receipt = fileValue(formData, "receipt");
 
   if (!user || !billId || amount <= 0 || !receipt) {
-    redirect("/rent-due-tracker?error=proof_missing");
+    redirect(rentTrackerPath(formData, "error", "proof_missing"));
   }
 
   const isSupportedFile = receipt.type.startsWith("image/")
@@ -344,11 +364,11 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     || /\.(jpe?g|png|webp|heic|pdf)$/i.test(receipt.name);
 
   if (!isSupportedFile) {
-    redirect("/rent-due-tracker?error=proof_type");
+    redirect(rentTrackerPath(formData, "error", "proof_type"));
   }
 
   if (receipt.size > 10 * 1024 * 1024) {
-    redirect("/rent-due-tracker?error=proof_size");
+    redirect(rentTrackerPath(formData, "error", "proof_size"));
   }
 
   const supabase = await createClient();
@@ -356,16 +376,16 @@ export async function uploadRentPaymentSlip(formData: FormData) {
 
   const submissionTenantId = bill?.tenant_id ?? bill?.tenant?.id ?? null;
   if (!bill || (!submissionTenantId && !bill.tenant_record_id) || ["paid", "cancelled", "waived"].includes(String(bill.status))) {
-    redirect("/rent-due-tracker?error=bill_not_found");
+    redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
   const outstandingAmount = Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0);
   if (outstandingAmount <= 0.005) {
-    redirect("/rent-due-tracker?error=bill_not_found");
+    redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
   if (amount > outstandingAmount + 0.005) {
-    redirect("/rent-due-tracker?error=proof_amount");
+    redirect(rentTrackerPath(formData, "error", "proof_amount"));
   }
 
   const { data: pendingSubmission } = await supabase
@@ -377,7 +397,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     .maybeSingle();
 
   if (pendingSubmission) {
-    redirect("/rent-due-tracker?error=proof_pending");
+    redirect(rentTrackerPath(formData, "error", "proof_pending"));
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -391,7 +411,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     });
 
   if (uploadError) {
-    redirect("/rent-due-tracker?error=proof_upload");
+    redirect(rentTrackerPath(formData, "error", "proof_upload"));
   }
 
   const { data: submission, error: submissionError } = await supabase
@@ -419,7 +439,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
 
   if (submissionError || !submission) {
     await supabase.storage.from("payment-receipts").remove([path]);
-    redirect("/rent-due-tracker?error=proof_create");
+    redirect(rentTrackerPath(formData, "error", "proof_create"));
   }
 
   const { error: attachmentError } = await supabase.from("payment_attachments").insert({
@@ -434,7 +454,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   if (attachmentError) {
     await supabase.from("payment_submissions").delete().eq("id", submission.id);
     await supabase.storage.from("payment-receipts").remove([path]);
-    redirect("/rent-due-tracker?error=proof_create");
+    redirect(rentTrackerPath(formData, "error", "proof_create"));
   }
 
   await supabase
@@ -449,7 +469,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   revalidatePath("/payment-verification");
   revalidatePath("/payments");
   revalidatePath("/dashboard");
-  redirect("/rent-due-tracker?uploaded=1");
+  redirect(rentTrackerPath(formData, "uploaded", "1"));
 }
 
 export async function verifyRentSubmission(formData: FormData) {

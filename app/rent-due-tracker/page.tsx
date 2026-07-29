@@ -26,9 +26,22 @@ import { money } from "@/lib/e-tenancy";
 
 type PageProps = {
   searchParams: Promise<{
+    error?: string;
     property?: string;
     month?: string;
+    uploaded?: string;
   }>;
+};
+
+const uploadErrorMessages: Record<string, string> = {
+  bill_not_found: "This rent bill is no longer available for payment.",
+  proof_amount: "The submitted amount cannot be more than the remaining balance.",
+  proof_create: "The payment record could not be created. Please try again.",
+  proof_missing: "Enter the payment details and attach a payment slip.",
+  proof_pending: "A payment slip for this bill is already waiting for verification.",
+  proof_size: "The payment slip must be 10 MB or smaller.",
+  proof_type: "Upload an image or PDF payment slip.",
+  proof_upload: "The payment slip could not be uploaded. Please try again.",
 };
 
 const collectionStatusClasses: Record<RentCollectionStatus, string> = {
@@ -246,10 +259,14 @@ function CollectionDetails({
   canUploadSlip,
   collections,
   paymentDateDefault,
+  selectedMonth,
+  selectedProperty,
 }: {
   canUploadSlip: boolean;
   collections: RentCollectionRow[];
   paymentDateDefault: string;
+  selectedMonth: string;
+  selectedProperty: string;
 }) {
   return (
     <section className="space-y-4">
@@ -317,6 +334,8 @@ function CollectionDetails({
                           paymentDateDefault={paymentDateDefault}
                           propertyName={collection.propertyName}
                           roomName={compactRoomLabel(collection.roomNumber)}
+                          selectedMonth={selectedMonth}
+                          selectedProperty={selectedProperty}
                           tenantName={collection.tenantName}
                         />
                       </td>
@@ -361,6 +380,8 @@ function CollectionDetails({
                       paymentDateDefault={paymentDateDefault}
                       propertyName={collection.propertyName}
                       roomName={compactRoomLabel(collection.roomNumber)}
+                      selectedMonth={selectedMonth}
+                      selectedProperty={selectedProperty}
                       tenantName={collection.tenantName}
                     />
                   </div>
@@ -388,10 +409,11 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const tracker = await getRentDueMap(params.month);
   const today = malaysiaToday();
+  const requestedProperty = params.property ?? "";
   const selectedProperty = tracker.properties.some(
-    (property) => property.id === params.property,
+    (property) => property.id === requestedProperty,
   )
-    ? params.property
+    ? requestedProperty
     : "";
   const visibleProperties = selectedProperty
     ? tracker.properties.filter((property) => property.id === selectedProperty)
@@ -473,6 +495,19 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           </Button>
         </form>
       </header>
+
+      {params.uploaded === "1" ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          Payment slip submitted. The room is hidden from this outstanding
+          list while verification is pending. If the verified payment is
+          partial, the room will return with its remaining balance.
+        </div>
+      ) : null}
+      {params.error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {uploadErrorMessages[params.error] ?? "The payment slip could not be submitted."}
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <SummaryCard
@@ -592,6 +627,8 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
         canUploadSlip={canUploadSlip}
         collections={outstandingCollections}
         paymentDateDefault={today}
+        selectedMonth={tracker.selectedMonth}
+        selectedProperty={selectedProperty}
       />
     </section>
   );

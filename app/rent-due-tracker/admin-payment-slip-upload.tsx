@@ -19,6 +19,8 @@ type AdminPaymentSlipUploadProps = {
   outstandingAmount: number;
   outstandingLabel: string;
   paymentDateDefault: string;
+  selectedMonth: string;
+  selectedProperty: string;
 };
 
 export function AdminPaymentSlipUpload({
@@ -29,6 +31,8 @@ export function AdminPaymentSlipUpload({
   outstandingAmount,
   outstandingLabel,
   paymentDateDefault,
+  selectedMonth,
+  selectedProperty,
 }: AdminPaymentSlipUploadProps) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(outstandingAmount.toFixed(2));
@@ -88,6 +92,8 @@ export function AdminPaymentSlipUpload({
 
             <form action={uploadRentPaymentSlip} className="grid gap-4 sm:grid-cols-2">
               <input name="billId" type="hidden" value={billId} />
+              <input name="returnMonth" type="hidden" value={selectedMonth} />
+              <input name="returnProperty" type="hidden" value={selectedProperty} />
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Amount submitted RM</span>
                 <input
