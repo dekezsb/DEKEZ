@@ -14,6 +14,8 @@ type PageProps = {
     skipped?: string;
     errors?: string;
     detail?: string;
+    deleted?: string;
+    deleteError?: string;
   }>;
 };
 
@@ -67,6 +69,23 @@ export default async function TenancyAgreementsPage({
         </div>
       ) : null}
 
+      {params.deleted === "1" ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+          The wrong unsigned agreement was deleted and is no longer visible to
+          the tenant.
+        </div>
+      ) : null}
+
+      {params.deleteError ? (
+        <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+          {params.deleteError === "signed"
+            ? "This agreement has a tenant signature and cannot be deleted."
+            : params.deleteError === "audit"
+              ? "The deletion audit record could not be saved, so the agreement was not deleted."
+              : "The agreement could not be deleted. Please refresh and try again."}
+        </div>
+      ) : null}
+
       {archive.error ? (
         <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
           {archive.error}
@@ -76,6 +95,7 @@ export default async function TenancyAgreementsPage({
       <AgreementArchive
         agreements={archive.agreements}
         occupancy={params.occupancy ?? "all"}
+        canManage={role !== "owner"}
       />
     </section>
   );

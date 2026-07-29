@@ -22,6 +22,7 @@ import {
   formatMalaysiaDateTime,
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { DeleteAgreementButton } from "@/app/tenancy-agreements/delete-agreement-button";
 
 export type AgreementArchiveItem = {
   id: string;
@@ -111,9 +112,11 @@ function details(agreement: AgreementArchiveItem) {
 export function AgreementArchive({
   agreements,
   occupancy,
+  canManage = false,
 }: {
   agreements: AgreementArchiveItem[];
   occupancy: string;
+  canManage?: boolean;
 }) {
   const selected =
     occupancy === "current" || occupancy === "checked_out" ? occupancy : "all";
@@ -237,12 +240,24 @@ export function AgreementArchive({
                       {formatMalaysiaDate(agreement.retention_until)}
                     </TableCell>
                     <TableCell>
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/e-tenancy/${agreement.id}`}>
-                          <FileText className="h-4 w-4" />
-                          View
-                        </Link>
-                      </Button>
+                      <div className="flex flex-col items-start gap-1">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/e-tenancy/${agreement.id}`}>
+                            <FileText className="h-4 w-4" />
+                            View
+                          </Link>
+                        </Button>
+                        {canManage &&
+                        !agreement.signed_at &&
+                        !["signed", "renewal_signed"].includes(
+                          agreement.status,
+                        ) ? (
+                          <DeleteAgreementButton
+                            agreementId={agreement.id}
+                            agreementLabel={`${item.tenant} - ${item.property}, Room ${item.room}`}
+                          />
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -292,6 +307,16 @@ export function AgreementArchive({
                 <Button asChild className="mt-4 w-full" variant="outline">
                   <Link href={`/e-tenancy/${agreement.id}`}>View agreement</Link>
                 </Button>
+                {canManage &&
+                !agreement.signed_at &&
+                !["signed", "renewal_signed"].includes(agreement.status) ? (
+                  <div className="mt-2">
+                    <DeleteAgreementButton
+                      agreementId={agreement.id}
+                      agreementLabel={`${item.tenant} - ${item.property}, Room ${item.room}`}
+                    />
+                  </div>
+                ) : null}
               </div>
             );
           })}
