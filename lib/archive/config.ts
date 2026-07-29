@@ -14,6 +14,11 @@ export type DriveArchiveConfig = {
   rootsByYear: Map<number, string>;
 };
 
+const defaultArchiveRoots = new Map([
+  [2025, "1_VQjo7tt_VJRPyFAjwf01n9bEWP8Brc0"],
+  [2026, "1UnZtOBlQsruPBgc-HrnJPkD6aQVCQSp9"],
+]);
+
 export function getDriveArchiveConfig(): DriveArchiveConfig {
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID?.trim();
   const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET?.trim();
@@ -23,7 +28,7 @@ export function getDriveArchiveConfig(): DriveArchiveConfig {
   const privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY
     ?.replace(/\\n/g, "\n")
     .trim();
-  const rootsByYear = new Map<number, string>();
+  const rootsByYear = new Map<number, string>(defaultArchiveRoots);
 
   for (const [key, value] of Object.entries(process.env)) {
     const match = key.match(/^GOOGLE_DRIVE_ARCHIVE_ROOT_(\d{4})$/);
