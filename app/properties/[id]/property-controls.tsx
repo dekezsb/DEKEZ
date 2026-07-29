@@ -196,6 +196,7 @@ export function InlineRoomField({
   balanceTotal?: number;
   editable?: boolean;
 }) {
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const savedValue = useRef(String(value));
   const [inputValue, setInputValue] = useState(String(value));
@@ -219,6 +220,7 @@ export function InlineRoomField({
     if (result.ok) {
       savedValue.current = String(formData.get("value") ?? "");
       setStatus("saved");
+      router.refresh();
       window.setTimeout(() => setStatus("idle"), 1600);
       return;
     }
@@ -276,9 +278,7 @@ export function InlineRoomField({
               ? 1
               : field === "contractEnd"
                 ? undefined
-                : field === "depositReceived"
-                  ? Number(value)
-                  : 0
+                : 0
           }
           name="value"
           onBlur={submitIfChanged}

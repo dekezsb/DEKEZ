@@ -865,24 +865,67 @@ export async function updateRoomField(formData: FormData) {
       };
     }
 
-    const { data: existingDeposits } = await supabase
+    const { data: existingDeposits, error: existingDepositsError } = await supabase
       .from("payments")
-      .select("amount")
+      .select("id, amount, payment_method, reference_number, notes")
       .eq("tenancy_id", paymentTenancy.id)
       .in("category", ["deposit", "rental_deposit", "security_deposit"])
       .eq("status", "confirmed");
-    const existingReceived = (existingDeposits ?? []).reduce(
+    if (existingDepositsError) {
+      return { ok: false, error: "The existing deposit records could not be checked." };
+    }
+
+    const manualDeposits = (existingDeposits ?? []).filter(
+      (payment) =>
+        payment.payment_method === "manual_adjustment" &&
+        payment.reference_number?.startsWith("DEPOSIT-") &&
+        payment.notes === "Deposit received recorded from Property Details.",
+    );
+    const protectedDeposits = (existingDeposits ?? []).filter(
+      (payment) => !manualDeposits.some((manual) => manual.id === payment.id),
+    );
+    const protectedPaymentAmount = protectedDeposits.reduce(
       (total, payment) => total + Number(payment.amount ?? 0),
       0,
     );
 
-    if (depositReceived < existingReceived - 0.005) {
+    const { data: verifiedSubmissions, error: verifiedSubmissionsError } =
+      await supabase
+        .from("payment_submissions")
+        .select("amount")
+        .eq("tenancy_id", paymentTenancy.id)
+        .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
+        .eq("verification_status", "verified");
+    if (verifiedSubmissionsError) {
+      return { ok: false, error: "Verified deposit slips could not be checked." };
+    }
+    const verifiedSubmissionAmount = (verifiedSubmissions ?? []).reduce(
+      (total, submission) => total + Number(submission.amount ?? 0),
+      0,
+    );
+    // Verification normally creates a canonical payment. Use submissions only
+    // when no canonical verified payment exists to avoid counting the same slip twice.
+    const protectedReceived =
+      protectedPaymentAmount > 0
+        ? protectedPaymentAmount
+        : verifiedSubmissionAmount;
+
+    if (depositReceived < protectedReceived - 0.005) {
       return {
         ok: false,
-        error: "Verified deposit received cannot be reduced.",
+        error: `Verified deposit slips total RM ${protectedReceived.toFixed(2)} and cannot be reduced.`,
       };
     }
-    if (Math.abs(depositReceived - existingReceived) <= 0.005) {
+
+    const existingManualAmount = manualDeposits.reduce(
+      (total, payment) => total + Number(payment.amount ?? 0),
+      0,
+    );
+    const requestedManualAmount = Math.max(
+      depositReceived - protectedReceived,
+      0,
+    );
+    if (Math.abs(requestedManualAmount - existingManualAmount) <= 0.005) {
       revalidatePath(propertyPath(property.id));
       revalidatePath("/dashboard");
       return { ok: true };
@@ -893,17 +936,27 @@ export async function updateRoomField(formData: FormData) {
       .select("profile_id")
       .eq("id", paymentTenancy.tenant_id)
       .maybeSingle();
-    const difference = depositReceived - existingReceived;
-    const referenceNumber =
-      `DEPOSIT-${paymentTenancy.id.slice(0, 8)}-${depositReceived.toFixed(2)}`;
-    const { data: existingPayment } = await supabase
-      .from("payments")
-      .select("id")
-      .eq("tenancy_id", paymentTenancy.id)
-      .eq("reference_number", referenceNumber)
-      .maybeSingle();
+    const manualDepositIds = manualDeposits.map((payment) => payment.id);
+    if (manualDepositIds.length) {
+      const { error: cancelError } = await supabase
+        .from("payments")
+        .update({
+          status: "cancelled",
+          notes:
+            "Deposit received manual entry corrected from Property Details.",
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", manualDepositIds)
+        .eq("status", "confirmed");
+      if (cancelError) {
+        return { ok: false, error: "The previous manual deposit amount could not be corrected." };
+      }
+    }
 
-    if (!existingPayment) {
+    const referenceNumber =
+      `DEPOSIT-${paymentTenancy.id.slice(0, 8)}-${Date.now()}`;
+
+    if (requestedManualAmount > 0.005) {
       const { error: paymentError } = await supabase.from("payments").insert({
         company_id: property.company_id,
         organization_id: paymentTenancy.organization_id,
@@ -913,7 +966,7 @@ export async function updateRoomField(formData: FormData) {
         unit_id: paymentTenancy.unit_id,
         room_id: roomId,
         category: "deposit",
-        amount: difference,
+        amount: requestedManualAmount,
         payment_method: "manual_adjustment",
         reference_number: referenceNumber,
         status: "confirmed",
@@ -925,9 +978,35 @@ export async function updateRoomField(formData: FormData) {
         verified_at: new Date().toISOString(),
       });
       if (paymentError) {
+        if (manualDepositIds.length) {
+          await supabase
+            .from("payments")
+            .update({
+              status: "confirmed",
+              notes: "Deposit received recorded from Property Details.",
+              updated_at: new Date().toISOString(),
+            })
+            .in("id", manualDepositIds)
+            .eq("status", "cancelled");
+        }
         return { ok: false, error: "The deposit payment could not be saved." };
       }
     }
+
+    await supabase.from("audit_logs").insert({
+      company_id: property.company_id,
+      actor_profile_id: user.id,
+      action: "correct_deposit_received",
+      entity_table: "tenancies",
+      entity_id: paymentTenancy.id,
+      metadata: {
+        room_id: roomId,
+        protected_verified_amount: protectedReceived,
+        previous_manual_amount: existingManualAmount,
+        new_manual_amount: requestedManualAmount,
+        deposit_received_total: depositReceived,
+      },
+    });
   }
 
   revalidatePath(propertyPath(property.id));
