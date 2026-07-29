@@ -5,10 +5,18 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import {
+  getVerifiedDepositPaymentMaps,
+  verifiedDepositPaid,
+} from "@/lib/invoices/deposit-payments";
+import {
   extraChargeLabel,
   isExtraChargeCategory,
   type ExtraChargeCategory,
 } from "@/lib/payments/extra-charges";
+import {
+  allocatePaymentPurpose,
+  isPaymentPurpose,
+} from "@/lib/payments/payment-purpose";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { convertTenantApplication } from "@/lib/tenancy/convert-application";
@@ -66,7 +74,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status, rent_bill_id, amount")
+    .select("id, verification_status, rent_bill_id, tenancy_id, tenant_record_id, payment_type, amount")
     .eq("id", submissionId)
     .single();
 
@@ -91,12 +99,17 @@ export async function reviewPaymentSubmission(formData: FormData) {
     category: ExtraChargeCategory;
     description: string;
   } | null = null;
+  let verifiedAllocation:
+    | { rent: number; deposit: number; extra: number }
+    | null = null;
+  let verifiedDepositRequired = 0;
+  let verifiedDepositPaidBefore = 0;
 
   if (
     decision === "verified" &&
     currentSubmission.rent_bill_id
   ) {
-    const [{ data: bill }, { data: existingItems }] = await Promise.all([
+    const [{ data: bill }, { data: existingItems }, { data: tenancy }] = await Promise.all([
       supabase
         .from("rent_bills")
         .select("amount, deposit_amount, paid_amount")
@@ -106,23 +119,64 @@ export async function reviewPaymentSubmission(formData: FormData) {
         .from("rental_invoice_line_items")
         .select("amount")
         .eq("rent_bill_id", currentSubmission.rent_bill_id),
+      currentSubmission.tenancy_id
+        ? supabase
+            .from("tenancies")
+            .select("deposit")
+            .eq("id", currentSubmission.tenancy_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
     const existingExtraTotal = (existingItems ?? []).reduce(
       (total, item) => total + Number(item.amount ?? 0),
       0,
     );
-    const invoiceTotal =
-      Number(bill?.amount ?? 0) +
-      Number(bill?.deposit_amount ?? 0) +
-      existingExtraTotal;
-    const outstanding = Math.max(
-      invoiceTotal - Number(bill?.paid_amount ?? 0),
-      0,
-    );
-    const extraAmount = Math.max(
-      Number(currentSubmission.amount ?? 0) - outstanding,
-      0,
-    );
+    let extraAmount = 0;
+
+    if (isPaymentPurpose(currentSubmission.payment_type)) {
+      verifiedDepositRequired = Math.max(
+        Number(bill?.deposit_amount ?? 0),
+        Number(tenancy?.deposit ?? 0),
+      );
+      const depositMaps = await getVerifiedDepositPaymentMaps(
+        supabase,
+        currentSubmission.tenancy_id ? [currentSubmission.tenancy_id] : [],
+        currentSubmission.tenant_record_id
+          ? [currentSubmission.tenant_record_id]
+          : [],
+      );
+      verifiedDepositPaidBefore = verifiedDepositPaid(depositMaps, {
+        tenancyId: currentSubmission.tenancy_id,
+        tenantRecordId: currentSubmission.tenant_record_id,
+        depositAmount: verifiedDepositRequired,
+      });
+      verifiedAllocation = allocatePaymentPurpose({
+        purpose: currentSubmission.payment_type,
+        amount: Number(currentSubmission.amount ?? 0),
+        rentOutstanding: Math.max(
+          Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
+          0,
+        ),
+        depositOutstanding: Math.max(
+          verifiedDepositRequired - verifiedDepositPaidBefore,
+          0,
+        ),
+      });
+      extraAmount = verifiedAllocation.extra;
+    } else {
+      const invoiceTotal =
+        Number(bill?.amount ?? 0) +
+        Number(bill?.deposit_amount ?? 0) +
+        existingExtraTotal;
+      const outstanding = Math.max(
+        invoiceTotal - Number(bill?.paid_amount ?? 0),
+        0,
+      );
+      extraAmount = Math.max(
+        Number(currentSubmission.amount ?? 0) - outstanding,
+        0,
+      );
+    }
 
     if (extraAmount > 0.005) {
       if (
@@ -302,15 +356,28 @@ export async function reviewPaymentSubmission(formData: FormData) {
       const oldPaidAmount = Number(bill?.paid_amount ?? 0);
       const billAmount =
         Number(bill?.amount ?? 0) +
-        Number(bill?.deposit_amount ?? 0) +
         existingExtraTotal +
         Number(verifiedExtraCharge?.amount ?? 0);
+      const amountAppliedToBill = verifiedAllocation
+        ? verifiedAllocation.rent + verifiedAllocation.extra
+        : Number(submission.amount ?? 0);
       const newPaidAmount = Math.min(
-        oldPaidAmount + Number(submission.amount ?? 0),
+        oldPaidAmount + amountAppliedToBill,
         billAmount,
       );
+      const depositRequired = verifiedAllocation
+        ? verifiedDepositRequired
+        : Number(bill?.deposit_amount ?? 0);
+      const depositPaidAfter = verifiedAllocation
+        ? Math.min(
+            verifiedDepositPaidBefore + verifiedAllocation.deposit,
+            depositRequired,
+          )
+        : 0;
+      const invoiceTotal = billAmount + depositRequired;
+      const invoicePaid = newPaidAmount + depositPaidAfter;
       const newStatus =
-        newPaidAmount >= billAmount ? "paid" : "partially_paid";
+        invoicePaid >= invoiceTotal ? "paid" : "partially_paid";
 
       await supabase
         .from("rent_bills")
@@ -335,7 +402,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       });
     }
 
-    await supabase.from("payments").insert({
+    const paymentBase = {
       company_id: tenancy.company_id,
       rent_bill_id: rentBillId,
       organization_id: tenancy.organization_id,
@@ -344,19 +411,56 @@ export async function reviewPaymentSubmission(formData: FormData) {
       property_id: tenancy.property_id,
       unit_id: tenancy.unit_id,
       room_id: tenancy.room_id,
-      category: submission.bill_type === "monthly_rent" ? "monthly_rent" : submission.payment_type,
-      amount: submission.amount,
       payment_date: submission.payment_date,
       payment_method: submission.payment_method,
       reference_number: submission.reference_number,
-      notes: verifiedExtraCharge
-        ? `Verified tenant payment; extra ${extraChargeLabel(verifiedExtraCharge.category)} RM ${verifiedExtraCharge.amount.toFixed(2)}`
-        : "Verified tenant uploaded payment proof",
       status: "confirmed",
       recorded_by: user.id,
       verified_by: user.id,
       verified_at: new Date().toISOString(),
-    });
+    };
+    const paymentRows = verifiedAllocation
+      ? [
+          ...(verifiedAllocation.rent > 0.005
+            ? [{
+                ...paymentBase,
+                category: "monthly_rent",
+                amount: verifiedAllocation.rent,
+                notes: "Verified monthly rent payment proof",
+              }]
+            : []),
+          ...(verifiedAllocation.deposit > 0.005
+            ? [{
+                ...paymentBase,
+                category: "deposit",
+                amount: verifiedAllocation.deposit,
+                notes: "Verified rental deposit payment proof",
+              }]
+            : []),
+          ...(verifiedAllocation.extra > 0.005 && verifiedExtraCharge
+            ? [{
+                ...paymentBase,
+                category: verifiedExtraCharge.category,
+                amount: verifiedAllocation.extra,
+                notes: `${extraChargeLabel(verifiedExtraCharge.category)}: ${verifiedExtraCharge.description}`,
+              }]
+            : []),
+        ]
+      : [{
+          ...paymentBase,
+          category:
+            submission.bill_type === "monthly_rent"
+              ? "monthly_rent"
+              : submission.payment_type,
+          amount: submission.amount,
+          notes: verifiedExtraCharge
+            ? `Verified tenant payment; extra ${extraChargeLabel(verifiedExtraCharge.category)} RM ${verifiedExtraCharge.amount.toFixed(2)}`
+            : "Verified tenant uploaded payment proof",
+        }];
+
+    if (paymentRows.length) {
+      await supabase.from("payments").insert(paymentRows);
+    }
   } else {
     if (submission.rent_bill_id) {
       const { data: bill } = await supabase

@@ -348,7 +348,8 @@ function CollectionDetails({
                         {collection.outstanding > 0 ? (
                           <AdminPaymentSlipUpload
                             billId={collection.billId}
-                            outstandingAmount={collection.outstanding + collection.depositOutstanding}
+                            rentOutstanding={collection.outstanding}
+                            depositOutstanding={collection.depositOutstanding}
                             outstandingLabel={money(collection.outstanding + collection.depositOutstanding)}
                             paymentDateDefault={paymentDateDefault}
                             propertyName={collection.propertyName}
@@ -357,14 +358,20 @@ function CollectionDetails({
                             selectedProperty={selectedProperty}
                             tenantName={collection.tenantName}
                           />
-                        ) : (
-                          <Link
-                            href={`/properties/${collection.propertyId}/rooms/${collection.roomId}`}
-                            className="inline-flex h-9 items-center rounded-md border border-[#d9bf84] px-3 text-sm font-medium text-[#8a641d] hover:bg-[#fff8e8]"
-                          >
-                            Record deposit
-                          </Link>
-                        )}
+                        ) : collection.depositOutstanding > 0 ? (
+                          <AdminPaymentSlipUpload
+                            billId={collection.billId}
+                            rentOutstanding={0}
+                            depositOutstanding={collection.depositOutstanding}
+                            outstandingLabel={money(collection.depositOutstanding)}
+                            paymentDateDefault={paymentDateDefault}
+                            propertyName={collection.propertyName}
+                            roomName={compactRoomLabel(collection.roomNumber)}
+                            selectedMonth={selectedMonth}
+                            selectedProperty={selectedProperty}
+                            tenantName={collection.tenantName}
+                          />
+                        ) : null}
                       </td>
                     ) : null}
                   </tr>
@@ -411,7 +418,8 @@ function CollectionDetails({
                     {collection.outstanding > 0 ? (
                       <AdminPaymentSlipUpload
                         billId={collection.billId}
-                        outstandingAmount={collection.outstanding + collection.depositOutstanding}
+                        rentOutstanding={collection.outstanding}
+                        depositOutstanding={collection.depositOutstanding}
                         outstandingLabel={money(collection.outstanding + collection.depositOutstanding)}
                         paymentDateDefault={paymentDateDefault}
                         propertyName={collection.propertyName}
@@ -420,14 +428,20 @@ function CollectionDetails({
                         selectedProperty={selectedProperty}
                         tenantName={collection.tenantName}
                       />
-                    ) : (
-                      <Link
-                        href={`/properties/${collection.propertyId}/rooms/${collection.roomId}`}
-                        className="inline-flex h-9 items-center rounded-md border border-[#d9bf84] px-3 text-sm font-medium text-[#8a641d] hover:bg-[#fff8e8]"
-                      >
-                        Record deposit
-                      </Link>
-                    )}
+                    ) : collection.depositOutstanding > 0 ? (
+                      <AdminPaymentSlipUpload
+                        billId={collection.billId}
+                        rentOutstanding={0}
+                        depositOutstanding={collection.depositOutstanding}
+                        outstandingLabel={money(collection.depositOutstanding)}
+                        paymentDateDefault={paymentDateDefault}
+                        propertyName={collection.propertyName}
+                        roomName={compactRoomLabel(collection.roomNumber)}
+                        selectedMonth={selectedMonth}
+                        selectedProperty={selectedProperty}
+                        tenantName={collection.tenantName}
+                      />
+                    ) : null}
                   </div>
                 ) : null}
               </div>

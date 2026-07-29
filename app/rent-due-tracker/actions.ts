@@ -5,6 +5,14 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { dayDifference, malaysiaDateString } from "@/lib/data/rent-due";
+import {
+  getVerifiedDepositPaymentMaps,
+  verifiedDepositPaid,
+} from "@/lib/invoices/deposit-payments";
+import {
+  isPaymentPurpose,
+  type PaymentPurpose,
+} from "@/lib/payments/payment-purpose";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
@@ -163,6 +171,41 @@ async function getBillContext(supabase: Awaited<ReturnType<typeof getAdmin>>, bi
   return {
     ...bill,
     tenant,
+  };
+}
+
+async function getPaymentBalances(
+  supabase: Awaited<ReturnType<typeof getAdmin>>,
+  bill: NonNullable<Awaited<ReturnType<typeof getBillContext>>>,
+) {
+  const { data: tenancy } = bill.tenancy_id
+    ? await supabase
+        .from("tenancies")
+        .select("deposit")
+        .eq("id", bill.tenancy_id)
+        .maybeSingle()
+    : { data: null };
+  const depositRequired = Math.max(
+    Number(bill.deposit_amount ?? 0),
+    Number(tenancy?.deposit ?? 0),
+  );
+  const depositMaps = await getVerifiedDepositPaymentMaps(
+    supabase,
+    bill.tenancy_id ? [bill.tenancy_id] : [],
+    bill.tenant_record_id ? [bill.tenant_record_id] : [],
+  );
+  const depositPaid = verifiedDepositPaid(depositMaps, {
+    tenancyId: bill.tenancy_id,
+    tenantRecordId: bill.tenant_record_id,
+    depositAmount: depositRequired,
+  });
+
+  return {
+    rentOutstanding: Math.max(
+      Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0),
+      0,
+    ),
+    depositOutstanding: Math.max(depositRequired - depositPaid, 0),
   };
 }
 
@@ -352,6 +395,10 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   const amount = numberValue(formData, "amount");
   const paymentDate = textValue(formData, "paymentDate") || malaysiaDateString();
   const paymentMethod = textValue(formData, "paymentMethod") || "bank_transfer";
+  const requestedPurpose = textValue(formData, "paymentPurpose");
+  const paymentPurpose: PaymentPurpose = isPaymentPurpose(requestedPurpose)
+    ? requestedPurpose
+    : "monthly_rent";
   const referenceNumber = textValue(formData, "referenceNumber");
   const receipt = fileValue(formData, "receipt");
 
@@ -375,12 +422,18 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   const bill = await getBillContext(supabase, billId);
 
   const submissionTenantId = bill?.tenant_id ?? bill?.tenant?.id ?? null;
-  if (!bill || (!submissionTenantId && !bill.tenant_record_id) || ["paid", "cancelled", "waived"].includes(String(bill.status))) {
+  if (!bill || (!submissionTenantId && !bill.tenant_record_id) || ["cancelled", "waived"].includes(String(bill.status))) {
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
-  const outstandingAmount = Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0);
-  if (outstandingAmount <= 0.005) {
+  const balances = await getPaymentBalances(supabase, bill);
+  const purposeAvailable =
+    (paymentPurpose === "monthly_rent" && balances.rentOutstanding > 0.005) ||
+    (paymentPurpose === "deposit" && balances.depositOutstanding > 0.005) ||
+    (paymentPurpose === "rent_and_deposit" &&
+      balances.rentOutstanding > 0.005 &&
+      balances.depositOutstanding > 0.005);
+  if (!purposeAvailable) {
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
@@ -397,7 +450,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const path = `${user.id}/${bill.id}/rent-${Date.now()}-${safeName}`;
+  const path = `${user.id}/${bill.id}/${paymentPurpose}-${Date.now()}-${safeName}`;
   const bytes = Buffer.from(await receipt.arrayBuffer());
   const { error: uploadError } = await supabase.storage
     .from("payment-receipts")
@@ -421,8 +474,8 @@ export async function uploadRentPaymentSlip(formData: FormData) {
       unit_id: bill.unit_id,
       room_id: bill.room_id,
       bill_month: bill.bill_month,
-      bill_type: "monthly_rent",
-      payment_type: "monthly_rent",
+      bill_type: paymentPurpose === "deposit" ? "deposit" : "monthly_rent",
+      payment_type: paymentPurpose,
       amount,
       payment_date: paymentDate,
       payment_method: paymentMethod,
@@ -453,13 +506,15 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     redirect(rentTrackerPath(formData, "error", "proof_create"));
   }
 
-  await supabase
-    .from("rent_bills")
-    .update({
-      status: "payment_submitted",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", bill.id);
+  if (paymentPurpose !== "deposit") {
+    await supabase
+      .from("rent_bills")
+      .update({
+        status: "payment_submitted",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", bill.id);
+  }
 
   revalidatePath("/rent-due-tracker");
   revalidatePath("/payment-verification");
@@ -489,6 +544,13 @@ export async function verifyRentSubmission(formData: FormData) {
 
   if (!submission || submission.verification_status === "verified") {
     redirect("/rent-due-tracker?error=already_verified");
+  }
+
+  if (
+    submission.payment_type === "deposit" ||
+    submission.payment_type === "rent_and_deposit"
+  ) {
+    redirect("/payment-verification?status=pending_verification");
   }
 
   const bill = submission.rent_bill_id ? await getBillContext(supabase, submission.rent_bill_id) : null;
@@ -599,12 +661,19 @@ export async function rejectRentSubmission(formData: FormData) {
   const supabase = await getAdmin();
   const { data: submission } = await supabase
     .from("payment_submissions")
-    .select("id, rent_bill_id, verification_status")
+    .select("id, rent_bill_id, payment_type, verification_status")
     .eq("id", submissionId)
     .single();
 
   if (!submission || submission.verification_status === "verified") {
     redirect("/rent-due-tracker?error=already_verified");
+  }
+
+  if (
+    submission.payment_type === "deposit" ||
+    submission.payment_type === "rent_and_deposit"
+  ) {
+    redirect("/payment-verification?status=pending_verification");
   }
 
   await supabase

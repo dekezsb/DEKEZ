@@ -1,11 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import {
+  allocatePaymentPurpose,
+  paymentPurposeTotal,
+  type PaymentPurpose,
+} from "@/lib/payments/payment-purpose";
 
 type PaymentBillOption = {
   id: string;
   label: string;
-  outstanding: number;
+  rentOutstanding: number;
+  depositOutstanding: number;
 };
 
 type PaymentAmountFieldsProps = {
@@ -20,21 +26,48 @@ const moneyFormatter = new Intl.NumberFormat("en-MY", {
 export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
   const [billId, setBillId] = useState("");
   const [amount, setAmount] = useState("");
+  const [paymentPurpose, setPaymentPurpose] =
+    useState<PaymentPurpose>("monthly_rent");
   const selectedBill = bills.find((bill) => bill.id === billId) ?? null;
   const numericAmount = Number(amount);
   const submittedAmount =
     Number.isFinite(numericAmount) && numericAmount > 0 ? numericAmount : 0;
+  const selectedOutstanding = selectedBill
+    ? paymentPurposeTotal(
+        paymentPurpose,
+        selectedBill.rentOutstanding,
+        selectedBill.depositOutstanding,
+      )
+    : 0;
   const remaining = selectedBill
-    ? Math.max(selectedBill.outstanding - submittedAmount, 0)
+    ? Math.max(selectedOutstanding - submittedAmount, 0)
     : 0;
-  const extraAmount = selectedBill
-    ? Math.max(submittedAmount - selectedBill.outstanding, 0)
-    : 0;
+  const allocation = selectedBill
+    ? allocatePaymentPurpose({
+        purpose: paymentPurpose,
+        amount: submittedAmount,
+        rentOutstanding: selectedBill.rentOutstanding,
+        depositOutstanding: selectedBill.depositOutstanding,
+      })
+    : { rent: 0, deposit: 0, extra: 0 };
 
   function selectBill(nextBillId: string) {
     const nextBill = bills.find((bill) => bill.id === nextBillId);
+    const nextPurpose: PaymentPurpose =
+      nextBill && nextBill.rentOutstanding > 0.005
+        ? "monthly_rent"
+        : "deposit";
     setBillId(nextBillId);
-    setAmount(nextBill ? nextBill.outstanding.toFixed(2) : "");
+    setPaymentPurpose(nextPurpose);
+    setAmount(
+      nextBill
+        ? paymentPurposeTotal(
+            nextPurpose,
+            nextBill.rentOutstanding,
+            nextBill.depositOutstanding,
+          ).toFixed(2)
+        : "",
+    );
   }
 
   return (
@@ -58,6 +91,41 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
           ))}
         </select>
       </label>
+
+      {selectedBill ? (
+        <label className="block">
+          <span className="text-sm font-semibold text-gray-800">
+            Payment for
+          </span>
+          <select
+            className="mt-2 h-12 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-base"
+            name="paymentPurpose"
+            onChange={(event) => {
+              const purpose = event.target.value as PaymentPurpose;
+              setPaymentPurpose(purpose);
+              setAmount(
+                paymentPurposeTotal(
+                  purpose,
+                  selectedBill.rentOutstanding,
+                  selectedBill.depositOutstanding,
+                ).toFixed(2),
+              );
+            }}
+            value={paymentPurpose}
+          >
+            {selectedBill.rentOutstanding > 0.005 ? (
+              <option value="monthly_rent">Monthly Rent</option>
+            ) : null}
+            {selectedBill.depositOutstanding > 0.005 ? (
+              <option value="deposit">Deposit</option>
+            ) : null}
+            {selectedBill.rentOutstanding > 0.005 &&
+            selectedBill.depositOutstanding > 0.005 ? (
+              <option value="rent_and_deposit">Rent + Deposit</option>
+            ) : null}
+          </select>
+        </label>
+      ) : null}
 
       <label className="block">
         <span className="text-sm font-semibold text-gray-800">
@@ -84,7 +152,7 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
           <div>
             <p className="text-gray-600">Current outstanding</p>
             <p className="mt-1 font-semibold text-red-700">
-              {moneyFormatter.format(selectedBill.outstanding)}
+              {moneyFormatter.format(selectedOutstanding)}
             </p>
           </div>
           <div>
@@ -103,9 +171,12 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
               it is fully paid.
             </p>
           ) : null}
-          {extraAmount > 0.005 ? (
+          <p className="sm:col-span-2 text-gray-700">
+            Rent: {moneyFormatter.format(allocation.rent)} · Deposit: {moneyFormatter.format(allocation.deposit)}
+          </p>
+          {allocation.extra > 0.005 ? (
             <p className="sm:col-span-2 font-medium text-amber-800">
-              Extra amount submitted: {moneyFormatter.format(extraAmount)}.
+              Extra amount submitted: {moneyFormatter.format(allocation.extra)}.
               Admin will confirm its purpose before verification and add it to
               this invoice.
             </p>

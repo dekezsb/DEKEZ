@@ -444,6 +444,7 @@ function buildRow(
     amountDue: money(invoiceOutstanding),
     amountSubmitted: money(submission.amount),
     amountSubmittedValue: Number(submission.amount ?? 0),
+    paymentPurpose: submission.payment_type,
     invoiceOutstanding,
     referenceNumber: submission.reference_number ?? "",
     receiptUrl,

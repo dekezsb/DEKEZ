@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMalaysiaDateTime } from "@/lib/date-format";
 import { EXTRA_CHARGE_OPTIONS } from "@/lib/payments/extra-charges";
+import { paymentPurposeLabel } from "@/lib/payments/payment-purpose";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { reviewPaymentSubmission } from "./actions";
 
@@ -17,6 +18,7 @@ type PaymentRecordActionsProps = {
   billMonth: string;
   amountSubmitted: string;
   amountSubmittedValue: number;
+  paymentPurpose: string;
   invoiceOutstanding: number;
   referenceNumber: string;
   receiptUrl?: string | null;
@@ -46,6 +48,7 @@ export function PaymentRecordActions({
   billMonth,
   amountSubmitted,
   amountSubmittedValue,
+  paymentPurpose,
   invoiceOutstanding,
   referenceNumber,
   receiptUrl,
@@ -101,6 +104,7 @@ export function PaymentRecordActions({
               <p>Room: <span className="font-medium text-gray-950">{roomName}</span></p>
               <p>Bill month: <span className="font-medium text-gray-950">{billMonth}</span></p>
               <p>Amount submitted: <span className="font-medium text-gray-950">{amountSubmitted}</span></p>
+              <p>Payment for: <span className="font-medium text-gray-950">{paymentPurposeLabel(paymentPurpose)}</span></p>
               <p>Reference: <span className="font-medium text-gray-950">{referenceNumber || "-"}</span></p>
             </div>
             {hasExtraAmount ? (

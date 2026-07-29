@@ -4,6 +4,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
+import {
+  getVerifiedDepositPaymentMaps,
+  verifiedDepositPaid,
+} from "@/lib/invoices/deposit-payments";
+import {
+  isPaymentPurpose,
+  type PaymentPurpose,
+} from "@/lib/payments/payment-purpose";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -148,6 +156,10 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
   const user = await getCurrentUser();
   const rentBillId = textValue(formData, "rentBillId");
   const amount = numberValue(formData, "amount");
+  const requestedPurpose = textValue(formData, "paymentPurpose");
+  const paymentPurpose: PaymentPurpose = isPaymentPurpose(requestedPurpose)
+    ? requestedPurpose
+    : "monthly_rent";
   const receipt = fileValue(formData, "receipt");
 
   if (!user || !rentBillId || amount <= 0 || !receipt) {
@@ -177,7 +189,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
 
   const { data: bill } = await supabase
     .from("rent_bills")
-    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount, paid_amount, status")
+    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount, deposit_amount, paid_amount, status")
     .eq("id", rentBillId)
     .in("tenancy_id", tenancyIds)
     .maybeSingle();
@@ -186,16 +198,44 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     redirect("/payments?error=proof_missing");
   }
 
-  if (["paid", "cancelled", "waived"].includes(String(bill.status))) {
+  if (["cancelled", "waived"].includes(String(bill.status))) {
     redirect("/payments?error=proof_closed");
   }
 
-  const outstandingAmount = Math.max(
+  const rentOutstanding = Math.max(
     Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0),
     0,
   );
-
-  if (outstandingAmount <= 0.005) {
+  const { data: tenancy } = await supabase
+    .from("tenancies")
+    .select("deposit")
+    .eq("id", bill.tenancy_id)
+    .maybeSingle();
+  const depositRequired = Math.max(
+    Number(bill.deposit_amount ?? 0),
+    Number(tenancy?.deposit ?? 0),
+  );
+  const depositMaps = await getVerifiedDepositPaymentMaps(
+    supabase,
+    [bill.tenancy_id],
+    [],
+  );
+  const depositOutstanding = Math.max(
+    depositRequired -
+      verifiedDepositPaid(depositMaps, {
+        tenancyId: bill.tenancy_id,
+        tenantRecordId: null,
+        depositAmount: depositRequired,
+      }),
+    0,
+  );
+  const purposeAvailable =
+    (paymentPurpose === "monthly_rent" && rentOutstanding > 0.005) ||
+    (paymentPurpose === "deposit" && depositOutstanding > 0.005) ||
+    (paymentPurpose === "rent_and_deposit" &&
+      rentOutstanding > 0.005 &&
+      depositOutstanding > 0.005);
+  if (!purposeAvailable) {
     redirect("/payments?error=proof_closed");
   }
 
@@ -213,7 +253,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const path = `${user.id}/${bill.id}/monthly-rent-${Date.now()}-${safeName}`;
+  const path = `${user.id}/${bill.id}/${paymentPurpose}-${Date.now()}-${safeName}`;
   const bytes = Buffer.from(await receipt.arrayBuffer());
   const { error: uploadError } = await supabase.storage.from("payment-receipts").upload(path, bytes, {
     contentType: receipt.type || "application/octet-stream",
@@ -234,8 +274,8 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
       unit_id: bill.unit_id,
       room_id: bill.room_id,
       bill_month: bill.bill_month,
-      bill_type: "monthly_rent",
-      payment_type: "monthly_rent",
+      bill_type: paymentPurpose === "deposit" ? "deposit" : "monthly_rent",
+      payment_type: paymentPurpose,
       amount,
       payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
       payment_method: textValue(formData, "paymentMethod") || "bank_transfer",
@@ -262,10 +302,12 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     content_type: receipt.type || null,
   });
 
-  await supabase
-    .from("rent_bills")
-    .update({ status: "payment_submitted", updated_at: new Date().toISOString() })
-    .eq("id", bill.id);
+  if (paymentPurpose !== "deposit") {
+    await supabase
+      .from("rent_bills")
+      .update({ status: "payment_submitted", updated_at: new Date().toISOString() })
+      .eq("id", bill.id);
+  }
 
   revalidatePath("/payments");
   revalidatePath("/payment-verification");

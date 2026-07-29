@@ -4,6 +4,11 @@ import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  allocatePaymentPurpose,
+  paymentPurposeTotal,
+  type PaymentPurpose,
+} from "@/lib/payments/payment-purpose";
 import { uploadRentPaymentSlip } from "./actions";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
@@ -16,7 +21,8 @@ type AdminPaymentSlipUploadProps = {
   tenantName: string;
   propertyName: string;
   roomName: string;
-  outstandingAmount: number;
+  rentOutstanding: number;
+  depositOutstanding: number;
   outstandingLabel: string;
   paymentDateDefault: string;
   selectedMonth: string;
@@ -28,32 +34,58 @@ export function AdminPaymentSlipUpload({
   tenantName,
   propertyName,
   roomName,
-  outstandingAmount,
+  rentOutstanding,
+  depositOutstanding,
   outstandingLabel,
   paymentDateDefault,
   selectedMonth,
   selectedProperty,
 }: AdminPaymentSlipUploadProps) {
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(outstandingAmount.toFixed(2));
+  const defaultPurpose: PaymentPurpose =
+    rentOutstanding > 0.005 && depositOutstanding > 0.005
+      ? "rent_and_deposit"
+      : depositOutstanding > 0.005
+        ? "deposit"
+        : "monthly_rent";
+  const [paymentPurpose, setPaymentPurpose] =
+    useState<PaymentPurpose>(defaultPurpose);
+  const [amount, setAmount] = useState(
+    paymentPurposeTotal(
+      defaultPurpose,
+      rentOutstanding,
+      depositOutstanding,
+    ).toFixed(2),
+  );
   const numericAmount = Number(amount);
   const submittedAmount =
     Number.isFinite(numericAmount) && numericAmount > 0 ? numericAmount : 0;
-  const remainingAmount = Math.max(
-    outstandingAmount - submittedAmount,
-    0,
+  const allocation = allocatePaymentPurpose({
+    purpose: paymentPurpose,
+    amount: submittedAmount,
+    rentOutstanding,
+    depositOutstanding,
+  });
+  const selectedOutstanding = paymentPurposeTotal(
+    paymentPurpose,
+    rentOutstanding,
+    depositOutstanding,
   );
-  const extraAmount = Math.max(
-    submittedAmount - outstandingAmount,
-    0,
-  );
+  const remainingAmount = Math.max(selectedOutstanding - submittedAmount, 0);
 
   return (
     <>
       <Button
         className="whitespace-nowrap border-[#d9bf84] text-[#8a641d] hover:bg-[#fff8e8]"
         onClick={() => {
-          setAmount(outstandingAmount.toFixed(2));
+          setPaymentPurpose(defaultPurpose);
+          setAmount(
+            paymentPurposeTotal(
+              defaultPurpose,
+              rentOutstanding,
+              depositOutstanding,
+            ).toFixed(2),
+          );
           setOpen(true);
         }}
         size="sm"
@@ -86,6 +118,8 @@ export function AdminPaymentSlipUpload({
               <p>Property: <span className="font-medium text-gray-950">{propertyName}</span></p>
               <p>Room: <span className="font-medium text-gray-950">{roomName}</span></p>
               <p>Outstanding: <span className="font-medium text-red-700">{outstandingLabel}</span></p>
+              <p>Rent owing: <span className="font-medium text-gray-950">{moneyFormatter.format(rentOutstanding)}</span></p>
+              <p>Deposit owing: <span className="font-medium text-amber-700">{moneyFormatter.format(depositOutstanding)}</span></p>
             </div>
 
             <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -98,6 +132,37 @@ export function AdminPaymentSlipUpload({
               <input name="billId" type="hidden" value={billId} />
               <input name="returnMonth" type="hidden" value={selectedMonth} />
               <input name="returnProperty" type="hidden" value={selectedProperty} />
+              <label className="block sm:col-span-2">
+                <span className="text-sm font-medium text-gray-700">
+                  What is this payment for?
+                </span>
+                <select
+                  className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                  name="paymentPurpose"
+                  onChange={(event) => {
+                    const purpose = event.target.value as PaymentPurpose;
+                    setPaymentPurpose(purpose);
+                    setAmount(
+                      paymentPurposeTotal(
+                        purpose,
+                        rentOutstanding,
+                        depositOutstanding,
+                      ).toFixed(2),
+                    );
+                  }}
+                  value={paymentPurpose}
+                >
+                  {rentOutstanding > 0.005 ? (
+                    <option value="monthly_rent">Monthly Rent</option>
+                  ) : null}
+                  {depositOutstanding > 0.005 ? (
+                    <option value="deposit">Deposit</option>
+                  ) : null}
+                  {rentOutstanding > 0.005 && depositOutstanding > 0.005 ? (
+                    <option value="rent_and_deposit">Rent + Deposit</option>
+                  ) : null}
+                </select>
+              </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Amount submitted RM</span>
                 <input
@@ -118,9 +183,12 @@ export function AdminPaymentSlipUpload({
                       : "text-emerald-700"
                   }`}
                 >
-                  {extraAmount > 0.005
-                    ? `Extra amount for Admin to classify: ${moneyFormatter.format(extraAmount)}`
-                    : `Remaining after verification: ${moneyFormatter.format(remainingAmount)}`}
+                  {allocation.extra > 0.005
+                    ? `Extra amount for Admin to classify: ${moneyFormatter.format(allocation.extra)}`
+                    : `Remaining for this selection: ${moneyFormatter.format(remainingAmount)}`}
+                </span>
+                <span className="mt-1 block text-xs text-gray-600">
+                  Rent allocation: {moneyFormatter.format(allocation.rent)} · Deposit allocation: {moneyFormatter.format(allocation.deposit)}
                 </span>
               </label>
               <label className="block">
