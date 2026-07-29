@@ -35,6 +35,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
     navigation.find((item) => pathname.startsWith(item.href))?.label ?? "DEKEZ";
   const isPublicPage =
     pathname === "/" ||
+    pathname === "/about" ||
     pathname === "/privacy" ||
     pathname === "/terms" ||
     pathname === "/register" ||

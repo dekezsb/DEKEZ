@@ -24,7 +24,7 @@ export function LegalPage({
     <main className="min-h-screen bg-[#f2f4f7] text-[#17130d]">
       <header className="border-b border-[#2a2110] bg-[#090806] text-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <Link className="flex items-center gap-3" href="/">
+          <Link className="flex items-center gap-3" href="/about">
             <BrandLogo className="rounded-md" priority size={48} />
             <span>
               <span className="block font-bold text-[#c99a3e]">DEKEZ</span>
