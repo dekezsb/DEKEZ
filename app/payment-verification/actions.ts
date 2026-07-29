@@ -45,7 +45,7 @@ async function getAdmin() {
 }
 
 export async function reviewPaymentSubmission(formData: FormData) {
-  const role = await requireRole(["super_admin", "admin"], {
+  await requireRole(["super_admin", "admin"], {
     module: "verification",
     level: "manage",
   });
@@ -82,15 +82,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     redirect(withResult(returnTo, "error=review"));
   }
 
-  if (currentSubmission.verification_status === "verified" && role !== "super_admin") {
-    redirect(withResult(returnTo, "error=already_verified"));
-  }
-
-  if (currentSubmission.verification_status === "verified" && role === "super_admin" && decision !== "verified" && !notes) {
-    redirect(withResult(returnTo, "error=reason"));
-  }
-
-  if (currentSubmission.verification_status === "verified" && decision === "verified") {
+  if (currentSubmission.verification_status === "verified") {
     redirect(withResult(returnTo, "error=already_verified"));
   }
 
@@ -404,6 +396,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
     const paymentBase = {
       company_id: tenancy.company_id,
+      payment_submission_id: submission.id,
       rent_bill_id: rentBillId,
       organization_id: tenancy.organization_id,
       tenant_id: submission.tenant_id,
@@ -498,4 +491,56 @@ export async function reviewPaymentSubmission(formData: FormData) {
     revalidatePath(`/invoices/${submission.rent_bill_id}`);
   }
   redirect(withResult(returnTo, "reviewed=1"));
+}
+
+export async function reversePaymentSubmission(formData: FormData) {
+  await requireRole(["super_admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const submissionId = textValue(formData, "submissionId");
+  const reason = textValue(formData, "reason");
+  const returnTo = returnPath(formData);
+
+  if (!user || !submissionId || !reason) {
+    redirect(withResult(returnTo, "error=reason"));
+  }
+
+  const supabase = await getAdmin();
+  const { data: submission } = await supabase
+    .from("payment_submissions")
+    .select("id, verification_status, rent_bill_id")
+    .eq("id", submissionId)
+    .single();
+
+  if (!submission || submission.verification_status !== "verified") {
+    redirect(withResult(returnTo, "error=not_verified"));
+  }
+
+  const { error: reversalError } = await supabase.rpc(
+    "reverse_verified_payment_submission",
+    {
+      p_submission_id: submission.id,
+      p_actor_id: user.id,
+      p_reason: reason,
+    },
+  );
+
+  if (reversalError) {
+    const errorCode = reversalError.message.includes("safely linked")
+      ? "reversal_link_missing"
+      : "review";
+    redirect(withResult(returnTo, `error=${errorCode}`));
+  }
+
+  revalidatePath("/payment-verification");
+  revalidatePath("/verification");
+  revalidatePath("/rent-due-tracker");
+  revalidatePath("/payments");
+  revalidatePath("/dashboard");
+  if (submission.rent_bill_id) {
+    revalidatePath(`/invoices/${submission.rent_bill_id}`);
+  }
+  redirect(withResult(returnTo, "reversed=1"));
 }

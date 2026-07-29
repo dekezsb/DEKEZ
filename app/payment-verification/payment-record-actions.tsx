@@ -7,7 +7,10 @@ import { formatMalaysiaDateTime } from "@/lib/date-format";
 import { EXTRA_CHARGE_OPTIONS } from "@/lib/payments/extra-charges";
 import { paymentPurposeLabel } from "@/lib/payments/payment-purpose";
 import { statusBadgeClass } from "@/lib/status-styles";
-import { reviewPaymentSubmission } from "./actions";
+import {
+  reviewPaymentSubmission,
+  reversePaymentSubmission,
+} from "./actions";
 
 type PaymentRecordActionsProps = {
   submissionId: string;
@@ -26,6 +29,7 @@ type PaymentRecordActionsProps = {
   verifiedBy?: string | null;
   verifiedAt?: string | null;
   rejectionReason?: string | null;
+  canReverse?: boolean;
   returnTo?: string;
 };
 
@@ -56,11 +60,13 @@ export function PaymentRecordActions({
   verifiedBy,
   verifiedAt,
   rejectionReason,
+  canReverse = false,
   returnTo = "/payment-verification",
 }: PaymentRecordActionsProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [reverseOpen, setReverseOpen] = useState(false);
   const extraAmount = Math.max(
     amountSubmittedValue - invoiceOutstanding,
     0,
@@ -71,10 +77,23 @@ export function PaymentRecordActions({
     <div className="space-y-3">
       <Badge className={statusBadgeClass(status)}>{statusLabel(status)}</Badge>
       {status === "verified" ? (
-        <div className="text-xs leading-5 text-gray-500">
-          <p>Verified by {verifiedBy ?? "-"}</p>
-          <p>{formatMalaysiaDateTime(verifiedAt)}</p>
-        </div>
+        <>
+          <div className="text-xs leading-5 text-gray-500">
+            <p>Verified by {verifiedBy ?? "-"}</p>
+            <p>{formatMalaysiaDateTime(verifiedAt)}</p>
+          </div>
+          {canReverse ? (
+            <Button
+              className="border-amber-300 text-amber-800 hover:bg-amber-50"
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => setReverseOpen(true)}
+            >
+              Undo verification
+            </Button>
+          ) : null}
+        </>
       ) : null}
       {status === "rejected" ? (
         <p className="text-xs leading-5 text-red-600">{rejectionReason ?? "Payment proof rejected."}</p>
@@ -209,6 +228,50 @@ export function PaymentRecordActions({
               <Button type="button" variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
             </div>
             <ReceiptPreview receiptUrl={receiptUrl} receiptIsImage={receiptIsImage} large />
+          </div>
+        </div>
+      ) : null}
+
+      {reverseOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-gray-950">
+              Undo this verification?
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-gray-600">
+              This restores the invoice balance and returns the slip to Pending
+              Verification. The payment and audit history will be retained.
+            </p>
+            <form action={reversePaymentSubmission} className="mt-5 space-y-4">
+              <input name="submissionId" type="hidden" value={submissionId} />
+              <input name="returnTo" type="hidden" value={returnTo} />
+              <label className="block">
+                <span className="text-sm font-medium text-gray-800">
+                  Reason for undo
+                </span>
+                <textarea
+                  className="mt-2 min-h-24 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                  name="reason"
+                  placeholder="Explain what was verified incorrectly"
+                  required
+                />
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setReverseOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-amber-600 text-white hover:bg-amber-700"
+                  type="submit"
+                >
+                  Confirm Undo
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

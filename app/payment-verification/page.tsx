@@ -13,6 +13,7 @@ import { PaymentRecordActions } from "./payment-record-actions";
 export type PaymentVerificationPageProps = {
   searchParams: Promise<{
     reviewed?: string;
+    reversed?: string;
     error?: string;
     status?: string;
     property?: string;
@@ -76,6 +77,9 @@ const errorMessages: Record<string, string> = {
   reason: "Please enter a rejection or reversal reason.",
   review: "Payment could not be updated.",
   already_verified: "This payment has already been verified.",
+  not_verified: "Only a verified payment can be undone.",
+  reversal_link_missing:
+    "This older payment is not safely linked yet. No records were changed.",
   extra_purpose:
     "Choose what the extra payment is for and enter a clear description before verification.",
 };
@@ -147,7 +151,7 @@ export async function PaymentVerificationContent({
   embedded?: boolean;
   returnTo?: string;
 }) {
-  await requireRole(["super_admin", "admin"]);
+  const role = await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
   const supabase = await getAdmin();
   const statusFilter = params.status || "pending_verification";
@@ -239,6 +243,11 @@ export async function PaymentVerificationContent({
       {params.reviewed === "1" ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
           Payment submission updated.
+        </div>
+      ) : null}
+      {params.reversed === "1" ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 shadow-sm">
+          Verification undone. The slip is pending again and the invoice balance has been restored.
         </div>
       ) : null}
       {params.error ? (
@@ -357,7 +366,11 @@ export async function PaymentVerificationContent({
                             <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
                           </TableCell>
                           <TableCell>
-                            <PaymentRecordActions {...row} returnTo={returnTo} />
+                            <PaymentRecordActions
+                              {...row}
+                              canReverse={role === "super_admin"}
+                              returnTo={returnTo}
+                            />
                           </TableCell>
                         </TableRow>
                       );
@@ -381,7 +394,11 @@ export async function PaymentVerificationContent({
                         <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
                       </div>
                       <div className="mt-4">
-                        <PaymentRecordActions {...row} returnTo={returnTo} />
+                        <PaymentRecordActions
+                          {...row}
+                          canReverse={role === "super_admin"}
+                          returnTo={returnTo}
+                        />
                       </div>
                     </div>
                   );
