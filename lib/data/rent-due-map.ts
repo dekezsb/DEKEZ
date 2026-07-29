@@ -24,6 +24,7 @@ type RawTenancy = {
   tenant_id: string | null;
   property_id: string;
   room_id: string;
+  monthly_rental: number | string;
   due_day: number | null;
   rent_due_day: number | null;
 };
@@ -43,6 +44,15 @@ type RawSubmission = {
   rent_bill_id: string;
   verification_status: string;
   payment_date: string | null;
+  created_at: string;
+};
+
+type RawMonthlyRoomPayment = {
+  id: string;
+  tenancy_id: string | null;
+  room_id: string;
+  amount: number | string;
+  payment_date: string;
   created_at: string;
 };
 
@@ -265,7 +275,7 @@ async function loadActiveTenancies(
   for (let start = 0; ; start += pageSize) {
     const { data, error } = await supabase
       .from("tenancies")
-      .select("id, tenant_id, property_id, room_id, due_day, rent_due_day")
+      .select("id, tenant_id, property_id, room_id, monthly_rental, due_day, rent_due_day")
       .in("property_id", propertyIds)
       .eq("status", "active")
       .order("created_at", { ascending: false })
@@ -276,6 +286,44 @@ async function loadActiveTenancies(
     }
 
     const page = (data ?? []) as RawTenancy[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+async function loadConfirmedMonthlyRoomPayments(
+  supabase: DataClient,
+  propertyIds: string[],
+  selectedMonth: string,
+) {
+  const rows: RawMonthlyRoomPayment[] = [];
+  const [year, month] = selectedMonth.split("-").map(Number);
+  const nextMonthDate = new Date(Date.UTC(year, month, 1));
+  const nextMonth = `${nextMonthDate.getUTCFullYear()}-${String(
+    nextMonthDate.getUTCMonth() + 1,
+  ).padStart(2, "0")}-01`;
+
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from("payments")
+      .select("id, tenancy_id, room_id, amount, payment_date, created_at")
+      .in("property_id", propertyIds)
+      .eq("category", "monthly_rent")
+      .eq("status", "confirmed")
+      .gte("payment_date", `${selectedMonth}-01`)
+      .lt("payment_date", nextMonth)
+      .order("created_at", { ascending: false })
+      .range(start, start + pageSize - 1);
+
+    if (error) {
+      throw new Error(
+        `Unable to load monthly room payments: ${error.message}`,
+      );
+    }
+
+    const page = (data ?? []) as RawMonthlyRoomPayment[];
     rows.push(...page);
     if (page.length < pageSize) break;
   }
@@ -345,10 +393,16 @@ export async function getRentDueMap(
   }
 
   const supabase = await getDataClient();
-  const [tenancies, selectedBills, previousBills] = await Promise.all([
+  const [
+    tenancies,
+    selectedBills,
+    previousBills,
+    confirmedMonthlyRoomPayments,
+  ] = await Promise.all([
     loadActiveTenancies(supabase, propertyIds),
     loadBills(supabase, propertyIds, selectedMonth, "selected"),
     loadBills(supabase, propertyIds, selectedMonth, "previous"),
+    loadConfirmedMonthlyRoomPayments(supabase, propertyIds, selectedMonth),
   ]);
 
   const billIds = selectedBills.map((bill) => bill.id);
@@ -522,6 +576,61 @@ export async function getRentDueMap(
       paymentStatus: pendingVerification ? "pending_verification" : settlementStatus,
     };
   });
+
+  const billedRoomIds = new Set(selectedBills.map((bill) => bill.room_id));
+  const monthlyPaymentsByRoom = new Map<string, RawMonthlyRoomPayment[]>();
+  for (const payment of confirmedMonthlyRoomPayments) {
+    const roomPayments = monthlyPaymentsByRoom.get(payment.room_id) ?? [];
+    roomPayments.push(payment);
+    monthlyPaymentsByRoom.set(payment.room_id, roomPayments);
+  }
+
+  // A confirmed rent payment can occasionally be linked to the prior bill when
+  // the current invoice is missing. Count that occupied room once without
+  // changing invoice-based money totals or inventing a duplicate bill.
+  for (const tenancy of tenancies) {
+    if (billedRoomIds.has(tenancy.room_id)) continue;
+    const roomPayments = monthlyPaymentsByRoom.get(tenancy.room_id) ?? [];
+    const matchingPayments = roomPayments.filter(
+      (payment) =>
+        !payment.tenancy_id || payment.tenancy_id === tenancy.id,
+    );
+    if (!matchingPayments.length) continue;
+
+    const room = roomById.get(tenancy.room_id);
+    const property = propertyById.get(tenancy.property_id);
+    const tenantRecord = tenantRecordByRoom.get(tenancy.room_id);
+    collections.push({
+      billId: `confirmed-payment:${matchingPayments[0].id}`,
+      tenancyId: tenancy.id,
+      tenantId: tenancy.tenant_id,
+      tenantRecordId: tenantRecord?.id ?? null,
+      propertyId: tenancy.property_id,
+      propertyName: property?.name ?? "Property",
+      roomId: tenancy.room_id,
+      roomNumber: room?.room_number || room?.name || "Room",
+      tenantName:
+        tenantRecord?.full_name
+        ?? (tenancy.tenant_id ? tenantNames.get(tenancy.tenant_id) : null)
+        ?? (tenancy.tenant_id ? profileNames.get(tenancy.tenant_id) : null)
+        ?? "Tenant",
+      monthlyRent: Number(tenancy.monthly_rental ?? 0),
+      previousOutstanding:
+        previousOutstandingByOwner.get(
+          `record:${tenantRecord?.id ?? ""}:${tenancy.room_id}`,
+        ) ?? 0,
+      currentAmountDue: 0,
+      paidAmount: 0,
+      outstanding: 0,
+      totalOutstanding: 0,
+      creditAmount: 0,
+      dueDate: matchingPayments[0].payment_date,
+      latestPaymentDate: matchingPayments[0].payment_date,
+      paymentCount: matchingPayments.length,
+      settlementStatus: "paid",
+      paymentStatus: "paid",
+    });
+  }
 
   const collectionByBillId = new Map(
     collections.map((collection) => [collection.billId, collection]),
