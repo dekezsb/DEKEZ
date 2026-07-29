@@ -14,6 +14,7 @@ type RawRentBill = {
   bill_month: string;
   due_date: string;
   amount: number | string;
+  deposit_amount: number | string;
   paid_amount: number | string;
   status: string;
   created_at: string;
@@ -25,6 +26,7 @@ type RawTenancy = {
   property_id: string;
   room_id: string;
   monthly_rental: number | string;
+  deposit: number | string;
   due_day: number | null;
   rent_due_day: number | null;
 };
@@ -54,6 +56,19 @@ type RawMonthlyRoomPayment = {
   amount: number | string;
   payment_date: string;
   created_at: string;
+};
+
+type RawDepositPayment = {
+  tenancy_id: string | null;
+  room_id: string | null;
+  amount: number | string;
+};
+
+type RawDepositSubmission = {
+  tenancy_id: string | null;
+  tenant_record_id: string | null;
+  room_id: string | null;
+  amount: number | string;
 };
 
 export type RentMapStatus =
@@ -96,6 +111,7 @@ export type RentCollectionRow = {
   currentAmountDue: number;
   paidAmount: number;
   outstanding: number;
+  depositOutstanding: number;
   totalOutstanding: number;
   creditAmount: number;
   dueDate: string;
@@ -113,6 +129,7 @@ export type RentMapRoom = {
   dueDay: number | null;
   dueDate: string | null;
   outstanding: number;
+  depositOutstanding: number;
   previousOutstanding: number;
   billedAmount: number;
   paidAmount: number;
@@ -242,7 +259,7 @@ async function loadBills(
   for (let start = 0; ; start += pageSize) {
     let query = supabase
       .from("rent_bills")
-      .select("id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, bill_month, due_date, amount, paid_amount, status, created_at")
+      .select("id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, bill_month, due_date, amount, deposit_amount, paid_amount, status, created_at")
       .in("property_id", propertyIds)
       .is("removed_at", null);
 
@@ -275,7 +292,7 @@ async function loadActiveTenancies(
   for (let start = 0; ; start += pageSize) {
     const { data, error } = await supabase
       .from("tenancies")
-      .select("id, tenant_id, property_id, room_id, monthly_rental, due_day, rent_due_day")
+      .select("id, tenant_id, property_id, room_id, monthly_rental, deposit, due_day, rent_due_day")
       .in("property_id", propertyIds)
       .eq("status", "active")
       .order("created_at", { ascending: false })
@@ -413,7 +430,14 @@ export async function getRentDueMap(
   const billIdChunks = chunks(billIds);
   const tenantIdChunks = chunks(tenantIds);
 
-  const [paymentPages, submissionPages, profilePages, tenantPages] = await Promise.all([
+  const [
+    paymentPages,
+    submissionPages,
+    profilePages,
+    tenantPages,
+    depositPaymentsResult,
+    depositSubmissionsResult,
+  ] = await Promise.all([
     Promise.all(
       billIdChunks.map((ids) =>
         supabase
@@ -443,6 +467,18 @@ export async function getRentDueMap(
         supabase.from("tenants").select("id, full_name").in("id", ids),
       ),
     ),
+    supabase
+      .from("payments")
+      .select("tenancy_id, room_id, amount")
+      .in("property_id", propertyIds)
+      .in("category", ["deposit", "rental_deposit", "security_deposit"])
+      .eq("status", "confirmed"),
+    supabase
+      .from("payment_submissions")
+      .select("tenancy_id, tenant_record_id, room_id, amount")
+      .in("property_id", propertyIds)
+      .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
+      .eq("verification_status", "verified"),
   ]);
 
   const firstError = [
@@ -450,6 +486,8 @@ export async function getRentDueMap(
     ...submissionPages,
     ...profilePages,
     ...tenantPages,
+    depositPaymentsResult,
+    depositSubmissionsResult,
   ].find((result) => result.error)?.error;
 
   if (firstError) {
@@ -486,6 +524,63 @@ export async function getRentDueMap(
       tenancyByRoom.set(tenancy.room_id, tenancy);
     }
   }
+
+  const addAmount = (
+    map: Map<string, number>,
+    key: string | null,
+    amount: number | string,
+  ) => {
+    if (!key) return;
+    map.set(key, (map.get(key) ?? 0) + Number(amount ?? 0));
+  };
+  const depositPaymentsByTenancy = new Map<string, number>();
+  const depositPaymentsByRoom = new Map<string, number>();
+  const depositSubmissionsByTenancy = new Map<string, number>();
+  const depositSubmissionsByRecord = new Map<string, number>();
+  const depositSubmissionsByRoom = new Map<string, number>();
+
+  for (const payment of (depositPaymentsResult.data ?? []) as RawDepositPayment[]) {
+    addAmount(depositPaymentsByTenancy, payment.tenancy_id, payment.amount);
+    addAmount(depositPaymentsByRoom, payment.room_id, payment.amount);
+  }
+  for (const submission of (depositSubmissionsResult.data ?? []) as RawDepositSubmission[]) {
+    addAmount(depositSubmissionsByTenancy, submission.tenancy_id, submission.amount);
+    addAmount(depositSubmissionsByRecord, submission.tenant_record_id, submission.amount);
+    addAmount(depositSubmissionsByRoom, submission.room_id, submission.amount);
+  }
+
+  const depositOutstandingFor = (
+    tenancy: RawTenancy | null | undefined,
+    tenantRecord: (typeof tenantRecords)[number] | null | undefined,
+    roomId: string,
+    paidThroughInvoice = 0,
+  ) => {
+    const required = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
+    if (required <= 0) return 0;
+
+    const canonicalReceived = tenancy
+      ? depositPaymentsByTenancy.get(tenancy.id)
+        ?? depositPaymentsByRoom.get(roomId)
+        ?? 0
+      : depositPaymentsByRoom.get(roomId) ?? 0;
+    const submittedReceived = tenancy
+      ? depositSubmissionsByTenancy.get(tenancy.id)
+        ?? (tenantRecord
+          ? depositSubmissionsByRecord.get(tenantRecord.id)
+          : undefined)
+        ?? depositSubmissionsByRoom.get(roomId)
+        ?? 0
+      : (tenantRecord
+        ? depositSubmissionsByRecord.get(tenantRecord.id)
+        : undefined)
+        ?? depositSubmissionsByRoom.get(roomId)
+        ?? 0;
+    const separatelyRecorded =
+      canonicalReceived > 0 ? canonicalReceived : submittedReceived;
+    const received = Math.max(separatelyRecorded, paidThroughInvoice);
+
+    return Math.max(required - received, 0);
+  };
 
   const paymentsByBill = new Map<string, RawPayment[]>();
   for (const payment of payments) {
@@ -527,6 +622,13 @@ export async function getRentDueMap(
     const currentAmountDue = Number(bill.amount ?? 0);
     const paidAmount = Math.min(verifiedTotal, currentAmountDue);
     const outstanding = Math.max(currentAmountDue - paidAmount, 0);
+    const billedDeposit = Number(bill.deposit_amount ?? 0);
+    const depositPaidThroughInvoice = billedDeposit > 0
+      ? Math.min(
+          Math.max(verifiedTotal - currentAmountDue, 0),
+          billedDeposit,
+        )
+      : 0;
     const previousOutstanding = previousOutstandingByOwner.get(balanceOwnerKey(bill)) ?? 0;
     const pendingVerification =
       ["payment_submitted", "pending_verification", "submitted"].includes(
@@ -546,6 +648,12 @@ export async function getRentDueMap(
       : null;
     const room = roomById.get(bill.room_id);
     const property = propertyById.get(bill.property_id);
+    const depositOutstanding = depositOutstandingFor(
+      tenancy,
+      tenantRecord,
+      bill.room_id,
+      depositPaidThroughInvoice,
+    );
 
     return {
       billId: bill.id,
@@ -567,8 +675,14 @@ export async function getRentDueMap(
       currentAmountDue,
       paidAmount,
       outstanding,
-      totalOutstanding: previousOutstanding + outstanding,
-      creditAmount: Math.max(verifiedTotal - currentAmountDue, 0),
+      depositOutstanding,
+      totalOutstanding: previousOutstanding + outstanding + depositOutstanding,
+      creditAmount: Math.max(
+        verifiedTotal
+          - currentAmountDue
+          - billedDeposit,
+        0,
+      ),
       dueDate: bill.due_date,
       latestPaymentDate: billPayments[0]?.payment_date ?? null,
       paymentCount: billPayments.length,
@@ -622,7 +736,16 @@ export async function getRentDueMap(
       currentAmountDue: 0,
       paidAmount: 0,
       outstanding: 0,
-      totalOutstanding: 0,
+      depositOutstanding: depositOutstandingFor(
+        tenancy,
+        tenantRecord,
+        tenancy.room_id,
+      ),
+      totalOutstanding: depositOutstandingFor(
+        tenancy,
+        tenantRecord,
+        tenancy.room_id,
+      ),
       creditAmount: 0,
       dueDate: matchingPayments[0].payment_date,
       latestPaymentDate: matchingPayments[0].payment_date,
@@ -652,7 +775,9 @@ export async function getRentDueMap(
     let status: RentMapStatus;
 
     if (collection) {
-      status = collection.settlementStatus;
+      status = collection.depositOutstanding > 0 && collection.settlementStatus === "paid"
+        ? "partially_paid"
+        : collection.settlementStatus;
     } else if (selectedMonth !== currentMonth) {
       status = "no_bill";
     } else if (room.status === "vacant") {
@@ -680,7 +805,10 @@ export async function getRentDueMap(
         ?? tenantRecord?.due_day
         ?? null,
       dueDate: collection?.dueDate ?? null,
-      outstanding: collection?.outstanding ?? 0,
+      outstanding:
+        (collection?.outstanding ?? 0)
+        + (collection?.depositOutstanding ?? 0),
+      depositOutstanding: collection?.depositOutstanding ?? 0,
       previousOutstanding: collection?.previousOutstanding ?? 0,
       billedAmount: collection?.currentAmountDue ?? 0,
       paidAmount: collection?.paidAmount ?? 0,

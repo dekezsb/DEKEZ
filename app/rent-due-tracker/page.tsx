@@ -280,7 +280,7 @@ function CollectionDetails({
       <div>
         <h2 className="text-xl font-semibold text-[#0b1733]">Outstanding Room Details</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Only tenant rooms with a remaining balance for the selected month are shown.
+          Tenant rooms remain here while rent or deposit is still outstanding.
         </p>
       </div>
 
@@ -294,7 +294,7 @@ function CollectionDetails({
                   <th className="px-3 py-3">Room / Tenant</th>
                   <th className="px-3 py-3 text-right">Previous outstanding</th>
                   <th className="px-3 py-3 text-right">Current due</th>
-                  <th className="px-3 py-3 text-right">Current outstanding</th>
+                  <th className="px-3 py-3 text-right">Rent / deposit outstanding</th>
                   <th className="px-3 py-3">Due / Payment date</th>
                   <th className="px-3 py-3">Payment status</th>
                   {canUploadSlip ? <th className="px-3 py-3">Action</th> : null}
@@ -317,7 +317,12 @@ function CollectionDetails({
                     <td className="px-3 py-4 text-right">{money(collection.currentAmountDue)}</td>
                     <td className="px-3 py-4 text-right font-semibold text-red-700">
                       {money(collection.outstanding)}
-                      {collection.previousOutstanding > 0 ? (
+                      {collection.depositOutstanding > 0 ? (
+                        <span className="mt-1 block text-xs font-normal text-amber-700">
+                          Deposit owing: {money(collection.depositOutstanding)}
+                        </span>
+                      ) : null}
+                      {collection.previousOutstanding > 0 || collection.depositOutstanding > 0 ? (
                         <span className="mt-1 block text-xs font-normal text-muted-foreground">
                           Total: {money(collection.totalOutstanding)}
                         </span>
@@ -330,21 +335,36 @@ function CollectionDetails({
                       </p>
                     </td>
                     <td className="px-3 py-4">
-                      <CollectionBadge status={collection.paymentStatus} />
+                      {collection.settlementStatus === "paid" && collection.depositOutstanding > 0 ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                          Deposit Outstanding
+                        </span>
+                      ) : (
+                        <CollectionBadge status={collection.paymentStatus} />
+                      )}
                     </td>
                     {canUploadSlip ? (
                       <td className="px-3 py-4">
-                        <AdminPaymentSlipUpload
-                          billId={collection.billId}
-                          outstandingAmount={collection.outstanding}
-                          outstandingLabel={money(collection.outstanding)}
-                          paymentDateDefault={paymentDateDefault}
-                          propertyName={collection.propertyName}
-                          roomName={compactRoomLabel(collection.roomNumber)}
-                          selectedMonth={selectedMonth}
-                          selectedProperty={selectedProperty}
-                          tenantName={collection.tenantName}
-                        />
+                        {collection.outstanding > 0 ? (
+                          <AdminPaymentSlipUpload
+                            billId={collection.billId}
+                            outstandingAmount={collection.outstanding + collection.depositOutstanding}
+                            outstandingLabel={money(collection.outstanding + collection.depositOutstanding)}
+                            paymentDateDefault={paymentDateDefault}
+                            propertyName={collection.propertyName}
+                            roomName={compactRoomLabel(collection.roomNumber)}
+                            selectedMonth={selectedMonth}
+                            selectedProperty={selectedProperty}
+                            tenantName={collection.tenantName}
+                          />
+                        ) : (
+                          <Link
+                            href={`/properties/${collection.propertyId}/rooms/${collection.roomId}`}
+                            className="inline-flex h-9 items-center rounded-md border border-[#d9bf84] px-3 text-sm font-medium text-[#8a641d] hover:bg-[#fff8e8]"
+                          >
+                            Record deposit
+                          </Link>
+                        )}
                       </td>
                     ) : null}
                   </tr>
@@ -372,25 +392,42 @@ function CollectionDetails({
                   <p><span className="block text-xs text-muted-foreground">Current due</span>{money(collection.currentAmountDue)}</p>
                   <p><span className="block text-xs text-muted-foreground">Previous balance</span>{money(collection.previousOutstanding)}</p>
                   <p><span className="block text-xs text-muted-foreground">Current outstanding</span><span className="font-semibold text-red-700">{money(collection.outstanding)}</span></p>
+                  <p><span className="block text-xs text-muted-foreground">Deposit owing</span><span className="font-semibold text-amber-700">{money(collection.depositOutstanding)}</span></p>
+                  <p><span className="block text-xs text-muted-foreground">Total payable</span><span className="font-semibold text-red-700">{money(collection.totalOutstanding)}</span></p>
                   <p><span className="block text-xs text-muted-foreground">Due date</span>{dateLabel(collection.dueDate)}</p>
                   <p><span className="block text-xs text-muted-foreground">Latest payment</span>{dateLabel(collection.latestPaymentDate)}</p>
                 </div>
                 <div className="mt-4">
-                  <CollectionBadge status={collection.paymentStatus} />
+                  {collection.settlementStatus === "paid" && collection.depositOutstanding > 0 ? (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                      Deposit Outstanding
+                    </span>
+                  ) : (
+                    <CollectionBadge status={collection.paymentStatus} />
+                  )}
                 </div>
                 {canUploadSlip ? (
                   <div className="mt-4">
-                    <AdminPaymentSlipUpload
-                      billId={collection.billId}
-                      outstandingAmount={collection.outstanding}
-                      outstandingLabel={money(collection.outstanding)}
-                      paymentDateDefault={paymentDateDefault}
-                      propertyName={collection.propertyName}
-                      roomName={compactRoomLabel(collection.roomNumber)}
-                      selectedMonth={selectedMonth}
-                      selectedProperty={selectedProperty}
-                      tenantName={collection.tenantName}
-                    />
+                    {collection.outstanding > 0 ? (
+                      <AdminPaymentSlipUpload
+                        billId={collection.billId}
+                        outstandingAmount={collection.outstanding + collection.depositOutstanding}
+                        outstandingLabel={money(collection.outstanding + collection.depositOutstanding)}
+                        paymentDateDefault={paymentDateDefault}
+                        propertyName={collection.propertyName}
+                        roomName={compactRoomLabel(collection.roomNumber)}
+                        selectedMonth={selectedMonth}
+                        selectedProperty={selectedProperty}
+                        tenantName={collection.tenantName}
+                      />
+                    ) : (
+                      <Link
+                        href={`/properties/${collection.propertyId}/rooms/${collection.roomId}`}
+                        className="inline-flex h-9 items-center rounded-md border border-[#d9bf84] px-3 text-sm font-medium text-[#8a641d] hover:bg-[#fff8e8]"
+                      >
+                        Record deposit
+                      </Link>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -430,7 +467,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   );
   const outstandingCollections = visibleCollections.filter(
     (collection) =>
-      collection.outstanding > 0
+      collection.totalOutstanding > 0
       && collection.paymentStatus !== "pending_verification",
   );
   const propertiesWithUnpaidRooms = visibleProperties
@@ -609,8 +646,10 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                     ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {property.rooms.length} unpaid room{property.rooms.length === 1 ? "" : "s"} | Outstanding{" "}
-                    <span className="font-semibold text-red-700">{money(property.summary.totalOutstanding)}</span>
+                    {property.rooms.length} outstanding room{property.rooms.length === 1 ? "" : "s"} | Rent + deposit{" "}
+                    <span className="font-semibold text-red-700">
+                      {money(property.rooms.reduce((total, room) => total + room.outstanding, 0))}
+                    </span>
                   </p>
                 </div>
 
