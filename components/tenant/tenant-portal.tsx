@@ -583,6 +583,24 @@ export function TenantBills({
                       {money(bill.depositAmount)}
                     </p>
                   ) : null}
+                  {bill.verifiedReceipts.length ? (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase text-emerald-700">
+                        Verified receipt{bill.verifiedReceipts.length === 1 ? "" : "s"} attached
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {bill.verifiedReceipts.map((receipt) => (
+                          <DocumentPreview
+                            fileName={receipt.fileName}
+                            key={receipt.id}
+                            label={`Verified receipt ${money(receipt.amount)}`}
+                            size="sm"
+                            url={receipt.signedUrl}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-col items-start gap-3 sm:items-end">
                   <div className="text-left sm:text-right">

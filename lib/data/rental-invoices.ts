@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getVerifiedDepositPaymentMaps,
   verifiedDepositPaid,
@@ -59,6 +60,20 @@ type InvoiceTenancy = {
   checkout_date: string | null;
 };
 
+export type RentalInvoiceReceipt = {
+  id: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: string;
+  referenceNumber: string | null;
+  verifiedAt: string | null;
+  retainUntil: string | null;
+  filePath: string;
+  fileName: string;
+  contentType: string | null;
+  signedUrl: string | null;
+};
+
 export type RentalInvoiceView = {
   id: string;
   invoiceNumber: string;
@@ -94,6 +109,8 @@ export type RentalInvoiceView = {
   tenancyId: string | null;
   contractStart: string | null;
   contractEnd: string | null;
+  receipts: RentalInvoiceReceipt[];
+  receiptCount: number;
 };
 
 function numberValue(value: number | string | null | undefined) {
@@ -128,7 +145,92 @@ function billSelect() {
   ].join(", ");
 }
 
-async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
+function receiptContentType(fileName: string) {
+  if (/\.pdf$/i.test(fileName)) return "application/pdf";
+  if (/\.(?:avif|gif|jpe?g|png|webp)$/i.test(fileName)) return "image/*";
+  return null;
+}
+
+async function getInvoiceReceipts(
+  billIds: string[],
+  signUrls: boolean,
+) {
+  if (!billIds.length) return new Map<string, RentalInvoiceReceipt[]>();
+
+  const supabase = signUrls ? createAdminClient() : await createClient();
+  const { data: submissions } = await supabase
+    .from("payment_submissions")
+    .select(
+      "id, rent_bill_id, amount, payment_date, payment_method, reference_number, receipt_url, verified_at, retain_until",
+    )
+    .in("rent_bill_id", billIds)
+    .eq("verification_status", "verified")
+    .not("receipt_url", "is", null)
+    .order("payment_date", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  const submissionIds = (submissions ?? []).map((submission) => submission.id);
+  const { data: attachments } = submissionIds.length
+    ? await supabase
+        .from("payment_attachments")
+        .select("payment_submission_id, file_name, content_type")
+        .in("payment_submission_id", submissionIds)
+    : { data: [] };
+  const attachmentBySubmission = new Map(
+    (attachments ?? []).map((attachment) => [
+      attachment.payment_submission_id,
+      attachment,
+    ]),
+  );
+  const signedUrlByPath = new Map<string, string>();
+
+  if (signUrls) {
+    await Promise.all(
+      (submissions ?? []).map(async (submission) => {
+        if (!submission.receipt_url) return;
+        const { data } = await supabase.storage
+          .from("payment-receipts")
+          .createSignedUrl(submission.receipt_url, 60 * 60);
+        if (data?.signedUrl) {
+          signedUrlByPath.set(submission.receipt_url, data.signedUrl);
+        }
+      }),
+    );
+  }
+
+  const receiptsByBill = new Map<string, RentalInvoiceReceipt[]>();
+  for (const submission of submissions ?? []) {
+    if (!submission.rent_bill_id || !submission.receipt_url) continue;
+    const attachment = attachmentBySubmission.get(submission.id);
+    const fileName =
+      attachment?.file_name ??
+      submission.receipt_url.split("/").at(-1) ??
+      "Payment receipt";
+    const receipts = receiptsByBill.get(submission.rent_bill_id) ?? [];
+    receipts.push({
+      id: submission.id,
+      amount: numberValue(submission.amount),
+      paymentDate: submission.payment_date,
+      paymentMethod: submission.payment_method,
+      referenceNumber: submission.reference_number,
+      verifiedAt: submission.verified_at,
+      retainUntil: submission.retain_until,
+      filePath: submission.receipt_url,
+      fileName,
+      contentType:
+        attachment?.content_type ?? receiptContentType(fileName),
+      signedUrl: signedUrlByPath.get(submission.receipt_url) ?? null,
+    });
+    receiptsByBill.set(submission.rent_bill_id, receipts);
+  }
+
+  return receiptsByBill;
+}
+
+async function hydrateInvoices(
+  bills: BillRow[],
+  options: { signReceiptUrls?: boolean } = {},
+): Promise<RentalInvoiceView[]> {
   if (!bills.length) return [];
 
   const supabase = await createClient();
@@ -213,6 +315,10 @@ async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
     tenancyIds,
     tenantRecordIds,
   );
+  const receiptsByBill = await getInvoiceReceipts(
+    bills.map((bill) => bill.id),
+    options.signReceiptUrls ?? false,
+  );
 
   return bills.map((bill) => {
     const property = propertyById.get(bill.property_id);
@@ -250,6 +356,7 @@ async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
         : invoicePaidAmount > 0
           ? "partial"
           : bill.status;
+    const receipts = receiptsByBill.get(bill.id) ?? [];
 
     return {
       id: bill.id,
@@ -291,6 +398,8 @@ async function hydrateInvoices(bills: BillRow[]): Promise<RentalInvoiceView[]> {
         tenancy?.check_in_date ?? tenancy?.contract_start ?? null,
       contractEnd:
         tenancy?.checkout_date ?? tenancy?.contract_end ?? null,
+      receipts,
+      receiptCount: receipts.length,
     };
   });
 }
@@ -369,7 +478,11 @@ export async function getRentalInvoice(invoiceId: string) {
     .maybeSingle();
 
   if (error || !data) return null;
-  return (await hydrateInvoices([data as unknown as BillRow]))[0] ?? null;
+  return (
+    await hydrateInvoices([data as unknown as BillRow], {
+      signReceiptUrls: true,
+    })
+  )[0] ?? null;
 }
 
 export async function getRentalInvoiceArchive(input: {

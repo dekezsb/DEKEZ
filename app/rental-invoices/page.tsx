@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Paperclip } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -234,6 +234,7 @@ export default async function RentalInvoicesPage({
                       <TableHead>Amount</TableHead>
                       <TableHead>Outstanding</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Receipts</TableHead>
                       <TableHead>Retain Until</TableHead>
                       <TableHead />
                     </TableRow>
@@ -265,6 +266,16 @@ export default async function RentalInvoicesPage({
                           <Badge className={statusBadgeClass(invoice.invoiceStatus)}>
                             {invoice.invoiceStatus.replaceAll("_", " ")}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {invoice.receiptCount ? (
+                            <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
+                              <Paperclip className="h-4 w-4" />
+                              {invoice.receiptCount}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {invoiceDate(invoice.retainUntil)}
@@ -338,6 +349,14 @@ export default async function RentalInvoicesPage({
                           }
                         >
                           {money.format(invoice.outstanding)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-gray-500">Receipts</dt>
+                        <dd className={invoice.receiptCount ? "text-emerald-700" : ""}>
+                          {invoice.receiptCount
+                            ? `${invoice.receiptCount} attached`
+                            : "None"}
                         </dd>
                       </div>
                     </dl>

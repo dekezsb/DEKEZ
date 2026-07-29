@@ -490,6 +490,22 @@ export async function getTenantPortalData() {
       propertyName: one(bill.properties)?.name ?? "Property",
       roomName:
         one(bill.rooms)?.room_number ?? one(bill.rooms)?.name ?? "Room",
+      verifiedReceipts: submissions
+        .filter(
+          (submission) =>
+            submission.rent_bill_id === bill.id &&
+            submission.verification_status === "verified" &&
+            Boolean(submission.signedReceiptUrl),
+        )
+        .map((submission) => ({
+          id: submission.id,
+          amount: submission.amount,
+          paymentDate: submission.payment_date,
+          fileName:
+            submission.receipt_url?.split("/").at(-1) ??
+            "Payment receipt",
+          signedUrl: submission.signedReceiptUrl,
+        })),
     })),
     payments: payments.map((payment) => ({
       ...payment,
