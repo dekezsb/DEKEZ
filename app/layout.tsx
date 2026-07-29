@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   icons: {
     icon: "/dekez-logo.jpg",
   },
+  verification: {
+    google: "7PpoMmV8dXKBvol2cbJtvCBvnMbq2ZjITgpi7Oadc10",
+  },
 };
 
 export default function RootLayout({
