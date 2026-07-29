@@ -199,10 +199,6 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     redirect("/payments?error=proof_closed");
   }
 
-  if (amount > outstandingAmount + 0.005) {
-    redirect("/payments?error=proof_amount");
-  }
-
   const { data: existingSubmission } = await supabase
     .from("payment_submissions")
     .select("id")

@@ -35,7 +35,6 @@ type PageProps = {
 
 const uploadErrorMessages: Record<string, string> = {
   bill_not_found: "This rent bill is no longer available for payment.",
-  proof_amount: "The submitted amount cannot be more than the remaining balance.",
   proof_create: "The payment record could not be created. Please try again.",
   proof_missing: "Enter the payment details and attach a payment slip.",
   proof_pending: "A payment slip for this bill is already waiting for verification.",

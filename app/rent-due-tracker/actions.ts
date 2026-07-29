@@ -384,10 +384,6 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
-  if (amount > outstandingAmount + 0.005) {
-    redirect(rentTrackerPath(formData, "error", "proof_amount"));
-  }
-
   const { data: pendingSubmission } = await supabase
     .from("payment_submissions")
     .select("id")
