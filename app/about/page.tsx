@@ -11,7 +11,7 @@ import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
-  title: "DEKEZ Rental Management System",
+  title: "DEKEZ",
   description:
     "DEKEZ helps authorised property teams manage rooms, tenancies, rent, maintenance and compliant document archives.",
 };
@@ -74,14 +74,20 @@ export default function AboutPage() {
             DEKEZ SDN BHD
           </p>
           <h1 className="mt-3 max-w-4xl text-4xl font-bold leading-tight text-[#111827] sm:text-5xl">
-            DEKEZ Rental Management System
+            DEKEZ
           </h1>
-          <p className="mt-5 max-w-3xl text-lg leading-8 text-[#4b5563]">
-            DEKEZ is a secure room-rental management application for authorised
-            property administrators, owners, management teams, technicians and
-            tenants. It centralises daily rental operations without providing
-            public access to private property or tenant records.
-          </p>
+          <div className="mt-5 max-w-3xl">
+            <p className="text-xl font-semibold text-[#8a641d]">
+              Rental Management System
+            </p>
+            <p className="mt-3 text-lg leading-8 text-[#4b5563]">
+              DEKEZ is a secure room-rental management application for
+              authorised property administrators, owners, management teams,
+              technicians and tenants. It centralises daily rental operations
+              without providing public access to private property or tenant
+              records.
+            </p>
+          </div>
         </div>
       </section>
 
