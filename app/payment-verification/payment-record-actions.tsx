@@ -104,6 +104,10 @@ export function PaymentRecordActions({
   const [extraChargeAmount, setExtraChargeAmount] = useState(
     defaultAllocation.extra.toFixed(2),
   );
+  const [rentPricingMode, setRentPricingMode] = useState("one_time");
+  const [recurringMonthlyRent, setRecurringMonthlyRent] = useState(
+    defaultAllocation.rent.toFixed(2),
+  );
   const selectedRentalAmount = Math.max(Number(rentalAmount) || 0, 0);
   const selectedDepositAmount = Math.max(Number(depositAmount) || 0, 0);
   const selectedExtraAmount = Math.max(Number(extraChargeAmount) || 0, 0);
@@ -362,7 +366,12 @@ export function PaymentRecordActions({
                         step="0.01"
                         type="number"
                         value={rentalAmount}
-                        onChange={(event) => setRentalAmount(event.target.value)}
+                        onChange={(event) => {
+                          setRentalAmount(event.target.value);
+                          if (rentPricingMode === "recurring") {
+                            setRecurringMonthlyRent(event.target.value);
+                          }
+                        }}
                         required
                       />
                     </label>
@@ -419,6 +428,84 @@ export function PaymentRecordActions({
                       RM {allocationDifference.toFixed(2)}
                     </dd>
                   </dl>
+                </div>
+              ) : null}
+              {canCorrectPurpose && selectedRentalAmount > 0.005 ? (
+                <div className="rounded-md border border-[#d7dde5] bg-[#fbfcfe] p-4">
+                  <p className="font-semibold text-gray-950">
+                    Rental price after this verification
+                  </p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Choose whether this is only for this payment or becomes the
+                    tenant&apos;s recurring room rental from the next billing
+                    month.
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Price treatment
+                      </span>
+                      <select
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                        name="rentPricingMode"
+                        value={rentPricingMode}
+                        onChange={(event) => {
+                          const nextMode = event.target.value;
+                          setRentPricingMode(nextMode);
+                          if (nextMode === "recurring") {
+                            setRecurringMonthlyRent(rentalAmount);
+                          }
+                        }}
+                      >
+                        <option value="one_time">
+                          This payment only — do not change monthly rent
+                        </option>
+                        <option value="recurring">
+                          New recurring monthly rent
+                        </option>
+                      </select>
+                    </label>
+                    {rentPricingMode === "recurring" ? (
+                      <label className="block">
+                        <span className="text-sm font-medium text-gray-800">
+                          New monthly rental (RM)
+                        </span>
+                        <input
+                          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 font-semibold"
+                          min="0.01"
+                          name="recurringMonthlyRent"
+                          onChange={(event) =>
+                            setRecurringMonthlyRent(event.target.value)
+                          }
+                          required
+                          step="0.01"
+                          type="number"
+                          value={recurringMonthlyRent}
+                        />
+                      </label>
+                    ) : null}
+                    {rentPricingMode === "recurring" ? (
+                      <label className="block sm:col-span-2">
+                        <span className="text-sm font-medium text-gray-800">
+                          Reason for recurring price change
+                        </span>
+                        <input
+                          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                          maxLength={300}
+                          name="recurringRentReason"
+                          placeholder="Example: Approved recurring discount or revised room rate"
+                          required
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                  {rentPricingMode === "recurring" ? (
+                    <p className="mt-3 text-sm font-medium text-amber-800">
+                      After verification, this updates the room, tenancy,
+                      future invoices and the current unsigned agreement. A
+                      signed historical agreement remains protected.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {hasExtraAmount ? (

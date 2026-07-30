@@ -19,6 +19,7 @@ import {
 } from "@/lib/payments/payment-purpose";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { createRentChangeAgreement } from "@/lib/tenancy/agreement";
 import { convertTenantApplication } from "@/lib/tenancy/convert-application";
 
 function textValue(formData: FormData, key: string) {
@@ -34,6 +35,12 @@ function returnPath(formData: FormData) {
 
 function withResult(path: string, result: string) {
   return `${path}${path.includes("?") ? "&" : "?"}${result}`;
+}
+
+function followingMonth(value: string) {
+  const [year, month] = value.slice(0, 7).split("-").map(Number);
+  const next = new Date(Date.UTC(year, month, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
 async function getAdmin() {
@@ -80,6 +87,12 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const extraChargeAmountInput = textValue(formData, "extraChargeAmount");
   const rentalAmountInput = textValue(formData, "rentalAmount");
   const depositAmountInput = textValue(formData, "depositAmount");
+  const rentPricingMode = textValue(formData, "rentPricingMode");
+  const recurringMonthlyRentInput = textValue(
+    formData,
+    "recurringMonthlyRent",
+  );
+  const recurringRentReason = textValue(formData, "recurringRentReason");
   const returnTo = returnPath(formData);
 
   if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
@@ -131,6 +144,22 @@ export async function reviewPaymentSubmission(formData: FormData) {
     amountSubmittedOverride !== "" &&
     Number.isFinite(requestedAmount) &&
     Math.abs(requestedAmount - effectiveAmount) > 0.005;
+  const recurringRentRequested =
+    decision === "verified" && rentPricingMode === "recurring";
+  const recurringMonthlyRent = Number(recurringMonthlyRentInput);
+
+  if (
+    recurringRentRequested
+    && (
+      role !== "super_admin"
+      || !currentSubmission.tenancy_id
+      || !Number.isFinite(recurringMonthlyRent)
+      || recurringMonthlyRent <= 0
+      || !recurringRentReason
+    )
+  ) {
+    redirect(withResult(returnTo, "error=recurring_rent"));
+  }
   const paymentDetailsWereCorrected =
     purposeWasCorrected ||
     paymentDateWasCorrected ||
@@ -389,7 +418,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", submissionId)
-    .select("id, tenant_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, unit_id, room_id, bill_type, payment_type, amount, payment_date, payment_method, reference_number")
+    .select("id, tenant_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, unit_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number")
     .single();
 
   if (error || !submission) {
@@ -674,6 +703,118 @@ export async function reviewPaymentSubmission(formData: FormData) {
     if (paymentRows.length) {
       await supabase.from("payments").insert(paymentRows);
     }
+
+    if (
+      recurringRentRequested
+      && submission.tenancy_id
+      && submission.room_id
+    ) {
+      const { data: tenancyForRent } = await supabase
+        .from("tenancies")
+        .select("id, room_id, monthly_rent, monthly_rental")
+        .eq("id", submission.tenancy_id)
+        .single();
+      const oldMonthlyRent = Number(
+        tenancyForRent?.monthly_rental
+        ?? tenancyForRent?.monthly_rent
+        ?? 0,
+      );
+      const effectiveMonth = followingMonth(
+        submission.bill_month ?? effectiveBillMonth,
+      );
+
+      const coreUpdates = await Promise.all([
+        supabase
+          .from("tenancies")
+          .update({
+            monthly_rent: recurringMonthlyRent,
+            monthly_rental: recurringMonthlyRent,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", submission.tenancy_id),
+        supabase
+          .from("rooms")
+          .update({
+            monthly_rent: recurringMonthlyRent,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", submission.room_id),
+        supabase
+          .from("tenant_records")
+          .update({
+            monthly_rent: recurringMonthlyRent,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("room_id", submission.room_id)
+          .eq("status", "active"),
+      ]);
+
+      if (coreUpdates.some((result) => result.error)) {
+        redirect(withResult(returnTo, "error=recurring_rent"));
+      }
+
+      const { data: futureBills } = await supabase
+        .from("rent_bills")
+        .select("id, paid_amount")
+        .eq("tenancy_id", submission.tenancy_id)
+        .gte("bill_month", effectiveMonth)
+        .not("status", "in", "(paid,cancelled,waived)");
+
+      for (const futureBill of futureBills ?? []) {
+        await supabase
+          .from("rent_bills")
+          .update({
+            amount: Math.max(
+              recurringMonthlyRent,
+              Number(futureBill.paid_amount ?? 0),
+            ),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", futureBill.id);
+      }
+
+      const rentChangeAgreement = await createRentChangeAgreement(
+        supabase,
+        submission.tenancy_id,
+        user.id,
+        {
+          effectiveStartDate: effectiveMonth,
+          monthlyRent: recurringMonthlyRent,
+        },
+      );
+      let agreementSyncStatus:
+        | "updated_unsigned"
+        | "created_amendment"
+        | "signed_history_preserved"
+        | "not_found" = "not_found";
+
+      if (rentChangeAgreement) {
+        agreementSyncStatus = rentChangeAgreement.created
+          ? "created_amendment"
+          : "updated_unsigned";
+      }
+
+      const { error: adjustmentError } = await supabase
+        .from("tenancy_rent_adjustments")
+        .insert({
+          tenancy_id: submission.tenancy_id,
+          room_id: submission.room_id,
+          payment_submission_id: submission.id,
+          agreement_id: rentChangeAgreement?.id ?? null,
+          old_monthly_rent: oldMonthlyRent,
+          new_monthly_rent: recurringMonthlyRent,
+          effective_month: effectiveMonth,
+          change_type:
+            recurringMonthlyRent >= oldMonthlyRent ? "increase" : "discount",
+          reason: recurringRentReason,
+          agreement_sync_status: agreementSyncStatus,
+          approved_by: user.id,
+        });
+
+      if (adjustmentError) {
+        redirect(withResult(returnTo, "error=recurring_rent"));
+      }
+    }
   } else {
     if (submission.rent_bill_id) {
       const { data: bill } = await supabase
@@ -706,6 +847,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   revalidatePath("/payments");
   revalidatePath("/dashboard");
   revalidatePath("/e-tenancy");
+  revalidatePath("/tenancy-agreements");
   revalidatePath("/onboarding");
   if (submission.rent_bill_id) {
     revalidatePath(`/invoices/${submission.rent_bill_id}`);

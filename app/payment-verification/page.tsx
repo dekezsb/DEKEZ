@@ -91,6 +91,8 @@ const errorMessages: Record<string, string> = {
     "Enter a valid extra-charge amount greater than RM 0.00.",
   allocation_amount:
     "Enter valid Rental, Deposit and Extra Charge amounts. Their combined total must be greater than RM 0.00.",
+  recurring_rent:
+    "The recurring rental change could not be completed. Check the new monthly rent and reason, then try again.",
   correction_bill_missing:
     "No invoice exists for that tenancy and billing month. Create or select the correct invoice before verifying.",
   correction_bill_paid:

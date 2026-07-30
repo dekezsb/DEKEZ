@@ -567,6 +567,58 @@ export async function createAgreementForTenancy(
   return agreement.id;
 }
 
+export async function createRentChangeAgreement(
+  supabase: SupabaseClient,
+  tenancyId: string,
+  userId: string,
+  options: {
+    effectiveStartDate: string;
+    monthlyRent: number;
+  },
+) {
+  const context = await loadTenancyContext(supabase, tenancyId);
+  if (!context || !Number.isFinite(options.monthlyRent) || options.monthlyRent <= 0) {
+    return null;
+  }
+
+  const { data: agreements } = await supabase
+    .from("tenancy_agreements")
+    .select("term_end_date")
+    .eq("tenancy_id", tenancyId)
+    .not("term_end_date", "is", null)
+    .gte("term_end_date", options.effectiveStartDate)
+    .order("term_end_date", { ascending: false })
+    .limit(1);
+  const existingEndDate = agreements?.[0]?.term_end_date ?? null;
+  const fallbackDuration =
+    context.contract_duration_months ??
+    renewalDurationMonths(context.properties?.is_commercial ?? false);
+  const endDate =
+    existingEndDate ??
+    context.checkout_date ??
+    context.tenancy_end_date ??
+    context.contract_end ??
+    context.end_date ??
+    calculateTermEndDate(options.effectiveStartDate, fallbackDuration);
+  const duration = durationForTerm(
+    options.effectiveStartDate,
+    endDate,
+    fallbackDuration,
+  );
+
+  return createTermAgreement(supabase, context, userId, {
+    termType: "renewal",
+    agreementType: agreementTypeForProperty(
+      context.properties?.is_commercial ?? false,
+    ),
+    startDate: options.effectiveStartDate,
+    endDate,
+    durationMonths: duration,
+    monthlyRent: options.monthlyRent,
+    updateExistingRent: true,
+  });
+}
+
 export async function prepareNextRenewalAgreement(
   supabase: SupabaseClient,
   tenancyId: string,
