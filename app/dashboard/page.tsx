@@ -29,6 +29,9 @@ import { getDashboardSummary } from "@/lib/data/organization";
 import { getOwnerPortalSummary, getStaffPortalSummary } from "@/lib/data/portal";
 import { getRentDueSummary } from "@/lib/data/rent-due";
 import { getTenantPortalData } from "@/lib/data/tenant-portal";
+import { getUserLocale } from "@/lib/i18n-server";
+import { portalText } from "@/lib/i18n-portal";
+import type { AppLocale } from "@/lib/i18n";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -114,6 +117,7 @@ export default async function DashboardPage({
     "cleaning_staff",
     "tenant",
   ]);
+  const locale = await getUserLocale(role);
 
   if (role === "tenant") {
     return (
@@ -146,7 +150,7 @@ export default async function DashboardPage({
     return (
       <>
         <AccessNotice show={query.error === "access_denied"} />
-        <ManagementDashboard query={query} />
+        <ManagementDashboard locale={locale} query={query} />
       </>
     );
   }
@@ -169,8 +173,10 @@ function AccessNotice({ show }: { show: boolean }) {
 }
 
 async function ManagementDashboard({
+  locale,
   query,
 }: {
+  locale: AppLocale;
   query: {
     rentBucket?: string;
   };
@@ -184,43 +190,46 @@ async function ManagementDashboard({
     <section className="space-y-6">
       <div>
         <p className="text-xs font-semibold uppercase text-[#b98a2c]">
-          Management Team
+          {portalText(locale, "Management Team")}
         </p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
-          Daily Operations
+          {portalText(locale, "Daily Operations")}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          Follow up rent and deposits, process maintenance work, submit claims
-          and verify tenant registrations from one mobile workspace.
+          {portalText(
+            locale,
+            "Follow up rent and deposits, process maintenance work, submit claims and verify tenant registrations from one mobile workspace.",
+          )}
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <ModuleCard
-          description="Open reports, update work status and submit completion photos."
+          description={portalText(locale, "Open reports, update work status and submit completion photos.")}
           href="/maintenance"
           icon={Wrench}
-          title="Maintenance"
+          title={portalText(locale, "Maintenance")}
         />
         <ModuleCard
-          description="Review tenant registrations and signed tenancy agreements."
+          description={portalText(locale, "Review tenant registrations and signed tenancy agreements.")}
           href="/verification"
           icon={ClipboardCheck}
-          title="Verification"
+          title={portalText(locale, "Verification")}
         />
         <ModuleCard
-          description="Submit repair receipts and follow reimbursement status."
+          description={portalText(locale, "Submit repair receipts and follow reimbursement status.")}
           href="/claims"
           icon={ReceiptText}
-          title="Claim Bills"
+          title={portalText(locale, "Claim Bills")}
         />
       </div>
 
       <CompactRentDueTracker
+        locale={locale}
         selectedBucket={query.rentBucket}
         summary={rentDueSummary}
       />
-      <DepositOutstanding canManage summary={depositSummary} />
+      <DepositOutstanding canManage locale={locale} summary={depositSummary} />
     </section>
   );
 }

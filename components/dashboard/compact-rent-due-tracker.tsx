@@ -9,8 +9,11 @@ import {
   type RentDueSummary,
 } from "@/lib/data/rent-due";
 import { formatMalaysiaDate } from "@/lib/date-format";
+import { portalText } from "@/lib/i18n-portal";
+import type { AppLocale } from "@/lib/i18n";
 
 type CompactRentDueTrackerProps = {
+  locale?: AppLocale;
   selectedBucket?: string;
   summary: RentDueSummary;
 };
@@ -98,17 +101,18 @@ function reminderMessage(bill: RentDueBill) {
   return `Hello ${bill.tenantName}, this is a reminder that your rental of ${money.format(bill.outstandingAmount)} for ${room} is due on ${dueDate}. Please make payment and upload your payment slip through your DEKEZ tenant portal.`;
 }
 
-function selectionDescription(bucket: BucketDefinition) {
+function selectionDescription(bucket: BucketDefinition, locale: AppLocale) {
   if (bucket.group === "before") {
-    return "Send an early reminder before the rent becomes due.";
+    return portalText(locale, "Send an early reminder before the rent becomes due.");
   }
   if (bucket.group === "due") {
-    return "Cash received goes into company cash in hand. Online asks for the transfer slip.";
+    return portalText(locale, "Cash received goes into company cash in hand. Online asks for the transfer slip.");
   }
-  return "Follow up overdue rent or record the payment received.";
+  return portalText(locale, "Follow up overdue rent or record the payment received.");
 }
 
 export function CompactRentDueTracker({
+  locale = "en",
   selectedBucket,
   summary,
 }: CompactRentDueTrackerProps) {
@@ -151,14 +155,16 @@ export function CompactRentDueTracker({
       <CardContent className="p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-lg font-semibold text-[#07142f]">
-            Rent Due Tracker
+            {portalText(locale, "Rent Due Tracker")}
           </h2>
           <div className="flex flex-wrap items-center gap-3 text-sm text-[#496386]">
             <span>
-              {actionableSummary.totalDueOverdue} due / overdue · {actionableSummary.totalComingUp} coming up
+              {actionableSummary.totalDueOverdue} {portalText(locale, "due")} /{" "}
+              {portalText(locale, "Overdue").toLowerCase()} ·{" "}
+              {actionableSummary.totalComingUp} {portalText(locale, "coming up")}
             </span>
             <Button asChild size="sm" variant="outline">
-              <Link href="/rent-due-tracker">Open full tracker</Link>
+              <Link href="/rent-due-tracker">{portalText(locale, "Open full tracker")}</Link>
             </Button>
           </div>
         </div>
@@ -166,9 +172,9 @@ export function CompactRentDueTracker({
         <div className="mt-5 overflow-x-auto pb-2">
           <div className="min-w-max">
             <div className="mb-1 grid grid-cols-[repeat(16,56px)] gap-1 text-[10px] font-semibold uppercase">
-              <span className="col-span-7 text-[#8392aa]">Before due</span>
-              <span className="text-center text-amber-600">Due</span>
-              <span className="col-span-8 text-center text-red-500">Overdue</span>
+              <span className="col-span-7 text-[#8392aa]">{portalText(locale, "Before due")}</span>
+              <span className="text-center text-amber-600">{portalText(locale, "Due")}</span>
+              <span className="col-span-8 text-center text-red-500">{portalText(locale, "Overdue")}</span>
             </div>
             <div className="grid grid-cols-[repeat(16,56px)] gap-1">
               {buckets.map((item) => {
@@ -194,10 +200,11 @@ export function CompactRentDueTracker({
         <div className="mt-4 rounded-lg border border-[#d7dde5] bg-[#fbfcfe] px-4 py-3">
           <div>
             <h3 className="font-semibold text-[#07142f]">
-              {definition.title} · {matchingBills.length} tenant{matchingBills.length === 1 ? "" : "s"}
+              {portalText(locale, definition.title)} · {matchingBills.length}{" "}
+              {portalText(locale, matchingBills.length === 1 ? "tenant" : "tenants")}
             </h3>
             <p className="mt-1 text-xs text-[#5f718c]">
-              {selectionDescription(definition)}
+              {selectionDescription(definition, locale)}
             </p>
           </div>
 
@@ -216,7 +223,7 @@ export function CompactRentDueTracker({
                       </span>
                     </p>
                     <p className="mt-1 text-sm text-[#496386]">
-                      {money.format(bill.outstandingAmount)} · due{" "}
+                      {money.format(bill.outstandingAmount)} · {portalText(locale, "due")}{" "}
                       {formatMalaysiaDate(bill.due_date)}
                       {bill.tenantPhone ? ` · ${bill.tenantPhone}` : ""}
                     </p>
@@ -241,7 +248,7 @@ export function CompactRentDueTracker({
                     />
                   ) : (
                     <Button asChild size="sm" variant="outline">
-                      <Link href="/rent-due-tracker">Open tracker</Link>
+                      <Link href="/rent-due-tracker">{portalText(locale, "Open tracker")}</Link>
                     </Button>
                   )}
                 </div>
@@ -249,7 +256,7 @@ export function CompactRentDueTracker({
             </div>
           ) : (
             <p className="mt-4 rounded-md bg-white px-3 py-4 text-sm text-[#5f718c]">
-              No tenants in this category.
+              {portalText(locale, "No tenants in this category.")}
             </p>
           )}
 

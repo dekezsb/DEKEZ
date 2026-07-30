@@ -9,6 +9,8 @@ import type {
   DepositOutstandingRow,
   DepositOutstandingSummary,
 } from "@/lib/data/deposit-outstanding";
+import { portalText } from "@/lib/i18n-portal";
+import type { AppLocale } from "@/lib/i18n";
 
 const money = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -44,9 +46,11 @@ function paymentHref(row: DepositOutstandingRow, paymentMethod: string) {
 
 export function DepositOutstanding({
   canManage,
+  locale = "en",
   summary,
 }: {
   canManage: boolean;
+  locale?: AppLocale;
   summary: DepositOutstandingSummary;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -57,10 +61,12 @@ export function DepositOutstanding({
     <Card className="mx-auto max-w-4xl border-[#d7dde5] bg-white shadow-sm">
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
-          <CardTitle>Deposit Outstanding</CardTitle>
+          <CardTitle>{portalText(locale, "Deposit Outstanding")}</CardTitle>
           <p className="mt-2 text-sm text-[#496386]">
-            {summary.tenantCount} tenant{summary.tenantCount === 1 ? "" : "s"} still
-            owe {money.format(summary.totalOutstanding)} in total.
+            {summary.tenantCount}{" "}
+            {portalText(locale, summary.tenantCount === 1 ? "tenant" : "tenants")}{" "}
+            {portalText(locale, "still owe")} {money.format(summary.totalOutstanding)}{" "}
+            {portalText(locale, "in total")}.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -72,7 +78,7 @@ export function DepositOutstanding({
             type="button"
             variant="outline"
           >
-            {expanded ? "Hide" : "Show"}
+            {portalText(locale, expanded ? "Hide" : "Show")}
           </Button>
         </div>
       </CardHeader>
@@ -102,10 +108,11 @@ export function DepositOutstanding({
                         - {row.propertyName} - {row.roomNumber}
                       </span>
                       <p className="mt-1 text-sm text-[#496386]">
-                        Deposit {money.format(row.deposit)} - received{" "}
+                        {portalText(locale, "Deposit")} {money.format(row.deposit)} -{" "}
+                        {portalText(locale, "received")}{" "}
                         {money.format(row.depositReceived)} -{" "}
                         <span className="font-semibold text-red-600">
-                          outstanding {money.format(row.depositOutstanding)}
+                          {portalText(locale, "outstanding")} {money.format(row.depositOutstanding)}
                         </span>
                       </p>
                     </div>
@@ -123,12 +130,12 @@ export function DepositOutstanding({
                         <>
                           <Button asChild size="sm">
                             <Link href={paymentHref(row, "cash")}>
-                              Cash received
+                              {portalText(locale, "Cash received")}
                             </Link>
                           </Button>
                           <Button asChild size="sm" variant="outline">
                             <Link href={paymentHref(row, "bank_transfer")}>
-                              Online received
+                              {portalText(locale, "Online received")}
                             </Link>
                           </Button>
                         </>
@@ -136,7 +143,7 @@ export function DepositOutstanding({
                         <Button asChild size="sm" variant="outline">
                           <Link href={`/tenants/${row.tenantKey}`}>
                             <Eye aria-hidden="true" className="h-4 w-4" />
-                            View details
+                            {portalText(locale, "View details")}
                           </Link>
                         </Button>
                       )}
@@ -152,7 +159,7 @@ export function DepositOutstanding({
                     variant="outline"
                   >
                     {showAll
-                      ? "Show first 10"
+                      ? portalText(locale, "Show first 10")
                       : `Show all ${summary.rows.length}`}
                   </Button>
                 </div>
@@ -160,7 +167,7 @@ export function DepositOutstanding({
             </div>
           ) : (
             <p className="text-sm font-medium text-emerald-700">
-              No outstanding tenant deposits.
+              {portalText(locale, "No outstanding tenant deposits.")}
             </p>
           )}
         </CardContent>
