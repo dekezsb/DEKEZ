@@ -1,5 +1,5 @@
 import { Link } from "@/components/app-link";
-import { Archive, FileText } from "lucide-react";
+import { Archive, FileText, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,8 +49,8 @@ export type AgreementArchiveItem = {
         checkout_date: string | null;
         tenants: { full_name: string } | { full_name: string }[] | null;
         properties:
-          | { name: string; property_code: string | null }
-          | { name: string; property_code: string | null }[]
+          | { name: string; property_code: string | null; area: string | null }
+          | { name: string; property_code: string | null; area: string | null }[]
           | null;
         rooms:
           | { name: string | null; room_number: string }
@@ -62,8 +62,8 @@ export type AgreementArchiveItem = {
         checkout_date: string | null;
         tenants: { full_name: string } | { full_name: string }[] | null;
         properties:
-          | { name: string; property_code: string | null }
-          | { name: string; property_code: string | null }[]
+          | { name: string; property_code: string | null; area: string | null }
+          | { name: string; property_code: string | null; area: string | null }[]
           | null;
         rooms:
           | { name: string | null; room_number: string }
@@ -99,6 +99,8 @@ function details(agreement: AgreementArchiveItem) {
       property?.name ??
       property?.property_code ??
       "Property",
+    propertyCode: property?.property_code ?? "",
+    area: property?.area ?? "",
     room:
       agreement.room_name_snapshot ??
       room?.room_number ??
@@ -112,23 +114,45 @@ function details(agreement: AgreementArchiveItem) {
 export function AgreementArchive({
   agreements,
   occupancy,
+  searchQuery = "",
   canManage = false,
 }: {
   agreements: AgreementArchiveItem[];
   occupancy: string;
+  searchQuery?: string;
   canManage?: boolean;
 }) {
   const selected =
     occupancy === "current" || occupancy === "checked_out" ? occupancy : "all";
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const filtered = agreements.filter((agreement) => {
     const checkedOut = isCheckedOut(agreement);
     if (selected === "current") {
-      return !checkedOut;
+      if (checkedOut) {
+        return false;
+      }
     }
     if (selected === "checked_out") {
-      return checkedOut;
+      if (!checkedOut) {
+        return false;
+      }
     }
-    return true;
+    if (!normalizedSearch) {
+      return true;
+    }
+    const item = details(agreement);
+    return [
+      item.tenant,
+      item.property,
+      item.propertyCode,
+      item.area,
+      item.room,
+      `room ${item.room}`,
+      `r${item.room}`,
+    ]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(normalizedSearch);
   });
 
   return (
@@ -166,9 +190,28 @@ export function AgreementArchive({
               <option value="checked_out">Checked-out tenants</option>
             </select>
           </label>
-          <Button type="submit" variant="outline">
-            Apply filter
+          <label className="grid min-w-64 flex-1 gap-1.5 text-sm font-medium">
+            Tenant, area or room
+            <input
+              className="w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+              defaultValue={searchQuery}
+              name="q"
+              placeholder="Search name, area, property or room"
+              type="search"
+            />
+          </label>
+          <Button type="submit">
+            <Search className="h-4 w-4" />
+            Search
           </Button>
+          {normalizedSearch || selected !== "all" ? (
+            <Button asChild variant="outline">
+              <Link href="/tenancy-agreements">
+                <X className="h-4 w-4" />
+                Clear
+              </Link>
+            </Button>
+          ) : null}
         </form>
 
         <div className="hidden overflow-x-auto md:block">

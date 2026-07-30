@@ -10,6 +10,7 @@ import { RegenerateMasterButton } from "./regenerate-master-button";
 type PageProps = {
   searchParams: Promise<{
     occupancy?: string;
+    q?: string;
     regenerated?: string;
     skipped?: string;
     errors?: string;
@@ -95,6 +96,7 @@ export default async function TenancyAgreementsPage({
       <AgreementArchive
         agreements={archive.agreements}
         occupancy={params.occupancy ?? "all"}
+        searchQuery={params.q ?? ""}
         canManage={role !== "owner"}
       />
     </section>

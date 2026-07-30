@@ -11,8 +11,8 @@ type TenancyRow = {
   checkout_date: string | null;
   tenants: { full_name: string } | { full_name: string }[] | null;
   properties:
-    | { name: string; property_code: string | null }
-    | { name: string; property_code: string | null }[]
+    | { name: string; property_code: string | null; area: string | null }
+    | { name: string; property_code: string | null; area: string | null }[]
     | null;
   rooms:
     | { name: string | null; room_number: string }
@@ -58,7 +58,7 @@ export async function loadTenancyAgreementArchive(
   const tenanciesResult = await supabase
     .from("tenancies")
     .select(
-      "id, status, checkout_date, tenants(full_name), properties(name, property_code), rooms!tenancies_room_id_fkey(name, room_number)",
+      "id, status, checkout_date, tenants(full_name), properties(name, property_code, area), rooms!tenancies_room_id_fkey(name, room_number)",
     )
     .in("id", tenancyIds);
 
