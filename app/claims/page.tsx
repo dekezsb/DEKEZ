@@ -14,6 +14,7 @@ import { getCurrentUser } from "@/lib/data/organization";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 type PageProps = {
@@ -38,8 +39,18 @@ function single<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function claimLabel(status: string, expenseStatus?: string | null) {
-  if (expenseStatus === "paid") return "Paid";
+function claimLabel(
+  status: string,
+  fundingSource: string,
+  reimbursementStatus?: string | null,
+) {
+  if (fundingSource === "staff_personal" && reimbursementStatus === "paid") {
+    return "Paid back";
+  }
+  if (fundingSource === "staff_personal" && reimbursementStatus === "owed") {
+    return "Company owes you";
+  }
+  if (status === "paid") return "Paid back";
   if (status === "approved") return "Verified";
   if (status === "information_requested") return "Information requested";
   if (status === "rejected") return "Rejected";
@@ -67,7 +78,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
       supabase
         .from("claims")
         .select(
-          "id, property_id, room_id, description, total_amount, funding_source, status, submitted_at, rejection_reason, properties(name), rooms(name, room_number)",
+          "id, property_id, room_id, description, total_amount, funding_source, bill_date, status, submitted_at, rejection_reason, properties(name), rooms(name, room_number)",
         )
         .eq("submitted_by", user.id)
         .order("submitted_at", { ascending: false }),
@@ -75,25 +86,48 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
 
   const claims = claimsResult.data ?? [];
   const claimIds = claims.map((claim) => claim.id);
-  const [attachmentsResult, expensesResult] = claimIds.length
+  const [attachmentsResult, liabilitiesResult] = claimIds.length
     ? await Promise.all([
         supabase
           .from("claim_attachments")
           .select("id, claim_id, bucket_name, file_path, content_type")
           .in("claim_id", claimIds),
         supabase
-          .from("expenses")
-          .select("claim_id, status")
+          .from("staff_reimbursement_liabilities")
+          .select("id, claim_id, amount, status, owed_at, paid_at, payout_id")
           .in("claim_id", claimIds),
       ])
     : [{ data: [] }, { data: [] }];
-
-  const expenseByClaim = new Map(
-    (expensesResult.data ?? []).map((expense) => [
-      expense.claim_id,
-      expense.status,
+  const liabilityByClaim = new Map(
+    (liabilitiesResult.data ?? []).map((liability) => [
+      liability.claim_id,
+      liability,
     ]),
   );
+  const payoutIds = [
+    ...new Set(
+      (liabilitiesResult.data ?? [])
+        .map((liability) => liability.payout_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const { data: payouts } = payoutIds.length
+    ? await supabase
+        .from("staff_reimbursement_payouts")
+        .select("id, total_amount, payment_source, paid_on, reference_number, proof_bucket_name, proof_file_path, proof_content_type, retain_until")
+        .in("id", payoutIds)
+    : { data: [] };
+  const payoutById = new Map(
+    (payouts ?? []).map((payout) => [payout.id, payout]),
+  );
+  const payoutProofs = new Map<string, string | null>();
+  const storageAdmin = createAdminClient();
+  for (const payout of payouts ?? []) {
+    const { data } = await storageAdmin.storage
+      .from(payout.proof_bucket_name)
+      .createSignedUrl(payout.proof_file_path, 60 * 10);
+    payoutProofs.set(payout.id, data?.signedUrl ?? null);
+  }
   const attachmentsByClaim = new Map<
     string,
     {
@@ -118,9 +152,12 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
     attachmentsByClaim.set(attachment.claim_id, list);
   }
 
-  const paidCount = claims.filter(
-    (claim) => expenseByClaim.get(claim.id) === "paid",
-  ).length;
+  const amountOwing = (liabilitiesResult.data ?? [])
+    .filter((liability) => liability.status === "owed")
+    .reduce((total, liability) => total + Number(liability.amount), 0);
+  const amountPaidBack = (liabilitiesResult.data ?? [])
+    .filter((liability) => liability.status === "paid")
+    .reduce((total, liability) => total + Number(liability.amount), 0);
   const pendingCount = claims.filter(
     (claim) => claim.status === "pending_owner_approval",
   ).length;
@@ -138,7 +175,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <Clock3 className="h-5 w-5 text-[#b98a2c]" />
@@ -152,8 +189,21 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
           <CardContent className="flex items-center gap-3 p-4">
             <CheckCircle2 className="h-5 w-5 text-emerald-600" />
             <div>
-              <p className="text-xs text-gray-500">Paid</p>
-              <p className="text-xl font-semibold">{paidCount}</p>
+              <p className="text-xs text-gray-500">Company owes you</p>
+              <p className="text-xl font-semibold text-red-700">
+                {money(amountOwing)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <div>
+              <p className="text-xs text-gray-500">Paid back</p>
+              <p className="text-xl font-semibold text-emerald-700">
+                {money(amountPaidBack)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -203,12 +253,19 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
               {claims.map((claim) => {
                 const property = single(claim.properties);
                 const room = single(claim.rooms);
-                const expenseStatus = expenseByClaim.get(claim.id);
-                const label = claimLabel(claim.status, expenseStatus);
+                const liability = liabilityByClaim.get(claim.id);
+                const payout = liability?.payout_id
+                  ? payoutById.get(liability.payout_id)
+                  : undefined;
+                const label = claimLabel(
+                  claim.status,
+                  claim.funding_source,
+                  liability?.status,
+                );
                 return (
                   <article
                     className={`grid gap-3 rounded-md border p-4 sm:grid-cols-[1fr_auto] sm:items-center ${
-                      label === "Paid"
+                      label === "Paid back"
                         ? "border-emerald-200 bg-emerald-50"
                         : "border-[#d7dde5] bg-white"
                     }`}
@@ -220,7 +277,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
                         <h2 className="font-semibold">{claim.description}</h2>
                         <Badge
                           className={
-                            label === "Paid"
+                            label === "Paid back"
                               ? "bg-emerald-100 text-emerald-700"
                               : statusBadgeClass(claim.status)
                           }
@@ -237,11 +294,33 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
                         {money(claim.total_amount ?? 0)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        {formatMalaysiaDate(claim.submitted_at)} ·{" "}
+                        Bill date {formatMalaysiaDate(claim.bill_date)} ·{" "}
                         {claim.funding_source === "staff_personal"
                           ? "My own money"
                           : "Company money"}
                       </p>
+                      {liability?.status === "owed" ? (
+                        <p className="mt-2 font-semibold text-red-700">
+                          Company still owes you {money(liability.amount)}
+                        </p>
+                      ) : null}
+                      {liability?.status === "paid" && payout ? (
+                        <div className="mt-2 space-y-1 text-sm text-emerald-700">
+                          <p className="font-semibold">
+                            Paid back {formatMalaysiaDate(payout.paid_on)}
+                          </p>
+                          <p>
+                            Lump-sum payout {money(payout.total_amount)}
+                            {payout.reference_number
+                              ? ` · ${payout.reference_number}`
+                              : ""}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Audit documents retained until{" "}
+                            {formatMalaysiaDate(payout.retain_until)}
+                          </p>
+                        </div>
+                      ) : null}
                       {claim.rejection_reason ? (
                         <p className="mt-2 text-sm text-red-600">
                           {claim.rejection_reason}
@@ -262,6 +341,19 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
                           />
                         ),
                       )}
+                      {payout ? (
+                        <DocumentPreview
+                          contentType={payout.proof_content_type}
+                          fileName={
+                            payout.proof_file_path.split("/").at(-1) ??
+                            "Payout proof"
+                          }
+                          label="Payout proof"
+                          showName={false}
+                          size="sm"
+                          url={payoutProofs.get(payout.id) ?? null}
+                        />
+                      ) : null}
                     </div>
                   </article>
                 );

@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DocumentPreview } from "@/components/ui/document-preview";
+import { StaffReimbursementPayoutForm } from "@/components/maintenance/staff-reimbursement-payout-form";
 import {
   Table,
   TableBody,
@@ -70,6 +71,7 @@ type PageProps = {
     method?: string;
     occupancy?: string;
     agreement_verified?: string;
+    payout_recorded?: string;
   }>;
 };
 
@@ -103,6 +105,13 @@ const errorMessages: Record<string, string> = {
   claim_missing: "Choose a claim action and include a reason when required.",
   claim_review: "The claim could not be updated.",
   claim_expense: "The approved claim could not be added to Expense Bills.",
+  claim_reimbursement:
+    "The staff reimbursement balance could not be recorded.",
+  payout_missing:
+    "Choose a payout date and source, then attach an image or PDF proof no larger than 3 MB.",
+  payout_changed:
+    "The outstanding total changed before payout. Refresh and review the balance again.",
+  payout_proof: "The staff payout proof could not be stored.",
   agreement_missing: "The tenancy agreement could not be found.",
   whatsapp_failed: "The WhatsApp request could not be sent. The failed attempt was logged.",
   renewal_missing: "The active tenancy does not have enough information for renewal.",
@@ -157,6 +166,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     tenantApplicationsResult,
     claimsResult,
     claimExpensesResult,
+    reimbursementLiabilitiesResult,
+    reimbursementPayoutsResult,
     paymentSubmissionsResult,
     profilesResult,
     profileDocumentsResult,
@@ -178,16 +189,26 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .order("submitted_at", { ascending: false }),
     supabase
       .from("claims")
-      .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, status, submitted_at, reviewed_at, rejection_reason, properties(name), rooms(name, room_number), maintenance_tickets(ticket_number), claim_attachments(id, bucket_name, file_path, content_type)")
+      .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, bill_date, status, submitted_at, reviewed_at, rejection_reason, properties(name), rooms(name, room_number), maintenance_tickets(ticket_number), claim_attachments(id, bucket_name, file_path, content_type)")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("expenses")
       .select("claim_id, funding_source, amount, status")
       .not("claim_id", "is", null),
     supabase
+      .from("staff_reimbursement_liabilities")
+      .select("id, claim_id, expense_id, staff_id, amount, status, owed_at, paid_at, payout_id")
+      .order("owed_at", { ascending: true }),
+    supabase
+      .from("staff_reimbursement_payouts")
+      .select("id, staff_id, total_amount, payment_source, paid_on, reference_number, notes, proof_bucket_name, proof_file_path, proof_content_type, recorded_by, created_at")
+      .order("paid_on", { ascending: false }),
+    supabase
       .from("payment_submissions")
       .select("id, verification_status"),
-    supabase.from("profiles").select("id, full_name, phone"),
+    supabase
+      .from("profiles")
+      .select("id, full_name, phone, bank_name, bank_account_holder, bank_account_number"),
     supabase
       .from("profile_documents")
       .select("id, profile_id, document_type, file_path, file_name, content_type, verification_status")
@@ -200,6 +221,9 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const tenantApplications = tenantApplicationsResult.data ?? [];
   const claims = claimsResult.data ?? [];
   const claimExpenses = claimExpensesResult.data ?? [];
+  const reimbursementLiabilities =
+    reimbursementLiabilitiesResult.data ?? [];
+  const reimbursementPayouts = reimbursementPayoutsResult.data ?? [];
   const agreementArchive = await loadTenancyAgreementArchive(supabase);
   const agreements = agreementArchive.agreements;
   const paymentSubmissions = paymentSubmissionsResult.data ?? [];
@@ -215,6 +239,13 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       signedUrl: string | null;
     }[]
   >();
+  const payoutProofs = new Map<string, string | null>();
+  for (const payout of reimbursementPayouts) {
+    const { data } = await supabase.storage
+      .from(payout.proof_bucket_name)
+      .createSignedUrl(payout.proof_file_path, 60 * 10);
+    payoutProofs.set(payout.id, data?.signedUrl ?? null);
+  }
   for (const claim of claims) {
     for (const attachment of claim.claim_attachments ?? []) {
       const { data } = await supabase.storage
@@ -371,13 +402,16 @@ export default async function VerificationPage({ searchParams }: PageProps) {
         />
       ) : null}
 
-      {activeView === "claims" ? (
-        <ClaimBills
-          attachmentsByClaim={claimAttachments}
-          claims={claims}
-          expenses={claimExpenses}
-          profiles={profiles}
-        />
+        {activeView === "claims" ? (
+          <ClaimBills
+            attachmentsByClaim={claimAttachments}
+            claims={claims}
+            expenses={claimExpenses}
+            liabilities={reimbursementLiabilities}
+            payoutProofs={payoutProofs}
+            payouts={reimbursementPayouts}
+            profiles={profiles}
+          />
       ) : null}
 
       {activeView === "agreements" ? (
@@ -402,6 +436,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> }) {
   const success = params.reviewed
     ? "Verification record updated."
+    : params.payout_recorded
+      ? "Staff lump-sum payout recorded. All linked claims are now paid back."
     : params.agreement_verified
       ? "Signed tenancy agreement verified."
     : params.sent
@@ -770,6 +806,9 @@ function ClaimBills({
   attachmentsByClaim,
   claims,
   expenses,
+  liabilities,
+  payoutProofs,
+  payouts,
   profiles,
 }: {
   attachmentsByClaim: Map<
@@ -789,6 +828,7 @@ function ClaimBills({
     total_amount: number | string | null;
     description: string | null;
     funding_source: string;
+    bill_date: string;
     status: string;
     submitted_at: string;
     reviewed_at: string | null;
@@ -809,11 +849,63 @@ function ClaimBills({
     amount: number | string;
     status: string;
   }[];
+  liabilities: {
+    id: string;
+    claim_id: string;
+    expense_id: string;
+    staff_id: string;
+    amount: number | string;
+    status: string;
+    owed_at: string;
+    paid_at: string | null;
+    payout_id: string | null;
+  }[];
+  payoutProofs: Map<string, string | null>;
+  payouts: {
+    id: string;
+    staff_id: string;
+    total_amount: number | string;
+    payment_source: string;
+    paid_on: string;
+    reference_number: string | null;
+    notes: string | null;
+    proof_bucket_name: string;
+    proof_file_path: string;
+    proof_content_type: string | null;
+    recorded_by: string;
+    created_at: string;
+  }[];
   profiles: Map<
     string,
-    { id: string; full_name: string | null; phone: string | null }
+    {
+      id: string;
+      full_name: string | null;
+      phone: string | null;
+      bank_name: string | null;
+      bank_account_holder: string | null;
+      bank_account_number: string | null;
+    }
   >;
 }) {
+  const liabilityByClaim = new Map(
+    liabilities.map((liability) => [liability.claim_id, liability]),
+  );
+  const payoutById = new Map(payouts.map((payout) => [payout.id, payout]));
+  const outstandingByStaff = new Map<
+    string,
+    { liabilityIds: string[]; total: number }
+  >();
+  for (const liability of liabilities) {
+    if (liability.status !== "owed") continue;
+    const group = outstandingByStaff.get(liability.staff_id) ?? {
+      liabilityIds: [],
+      total: 0,
+    };
+    group.liabilityIds.push(liability.id);
+    group.total += Number(liability.amount);
+    outstandingByStaff.set(liability.staff_id, group);
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -823,13 +915,49 @@ function ClaimBills({
           requires Admin verification.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-6">
+        {outstandingByStaff.size ? (
+          <section className="space-y-3">
+            <div>
+              <h3 className="font-semibold text-gray-950">
+                Staff money owing — lump-sum knock off
+              </h3>
+              <p className="mt-1 text-sm text-gray-600">
+                One payout proof clips together every verified outstanding
+                claim included in the total.
+              </p>
+            </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {[...outstandingByStaff.entries()].map(([staffId, group]) => {
+                const profile = profiles.get(staffId);
+                return (
+                  <StaffReimbursementPayoutForm
+                    bankAccountHolder={profile?.bank_account_holder ?? null}
+                    bankAccountNumber={profile?.bank_account_number ?? null}
+                    bankName={profile?.bank_name ?? null}
+                    key={staffId}
+                    liabilityIds={group.liabilityIds}
+                    paidOn={malaysiaToday()}
+                    staffId={staffId}
+                    staffName={profile?.full_name ?? "Staff member"}
+                    total={group.total}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        ) : (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+            No verified staff-funded claims are awaiting payout.
+          </div>
+        )}
+
         {claims.length ? (
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Bill Date</TableHead>
                   <TableHead>Submitted By</TableHead>
                   <TableHead>Property / Room</TableHead>
                   <TableHead>Description</TableHead>
@@ -849,6 +977,10 @@ function ClaimBills({
                     (item) => item.claim_id === claim.id,
                   );
                   const attachments = attachmentsByClaim.get(claim.id) ?? [];
+                  const liability = liabilityByClaim.get(claim.id);
+                  const payout = liability?.payout_id
+                    ? payoutById.get(liability.payout_id)
+                    : undefined;
                   const total =
                     claim.total_amount ??
                     Number(claim.labour_cost ?? 0) +
@@ -856,7 +988,7 @@ function ClaimBills({
                   return (
                     <TableRow key={claim.id}>
                       <TableCell>
-                        {formatMalaysiaDate(claim.submitted_at)}
+                        {formatMalaysiaDate(claim.bill_date)}
                       </TableCell>
                       <TableCell>
                         {profiles.get(claim.submitted_by)?.full_name ??
@@ -904,6 +1036,8 @@ function ClaimBills({
                         <Badge className={statusBadgeClass(claim.status)}>
                           {claim.status === "pending_owner_approval"
                             ? "Pending verification"
+                            : claim.status === "paid"
+                              ? "Paid back"
                             : claim.status.replaceAll("_", " ")}
                         </Badge>
                         {claim.rejection_reason ? (
@@ -914,9 +1048,50 @@ function ClaimBills({
                       </TableCell>
                       <TableCell>
                         {["approved", "paid"].includes(claim.status) ? (
-                          <p className="text-sm text-[#126b5f]">
-                            Verified by Admin - Expense recorded
-                          </p>
+                          claim.funding_source === "staff_personal" &&
+                          liability ? (
+                            liability.status === "paid" && payout ? (
+                              <div className="space-y-2 text-sm">
+                                <p className="font-medium text-emerald-700">
+                                  Paid back {formatMalaysiaDate(payout.paid_on)}
+                                </p>
+                                <p className="text-gray-600">
+                                  Knock-off batch {money(payout.total_amount)}
+                                  {payout.reference_number
+                                    ? ` · ${payout.reference_number}`
+                                    : ""}
+                                </p>
+                                <DocumentPreview
+                                  contentType={payout.proof_content_type}
+                                  fileName={
+                                    payout.proof_file_path.split("/").at(-1) ??
+                                    "Payout proof"
+                                  }
+                                  label="Payout proof"
+                                  showName={false}
+                                  size="sm"
+                                  url={payoutProofs.get(payout.id) ?? null}
+                                />
+                              </div>
+                            ) : (
+                              <div className="text-sm">
+                                <p className="font-semibold text-red-700">
+                                  Company owes{" "}
+                                  {profiles.get(liability.staff_id)?.full_name ??
+                                    "staff"}{" "}
+                                  {money(liability.amount)}
+                                </p>
+                                <p className="mt-1 text-gray-500">
+                                  Included in the staff lump-sum payout above.
+                                </p>
+                              </div>
+                            )
+                          ) : (
+                            <p className="text-sm text-[#126b5f]">
+                              Verified by Admin — company-funded expense
+                              recorded
+                            </p>
+                          )
                         ) : (
                           <div className="space-y-2">
                             <form action={reviewClaim}>

@@ -136,6 +136,25 @@ export function ClaimBillForm({
         />
       </label>
 
+      <label className="block">
+        <span className="text-sm font-medium text-gray-700">Bill date *</span>
+        <input
+          className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+          defaultValue={new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Kuala_Lumpur",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(new Date())}
+          name="billDate"
+          required
+          type="date"
+        />
+        <span className="mt-1 block text-xs text-gray-500">
+          Reports use this date to place the spending in the correct month.
+        </span>
+      </label>
+
       <fieldset>
         <legend className="text-sm font-medium text-gray-700">Paid with *</legend>
         <div className="mt-2 grid grid-cols-2 gap-2">

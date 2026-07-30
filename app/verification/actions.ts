@@ -20,6 +20,11 @@ function textValue(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function fileValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return value instanceof File && value.size > 0 ? value : null;
+}
+
 function verificationPath(view: string, result: string) {
   return `/verification?view=${view}&${result}`;
 }
@@ -290,7 +295,7 @@ export async function reviewClaim(formData: FormData) {
   const supabase = await adminClient();
   const { data: claim } = await supabase
     .from("claims")
-    .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, status")
+    .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, bill_date, status")
     .eq("id", claimId)
     .maybeSingle();
 
@@ -336,7 +341,7 @@ export async function reviewClaim(formData: FormData) {
           maintenance_ticket_id: claim.ticket_id ?? null,
           claim_id: claim.id,
           category_id: category?.id ?? null,
-          expense_date: malaysiaToday(),
+          expense_date: claim.bill_date ?? malaysiaToday(),
           amount:
             claim.total_amount ??
             Number(claim.labour_cost ?? 0) + Number(claim.material_cost ?? 0),
@@ -443,6 +448,34 @@ export async function reviewClaim(formData: FormData) {
     if (expenseVerificationError) {
       redirect(verificationPath("claims", "error=claim_expense"));
     }
+
+    if (claim.funding_source === "staff_personal") {
+      const { data: existingLiability } = await supabase
+        .from("staff_reimbursement_liabilities")
+        .select("id")
+        .eq("claim_id", claim.id)
+        .maybeSingle();
+
+      if (!existingLiability) {
+        const { error: liabilityError } = await supabase
+          .from("staff_reimbursement_liabilities")
+          .insert({
+            claim_id: claim.id,
+            expense_id: expense.id,
+            staff_id: claim.submitted_by,
+            amount:
+              claim.total_amount ??
+              Number(claim.labour_cost ?? 0) +
+                Number(claim.material_cost ?? 0),
+            status: "owed",
+            owed_at: new Date().toISOString(),
+          });
+
+        if (liabilityError) {
+          redirect(verificationPath("claims", "error=claim_reimbursement"));
+        }
+      }
+    }
   }
 
   const { error } = await supabase
@@ -467,6 +500,103 @@ export async function reviewClaim(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/reports");
   redirect(verificationPath("claims", "reviewed=1"));
+}
+
+export async function recordStaffReimbursementPayout(formData: FormData) {
+  await requireRole(["super_admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const staffId = textValue(formData, "staffId");
+  const paymentSource = textValue(formData, "paymentSource");
+  const paidOn = textValue(formData, "paidOn");
+  const referenceNumber = textValue(formData, "referenceNumber");
+  const notes = textValue(formData, "notes");
+  const proof = fileValue(formData, "payoutProof");
+  const liabilityIds = [
+    ...new Set(
+      formData
+        .getAll("liabilityIds")
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && Boolean(value),
+        ),
+    ),
+  ];
+
+  if (
+    !user ||
+    !staffId ||
+    !liabilityIds.length ||
+    !["company_cash", "company_bank"].includes(paymentSource) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(paidOn) ||
+    !proof ||
+    proof.size > 3 * 1024 * 1024 ||
+    ![
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ].includes(proof.type)
+  ) {
+    redirect(verificationPath("claims", "error=payout_missing"));
+  }
+
+  const supabase = createAdminClient();
+  const { data: liabilities } = await supabase
+    .from("staff_reimbursement_liabilities")
+    .select("id")
+    .in("id", liabilityIds)
+    .eq("staff_id", staffId)
+    .eq("status", "owed");
+
+  if ((liabilities ?? []).length !== liabilityIds.length) {
+    redirect(verificationPath("claims", "error=payout_changed"));
+  }
+
+  const safeName = proof.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const proofPath =
+    `${staffId}/${Date.now()}-staff-payout-${safeName}`;
+  const { error: uploadError } = await supabase.storage
+    .from("reimbursement-proofs")
+    .upload(proofPath, Buffer.from(await proof.arrayBuffer()), {
+      contentType: proof.type,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    redirect(verificationPath("claims", "error=payout_proof"));
+  }
+
+  const { error: payoutError } = await supabase.rpc(
+    "record_staff_reimbursement_payout",
+    {
+      target_staff_id: staffId,
+      liability_ids: liabilityIds,
+      payout_source: paymentSource,
+      payout_date: paidOn,
+      payout_reference: referenceNumber,
+      payout_notes: notes,
+      payout_proof_bucket: "reimbursement-proofs",
+      payout_proof_path: proofPath,
+      payout_proof_content_type: proof.type,
+      payout_recorded_by: user.id,
+    },
+  );
+
+  if (payoutError) {
+    await supabase.storage.from("reimbursement-proofs").remove([proofPath]);
+    redirect(verificationPath("claims", "error=payout_changed"));
+  }
+
+  revalidatePath("/verification");
+  revalidatePath("/claims");
+  revalidatePath("/maintenance");
+  revalidatePath("/expenses");
+  revalidatePath("/dashboard");
+  revalidatePath("/reports");
+  redirect(verificationPath("claims", "payout_recorded=1"));
 }
 
 async function sendAgreementRequest(

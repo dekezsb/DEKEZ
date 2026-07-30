@@ -191,22 +191,44 @@ export async function reviewExpense(formData: FormData) {
   const decision = textValue(formData, "decision");
   const fundingSource = textValue(formData, "fundingSource") || "company_cash";
   const reimbursementSource = textValue(formData, "reimbursementSource");
+  const expenseDate = textValue(formData, "expenseDate");
 
   if (
     !user
     || !expenseId
     || !["verified", "rejected", "reimbursed"].includes(decision)
     || !["company_cash", "company_bank", "staff_personal"].includes(fundingSource)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)
     || (decision === "reimbursed" && !["company_cash", "company_bank"].includes(reimbursementSource))
   ) {
     redirect("/expenses?error=review_missing");
   }
 
   const supabase = await getAdmin();
+  const { data: existingExpense } = await supabase
+    .from("expenses")
+    .select("claim_id, funding_source")
+    .eq("id", expenseId)
+    .maybeSingle();
+
+  if (
+    !existingExpense ||
+    (decision === "reimbursed" &&
+      existingExpense.claim_id &&
+      existingExpense.funding_source === "staff_personal")
+  ) {
+    redirect(
+      `/expenses?error=${
+        existingExpense ? "use_claim_payout" : "review_missing"
+      }`,
+    );
+  }
+
   const { error } = await supabase
     .from("expenses")
     .update({
       status: decision,
+      expense_date: expenseDate,
       category_id: textValue(formData, "categoryId") || null,
       amount: numberValue(formData, "amount"),
       property_id: textValue(formData, "propertyId") || null,

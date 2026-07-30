@@ -76,6 +76,8 @@ const errorMessages: Record<string, string> = {
   category_create: "Category could not be created.",
   review_missing: "Choose an expense and review action.",
   review: "Expense review could not be saved.",
+  use_claim_payout:
+    "Use Verification → Claim Bills to record a staff lump-sum payout with proof.",
 };
 
 async function getAdmin() {
@@ -404,6 +406,21 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                             <form action={reviewExpense} className="grid gap-3">
                               <input name="expenseId" type="hidden" value={expense.id} />
                               <label className="block">
+                                <span className="text-sm font-medium text-gray-700">
+                                  Bill date
+                                </span>
+                                <input
+                                  className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                                  defaultValue={expense.expense_date}
+                                  name="expenseDate"
+                                  required
+                                  type="date"
+                                />
+                                <span className="mt-1 block text-xs text-gray-500">
+                                  Expense reports use this month.
+                                </span>
+                              </label>
+                              <label className="block">
                                 <span className="text-sm font-medium text-gray-700">Correct amount</span>
                                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="amount" type="number" step="0.01" defaultValue={Number(expense.amount ?? 0)} />
                               </label>
@@ -446,7 +463,14 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                               <input className="rounded-md border border-[#d7dde5] px-3 py-2" name="rejectionReason" placeholder="Reason if rejecting" />
                               <div className="grid gap-2 sm:grid-cols-3">
                                 <Button name="decision" type="submit" value="verified">Verify</Button>
-                                <Button name="decision" type="submit" value="reimbursed" variant="outline">Reimbursed</Button>
+                                {expense.claim_id &&
+                                expense.funding_source === "staff_personal" ? (
+                                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs font-medium text-amber-800">
+                                    Use Claim Bills lump-sum payout
+                                  </div>
+                                ) : (
+                                  <Button name="decision" type="submit" value="reimbursed" variant="outline">Reimbursed</Button>
+                                )}
                                 <Button className="border-red-200 text-red-700 hover:bg-red-50" name="decision" type="submit" value="rejected" variant="outline">Reject</Button>
                               </div>
                             </form>

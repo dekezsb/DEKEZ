@@ -180,6 +180,7 @@ export async function createClaimBill(formData: FormData) {
   const roomId = textValue(formData, "roomId");
   const ticketId = textValue(formData, "ticketId");
   const fundingSource = textValue(formData, "fundingSource");
+  const billDate = textValue(formData, "billDate");
   const amount = Number(textValue(formData, "amount"));
   const receipt = fileValue(formData, "receipt");
   const attachmentKind = textValue(formData, "attachmentKind");
@@ -192,6 +193,7 @@ export async function createClaimBill(formData: FormData) {
     !Number.isFinite(amount) ||
     amount <= 0 ||
     amount > 999999999 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(billDate) ||
     !["company_cash", "staff_personal"].includes(fundingSource) ||
     !["receipt", "a4_invoice"].includes(attachmentKind) ||
     (!canSubmitWithoutTicket && !ticketId)
@@ -275,6 +277,7 @@ export async function createClaimBill(formData: FormData) {
       material_cost: amount,
       description,
       funding_source: fundingSource,
+      bill_date: billDate,
       status: "pending_owner_approval",
     })
     .select("id")
