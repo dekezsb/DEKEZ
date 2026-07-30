@@ -15,6 +15,9 @@ type DocumentKind = "receipt" | "a4_invoice";
 const acceptedTypes =
   "image/jpeg,image/png,image/webp,application/pdf";
 
+const pickerClassName =
+  "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7dde5] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-within:outline-none focus-within:ring-2 focus-within:ring-[#b8892c] focus-within:ring-offset-2";
+
 export function ClaimDocumentUpload() {
   const receiptCameraRef = useRef<HTMLInputElement>(null);
   const invoiceCameraRef = useRef<HTMLInputElement>(null);
@@ -76,67 +79,49 @@ export function ClaimDocumentUpload() {
       </p>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <Button
-          className="justify-center"
-          onClick={() => receiptCameraRef.current?.click()}
-          type="button"
-          variant="outline"
-        >
+        <label className={pickerClassName}>
           <Camera className="h-4 w-4" />
           Scan receipt
-        </Button>
-        <Button
-          className="justify-center"
-          onClick={() => invoiceCameraRef.current?.click()}
-          type="button"
-          variant="outline"
-        >
+          <input
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={(event) =>
+              selectFile(event.target.files?.[0], "receipt")
+            }
+            ref={receiptCameraRef}
+            type="file"
+          />
+        </label>
+        <label className={pickerClassName}>
           <FileText className="h-4 w-4" />
           Scan A4 invoice
-        </Button>
-        <Button
-          className="justify-center"
-          onClick={() => filePickerRef.current?.click()}
-          type="button"
-          variant="outline"
-        >
+          <input
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={(event) =>
+              selectFile(event.target.files?.[0], "a4_invoice")
+            }
+            ref={invoiceCameraRef}
+            type="file"
+          />
+        </label>
+        <label className={pickerClassName}>
           <FileImage className="h-4 w-4" />
           Choose file
-        </Button>
+          <input
+            accept={acceptedTypes}
+            className="sr-only"
+            onChange={(event) =>
+              selectFile(event.target.files?.[0], documentKind)
+            }
+            ref={filePickerRef}
+            type="file"
+          />
+        </label>
       </div>
 
-      <input
-        accept="image/*"
-        capture="environment"
-        className="sr-only"
-        onChange={(event) =>
-          selectFile(event.target.files?.[0], "receipt")
-        }
-        ref={receiptCameraRef}
-        tabIndex={-1}
-        type="file"
-      />
-      <input
-        accept="image/*"
-        capture="environment"
-        className="sr-only"
-        onChange={(event) =>
-          selectFile(event.target.files?.[0], "a4_invoice")
-        }
-        ref={invoiceCameraRef}
-        tabIndex={-1}
-        type="file"
-      />
-      <input
-        accept={acceptedTypes}
-        className="sr-only"
-        onChange={(event) =>
-          selectFile(event.target.files?.[0], documentKind)
-        }
-        ref={filePickerRef}
-        tabIndex={-1}
-        type="file"
-      />
       <input
         className="sr-only"
         name="receipt"
