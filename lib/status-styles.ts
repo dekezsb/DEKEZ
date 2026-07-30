@@ -20,6 +20,9 @@ export function statusBadgeClass(status: string | null | undefined) {
     case "submitted":
     case "payment_submitted":
     case "pending_verification":
+    case "pending_signature":
+    case "renewal_pending":
+    case "renewal_sent":
     case "partially_paid":
     case "partial":
     case "assigned":

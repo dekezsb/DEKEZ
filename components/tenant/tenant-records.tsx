@@ -59,6 +59,35 @@ const resultMessages: Record<string, { className: string; message: string }> = {
   },
 };
 
+function agreementStatus(agreement: TenantAgreementHistoryView) {
+  if (agreement.adminVerifiedAt) {
+    return { label: "Verified", style: "verified" };
+  }
+
+  if (
+    agreement.signedAt ||
+    ["signed", "renewal_signed"].includes(agreement.status)
+  ) {
+    return {
+      label: "Pending Admin Verification",
+      style: "pending_verification",
+    };
+  }
+
+  if (agreement.status === "pending_signature") {
+    return { label: "Pending Signature", style: "pending_signature" };
+  }
+
+  if (agreement.status === "renewal_pending") {
+    return { label: "Renewal Pending", style: "renewal_pending" };
+  }
+
+  return {
+    label: agreement.status.replaceAll("_", " "),
+    style: agreement.status,
+  };
+}
+
 export function TenantDocuments({
   tenantKey,
   tenantRecordId,
@@ -218,63 +247,70 @@ export function TenantAgreementHistory({
       <CardContent>
         {agreements.length ? (
           <div className="space-y-3">
-            {agreements.map((agreement, index) => (
-              <div
-                className="flex flex-col justify-between gap-4 rounded-md border border-[#d7dde5] p-4 md:flex-row md:items-center"
-                key={agreement.id}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-gray-950">
-                      Term {agreements.length - index}
+            {agreements.map((agreement, index) => {
+              const displayStatus = agreementStatus(agreement);
+
+              return (
+                <div
+                  className="flex flex-col justify-between gap-4 rounded-md border border-[#d7dde5] p-4 md:flex-row md:items-center"
+                  key={agreement.id}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-gray-950">
+                        Term {agreements.length - index}
+                      </p>
+                      <Badge className={statusBadgeClass(displayStatus.style)}>
+                        {displayStatus.label}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-gray-700">
+                      {agreement.termStartDate
+                        ? formatMalaysiaDate(agreement.termStartDate)
+                        : "Start date not set"}{" "}
+                      to{" "}
+                      {agreement.termEndDate
+                        ? formatMalaysiaDate(agreement.termEndDate)
+                        : "Open-ended"}
                     </p>
-                    <Badge className={statusBadgeClass(agreement.status)}>
-                      {agreement.status.replaceAll("_", " ")}
-                    </Badge>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {agreement.propertyName ?? "Property"} /{" "}
+                      {agreement.roomName ?? "Room"} /{" "}
+                      {agreement.termType === "renewal"
+                        ? "Renewal"
+                        : "Original"}{" "}
+                      v{agreement.versionNumber} /{" "}
+                      {agreement.agreementType === "commercial_office"
+                        ? "Commercial Office"
+                        : "Residential Room"}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Generated {formatMalaysiaDateTime(agreement.generatedAt)}
+                      {agreement.signedAt
+                        ? ` / Signed ${formatMalaysiaDateTime(agreement.signedAt)}`
+                        : ""}
+                      {agreement.adminVerifiedAt
+                        ? ` / Verified ${formatMalaysiaDateTime(agreement.adminVerifiedAt)}`
+                        : ""}
+                    </p>
                   </div>
-                  <p className="mt-2 text-sm text-gray-700">
-                    {agreement.termStartDate
-                      ? formatMalaysiaDate(agreement.termStartDate)
-                      : "Start date not set"}{" "}
-                    to{" "}
-                    {agreement.termEndDate
-                      ? formatMalaysiaDate(agreement.termEndDate)
-                      : "Open-ended"}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {agreement.propertyName ?? "Property"} /{" "}
-                    {agreement.roomName ?? "Room"} /{" "}
-                    {agreement.termType === "renewal"
-                      ? "Renewal"
-                      : "Original"}{" "}
-                    v{agreement.versionNumber} /{" "}
-                    {agreement.agreementType === "commercial_office"
-                      ? "Commercial Office"
-                      : "Residential Room"}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Generated {formatMalaysiaDateTime(agreement.generatedAt)}
-                    {agreement.signedAt
-                      ? ` / Signed ${formatMalaysiaDateTime(agreement.signedAt)}`
-                      : ""}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/e-tenancy/${agreement.id}`}>
-                      View Agreement
-                    </Link>
-                  </Button>
-                  {agreement.signedPdfUrl ? (
-                    <Button asChild size="sm">
-                      <Link href={agreement.signedPdfUrl} target="_blank">
-                        Signed PDF
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/e-tenancy/${agreement.id}`}>
+                        View Agreement
                       </Link>
                     </Button>
-                  ) : null}
+                    {agreement.signedPdfUrl ? (
+                      <Button asChild size="sm">
+                        <Link href={agreement.signedPdfUrl} target="_blank">
+                          Signed PDF
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-sm text-gray-500">

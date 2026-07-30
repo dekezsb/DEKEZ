@@ -92,6 +92,7 @@ export type TenantAgreementHistoryView = {
   agreementType: string;
   versionNumber: number;
   status: string;
+  adminVerifiedAt: string | null;
   termStartDate: string | null;
   termEndDate: string | null;
   tenantName: string | null;
@@ -531,41 +532,36 @@ export async function getRoomDetails(
   const agreementsResult = tenancyIds.length
     ? await supabase
         .from("tenancy_agreements")
-        .select("id, tenancy_id, term_type, agreement_type, version_number, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, generated_at, signed_at, pdf_url, tenancies(tenancy_start_date, tenancy_end_date, contract_start, contract_end, properties(name), rooms(name, room_number))")
+        .select("id, tenancy_id, term_type, agreement_type, version_number, status, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, generated_at, signed_at, admin_verified_at, pdf_url")
         .in("tenancy_id", tenancyIds)
         .order("term_start_date", { ascending: false, nullsFirst: false })
         .order("generated_at", { ascending: false })
     : { data: [], error: null };
 
+  if (agreementsResult.error) {
+    console.error("[tenant-profile] agreement history query failed", {
+      code: agreementsResult.error.code,
+      message: agreementsResult.error.message,
+      tenantKey: selectedTenantId ?? selectedTenantRecordId ?? roomId,
+    });
+  }
+
   const agreementHistory: TenantAgreementHistoryView[] = await Promise.all(
     (agreementsResult.data ?? []).map(async (agreement) => {
-      const tenancy = relatedOne(agreement.tenancies);
-      const agreementProperty = relatedOne(tenancy?.properties);
-      const agreementRoom = relatedOne(tenancy?.rooms);
       return {
         id: agreement.id,
         termType: agreement.term_type,
         agreementType: agreement.agreement_type,
         versionNumber: agreement.version_number,
         status: agreement.status,
-        termStartDate:
-          agreement.term_start_date ??
-          tenancy?.tenancy_start_date ??
-          tenancy?.contract_start ??
-          null,
-        termEndDate:
-          agreement.term_end_date ??
-          tenancy?.tenancy_end_date ??
-          tenancy?.contract_end ??
-          null,
+        adminVerifiedAt: agreement.admin_verified_at,
+        termStartDate: agreement.term_start_date ?? room.contractStart,
+        termEndDate: agreement.term_end_date ?? room.contractEnd,
         tenantName: agreement.tenant_name_snapshot ?? room.tenantName,
-        propertyName:
-          agreement.property_name_snapshot ?? agreementProperty?.name ?? null,
+        propertyName: agreement.property_name_snapshot ?? propertyDetails.property.name,
         roomName:
           agreement.room_name_snapshot ??
-          agreementRoom?.room_number ??
-          agreementRoom?.name ??
-          null,
+          room.roomNumber,
         generatedAt: agreement.generated_at,
         signedAt: agreement.signed_at,
         signedPdfUrl: agreement.pdf_url
