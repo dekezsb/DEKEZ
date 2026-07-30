@@ -5,6 +5,7 @@ import { Link } from "@/components/app-link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";
+import { PortalLiveSync } from "@/components/portal-live-sync";
 import { Button } from "@/components/ui/button";
 import { hasModuleAccess, type UserAccess } from "@/lib/auth/access";
 import {
@@ -54,6 +55,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   if (role === "tenant") {
     return (
       <div className="tenant-portal-bg min-h-screen text-[#17130d]">
+        <PortalLiveSync />
         <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="mx-auto flex h-18 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
             <Link className="flex items-center gap-3" href="/dashboard">
@@ -128,6 +130,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   if (role === "admin") {
     return (
       <div className="tenant-portal-bg min-h-screen text-[#17130d]">
+        <PortalLiveSync />
         <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="mx-auto flex h-18 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
             <Link className="flex items-center gap-3" href="/dashboard">
@@ -201,6 +204,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-[#f2f4f7] text-[#17130d]">
+      <PortalLiveSync />
       <div
         className={cn(
           "fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#090806] text-[#f8f0df] transition-transform lg:translate-x-0",
