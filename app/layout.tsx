@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
+import { LanguageProvider } from "@/components/language-provider";
 import { getOptionalUserAccess } from "@/lib/auth/session";
 import type { UserAccess } from "@/lib/auth/access";
 import "./globals.css";
@@ -46,9 +47,11 @@ async function RootLayoutContent({
   return (
     <html lang="en-MY">
       <body>
-        <AppShell access={access} role={role} userName={userName}>
-          {children}
-        </AppShell>
+        <LanguageProvider>
+          <AppShell access={access} role={role} userName={userName}>
+            {children}
+          </AppShell>
+        </LanguageProvider>
       </body>
     </html>
   );

@@ -5,16 +5,18 @@ import { Link } from "@/components/app-link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";
+import { LanguageSelector } from "@/components/language-selector";
+import { useLanguage } from "@/components/language-provider";
 import { PortalLiveSync } from "@/components/portal-live-sync";
 import { Button } from "@/components/ui/button";
 import { hasModuleAccess, type UserAccess } from "@/lib/auth/access";
 import {
-  roleLabels,
   roleNavigation,
   type AppRole,
   type NavigationItem,
 } from "@/lib/auth/roles";
 import { cn } from "@/lib/utils";
+import type { TranslationKey } from "@/lib/i18n";
 
 type AppShellProps = {
   children: ReactNode;
@@ -25,6 +27,7 @@ type AppShellProps = {
 
 export function AppShell({ access, children, role, userName }: AppShellProps) {
   const pathname = usePathname();
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const navigation: NavigationItem[] =
     role && access
@@ -33,7 +36,10 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
         )
       : [];
   const currentPage =
-    navigation.find((item) => pathname.startsWith(item.href))?.label ?? "DEKEZ";
+    navigation.find((item) => pathname.startsWith(item.href))?.label;
+  const currentPageLabel = currentPage
+    ? t(navigationTranslationKeys[currentPage] ?? "nav.dashboard")
+    : "DEKEZ";
   const isPublicPage =
     pathname === "/" ||
     pathname === "/about" ||
@@ -65,20 +71,21 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   DEKEZ
                 </span>
                 <span className="block text-xs text-[#d7c6a8]">
-                  Tenant Portal
+                  {t("portal.tenant")}
                 </span>
               </span>
             </Link>
             <div className="flex items-center gap-3">
+              <LanguageSelector dark />
               <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
-                {userName ?? "Tenant"}
+                {userName ?? t("role.tenant")}
               </p>
               <form action="/logout" method="post">
                 <Button
-                  aria-label="Logout"
+                  aria-label={t("common.logout")}
                   className="border-[#4a4031] bg-transparent text-[#f8f0df] hover:bg-[#1b1711]"
                   size="icon"
-                  title="Logout"
+                  title={t("common.logout")}
                   type="submit"
                   variant="outline"
                 >
@@ -117,7 +124,9 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   key={item.href}
                 >
                   <Icon className="h-7 w-7" strokeWidth={1.8} />
-                  <span className="max-w-full truncate">{item.label}</span>
+                  <span className="max-w-full truncate">
+                    {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
+                  </span>
                 </Link>
               );
             })}
@@ -140,20 +149,21 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   DEKEZ
                 </span>
                 <span className="block text-xs text-[#d7c6a8]">
-                  Management Portal
+                  {t("portal.management")}
                 </span>
               </span>
             </Link>
             <div className="flex items-center gap-3">
+              <LanguageSelector dark />
               <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
-                {userName ?? "Management"}
+                {userName ?? t("role.management")}
               </p>
               <form action="/logout" method="post">
                 <Button
-                  aria-label="Logout"
+                  aria-label={t("common.logout")}
                   className="border-[#4a4031] bg-transparent text-[#f8f0df] hover:bg-[#1b1711]"
                   size="icon"
-                  title="Logout"
+                  title={t("common.logout")}
                   type="submit"
                   variant="outline"
                 >
@@ -192,7 +202,9 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   key={item.href}
                 >
                   <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.8} />
-                  <span className="max-w-full truncate">{item.label}</span>
+                  <span className="max-w-full truncate">
+                    {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
+                  </span>
                 </Link>
               );
             })}
@@ -218,7 +230,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
               <span>
                 <span className="block text-lg font-bold text-[#c99a3e]">DEKEZ</span>
                 <span className="block text-xs text-[#d7c6a8]">
-                  {role ? roleLabels[role] : "Rental SaaS"}
+                  {role ? t(roleTranslationKeys[role]) : "Rental SaaS"}
                 </span>
               </span>
             </Link>
@@ -251,7 +263,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   onClick={() => setIsOpen(false)}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
                 </Link>
               );
             })}
@@ -261,7 +273,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
             <div className="rounded-md bg-[#15120d] p-4">
               <p className="text-sm font-semibold text-[#c99a3e]">DEKEZ</p>
               <p className="mt-1 text-xs leading-5 text-[#a99c85]">
-                Rental Management System
+                {t("portal.rental")}
               </p>
             </div>
           </div>
@@ -270,7 +282,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
       {isOpen ? (
         <button
-          aria-label="Close navigation"
+          aria-label={t("common.closeNavigation")}
           className="fixed inset-0 z-30 bg-gray-950/30 lg:hidden"
           type="button"
           onClick={() => setIsOpen(false)}
@@ -292,19 +304,20 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
               </Button>
               <div>
                 <p className="text-xs font-medium uppercase text-gray-500">
-                  Current page
+                  {t("common.currentPage")}
                 </p>
-                <p className="text-lg font-semibold">{currentPage}</p>
+                <p className="text-lg font-semibold">{currentPageLabel}</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
+              <LanguageSelector />
               <div className="hidden text-right sm:block">
-                <p className="text-sm font-semibold text-gray-950">{userName ?? (role ? roleLabels[role] : "User")}</p>
-                <p className="text-xs text-[#8a641d]">{role ? roleLabels[role] : "DEKEZ"}</p>
+                <p className="text-sm font-semibold text-gray-950">{userName ?? (role ? t(roleTranslationKeys[role]) : "User")}</p>
+                <p className="text-xs text-[#8a641d]">{role ? t(roleTranslationKeys[role]) : "DEKEZ"}</p>
               </div>
               <form action="/logout" method="post">
                 <Button className="border-[#cfd8e5] px-5" type="submit" variant="outline">
-                  Logout
+                  {t("common.logout")}
                 </Button>
               </form>
             </div>
@@ -333,7 +346,9 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   key={item.href}
                 >
                   <Icon className="h-5 w-5" />
-                  <span className="max-w-full truncate">{item.label}</span>
+                  <span className="max-w-full truncate">
+                    {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
+                  </span>
                 </Link>
               );
             })}
@@ -343,3 +358,34 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
     </div>
   );
 }
+
+const navigationTranslationKeys: Record<string, TranslationKey> = {
+  "Super Admin": "nav.superAdmin",
+  Dashboard: "nav.dashboard",
+  Home: "nav.home",
+  "Admin Settings": "nav.adminSettings",
+  Properties: "nav.properties",
+  Verification: "nav.verification",
+  "Rent Due Tracker": "nav.rentDueTracker",
+  "Rental Invoices": "nav.rentalInvoices",
+  "Tenancy Agreements": "nav.tenancyAgreements",
+  "Utility Bills": "nav.utilityBills",
+  "Expense Bills": "nav.expenseBills",
+  Maintenance: "nav.maintenance",
+  Reports: "nav.reports",
+  Payments: "nav.payments",
+  Settings: "nav.settings",
+  Claims: "nav.claims",
+  Profile: "nav.profile",
+  Bills: "nav.bills",
+};
+
+const roleTranslationKeys: Record<AppRole, TranslationKey> = {
+  super_admin: "role.superAdmin",
+  owner: "role.owner",
+  admin: "role.management",
+  technician: "role.technician",
+  maintenance_staff: "role.maintenance",
+  cleaning_staff: "role.cleaning",
+  tenant: "role.tenant",
+};
