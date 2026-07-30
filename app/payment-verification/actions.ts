@@ -61,6 +61,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
     formData,
     "purposeCorrectionReason",
   );
+  const correctionReason =
+    textValue(formData, "correctionReason") || purposeCorrectionReason;
+  const paymentDateOverride = textValue(formData, "paymentDateOverride");
+  const billMonthOverride = textValue(formData, "billMonthOverride");
   const extraChargeCategory = textValue(
     formData,
     "extraChargeCategory",
@@ -82,7 +86,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status, rent_bill_id, tenancy_id, tenant_record_id, payment_type, amount")
+    .select("id, verification_status, rent_bill_id, tenancy_id, tenant_record_id, payment_type, amount, payment_date, bill_month")
     .eq("id", submissionId)
     .single();
 
@@ -95,20 +99,93 @@ export async function reviewPaymentSubmission(formData: FormData) {
   }
 
   let effectivePaymentType = currentSubmission.payment_type;
+  let effectivePaymentDate = currentSubmission.payment_date;
+  let effectiveBillMonth = currentSubmission.bill_month;
+  let effectiveRentBillId = currentSubmission.rent_bill_id;
   const purposeWasCorrected =
     decision === "verified" &&
     paymentPurposeOverride &&
     paymentPurposeOverride !== currentSubmission.payment_type;
+  const paymentDateWasCorrected =
+    decision === "verified" &&
+    paymentDateOverride &&
+    paymentDateOverride !== currentSubmission.payment_date;
+  const normalizedBillMonth = billMonthOverride
+    ? `${billMonthOverride}-01`
+    : "";
+  const billMonthWasCorrected =
+    decision === "verified" &&
+    normalizedBillMonth &&
+    normalizedBillMonth !== currentSubmission.bill_month;
+  const paymentDetailsWereCorrected =
+    purposeWasCorrected ||
+    paymentDateWasCorrected ||
+    billMonthWasCorrected;
 
-  if (purposeWasCorrected) {
+  if (paymentDetailsWereCorrected) {
     if (
       role !== "super_admin" ||
-      !isPaymentPurpose(paymentPurposeOverride) ||
-      !purposeCorrectionReason
+      !correctionReason
     ) {
       redirect(withResult(returnTo, "error=purpose_correction"));
     }
+  }
+
+  if (purposeWasCorrected) {
+    if (!isPaymentPurpose(paymentPurposeOverride)) {
+      redirect(withResult(returnTo, "error=purpose_correction"));
+    }
     effectivePaymentType = paymentPurposeOverride;
+  }
+
+  if (paymentDateWasCorrected) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(paymentDateOverride) ||
+      Number.isNaN(Date.parse(`${paymentDateOverride}T00:00:00Z`))
+    ) {
+      redirect(withResult(returnTo, "error=correction_date"));
+    }
+    effectivePaymentDate = paymentDateOverride;
+  }
+
+  if (billMonthOverride && !/^\d{4}-\d{2}$/.test(billMonthOverride)) {
+    redirect(withResult(returnTo, "error=correction_month"));
+  }
+
+  if (billMonthWasCorrected) {
+    if (!currentSubmission.tenancy_id) {
+      redirect(withResult(returnTo, "error=correction_bill_missing"));
+    }
+
+    const { data: targetBill } = await supabase
+      .from("rent_bills")
+      .select("id, bill_month, status")
+      .eq("tenancy_id", currentSubmission.tenancy_id)
+      .eq("bill_month", normalizedBillMonth)
+      .maybeSingle();
+
+    if (!targetBill) {
+      redirect(withResult(returnTo, "error=correction_bill_missing"));
+    }
+    if (targetBill.status === "paid") {
+      redirect(withResult(returnTo, "error=correction_bill_paid"));
+    }
+
+    const { data: existingPending } = await supabase
+      .from("payment_submissions")
+      .select("id")
+      .eq("rent_bill_id", targetBill.id)
+      .eq("verification_status", "pending_verification")
+      .neq("id", submissionId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingPending) {
+      redirect(withResult(returnTo, "error=correction_bill_pending"));
+    }
+
+    effectiveRentBillId = targetBill.id;
+    effectiveBillMonth = targetBill.bill_month;
   }
 
   let verifiedExtraCharge: {
@@ -124,18 +201,18 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (
     decision === "verified" &&
-    currentSubmission.rent_bill_id
+    effectiveRentBillId
   ) {
     const [{ data: bill }, { data: existingItems }, { data: tenancy }] = await Promise.all([
       supabase
         .from("rent_bills")
         .select("amount, deposit_amount, paid_amount")
-        .eq("id", currentSubmission.rent_bill_id)
+        .eq("id", effectiveRentBillId)
         .single(),
       supabase
         .from("rental_invoice_line_items")
         .select("amount")
-        .eq("rent_bill_id", currentSubmission.rent_bill_id),
+        .eq("rent_bill_id", effectiveRentBillId),
       currentSubmission.tenancy_id
         ? supabase
             .from("tenancies")
@@ -214,6 +291,9 @@ export async function reviewPaymentSubmission(formData: FormData) {
     .from("payment_submissions")
     .update({
       payment_type: effectivePaymentType,
+      payment_date: effectivePaymentDate,
+      bill_month: effectiveBillMonth,
+      rent_bill_id: effectiveRentBillId,
       verification_status: decision,
       verified_by: decision === "verified" ? user.id : null,
       verified_at: decision === "verified" ? new Date().toISOString() : null,
@@ -234,8 +314,21 @@ export async function reviewPaymentSubmission(formData: FormData) {
     performed_by: user.id,
     old_status: currentSubmission.verification_status,
     new_status: decision,
-    reason: purposeWasCorrected
-      ? `Payment purpose corrected from ${currentSubmission.payment_type} to ${effectivePaymentType}. ${purposeCorrectionReason}`
+    reason: paymentDetailsWereCorrected
+      ? [
+          purposeWasCorrected
+            ? `Purpose: ${currentSubmission.payment_type} to ${effectivePaymentType}.`
+            : "",
+          paymentDateWasCorrected
+            ? `Payment date: ${currentSubmission.payment_date} to ${effectivePaymentDate}.`
+            : "",
+          billMonthWasCorrected
+            ? `Billing month: ${currentSubmission.bill_month} to ${effectiveBillMonth}.`
+            : "",
+          `Reason: ${correctionReason}`,
+        ]
+          .filter(Boolean)
+          .join(" ")
       : notes || null,
   });
 

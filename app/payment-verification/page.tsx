@@ -83,7 +83,15 @@ const errorMessages: Record<string, string> = {
   extra_purpose:
     "Choose what the extra payment is for and enter a clear description before verification.",
   purpose_correction:
-    "Choose a valid payment purpose and explain why it is being corrected.",
+    "Check the corrected payment details and explain why they are being changed.",
+  correction_date: "Choose a valid payment date.",
+  correction_month: "Choose a valid billing month.",
+  correction_bill_missing:
+    "No invoice exists for that tenancy and billing month. Create or select the correct invoice before verifying.",
+  correction_bill_paid:
+    "The selected billing month is already fully paid. Choose the correct unpaid invoice.",
+  correction_bill_pending:
+    "That billing month already has another payment awaiting verification. Review that submission first.",
 };
 
 async function getAdmin() {
@@ -462,6 +470,7 @@ function buildRow(
     propertyName: property?.name ?? "-",
     roomName: room?.room_number ?? room?.name ?? "-",
     billMonth: bill?.bill_month ?? submission.bill_month ?? "-",
+    paymentDate: submission.payment_date ?? "",
     amountDue: money(invoiceOutstanding),
     amountSubmitted: money(submission.amount),
     amountSubmittedValue: Number(submission.amount ?? 0),

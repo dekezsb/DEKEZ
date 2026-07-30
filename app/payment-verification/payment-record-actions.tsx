@@ -22,6 +22,7 @@ type PaymentRecordActionsProps = {
   propertyName: string;
   roomName: string;
   billMonth: string;
+  paymentDate: string;
   amountSubmitted: string;
   amountSubmittedValue: number;
   paymentPurpose: string;
@@ -54,6 +55,7 @@ export function PaymentRecordActions({
   propertyName,
   roomName,
   billMonth,
+  paymentDate,
   amountSubmitted,
   amountSubmittedValue,
   paymentPurpose,
@@ -73,11 +75,24 @@ export function PaymentRecordActions({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
   const [selectedPurpose, setSelectedPurpose] = useState(paymentPurpose);
+  const [correctedPaymentDate, setCorrectedPaymentDate] = useState(paymentDate);
+  const originalBillingMonth = billMonth === "-" ? "" : billMonth.slice(0, 7);
+  const [correctedBillingMonth, setCorrectedBillingMonth] =
+    useState(originalBillingMonth);
   const extraAmount = Math.max(
     amountSubmittedValue - invoiceOutstanding,
     0,
   );
   const hasExtraAmount = extraAmount > 0.005;
+  const amountApplied = Math.min(amountSubmittedValue, invoiceOutstanding);
+  const remainingAfterVerification = Math.max(
+    invoiceOutstanding - amountApplied,
+    0,
+  );
+  const hasCorrection =
+    selectedPurpose !== paymentPurpose ||
+    correctedPaymentDate !== paymentDate ||
+    correctedBillingMonth !== originalBillingMonth;
 
   return (
     <div className="space-y-3">
@@ -141,11 +156,13 @@ export function PaymentRecordActions({
                   <dt>Current invoice outstanding</dt>
                   <dd className="font-semibold">RM {invoiceOutstanding.toFixed(2)}</dd>
                   <dt>Applied to current invoice</dt>
-                  <dd className="font-semibold">
-                    RM {Math.min(amountSubmittedValue, invoiceOutstanding).toFixed(2)}
-                  </dd>
+                  <dd className="font-semibold">RM {amountApplied.toFixed(2)}</dd>
                   <dt>Extra charge to add</dt>
                   <dd className="font-bold">RM {extraAmount.toFixed(2)}</dd>
+                  <dt>Invoice balance after verification</dt>
+                  <dd className="font-bold">
+                    RM {remainingAfterVerification.toFixed(2)}
+                  </dd>
                 </dl>
                 <p className="mt-3 text-sm text-amber-900">
                   Select the charge type and write exactly what it is for. The
@@ -162,12 +179,13 @@ export function PaymentRecordActions({
               {canCorrectPurpose ? (
                 <div className="rounded-md border border-[#d7dde5] bg-gray-50 p-4">
                   <p className="font-semibold text-gray-950">
-                    Correct payment purpose
+                    Correct payment details
                   </p>
                   <p className="mt-1 text-sm text-gray-600">
-                    Use this only when the tenant selected the wrong purpose.
+                    Super Admin may correct details selected wrongly by the
+                    tenant before verification.
                   </p>
-                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <div className="mt-3 grid gap-4 sm:grid-cols-3">
                     <label className="block">
                       <span className="text-sm font-medium text-gray-800">
                         Payment for
@@ -185,7 +203,37 @@ export function PaymentRecordActions({
                         ))}
                       </select>
                     </label>
-                    {selectedPurpose !== paymentPurpose ? (
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Payment date
+                      </span>
+                      <input
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                        name="paymentDateOverride"
+                        type="date"
+                        value={correctedPaymentDate}
+                        onChange={(event) =>
+                          setCorrectedPaymentDate(event.target.value)
+                        }
+                        required
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Billing month
+                      </span>
+                      <input
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                        name="billMonthOverride"
+                        type="month"
+                        value={correctedBillingMonth}
+                        onChange={(event) =>
+                          setCorrectedBillingMonth(event.target.value)
+                        }
+                        required
+                      />
+                    </label>
+                    {hasCorrection ? (
                       <label className="block">
                         <span className="text-sm font-medium text-gray-800">
                           Reason for correction
@@ -193,8 +241,8 @@ export function PaymentRecordActions({
                         <input
                           className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
                           maxLength={300}
-                          name="purposeCorrectionReason"
-                          placeholder="Example: Slip is for deposit"
+                          name="correctionReason"
+                          placeholder="Example: Tenant selected the wrong month"
                           required
                         />
                       </label>
@@ -208,8 +256,34 @@ export function PaymentRecordActions({
                   value={paymentPurpose}
                 />
               )}
+              {!hasExtraAmount ? (
+                <div className="rounded-md border border-[#d7dde5] bg-white p-4">
+                  <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
+                    <dt className="text-gray-600">Amount applied</dt>
+                    <dd className="font-semibold text-gray-950">
+                      RM {amountApplied.toFixed(2)}
+                    </dd>
+                    <dt className="text-gray-600">
+                      Remaining invoice balance
+                    </dt>
+                    <dd className="font-bold text-red-600">
+                      RM {remainingAfterVerification.toFixed(2)}
+                    </dd>
+                  </dl>
+                </div>
+              ) : null}
               {hasExtraAmount ? (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <label className="block">
+                    <span className="text-sm font-medium text-gray-800">
+                      Extra charge amount
+                    </span>
+                    <input
+                      className="mt-2 w-full rounded-md border border-[#d7dde5] bg-gray-100 px-3 py-2 font-semibold"
+                      readOnly
+                      value={`RM ${extraAmount.toFixed(2)}`}
+                    />
+                  </label>
                   <label className="block">
                     <span className="text-sm font-medium text-gray-800">
                       Extra payment for

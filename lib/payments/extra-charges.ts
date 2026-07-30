@@ -5,6 +5,7 @@ export const EXTRA_CHARGE_OPTIONS = [
   { value: "access_card", label: "Access card" },
   { value: "damage", label: "Damage charge" },
   { value: "cleaning", label: "Cleaning charge" },
+  { value: "furniture", label: "Furniture charge" },
   { value: "other", label: "Other" },
 ] as const;
 
