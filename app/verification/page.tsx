@@ -259,7 +259,9 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .map((application) => application.tenant_id as string),
   );
   const permissionUsers = users.filter(
-    (user) => !selfRegisteredTenantIds.has(user.id),
+    (user) =>
+      !selfRegisteredTenantIds.has(user.id) &&
+      user.registration_status === "pending_verification",
   );
   const signedAgreementsPendingVerification = agreements.filter(
     (agreement) =>
@@ -268,9 +270,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   );
 
   const pendingCounts: Record<VerificationView, number> = {
-    users: permissionUsers.filter(
-      (user) => user.registration_status === "pending_verification",
-    ).length,
+    users: permissionUsers.length,
     tenants: tenantApplications.filter(
       (application) => application.verification_status === "pending_verification",
     ).length,

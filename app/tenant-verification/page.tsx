@@ -65,6 +65,7 @@ export async function TenantVerificationContent({
       .from("tenant_applications")
       .select("id, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
       .neq("status", "draft")
+      .eq("verification_status", "pending_verification")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("tenant_documents")
