@@ -418,7 +418,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     redirect(rentTrackerPath(formData, "error", "proof_size"));
   }
 
-  const supabase = await createClient();
+  const supabase = await getAdmin();
   const bill = await getBillContext(supabase, billId);
 
   const submissionTenantId = bill?.tenant_id ?? bill?.tenant?.id ?? null;
