@@ -423,6 +423,9 @@ export async function getRentDueMap(
   ]);
 
   const activeTenancyIds = new Set(tenancies.map((tenancy) => tenancy.id));
+  const activeTenancyRoomIds = new Set(
+    tenancies.map((tenancy) => tenancy.room_id),
+  );
   const activeTenancyByTenantAndRoom = new Set(
     tenancies
       .filter((tenancy) => tenancy.tenant_id)
@@ -430,7 +433,12 @@ export async function getRentDueMap(
   );
   const activeTenantRecordIds = new Set(
     tenantRecords
-      .filter((tenant) => tenant.status === "active" && tenant.room_id)
+      .filter(
+        (tenant) =>
+          tenant.status === "active" &&
+          tenant.room_id &&
+          !activeTenancyRoomIds.has(tenant.room_id),
+      )
       .map((tenant) => tenant.id),
   );
   const belongsToActiveOccupancy = (bill: RawRentBill) => {

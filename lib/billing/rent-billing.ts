@@ -221,6 +221,11 @@ export async function generateRecurringRentBills(
   if (tenancyError) {
     result.errors.push(tenancyError.message);
   }
+  const activeTenancyRoomIds = new Set(
+    ((tenancies ?? []) as TenancyBillingRow[]).map(
+      (tenancy) => tenancy.room_id,
+    ),
+  );
 
   for (const tenancy of (tenancies ?? []) as TenancyBillingRow[]) {
     result.checkedTenancies += 1;
@@ -294,6 +299,10 @@ export async function generateRecurringRentBills(
 
     for (const tenant of (tenantRecords ?? []) as TenantRecordBillingRow[]) {
       if (!tenant.contract_start || !tenant.due_day) {
+        continue;
+      }
+      if (activeTenancyRoomIds.has(tenant.room_id)) {
+        result.skippedBills += 1;
         continue;
       }
 
