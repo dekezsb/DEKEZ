@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMalaysiaDateTime } from "@/lib/date-format";
 import { EXTRA_CHARGE_OPTIONS } from "@/lib/payments/extra-charges";
 import {
+  allocatePaymentPurpose,
+  isPaymentPurpose,
   PAYMENT_PURPOSES,
   paymentPurposeLabel,
 } from "@/lib/payments/payment-purpose";
@@ -27,6 +29,8 @@ type PaymentRecordActionsProps = {
   amountSubmittedValue: number;
   paymentPurpose: string;
   invoiceOutstanding: number;
+  rentOutstanding: number;
+  depositOutstanding: number;
   referenceNumber: string;
   receiptUrl?: string | null;
   receiptIsImage: boolean;
@@ -60,6 +64,8 @@ export function PaymentRecordActions({
   amountSubmittedValue,
   paymentPurpose,
   invoiceOutstanding,
+  rentOutstanding,
+  depositOutstanding,
   referenceNumber,
   receiptUrl,
   receiptIsImage,
@@ -83,30 +89,29 @@ export function PaymentRecordActions({
     amountSubmittedValue.toFixed(2),
   );
   const correctedAmountValue = Math.max(Number(correctedAmount) || 0, 0);
-  const availableExtraPayment = Math.max(
-    correctedAmountValue - invoiceOutstanding,
-    0,
+  const defaultAllocation = allocatePaymentPurpose({
+    purpose: isPaymentPurpose(paymentPurpose) ? paymentPurpose : "monthly_rent",
+    amount: amountSubmittedValue,
+    rentOutstanding,
+    depositOutstanding,
+  });
+  const [rentalAmount, setRentalAmount] = useState(
+    defaultAllocation.rent.toFixed(2),
+  );
+  const [depositAmount, setDepositAmount] = useState(
+    defaultAllocation.deposit.toFixed(2),
   );
   const [extraChargeAmount, setExtraChargeAmount] = useState(
-    availableExtraPayment.toFixed(2),
+    defaultAllocation.extra.toFixed(2),
   );
-  const hasExtraAmount = availableExtraPayment > 0.005;
-  const selectedExtraAmount = hasExtraAmount
-    ? Math.max(Number(extraChargeAmount) || 0, 0)
-    : 0;
-  const amountAppliedBeforeExtra = Math.min(
-    correctedAmountValue,
-    invoiceOutstanding,
-  );
-  const extraPaymentApplied = Math.min(
-    availableExtraPayment,
-    selectedExtraAmount,
-  );
-  const paymentCredit = Math.max(
-    availableExtraPayment - extraPaymentApplied,
-    0,
-  );
-  const amountApplied = amountAppliedBeforeExtra + extraPaymentApplied;
+  const selectedRentalAmount = Math.max(Number(rentalAmount) || 0, 0);
+  const selectedDepositAmount = Math.max(Number(depositAmount) || 0, 0);
+  const selectedExtraAmount = Math.max(Number(extraChargeAmount) || 0, 0);
+  const totalAllocated =
+    selectedRentalAmount + selectedDepositAmount + selectedExtraAmount;
+  const allocationDifference = correctedAmountValue - totalAllocated;
+  const hasExtraAmount = selectedExtraAmount > 0.005;
+  const amountApplied = selectedRentalAmount + selectedExtraAmount;
   const remainingAfterVerification = Math.max(
     invoiceOutstanding + selectedExtraAmount - amountApplied,
     0,
@@ -116,21 +121,6 @@ export function PaymentRecordActions({
     correctedPaymentDate !== paymentDate ||
     correctedBillingMonth !== originalBillingMonth ||
     Math.abs(correctedAmountValue - amountSubmittedValue) > 0.005;
-
-  useEffect(() => {
-    if (!hasExtraAmount) {
-      setExtraChargeAmount("0.00");
-      return;
-    }
-
-    setExtraChargeAmount((current) => {
-      const currentValue = Number(current);
-      if (!Number.isFinite(currentValue) || currentValue < 0) {
-        return availableExtraPayment.toFixed(2);
-      }
-      return current;
-    });
-  }, [availableExtraPayment, hasExtraAmount]);
 
   return (
     <div className="space-y-3">
@@ -203,11 +193,11 @@ export function PaymentRecordActions({
                   <dd className="font-bold">
                     RM {remainingAfterVerification.toFixed(2)}
                   </dd>
-                  {paymentCredit > 0.005 ? (
+                  {Math.abs(allocationDifference) > 0.005 ? (
                     <>
-                      <dt>Payment credit</dt>
+                      <dt>Receipt / allocation difference</dt>
                       <dd className="font-bold">
-                        RM {paymentCredit.toFixed(2)}
+                        RM {allocationDifference.toFixed(2)}
                       </dd>
                     </>
                   ) : null}
@@ -337,15 +327,53 @@ export function PaymentRecordActions({
                   </dl>
                 </div>
               ) : null}
-              {hasExtraAmount ? (
-                <div className="grid gap-4 sm:grid-cols-3">
+              {canCorrectPurpose ? (
+                <div className="rounded-md border border-[#d7dde5] bg-white p-4">
+                  <p className="font-semibold text-gray-950">
+                    Allocate verified payment
+                  </p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Enter the exact amounts. Super Admin values are not capped
+                    by the submitted receipt or invoice balance.
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Rental amount (RM)
+                      </span>
+                      <input
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 font-semibold"
+                        min="0"
+                        name="rentalAmount"
+                        step="0.01"
+                        type="number"
+                        value={rentalAmount}
+                        onChange={(event) => setRentalAmount(event.target.value)}
+                        required
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Deposit amount (RM)
+                      </span>
+                      <input
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 font-semibold"
+                        min="0"
+                        name="depositAmount"
+                        step="0.01"
+                        type="number"
+                        value={depositAmount}
+                        onChange={(event) => setDepositAmount(event.target.value)}
+                        required
+                      />
+                    </label>
                   <label className="block">
                     <span className="text-sm font-medium text-gray-800">
-                      Extra charge amount
+                      Extra-charge amount (RM)
                     </span>
                     <input
                       className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 font-semibold"
-                      min="0.01"
+                      min="0"
                       name="extraChargeAmount"
                       step="0.01"
                       type="number"
@@ -355,11 +383,32 @@ export function PaymentRecordActions({
                       }
                       required
                     />
-                    <span className="mt-1 block text-xs text-gray-500">
-                      Enter the actual charge amount. It is not limited by the
-                      submitted payment amount.
-                    </span>
                   </label>
+                  </div>
+                  <dl className="mt-4 grid grid-cols-[1fr_auto] gap-2 border-t border-[#e3e8ef] pt-3 text-sm">
+                    <dt>Total allocated</dt>
+                    <dd className="font-semibold">
+                      RM {totalAllocated.toFixed(2)}
+                    </dd>
+                    <dt>Submitted receipt</dt>
+                    <dd className="font-semibold">
+                      RM {correctedAmountValue.toFixed(2)}
+                    </dd>
+                    <dt>Difference</dt>
+                    <dd
+                      className={
+                        Math.abs(allocationDifference) > 0.005
+                          ? "font-bold text-amber-700"
+                          : "font-bold text-emerald-700"
+                      }
+                    >
+                      RM {allocationDifference.toFixed(2)}
+                    </dd>
+                  </dl>
+                </div>
+              ) : null}
+              {hasExtraAmount ? (
+                <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block">
                     <span className="text-sm font-medium text-gray-800">
                       Extra payment for

@@ -89,6 +89,8 @@ const errorMessages: Record<string, string> = {
   correction_amount: "Enter a valid payment amount greater than RM 0.00.",
   extra_amount:
     "Enter a valid extra-charge amount greater than RM 0.00.",
+  allocation_amount:
+    "Enter valid Rental, Deposit and Extra Charge amounts. Their combined total must be greater than RM 0.00.",
   correction_bill_missing:
     "No invoice exists for that tenancy and billing month. Create or select the correct invoice before verifying.",
   correction_bill_paid:
@@ -465,6 +467,18 @@ function buildRow(
     invoiceTotal - Number(bill?.paid_amount ?? 0),
     0,
   );
+  const rentOutstanding = Math.max(
+    Number(bill?.amount ?? submission.amount ?? 0) -
+      Math.min(
+        Number(bill?.paid_amount ?? 0),
+        Number(bill?.amount ?? submission.amount ?? 0),
+      ),
+    0,
+  );
+  const depositOutstanding = Math.max(
+    Number(bill?.deposit_amount ?? 0),
+    0,
+  );
 
   return {
     submissionId: submission.id,
@@ -479,6 +493,8 @@ function buildRow(
     amountSubmittedValue: Number(submission.amount ?? 0),
     paymentPurpose: submission.payment_type,
     invoiceOutstanding,
+    rentOutstanding,
+    depositOutstanding,
     referenceNumber: submission.reference_number ?? "",
     receiptUrl,
     receiptIsImage: isImagePath(submission.receipt_url),

@@ -78,6 +78,8 @@ export async function reviewPaymentSubmission(formData: FormData) {
     "extraChargeDescription",
   );
   const extraChargeAmountInput = textValue(formData, "extraChargeAmount");
+  const rentalAmountInput = textValue(formData, "rentalAmount");
+  const depositAmountInput = textValue(formData, "depositAmount");
   const returnTo = returnPath(formData);
 
   if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
@@ -223,6 +225,12 @@ export async function reviewPaymentSubmission(formData: FormData) {
     | null = null;
   let verifiedDepositRequired = 0;
   let verifiedDepositPaidBefore = 0;
+  const hasManualAllocation =
+    decision === "verified" &&
+    role === "super_admin" &&
+    rentalAmountInput !== "" &&
+    depositAmountInput !== "" &&
+    extraChargeAmountInput !== "";
 
   if (
     decision === "verified" &&
@@ -269,22 +277,49 @@ export async function reviewPaymentSubmission(formData: FormData) {
         tenantRecordId: currentSubmission.tenant_record_id,
         depositAmount: verifiedDepositRequired,
       });
-      const initialAllocation = allocatePaymentPurpose({
-        purpose: effectivePaymentType,
-        amount: effectiveAmount,
-        rentOutstanding: Math.max(
-          Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
-          0,
-        ),
-        depositOutstanding: Math.max(
-          verifiedDepositRequired - verifiedDepositPaidBefore,
-          0,
-        ),
-      });
-      verifiedAllocation = {
-        ...initialAllocation,
-        credit: 0,
-      };
+      if (hasManualAllocation) {
+        const manualAllocation = {
+          rent: Number(rentalAmountInput),
+          deposit: Number(depositAmountInput),
+          extra: Number(extraChargeAmountInput),
+        };
+        if (
+          Object.values(manualAllocation).some(
+            (amount) => !Number.isFinite(amount) || amount < 0,
+          ) ||
+          manualAllocation.rent +
+            manualAllocation.deposit +
+            manualAllocation.extra <=
+            0
+        ) {
+          redirect(withResult(returnTo, "error=allocation_amount"));
+        }
+        verifiedAllocation = {
+          ...manualAllocation,
+          credit: 0,
+        };
+        effectiveAmount =
+          manualAllocation.rent +
+          manualAllocation.deposit +
+          manualAllocation.extra;
+      } else {
+        const initialAllocation = allocatePaymentPurpose({
+          purpose: effectivePaymentType,
+          amount: effectiveAmount,
+          rentOutstanding: Math.max(
+            Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
+            0,
+          ),
+          depositOutstanding: Math.max(
+            verifiedDepositRequired - verifiedDepositPaidBefore,
+            0,
+          ),
+        });
+        verifiedAllocation = {
+          ...initialAllocation,
+          credit: 0,
+        };
+      }
       extraAmount = verifiedAllocation.extra;
     } else {
       const invoiceTotal =
@@ -311,7 +346,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
         redirect(withResult(returnTo, "error=extra_amount"));
       }
 
-      if (isPaymentPurpose(effectivePaymentType)) {
+      if (isPaymentPurpose(effectivePaymentType) && !hasManualAllocation) {
         const availableExtraPayment = verifiedAllocation?.extra ?? 0;
         const extraPaymentApplied = Math.min(
           availableExtraPayment,
