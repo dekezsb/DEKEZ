@@ -171,7 +171,11 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
               <PaymentAmountFields
                 bills={payableBills.map((bill) => ({
                   id: bill.id,
-                  label: `${bill.propertyName} / ${bill.roomName} / ${date(bill.bill_month)} - ${money(bill.outstanding)} outstanding`,
+                  label: `Invoice ${date(bill.invoice_date)} | Due ${date(bill.due_date)} | ${bill.propertyName} / ${bill.roomName} | ${money(bill.outstanding)} outstanding`,
+                  invoiceDate: date(bill.invoice_date),
+                  dueDate: date(bill.due_date),
+                  propertyName: bill.propertyName,
+                  roomName: bill.roomName,
                   rentOutstanding: Math.max(
                     bill.amount - bill.paidAmount,
                     0,

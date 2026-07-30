@@ -10,6 +10,10 @@ import {
 type PaymentBillOption = {
   id: string;
   label: string;
+  invoiceDate: string;
+  dueDate: string;
+  propertyName: string;
+  roomName: string;
   rentOutstanding: number;
   depositOutstanding: number;
 };
@@ -91,6 +95,29 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
           ))}
         </select>
       </label>
+
+      {selectedBill ? (
+        <div className="grid gap-3 rounded-md border border-[#d7dee8] bg-white p-4 text-sm sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <p className="text-gray-600">Selected invoice</p>
+            <p className="mt-1 font-semibold text-gray-950">
+              {selectedBill.propertyName} / {selectedBill.roomName}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-600">Invoice date</p>
+            <p className="mt-1 font-semibold text-gray-950">
+              {selectedBill.invoiceDate}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-600">Due date</p>
+            <p className="mt-1 font-semibold text-red-700">
+              {selectedBill.dueDate}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {selectedBill ? (
         <label className="block">
