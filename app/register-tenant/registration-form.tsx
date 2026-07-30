@@ -322,6 +322,32 @@ export function RegistrationForm({
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
+          Emergency contact name
+        </span>
+        <input
+          className={fieldClass()}
+          name="emergencyContactName"
+          placeholder="Person to contact in an emergency"
+          required
+        />
+      </label>
+
+      <label>
+        <span className="text-sm font-medium text-[#17223b]">
+          Emergency contact number
+        </span>
+        <input
+          className={fieldClass()}
+          inputMode="tel"
+          name="emergencyContactNumber"
+          placeholder="+60 12-345 6789"
+          required
+          type="tel"
+        />
+      </label>
+
+      <label>
+        <span className="text-sm font-medium text-[#17223b]">
           Monthly rent RM
         </span>
         <input

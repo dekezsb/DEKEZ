@@ -71,7 +71,7 @@ export async function getTenantPortalData() {
   // Every privileged query below is explicitly scoped from the authenticated
   // profile to its linked tenant and tenancy IDs.
   const dataClient = createAdminClient();
-  const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult] =
+  const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult, applicationsResult] =
     await Promise.all([
       dataClient
         .from("profiles")
@@ -108,6 +108,12 @@ export async function getTenantPortalData() {
         )
         .eq("tenant_id", user.id)
         .order("uploaded_at", { ascending: false }),
+      dataClient
+        .from("tenant_applications")
+        .select("emergency_contact_name, emergency_contact_number")
+        .eq("tenant_id", user.id)
+        .order("submitted_at", { ascending: false })
+        .limit(1),
     ]);
 
   const tenantRecords = tenantRecordsResult.data ?? [];
@@ -454,6 +460,7 @@ export async function getTenantPortalData() {
     tenantRecords[0] ??
     null;
   const profile = profileResult.data;
+  const tenantApplication = applicationsResult.data?.[0] ?? null;
   const outstandingAmount = invoiceBills
     .filter(
       (bill) =>
@@ -479,6 +486,10 @@ export async function getTenantPortalData() {
       identityType: profile?.identity_type ?? "ic",
       identityNumber:
         currentTenant?.identity_number ?? profile?.identity_number ?? null,
+      emergencyContactName:
+        tenantApplication?.emergency_contact_name ?? null,
+      emergencyContactNumber:
+        tenantApplication?.emergency_contact_number ?? null,
       registrationStatus: profile?.registration_status ?? "approved",
     },
     hasTenancy: portalTenancies.length > 0,

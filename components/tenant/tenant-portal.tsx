@@ -818,11 +818,20 @@ export function TenantProfile({ data }: { data: NonNullable<TenantPortalData> })
               label="Identity type"
               value={titleCase(data.profile.identityType)}
             />
-            <ProfileField
-              label="IC / Passport number"
-              value={data.profile.identityNumber ?? "-"}
-            />
-            <ProfileField label="Email" value={data.profile.email ?? "-"} />
+              <ProfileField
+                label="IC / Passport number"
+                value={data.profile.identityNumber ?? "-"}
+              />
+              <ProfileField
+                label="Emergency contact name"
+                value={data.profile.emergencyContactName ?? "-"}
+              />
+              <ProfileField
+                icon={Phone}
+                label="Emergency contact number"
+                value={data.profile.emergencyContactNumber ?? "-"}
+              />
+              <ProfileField label="Email" value={data.profile.email ?? "-"} />
             <ProfileField
               label="Verification"
               value={titleCase(data.profile.registrationStatus)}

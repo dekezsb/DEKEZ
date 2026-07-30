@@ -84,6 +84,18 @@ export default async function TenantProfilePage({
               {room.tenantPhone ?? "-"}
             </p>
             <p className="text-gray-600">IC / Passport: {room.identificationNumber ?? "-"}</p>
+            <div className="border-t border-gray-200 pt-3">
+              <p className="text-xs font-semibold uppercase text-gray-500">
+                Emergency contact
+              </p>
+              <p className="mt-1 font-medium text-gray-900">
+                {room.emergencyContactName ?? "-"}
+              </p>
+              <p className="mt-1 flex items-center gap-2 text-gray-700">
+                <Phone className="h-4 w-4 text-[#b17f19]" />
+                {room.emergencyContactNumber ?? "-"}
+              </p>
+            </div>
           </CardContent>
         </Card>
         <Card>

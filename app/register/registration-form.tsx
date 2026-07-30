@@ -189,6 +189,8 @@ export function RegistrationForm({
           companyDetails: formData.get("companyDetails"),
           companyName: formData.get("companyName"),
           fullName: formData.get("fullName"),
+          emergencyContactName: formData.get("emergencyContactName"),
+          emergencyContactNumber: formData.get("emergencyContactNumber"),
           identityNumber: formData.get("identityNumber"),
           identityType,
           phone: formData.get("phone"),
@@ -410,6 +412,32 @@ export function RegistrationForm({
 
         {accountType === "tenant" ? (
           <>
+            <label>
+              <span className="text-sm font-medium text-[#17223b]">
+                Emergency contact name
+              </span>
+              <input
+                autoComplete="name"
+                className={inputClass}
+                name="emergencyContactName"
+                placeholder="Person to contact in an emergency"
+                required
+              />
+            </label>
+            <label>
+              <span className="text-sm font-medium text-[#17223b]">
+                Emergency contact number
+              </span>
+              <input
+                autoComplete="tel"
+                className={inputClass}
+                inputMode="tel"
+                name="emergencyContactNumber"
+                placeholder="012-345 6789 or +country code"
+                required
+                type="tel"
+              />
+            </label>
             <label>
               <span className="text-sm font-medium text-[#17223b]">
                 Preferred move-in date

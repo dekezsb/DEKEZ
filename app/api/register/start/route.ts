@@ -124,6 +124,8 @@ export async function POST(request: NextRequest) {
   const accountType = cleanText(body?.accountType) as AccountType;
   const identityType = cleanText(body?.identityType) as IdentityType;
   const fullName = cleanText(body?.fullName);
+  const emergencyContactName = cleanText(body?.emergencyContactName);
+  const emergencyContactNumber = cleanText(body?.emergencyContactNumber);
   const identityNumber = cleanText(body?.identityNumber);
   const phone = normalizeInternationalPhone(cleanText(body?.phone));
   const rawUploads: unknown[] = Array.isArray(body?.uploads)
@@ -136,7 +138,9 @@ export async function POST(request: NextRequest) {
     !["ic", "passport"].includes(identityType) ||
     !fullName ||
     !identityNumber ||
-    !phone
+    !phone ||
+    (accountType === "tenant" &&
+      (!emergencyContactName || !emergencyContactNumber))
   ) {
     return NextResponse.json(
       { error: "Complete all required registration details." },
@@ -349,6 +353,8 @@ export async function POST(request: NextRequest) {
           full_name: fullName,
           ic_passport_number: identityNumber,
           whatsapp_number: phone.e164,
+          emergency_contact_name: emergencyContactName,
+          emergency_contact_number: emergencyContactNumber,
           contract_duration_months: duration,
           proposed_start_date: proposedStartDate,
           proposed_end_date: addMonths(proposedStartDate, duration),

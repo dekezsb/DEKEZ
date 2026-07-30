@@ -51,6 +51,11 @@ export async function submitAdminTenantApplication(formData: FormData) {
   const identityType = textValue(formData, "identityType");
   const identificationNumber = textValue(formData, "identificationNumber");
   const phone = textValue(formData, "phone");
+  const emergencyContactName = textValue(formData, "emergencyContactName");
+  const emergencyContactNumber = textValue(
+    formData,
+    "emergencyContactNumber",
+  );
   const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
   const deposit = Math.max(0, numberValue(formData, "deposit"));
   const contractStart = textValue(formData, "contractStart");
@@ -90,6 +95,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
     !fullName ||
     !identificationNumber ||
     !phone ||
+    !emergencyContactName ||
+    !emergencyContactNumber ||
     !contractStart ||
     !["ic", "passport"].includes(identityType)
   ) {
@@ -222,6 +229,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
       full_name: fullName,
       ic_passport_number: identificationNumber,
       whatsapp_number: phone,
+      emergency_contact_name: emergencyContactName,
+      emergency_contact_number: emergencyContactNumber,
       proposed_start_date: contractStart,
       proposed_end_date: contractEnd,
       monthly_rent: monthlyRent,

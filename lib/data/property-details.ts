@@ -57,6 +57,8 @@ export type PropertyRoomView = {
   tenantName: string | null;
   tenantPhone: string | null;
   identificationNumber: string | null;
+  emergencyContactName: string | null;
+  emergencyContactNumber: string | null;
   deposit: number;
   depositReceived: number;
   depositOutstanding: number;
@@ -300,6 +302,8 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         tenantName: canonicalTenant?.full_name ?? tenantRecord?.full_name ?? null,
         tenantPhone: canonicalTenant?.phone ?? tenantRecord?.phone ?? null,
         identificationNumber: canonicalTenant?.identity_number ?? tenantRecord?.identification_number ?? null,
+        emergencyContactName: null,
+        emergencyContactNumber: null,
         deposit,
         depositReceived,
         depositOutstanding: Math.max(deposit - depositReceived, 0),
@@ -598,12 +602,13 @@ export async function getTenantProfile(
     .maybeSingle();
 
   if (importedTenant?.property_id && importedTenant.room_id) {
-    return getRoomDetails(importedTenant.property_id, importedTenant.room_id, {
+    const details = await getRoomDetails(importedTenant.property_id, importedTenant.room_id, {
       ...options,
       includeAllTenantTerms: true,
       tenantId: importedTenant.tenant_id,
       tenantRecordId: importedTenant.id,
     });
+    return addEmergencyContact(supabase, details);
   }
 
   const { data: tenancy } = await supabase
@@ -618,9 +623,38 @@ export async function getTenantProfile(
     notFound();
   }
 
-  return getRoomDetails(tenancy.property_id, tenancy.room_id, {
+  const details = await getRoomDetails(tenancy.property_id, tenancy.room_id, {
     ...options,
     includeAllTenantTerms: true,
     tenantId: tenancy.tenant_id,
   });
+  return addEmergencyContact(supabase, details);
+}
+
+async function addEmergencyContact(
+  supabase: DataClient,
+  details: Awaited<ReturnType<typeof getRoomDetails>>,
+) {
+  let query = supabase
+    .from("tenant_applications")
+    .select("emergency_contact_name, emergency_contact_number")
+    .eq("room_id", details.room.id);
+
+  if (details.room.tenantProfileId) {
+    query = query.eq("tenant_id", details.room.tenantProfileId);
+  }
+
+  const { data: application } = await query
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    ...details,
+    room: {
+      ...details.room,
+      emergencyContactName: application?.emergency_contact_name ?? null,
+      emergencyContactNumber: application?.emergency_contact_number ?? null,
+    },
+  };
 }
