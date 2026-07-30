@@ -11,7 +11,10 @@ import { formatMalaysiaDate } from "@/lib/date-format";
 import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
-import { createMaintenanceTicket } from "./actions";
+import {
+  createMaintenanceTicket,
+  updateMaintenanceTicketStatus,
+} from "./actions";
 
 type MaintenancePageProps = {
   searchParams: Promise<{
@@ -19,6 +22,7 @@ type MaintenancePageProps = {
     error?: string;
     claim_submitted?: string;
     claim_error?: string;
+    updated?: string;
   }>;
 };
 
@@ -29,6 +33,9 @@ const errorMessages: Record<string, string> = {
   create: "Maintenance ticket could not be saved.",
   photo_type: "Use a JPG, PNG or WebP photo no larger than 10 MB.",
   photo_upload: "The report was saved, but the photo could not be uploaded.",
+  status: "The maintenance status could not be updated.",
+  ticket: "The maintenance ticket is no longer available.",
+  completion_photo: "Upload a completion photo before marking the job Resolved.",
 };
 
 const claimErrorMessages: Record<string, string> = {
@@ -112,7 +119,7 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
   const tenants = tenantsResult.data ?? [];
   const properties = propertiesResult.data ?? [];
   const claims = claimsResult.data ?? [];
-  const canCreate = ["super_admin", "owner", "admin"].includes(role);
+  const canCreate = ["super_admin", "owner"].includes(role);
   const canSubmitClaim = [
     "super_admin",
     "admin",
@@ -167,6 +174,11 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
       {params.created === "1" ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
           Ticket submitted successfully.
+        </div>
+      ) : null}
+      {params.updated === "1" ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 shadow-sm">
+          Maintenance ticket updated successfully.
         </div>
       ) : null}
       {params.error ? (
@@ -250,7 +262,118 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
           <CardDescription>Only tickets your role can access are shown.</CardDescription>
         </CardHeader>
         <CardContent>
-          {tickets.length ? (
+          {tickets.length && role === "admin" ? (
+            <div className="space-y-3">
+              {tickets.map((ticket) => {
+                const property = properties.find(
+                  (item) => item.id === ticket.property_id,
+                );
+                const room = rooms.find((item) => item.id === ticket.room_id);
+                const completed = ticket.status === "completed";
+                return (
+                  <article
+                    className={`rounded-md border p-4 ${
+                      completed
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-[#d7dde5] bg-white"
+                    }`}
+                    key={ticket.id}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="font-semibold text-gray-950">
+                            {ticket.ticket_number ?? ticket.id.slice(0, 8)}
+                          </h2>
+                          <Badge
+                            className={
+                              completed
+                                ? "bg-emerald-100 text-emerald-700"
+                                : statusBadgeClass(ticket.status)
+                            }
+                          >
+                            {completed
+                              ? "Resolved"
+                              : ticket.status === "in_progress"
+                                ? "In Progress"
+                                : "Open"}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-sm font-medium">
+                          {ticket.description}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {property?.name ?? "Property"}
+                          {room
+                            ? ` / ${room.room_number ?? room.name ?? "Room"}`
+                            : ""}
+                          {" · "}
+                          {formatMalaysiaDate(ticket.created_at)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!completed ? (
+                      <form
+                        action={updateMaintenanceTicketStatus}
+                        className="mt-4 grid gap-3 border-t border-[#e3e8ef] pt-4 sm:grid-cols-2"
+                      >
+                        <input
+                          name="ticketId"
+                          type="hidden"
+                          value={ticket.id}
+                        />
+                        <label className="block">
+                          <span className="text-sm font-medium">Work status</span>
+                          <select
+                            className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                            defaultValue={
+                              ticket.status === "in_progress"
+                                ? "in_progress"
+                                : "submitted"
+                            }
+                            name="status"
+                          >
+                            <option value="submitted">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Resolved</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-sm font-medium">
+                            Completion photo
+                          </span>
+                          <input
+                            accept="image/jpeg,image/png,image/webp"
+                            className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-sm"
+                            name="completionPhoto"
+                            type="file"
+                          />
+                        </label>
+                        <label className="block sm:col-span-2">
+                          <span className="text-sm font-medium">
+                            Work notes (optional)
+                          </span>
+                          <textarea
+                            className="mt-2 min-h-20 w-full rounded-md border border-[#d7dde5] px-3 py-2"
+                            name="notes"
+                            placeholder="Describe the work completed"
+                          />
+                        </label>
+                        <Button className="sm:col-span-2" type="submit">
+                          Update Ticket
+                        </Button>
+                      </form>
+                    ) : (
+                      <p className="mt-4 border-t border-emerald-200 pt-3 text-sm font-medium text-emerald-700">
+                        Work completed and submitted.
+                      </p>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : tickets.length ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -279,6 +402,7 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
         </CardContent>
       </Card>
 
+      {role !== "admin" ? (
       <Card id="claim-bills">
         <CardHeader>
           <CardTitle>Claim Bills</CardTitle>
@@ -369,6 +493,7 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
           </div>
         </CardContent>
       </Card>
+      ) : null}
     </section>
   );
 }

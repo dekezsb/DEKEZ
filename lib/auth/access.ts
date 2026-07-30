@@ -208,6 +208,7 @@ export function hasModuleAccess(
 
 export function moduleForPath(pathname: string): AccessModule | null {
   const routeModules: Array<[string, AccessModule]> = [
+    ["/staff", "dashboard"],
     ["/admin-setup", "admin_setup"],
     ["/register-tenant", "properties"],
     ["/properties", "properties"],

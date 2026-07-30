@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
+import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
 
 type ConvertApplicationOptions = {
   actorId: string;
@@ -300,6 +301,9 @@ export async function convertTenantApplication(
     createdBy: actorId,
     tenancyId: tenancy.id,
     includeTenantRecords: false,
+  });
+  await createAgreementForTenancy(supabase, tenancy.id, actorId, {
+    monthlyRent: Number(application.monthly_rent ?? 0),
   });
   return { ok: true, tenancyId: tenancy.id };
 }

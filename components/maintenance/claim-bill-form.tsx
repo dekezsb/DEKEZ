@@ -32,11 +32,13 @@ function roomLabel(room: RoomOption) {
 export function ClaimBillForm({
   allowUnlinkedJob,
   properties,
+  returnTo = "/maintenance",
   rooms,
   tickets,
 }: {
   allowUnlinkedJob: boolean;
   properties: PropertyOption[];
+  returnTo?: string;
   rooms: RoomOption[];
   tickets: TicketOption[];
 }) {
@@ -54,6 +56,7 @@ export function ClaimBillForm({
 
   return (
     <form action={createClaimBill} className="grid gap-4 lg:grid-cols-2">
+      <input name="returnTo" type="hidden" value={returnTo} />
       <label className="block lg:col-span-2">
         <span className="text-sm font-medium text-gray-700">
           What did you pay for?

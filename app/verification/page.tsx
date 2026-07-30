@@ -135,11 +135,19 @@ function malaysiaToday() {
 }
 
 export default async function VerificationPage({ searchParams }: PageProps) {
-  await requireRole(["super_admin", "admin"]);
+  const role = await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
-  const activeView = views.some((view) => view.key === params.view)
+  const availableViews =
+    role === "admin"
+      ? views.filter((view) =>
+          ["tenants", "agreements"].includes(view.key),
+        )
+      : views;
+  const activeView = availableViews.some((view) => view.key === params.view)
     ? (params.view as VerificationView)
-    : "users";
+    : role === "admin"
+      ? "tenants"
+      : "users";
   const supabase = await getAdmin();
 
   const [
@@ -275,8 +283,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
         submission.verification_status === "pending_verification",
     ).length,
   };
-  const totalPending = Object.values(pendingCounts).reduce(
-    (total, count) => total + count,
+  const totalPending = availableViews.reduce(
+    (total, view) => total + pendingCounts[view.key],
     0,
   );
 
@@ -285,14 +293,17 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-[#b98a2c]">
-            Admin Control
+            {role === "admin" ? "Management Review" : "Admin Control"}
           </p>
           <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
-            Verification Center
+            {role === "admin"
+              ? "Tenant Verification"
+              : "Verification Center"}
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Review registrations, room assignments, claim bills, signed
-            agreements and uploaded payment slips from one place.
+            {role === "admin"
+              ? "Review tenant registrations and tenant-signed tenancy agreements."
+              : "Review registrations, room assignments, claim bills, signed agreements and uploaded payment slips from one place."}
           </p>
         </div>
         <div className="rounded-md border border-[#d7dde5] bg-white px-4 py-3 text-sm shadow-sm">
@@ -315,7 +326,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
         aria-label="Verification sections"
         className="flex gap-2 overflow-x-auto border-b border-[#d7dde5] pb-3"
       >
-        {views.map(({ key, label, icon: Icon }) => {
+        {availableViews.map(({ key, label, icon: Icon }) => {
           const active = activeView === key;
           return (
             <Link

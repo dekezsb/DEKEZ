@@ -50,6 +50,14 @@ const adminNavigation: NavigationItem[] = [
   { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
 ];
 
+const managementNavigation: NavigationItem[] = [
+  { label: "Home", href: "/dashboard", icon: House, module: "dashboard" },
+  { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+  { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
+  { label: "Claims", href: "/claims", icon: ReceiptText, module: "claims" },
+  { label: "Profile", href: "/staff/profile", icon: CircleUserRound, module: "dashboard" },
+];
+
 export const roleLabels: Record<AppRole, string> = {
   super_admin: "Super Admin",
   owner: "Owner",
@@ -88,7 +96,7 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
     { label: "Settings", href: "/settings", icon: Settings, module: "settings" },
   ],
-  admin: adminNavigation,
+  admin: managementNavigation,
   technician: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
@@ -136,6 +144,7 @@ export const protectedRoutes = [
   "/claims",
   "/reports",
   "/settings",
+  "/staff",
   "/setup",
   "/super-admin",
 ];

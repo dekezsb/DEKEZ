@@ -142,6 +142,15 @@ export default async function DashboardPage({
     );
   }
 
+  if (role === "admin") {
+    return (
+      <>
+        <AccessNotice show={query.error === "access_denied"} />
+        <ManagementDashboard query={query} />
+      </>
+    );
+  }
+
   return (
     <>
       <AccessNotice show={query.error === "access_denied"} />
@@ -157,6 +166,63 @@ function AccessNotice({ show }: { show: boolean }) {
       if your access needs to change.
     </div>
   ) : null;
+}
+
+async function ManagementDashboard({
+  query,
+}: {
+  query: {
+    rentBucket?: string;
+  };
+}) {
+  const [rentDueSummary, depositSummary] = await Promise.all([
+    getRentDueSummary(),
+    getDepositOutstandingSummary(),
+  ]);
+
+  return (
+    <section className="space-y-6">
+      <div>
+        <p className="text-xs font-semibold uppercase text-[#b98a2c]">
+          Management Team
+        </p>
+        <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">
+          Daily Operations
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
+          Follow up rent and deposits, process maintenance work, submit claims
+          and verify tenant registrations from one mobile workspace.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ModuleCard
+          description="Open reports, update work status and submit completion photos."
+          href="/maintenance"
+          icon={Wrench}
+          title="Maintenance"
+        />
+        <ModuleCard
+          description="Review tenant registrations and signed tenancy agreements."
+          href="/verification"
+          icon={ClipboardCheck}
+          title="Verification"
+        />
+        <ModuleCard
+          description="Submit repair receipts and follow reimbursement status."
+          href="/claims"
+          icon={ReceiptText}
+          title="Claim Bills"
+        />
+      </div>
+
+      <CompactRentDueTracker
+        selectedBucket={query.rentBucket}
+        summary={rentDueSummary}
+      />
+      <DepositOutstanding canManage summary={depositSummary} />
+    </section>
+  );
 }
 
 async function OwnerDashboard() {

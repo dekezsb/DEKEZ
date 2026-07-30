@@ -17,8 +17,9 @@ function fileValue(formData: FormData, key: string) {
   return value instanceof File && value.size > 0 ? value : null;
 }
 
-function claimPath(result: string) {
-  return `/maintenance?${result}#claim-bills`;
+function claimPath(result: string, returnTo = "/maintenance") {
+  const safeReturnTo = returnTo === "/claims" ? "/claims" : "/maintenance";
+  return `${safeReturnTo}?${result}${safeReturnTo === "/maintenance" ? "#claim-bills" : ""}`;
 }
 
 export async function createMaintenanceTicket(formData: FormData) {
@@ -181,6 +182,7 @@ export async function createClaimBill(formData: FormData) {
   const fundingSource = textValue(formData, "fundingSource");
   const amount = Number(textValue(formData, "amount"));
   const receipt = fileValue(formData, "receipt");
+  const returnTo = textValue(formData, "returnTo");
   const canSubmitWithoutTicket = ["super_admin", "admin"].includes(role);
 
   if (
@@ -192,7 +194,7 @@ export async function createClaimBill(formData: FormData) {
     !["company_cash", "staff_personal"].includes(fundingSource) ||
     (!canSubmitWithoutTicket && !ticketId)
   ) {
-    redirect(claimPath("claim_error=missing"));
+    redirect(claimPath("claim_error=missing", returnTo));
   }
 
   if (
@@ -205,7 +207,7 @@ export async function createClaimBill(formData: FormData) {
       "application/pdf",
     ].includes(receipt.type)
   ) {
-    redirect(claimPath("claim_error=receipt_type"));
+    redirect(claimPath("claim_error=receipt_type", returnTo));
   }
 
   const supabase = await createClient();
@@ -216,7 +218,7 @@ export async function createClaimBill(formData: FormData) {
     .maybeSingle();
 
   if (!property) {
-    redirect(claimPath("claim_error=property"));
+    redirect(claimPath("claim_error=property", returnTo));
   }
 
   if (roomId) {
@@ -226,7 +228,7 @@ export async function createClaimBill(formData: FormData) {
       .eq("id", roomId)
       .maybeSingle();
     if (!room || room.property_id !== property.id) {
-      redirect(claimPath("claim_error=room"));
+      redirect(claimPath("claim_error=room", returnTo));
     }
   }
 
@@ -241,7 +243,7 @@ export async function createClaimBill(formData: FormData) {
       ticket.property_id !== property.id ||
       (roomId && ticket.room_id && ticket.room_id !== roomId)
     ) {
-      redirect(claimPath("claim_error=ticket"));
+      redirect(claimPath("claim_error=ticket", returnTo));
     }
   }
 
@@ -256,7 +258,7 @@ export async function createClaimBill(formData: FormData) {
     .maybeSingle();
 
   if (!ownership?.owner_id) {
-    redirect(claimPath("claim_error=owner"));
+    redirect(claimPath("claim_error=owner", returnTo));
   }
 
   const { data: claim, error: claimError } = await supabase
@@ -277,7 +279,7 @@ export async function createClaimBill(formData: FormData) {
     .single();
 
   if (claimError || !claim) {
-    redirect(claimPath("claim_error=create"));
+    redirect(claimPath("claim_error=create", returnTo));
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -292,7 +294,7 @@ export async function createClaimBill(formData: FormData) {
 
   if (uploadError) {
     await admin.from("claims").delete().eq("id", claim.id);
-    redirect(claimPath("claim_error=receipt_upload"));
+    redirect(claimPath("claim_error=receipt_upload", returnTo));
   }
 
   const { error: attachmentError } = await supabase
@@ -308,11 +310,114 @@ export async function createClaimBill(formData: FormData) {
   if (attachmentError) {
     await admin.storage.from("claim-attachments").remove([path]);
     await admin.from("claims").delete().eq("id", claim.id);
-    redirect(claimPath("claim_error=receipt_upload"));
+    redirect(claimPath("claim_error=receipt_upload", returnTo));
   }
 
   revalidatePath("/maintenance");
+  revalidatePath("/claims");
   revalidatePath("/verification");
   revalidatePath("/dashboard");
-  redirect(claimPath("claim_submitted=1"));
+  redirect(claimPath("claim_submitted=1", returnTo));
+}
+
+export async function updateMaintenanceTicketStatus(formData: FormData) {
+  await requireRole(
+    [
+      "super_admin",
+      "admin",
+      "technician",
+      "maintenance_staff",
+      "cleaning_staff",
+    ],
+    { module: "maintenance", level: "manage" },
+  );
+  const user = await getCurrentUser();
+  if (!user) redirect("/");
+
+  const ticketId = textValue(formData, "ticketId");
+  const status = textValue(formData, "status");
+  const notes = textValue(formData, "notes");
+  const completionPhoto = fileValue(formData, "completionPhoto");
+
+  if (
+    !ticketId ||
+    !["submitted", "in_progress", "completed"].includes(status)
+  ) {
+    redirect("/maintenance?error=status");
+  }
+
+  if (status === "completed" && !completionPhoto) {
+    redirect("/maintenance?error=completion_photo");
+  }
+
+  if (
+    completionPhoto &&
+    (completionPhoto.size > 10 * 1024 * 1024 ||
+      !["image/jpeg", "image/png", "image/webp"].includes(
+        completionPhoto.type,
+      ))
+  ) {
+    redirect("/maintenance?error=photo_type");
+  }
+
+  const supabase = await createClient();
+  const { data: ticket } = await supabase
+    .from("maintenance_tickets")
+    .select("id")
+    .eq("id", ticketId)
+    .maybeSingle();
+
+  if (!ticket) redirect("/maintenance?error=ticket");
+
+  if (completionPhoto) {
+    const safeName = completionPhoto.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const path = `${user.id}/${ticketId}/after-${Date.now()}-${safeName}`;
+    const bytes = Buffer.from(await completionPhoto.arrayBuffer());
+    const { error: uploadError } = await supabase.storage
+      .from("maintenance-attachments")
+      .upload(path, bytes, {
+        contentType: completionPhoto.type,
+        upsert: false,
+      });
+
+    if (uploadError) redirect("/maintenance?error=photo_upload");
+
+    const { error: attachmentError } = await supabase
+      .from("maintenance_attachments")
+      .insert({
+        ticket_id: ticketId,
+        uploaded_by: user.id,
+        attachment_type: "after",
+        bucket_name: "maintenance-attachments",
+        file_path: path,
+        content_type: completionPhoto.type,
+      });
+
+    if (attachmentError) {
+      await supabase.storage.from("maintenance-attachments").remove([path]);
+      redirect("/maintenance?error=photo_upload");
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("maintenance_tickets")
+    .update({
+      status,
+      completed_at: status === "completed" ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ticketId);
+
+  if (updateError) redirect("/maintenance?error=status");
+
+  await supabase.from("maintenance_updates").insert({
+    ticket_id: ticketId,
+    updated_by: user.id,
+    status,
+    notes: notes || null,
+  });
+
+  revalidatePath("/maintenance");
+  revalidatePath("/dashboard");
+  redirect("/maintenance?updated=1");
 }
