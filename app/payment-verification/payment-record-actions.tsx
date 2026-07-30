@@ -5,7 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMalaysiaDateTime } from "@/lib/date-format";
 import { EXTRA_CHARGE_OPTIONS } from "@/lib/payments/extra-charges";
-import { paymentPurposeLabel } from "@/lib/payments/payment-purpose";
+import {
+  PAYMENT_PURPOSES,
+  paymentPurposeLabel,
+} from "@/lib/payments/payment-purpose";
 import { statusBadgeClass } from "@/lib/status-styles";
 import {
   reviewPaymentSubmission,
@@ -29,6 +32,7 @@ type PaymentRecordActionsProps = {
   verifiedBy?: string | null;
   verifiedAt?: string | null;
   rejectionReason?: string | null;
+  canCorrectPurpose?: boolean;
   canReverse?: boolean;
   returnTo?: string;
 };
@@ -60,6 +64,7 @@ export function PaymentRecordActions({
   verifiedBy,
   verifiedAt,
   rejectionReason,
+  canCorrectPurpose = false,
   canReverse = false,
   returnTo = "/payment-verification",
 }: PaymentRecordActionsProps) {
@@ -67,6 +72,7 @@ export function PaymentRecordActions({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
+  const [selectedPurpose, setSelectedPurpose] = useState(paymentPurpose);
   const extraAmount = Math.max(
     amountSubmittedValue - invoiceOutstanding,
     0,
@@ -123,7 +129,7 @@ export function PaymentRecordActions({
               <p>Room: <span className="font-medium text-gray-950">{roomName}</span></p>
               <p>Bill month: <span className="font-medium text-gray-950">{billMonth}</span></p>
               <p>Amount submitted: <span className="font-medium text-gray-950">{amountSubmitted}</span></p>
-              <p>Payment for: <span className="font-medium text-gray-950">{paymentPurposeLabel(paymentPurpose)}</span></p>
+              <p>Submitted for: <span className="font-medium text-gray-950">{paymentPurposeLabel(paymentPurpose)}</span></p>
               <p>Reference: <span className="font-medium text-gray-950">{referenceNumber || "-"}</span></p>
             </div>
             {hasExtraAmount ? (
@@ -153,6 +159,55 @@ export function PaymentRecordActions({
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="verified" />
               <input name="returnTo" type="hidden" value={returnTo} />
+              {canCorrectPurpose ? (
+                <div className="rounded-md border border-[#d7dde5] bg-gray-50 p-4">
+                  <p className="font-semibold text-gray-950">
+                    Correct payment purpose
+                  </p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Use this only when the tenant selected the wrong purpose.
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Payment for
+                      </span>
+                      <select
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                        name="paymentPurposeOverride"
+                        value={selectedPurpose}
+                        onChange={(event) => setSelectedPurpose(event.target.value)}
+                      >
+                        {PAYMENT_PURPOSES.map((purpose) => (
+                          <option key={purpose} value={purpose}>
+                            {paymentPurposeLabel(purpose)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedPurpose !== paymentPurpose ? (
+                      <label className="block">
+                        <span className="text-sm font-medium text-gray-800">
+                          Reason for correction
+                        </span>
+                        <input
+                          className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                          maxLength={300}
+                          name="purposeCorrectionReason"
+                          placeholder="Example: Slip is for deposit"
+                          required
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <input
+                  name="paymentPurposeOverride"
+                  type="hidden"
+                  value={paymentPurpose}
+                />
+              )}
               {hasExtraAmount ? (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block">

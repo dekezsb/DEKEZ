@@ -82,6 +82,8 @@ const errorMessages: Record<string, string> = {
     "This older payment is not safely linked yet. No records were changed.",
   extra_purpose:
     "Choose what the extra payment is for and enter a clear description before verification.",
+  purpose_correction:
+    "Choose a valid payment purpose and explain why it is being corrected.",
 };
 
 async function getAdmin() {
@@ -368,6 +370,7 @@ export async function PaymentVerificationContent({
                           <TableCell>
                             <PaymentRecordActions
                               {...row}
+                              canCorrectPurpose={role === "super_admin"}
                               canReverse={role === "super_admin"}
                               returnTo={returnTo}
                             />
@@ -396,6 +399,7 @@ export async function PaymentVerificationContent({
                       <div className="mt-4">
                         <PaymentRecordActions
                           {...row}
+                          canCorrectPurpose={role === "super_admin"}
                           canReverse={role === "super_admin"}
                           returnTo={returnTo}
                         />

@@ -401,7 +401,7 @@ export async function getRoomDetails(
       .order("bill_month", { ascending: false }),
     supabase
       .from("payments")
-      .select("id, amount, payment_date, payment_method, reference_number, status, verified_at")
+      .select("id, amount, payment_date, payment_method, reference_number, status, verified_at, category, notes")
       .eq("room_id", roomId)
       .order("payment_date", { ascending: false }),
     supabase

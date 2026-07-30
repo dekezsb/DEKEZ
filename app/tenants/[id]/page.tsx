@@ -21,6 +21,7 @@ import {
   TenantAgreementHistory,
   TenantDocuments,
 } from "@/components/tenant/tenant-records";
+import { PaymentHistory } from "@/components/tenant/payment-history";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { getTenantProfile } from "@/lib/data/property-details";
@@ -28,7 +29,7 @@ import { statusBadgeClass } from "@/lib/status-styles";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ document?: string }>;
+  searchParams: Promise<{ document?: string; payment?: string }>;
 };
 
 const money = new Intl.NumberFormat("en-MY", {
@@ -175,17 +176,16 @@ export default async function TenantProfilePage({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Payment History</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {details.payments.length ? details.payments.map((payment) => (
-              <div className="flex items-start justify-between gap-4 border-b border-[#e5e9ef] pb-3 last:border-0" key={payment.id}>
-                <div>
-                  <p className="font-medium text-gray-950">{money.format(Number(payment.amount ?? 0))}</p>
-                  <p className="text-xs text-gray-500">{formatMalaysiaDate(payment.payment_date)} / {payment.payment_method ?? "-"}</p>
-                  <p className="text-xs text-gray-500">{payment.reference_number ?? "No reference"}</p>
-                </div>
-                <Badge className={statusBadgeClass(payment.status)}>{payment.status}</Badge>
-              </div>
-            )) : <p className="text-sm text-gray-500">No payment records found.</p>}
+          <CardContent>
+            <PaymentHistory
+              canEditPurpose={role === "super_admin"}
+              paymentResult={query.payment}
+              payments={details.payments}
+              propertyId={property.id}
+              returnView="tenant"
+              roomId={room.id}
+              tenantKey={id}
+            />
           </CardContent>
         </Card>
 

@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser, getProperties } from "@/lib/data/organization";
+import {
+  isPaymentCategory,
+  paymentCategoryLabel,
+} from "@/lib/payments/payment-category";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -147,4 +151,96 @@ export async function uploadTenantDocument(formData: FormData) {
   revalidatePath(`/tenants/${tenantKey}`);
   revalidatePath(`/properties/${propertyId}/rooms/${roomId}`);
   redirect(destination(tenantKey, propertyId, roomId, returnView, "uploaded"));
+}
+
+function paymentDestination(
+  tenantKey: string,
+  propertyId: string,
+  roomId: string,
+  returnView: string,
+  result: string,
+) {
+  const base =
+    returnView === "room"
+      ? `/properties/${propertyId}/rooms/${roomId}`
+      : `/tenants/${tenantKey}`;
+  return `${base}?payment=${result}`;
+}
+
+export async function updatePaymentPurpose(formData: FormData) {
+  await requireRole(["super_admin"]);
+  const user = await getCurrentUser();
+  const paymentId = textValue(formData, "paymentId");
+  const tenantKey = textValue(formData, "tenantKey");
+  const propertyId = textValue(formData, "propertyId");
+  const roomId = textValue(formData, "roomId");
+  const returnView = textValue(formData, "returnView");
+  const category = textValue(formData, "category");
+  const correctionReason = textValue(formData, "correctionReason");
+  const go = (result: string) =>
+    paymentDestination(
+      tenantKey,
+      propertyId,
+      roomId,
+      returnView,
+      result,
+    );
+
+  if (
+    !user ||
+    !paymentId ||
+    !tenantKey ||
+    !propertyId ||
+    !roomId ||
+    !isPaymentCategory(category) ||
+    !correctionReason
+  ) {
+    redirect(go("invalid"));
+  }
+
+  const supabase = await getAdmin();
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id, category, notes, status, reversed_at")
+    .eq("id", paymentId)
+    .eq("property_id", propertyId)
+    .eq("room_id", roomId)
+    .maybeSingle();
+
+  if (!payment) {
+    redirect(go("missing"));
+  }
+
+  if (payment.status === "cancelled" || payment.reversed_at) {
+    redirect(go("locked"));
+  }
+
+  const oldCategory = payment.category ?? "not_categorised";
+  const auditEntry = [
+    `[${new Date().toISOString()}] Purpose corrected by Super Admin ${user.id}:`,
+    `${paymentCategoryLabel(oldCategory)} -> ${paymentCategoryLabel(category)}.`,
+    `Reason: ${correctionReason}`,
+  ].join(" ");
+  const notes = [payment.notes?.trim(), auditEntry].filter(Boolean).join("\n");
+
+  const { error } = await supabase
+    .from("payments")
+    .update({
+      category,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", paymentId);
+
+  if (error) {
+    redirect(go("failed"));
+  }
+
+  revalidatePath(`/tenants/${tenantKey}`);
+  revalidatePath(`/properties/${propertyId}/rooms/${roomId}`);
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/payment-verification");
+  revalidatePath("/rent-due-tracker");
+  revalidatePath("/dashboard");
+  redirect(go("updated"));
 }

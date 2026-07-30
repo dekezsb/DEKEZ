@@ -45,7 +45,7 @@ async function getAdmin() {
 }
 
 export async function reviewPaymentSubmission(formData: FormData) {
-  await requireRole(["super_admin", "admin"], {
+  const role = await requireRole(["super_admin", "admin"], {
     module: "verification",
     level: "manage",
   });
@@ -53,6 +53,14 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const submissionId = textValue(formData, "submissionId");
   const decision = textValue(formData, "decision");
   const notes = textValue(formData, "notes");
+  const paymentPurposeOverride = textValue(
+    formData,
+    "paymentPurposeOverride",
+  );
+  const purposeCorrectionReason = textValue(
+    formData,
+    "purposeCorrectionReason",
+  );
   const extraChargeCategory = textValue(
     formData,
     "extraChargeCategory",
@@ -84,6 +92,23 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (currentSubmission.verification_status === "verified") {
     redirect(withResult(returnTo, "error=already_verified"));
+  }
+
+  let effectivePaymentType = currentSubmission.payment_type;
+  const purposeWasCorrected =
+    decision === "verified" &&
+    paymentPurposeOverride &&
+    paymentPurposeOverride !== currentSubmission.payment_type;
+
+  if (purposeWasCorrected) {
+    if (
+      role !== "super_admin" ||
+      !isPaymentPurpose(paymentPurposeOverride) ||
+      !purposeCorrectionReason
+    ) {
+      redirect(withResult(returnTo, "error=purpose_correction"));
+    }
+    effectivePaymentType = paymentPurposeOverride;
   }
 
   let verifiedExtraCharge: {
@@ -125,7 +150,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     );
     let extraAmount = 0;
 
-    if (isPaymentPurpose(currentSubmission.payment_type)) {
+    if (isPaymentPurpose(effectivePaymentType)) {
       verifiedDepositRequired = Math.max(
         Number(bill?.deposit_amount ?? 0),
         Number(tenancy?.deposit ?? 0),
@@ -143,7 +168,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
         depositAmount: verifiedDepositRequired,
       });
       verifiedAllocation = allocatePaymentPurpose({
-        purpose: currentSubmission.payment_type,
+        purpose: effectivePaymentType,
         amount: Number(currentSubmission.amount ?? 0),
         rentOutstanding: Math.max(
           Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
@@ -188,6 +213,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const { data: submission, error } = await supabase
     .from("payment_submissions")
     .update({
+      payment_type: effectivePaymentType,
       verification_status: decision,
       verified_by: decision === "verified" ? user.id : null,
       verified_at: decision === "verified" ? new Date().toISOString() : null,
@@ -208,7 +234,9 @@ export async function reviewPaymentSubmission(formData: FormData) {
     performed_by: user.id,
     old_status: currentSubmission.verification_status,
     new_status: decision,
-    reason: notes || null,
+    reason: purposeWasCorrected
+      ? `Payment purpose corrected from ${currentSubmission.payment_type} to ${effectivePaymentType}. ${purposeCorrectionReason}`
+      : notes || null,
   });
 
   if (decision === "verified") {
