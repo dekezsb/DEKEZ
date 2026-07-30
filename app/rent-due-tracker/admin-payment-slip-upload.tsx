@@ -152,16 +152,38 @@ export function AdminPaymentSlipUpload({
                   }}
                   value={paymentPurpose}
                 >
-                  {rentOutstanding > 0.005 ? (
-                    <option value="monthly_rent">Monthly Rent</option>
-                  ) : null}
-                  {depositOutstanding > 0.005 ? (
-                    <option value="deposit">Deposit</option>
-                  ) : null}
-                  {rentOutstanding > 0.005 && depositOutstanding > 0.005 ? (
-                    <option value="rent_and_deposit">Rent + Deposit</option>
-                  ) : null}
+                  <option
+                    disabled={rentOutstanding <= 0.005}
+                    value="monthly_rent"
+                  >
+                    Monthly Rent
+                    {rentOutstanding <= 0.005 ? " - no rent owing" : ""}
+                  </option>
+                  <option
+                    disabled={depositOutstanding <= 0.005}
+                    value="deposit"
+                  >
+                    Deposit Only
+                    {depositOutstanding <= 0.005 ? " - no deposit owing" : ""}
+                  </option>
+                  <option
+                    disabled={
+                      rentOutstanding <= 0.005
+                      || depositOutstanding <= 0.005
+                    }
+                    value="rent_and_deposit"
+                  >
+                    Rent + Deposit
+                    {rentOutstanding <= 0.005
+                      || depositOutstanding <= 0.005
+                      ? " - both balances required"
+                      : ""}
+                  </option>
                 </select>
+                <span className="mt-1 block text-xs text-gray-500">
+                  Choose how the verified payment should reduce the tenant&apos;s
+                  balance.
+                </span>
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Amount submitted RM</span>
