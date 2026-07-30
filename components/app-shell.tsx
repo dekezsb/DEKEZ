@@ -8,7 +8,6 @@ import { BrandLogo } from "@/components/brand-logo";
 import { LanguageSelector } from "@/components/language-selector";
 import { useLanguage } from "@/components/language-provider";
 import { PortalLiveSync } from "@/components/portal-live-sync";
-import { PortalAutoTranslator } from "@/components/portal-auto-translator";
 import { Button } from "@/components/ui/button";
 import { hasModuleAccess, type UserAccess } from "@/lib/auth/access";
 import {
@@ -62,7 +61,6 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   if (role === "tenant") {
     return (
       <div className="tenant-portal-bg min-h-screen text-[#17130d]">
-        <PortalAutoTranslator role={role} />
         <PortalLiveSync />
         <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="mx-auto flex h-18 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
@@ -141,7 +139,6 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   if (role === "admin") {
     return (
       <div className="tenant-portal-bg min-h-screen text-[#17130d]">
-        <PortalAutoTranslator role={role} />
         <PortalLiveSync />
         <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="mx-auto flex h-18 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
@@ -219,7 +216,6 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-[#f2f4f7] text-[#17130d]">
-      <PortalAutoTranslator role={role} />
       <PortalLiveSync />
       <div
         className={cn(
