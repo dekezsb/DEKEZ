@@ -1348,7 +1348,7 @@ export async function checkoutRoom(formData: FormData) {
       .eq("status", "active"),
     supabase
       .from("tenant_records")
-      .update({ status: "checked_out", contract_end: checkoutDate })
+      .update({ status: "moved_out", contract_end: checkoutDate })
       .eq("room_id", roomId)
       .eq("status", "active"),
     supabase
@@ -1378,6 +1378,9 @@ export async function checkoutRoom(formData: FormData) {
   }
   revalidatePath(propertyPath(property.id));
   revalidatePath("/verification");
+  revalidatePath("/rent-due-tracker");
+  revalidatePath("/dashboard");
+  revalidatePath("/payments");
   redirect(
     returnTo === "/verification?view=tenancy"
       ? "/verification?view=tenancy&checkout=1"

@@ -412,8 +412,8 @@ export async function getRentDueMap(
   const supabase = await getDataClient();
   const [
     tenancies,
-    selectedBills,
-    previousBills,
+    loadedSelectedBills,
+    loadedPreviousBills,
     confirmedMonthlyRoomPayments,
   ] = await Promise.all([
     loadActiveTenancies(supabase, propertyIds),
@@ -421,6 +421,30 @@ export async function getRentDueMap(
     loadBills(supabase, propertyIds, selectedMonth, "previous"),
     loadConfirmedMonthlyRoomPayments(supabase, propertyIds, selectedMonth),
   ]);
+
+  const activeTenancyIds = new Set(tenancies.map((tenancy) => tenancy.id));
+  const activeTenancyByTenantAndRoom = new Set(
+    tenancies
+      .filter((tenancy) => tenancy.tenant_id)
+      .map((tenancy) => `${tenancy.tenant_id}:${tenancy.room_id}`),
+  );
+  const activeTenantRecordIds = new Set(
+    tenantRecords
+      .filter((tenant) => tenant.status === "active" && tenant.room_id)
+      .map((tenant) => tenant.id),
+  );
+  const belongsToActiveOccupancy = (bill: RawRentBill) => {
+    if (bill.tenancy_id) return activeTenancyIds.has(bill.tenancy_id);
+    if (bill.tenant_record_id) {
+      return activeTenantRecordIds.has(bill.tenant_record_id);
+    }
+    return Boolean(
+      bill.tenant_id &&
+        activeTenancyByTenantAndRoom.has(`${bill.tenant_id}:${bill.room_id}`),
+    );
+  };
+  const selectedBills = loadedSelectedBills.filter(belongsToActiveOccupancy);
+  const previousBills = loadedPreviousBills.filter(belongsToActiveOccupancy);
 
   const billIds = selectedBills.map((bill) => bill.id);
   const tenantIds = unique([
