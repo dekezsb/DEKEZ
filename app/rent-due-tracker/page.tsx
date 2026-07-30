@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { AdminPaymentSlipUpload } from "./admin-payment-slip-upload";
+import { PaymentFlashNotice } from "./payment-flash-notice";
 import {
   getRentDueMap,
   summarizeRentCollections,
@@ -600,16 +601,19 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
       </header>
 
       {params.uploaded === "1" ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-          Payment slip submitted. The room is hidden from this outstanding
-          list while verification is pending. If the verified payment is
-          partial, the room will return with its remaining balance.
-        </div>
+        <PaymentFlashNotice
+          kind="success"
+          message="Payment slip submitted. The room is hidden from this outstanding list while verification is pending. If the verified payment is partial, the room will return with its remaining balance."
+        />
       ) : null}
       {params.error ? (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-          {uploadErrorMessages[params.error] ?? "The payment slip could not be submitted."}
-        </div>
+        <PaymentFlashNotice
+          kind="error"
+          message={
+            uploadErrorMessages[params.error]
+            ?? "The payment slip could not be submitted."
+          }
+        />
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
