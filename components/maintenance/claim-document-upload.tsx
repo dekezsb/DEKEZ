@@ -16,6 +16,7 @@ type DocumentKind = "receipt" | "a4_invoice";
 
 const acceptedTypes =
   "image/jpeg,image/png,image/webp,application/pdf";
+const maxPreparedFileSize = 3 * 1024 * 1024;
 
 const pickerClassName =
   "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7dde5] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-within:outline-none focus-within:ring-2 focus-within:ring-[#b8892c] focus-within:ring-offset-2";
@@ -31,6 +32,7 @@ export function ClaimDocumentUpload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
+  const [preparingFile, setPreparingFile] = useState(false);
   const [cameraKind, setCameraKind] = useState<DocumentKind | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState("");
@@ -66,7 +68,51 @@ export function ClaimDocumentUpload() {
     [],
   );
 
-  function selectFile(file: File | undefined, kind: DocumentKind) {
+  async function prepareImage(file: File) {
+    if (file.size <= maxPreparedFileSize) return file;
+
+    const imageUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = () => reject(new Error("image_decode"));
+        nextImage.src = imageUrl;
+      });
+
+      const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+      const scale = Math.min(1, 2200 / longestSide);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("image_canvas");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      let quality = 0.86;
+      let blob: Blob | null = null;
+      do {
+        blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", quality),
+        );
+        quality -= 0.08;
+      } while (blob && blob.size > maxPreparedFileSize && quality >= 0.46);
+
+      if (!blob || blob.size > maxPreparedFileSize) {
+        throw new Error("image_size");
+      }
+
+      const baseName = file.name.replace(/\.[^.]+$/, "") || "document";
+      return new File([blob], `${baseName}.jpg`, {
+        lastModified: file.lastModified,
+        type: "image/jpeg",
+      });
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  }
+
+  async function selectFile(file: File | undefined, kind: DocumentKind) {
     if (!file) return;
 
     if (file.size > 10 * 1024 * 1024) {
@@ -74,15 +120,38 @@ export function ClaimDocumentUpload() {
       return;
     }
 
-    const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(file);
-    if (submissionInputRef.current) {
-      submissionInputRef.current.files = dataTransfer.files;
-    }
-
-    setDocumentKind(kind);
-    setSelectedFile(file);
+    setPreparingFile(true);
     setError("");
+    try {
+      let preparedFile = file;
+      if (file.type.startsWith("image/")) {
+        preparedFile = await prepareImage(file);
+      } else if (
+        file.type === "application/pdf" &&
+        file.size > maxPreparedFileSize
+      ) {
+        throw new Error("pdf_size");
+      }
+
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(preparedFile);
+      if (submissionInputRef.current) {
+        submissionInputRef.current.files = dataTransfer.files;
+      }
+
+      setDocumentKind(kind);
+      setSelectedFile(preparedFile);
+    } catch (nextError) {
+      setSelectedFile(null);
+      if (submissionInputRef.current) submissionInputRef.current.value = "";
+      setError(
+        nextError instanceof Error && nextError.message === "pdf_size"
+          ? "PDF documents must be 3 MB or smaller. Please choose a smaller PDF or scan the page as an image."
+          : "This image could not be prepared for upload. Please take the photo again.",
+      );
+    } finally {
+      setPreparingFile(false);
+    }
   }
 
   function stopCamera() {
@@ -154,7 +223,7 @@ export function ClaimDocumentUpload() {
           `${kind === "a4_invoice" ? "invoice" : "receipt"}-${Date.now()}.jpg`,
           { type: "image/jpeg" },
         );
-        selectFile(file, kind);
+        void selectFile(file, kind);
         stopCamera();
       },
       "image/jpeg",
@@ -204,7 +273,7 @@ export function ClaimDocumentUpload() {
             accept={acceptedTypes}
             className="sr-only"
             onChange={(event) =>
-              selectFile(event.target.files?.[0], documentKind)
+              void selectFile(event.target.files?.[0], documentKind)
             }
             ref={filePickerRef}
             type="file"
@@ -269,7 +338,9 @@ export function ClaimDocumentUpload() {
         </div>
       ) : (
         <div className="mt-3 rounded-md border border-dashed border-[#b98a2c] bg-[#fffaf0] px-3 py-4 text-center text-sm text-gray-600">
-          No document selected. Images and PDFs may be up to 10 MB.
+          {preparingFile
+            ? "Preparing document for fast upload…"
+            : "No document selected. Images may be up to 10 MB and are optimized automatically. PDFs may be up to 3 MB."}
         </div>
       )}
 
@@ -352,7 +423,7 @@ export function ClaimDocumentUpload() {
                 onChange={(event) => {
                   const kind = cameraKind;
                   if (!kind) return;
-                  selectFile(event.target.files?.[0], kind);
+                  void selectFile(event.target.files?.[0], kind);
                   stopCamera();
                 }}
                 ref={cameraFallbackRef}

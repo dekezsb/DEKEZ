@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { createClaimBill } from "@/app/maintenance/actions";
 import { ClaimDocumentUpload } from "@/components/maintenance/claim-document-upload";
@@ -27,6 +28,21 @@ type TicketOption = {
 function roomLabel(room: RoomOption) {
   const value = room.room_number || room.name || room.id.slice(0, 8);
   return /^room\s/i.test(value) ? value : `Room ${value}`;
+}
+
+function SubmitClaimButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button
+      aria-disabled={pending}
+      className="w-fit px-6 lg:col-span-2"
+      disabled={pending}
+      type="submit"
+    >
+      {pending ? "Submitting claim…" : "Submit claim"}
+    </Button>
+  );
 }
 
 export function ClaimBillForm({
@@ -174,9 +190,7 @@ export function ClaimBillForm({
 
       <ClaimDocumentUpload />
 
-      <Button className="w-fit px-6 lg:col-span-2" type="submit">
-        Submit claim
-      </Button>
+      <SubmitClaimButton />
     </form>
   );
 }
