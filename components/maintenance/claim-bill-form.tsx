@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClaimBill } from "@/app/maintenance/actions";
+import { ClaimDocumentUpload } from "@/components/maintenance/claim-document-upload";
 
 type PropertyOption = {
   id: string;
@@ -44,7 +44,6 @@ export function ClaimBillForm({
 }) {
   const [propertyId, setPropertyId] = useState("");
   const [fundingSource, setFundingSource] = useState("company_cash");
-  const [receiptName, setReceiptName] = useState("");
   const propertyRooms = useMemo(
     () => rooms.filter((room) => room.property_id === propertyId),
     [propertyId, rooms],
@@ -173,30 +172,7 @@ export function ClaimBillForm({
         </select>
       </label>
 
-      <label className="block lg:col-span-2">
-        <span className="text-sm font-medium text-gray-700">
-          Receipt / bill photo *
-        </span>
-        <span className="mt-2 flex min-h-11 items-center gap-3 rounded-md border border-dashed border-[#b98a2c] bg-[#fffaf0] px-3 py-2">
-          <Paperclip className="h-4 w-4 text-[#9a6b12]" />
-          <span className="rounded-md bg-[#b98a2c] px-3 py-2 text-sm font-medium text-white">
-            Attach receipt
-          </span>
-          <span className="min-w-0 truncate text-sm text-gray-600">
-            {receiptName || "JPG, PNG, WebP or PDF"}
-          </span>
-          <input
-            accept="image/jpeg,image/png,image/webp,application/pdf"
-            className="sr-only"
-            name="receipt"
-            onChange={(event) =>
-              setReceiptName(event.target.files?.[0]?.name ?? "")
-            }
-            required
-            type="file"
-          />
-        </span>
-      </label>
+      <ClaimDocumentUpload />
 
       <Button className="w-fit px-6 lg:col-span-2" type="submit">
         Submit claim

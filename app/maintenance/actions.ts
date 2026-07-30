@@ -182,6 +182,7 @@ export async function createClaimBill(formData: FormData) {
   const fundingSource = textValue(formData, "fundingSource");
   const amount = Number(textValue(formData, "amount"));
   const receipt = fileValue(formData, "receipt");
+  const attachmentKind = textValue(formData, "attachmentKind");
   const returnTo = textValue(formData, "returnTo");
   const canSubmitWithoutTicket = ["super_admin", "admin"].includes(role);
 
@@ -192,6 +193,7 @@ export async function createClaimBill(formData: FormData) {
     amount <= 0 ||
     amount > 999999999 ||
     !["company_cash", "staff_personal"].includes(fundingSource) ||
+    !["receipt", "a4_invoice"].includes(attachmentKind) ||
     (!canSubmitWithoutTicket && !ticketId)
   ) {
     redirect(claimPath("claim_error=missing", returnTo));
@@ -283,7 +285,9 @@ export async function createClaimBill(formData: FormData) {
   }
 
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const path = `${user.id}/${claim.id}/${Date.now()}-${safeName}`;
+  const documentPrefix =
+    attachmentKind === "a4_invoice" ? "a4-invoice" : "receipt";
+  const path = `${user.id}/${claim.id}/${Date.now()}-${documentPrefix}-${safeName}`;
   const bytes = Buffer.from(await receipt.arrayBuffer());
   const { error: uploadError } = await supabase.storage
     .from("claim-attachments")
