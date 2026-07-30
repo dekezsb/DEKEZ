@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Camera,
+  CameraOff,
   FileImage,
   FileText,
   Paperclip,
   RotateCcw,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -19,8 +21,9 @@ const pickerClassName =
   "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-[#d7dde5] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-within:outline-none focus-within:ring-2 focus-within:ring-[#b8892c] focus-within:ring-offset-2";
 
 export function ClaimDocumentUpload() {
-  const receiptCameraRef = useRef<HTMLInputElement>(null);
-  const invoiceCameraRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraFallbackRef = useRef<HTMLInputElement>(null);
   const filePickerRef = useRef<HTMLInputElement>(null);
   const submissionInputRef = useRef<HTMLInputElement>(null);
   const [documentKind, setDocumentKind] =
@@ -28,6 +31,9 @@ export function ClaimDocumentUpload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
+  const [cameraKind, setCameraKind] = useState<DocumentKind | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState("");
 
   useEffect(() => {
     if (!selectedFile || !selectedFile.type.startsWith("image/")) {
@@ -39,6 +45,26 @@ export function ClaimDocumentUpload() {
     setPreviewUrl(nextUrl);
     return () => URL.revokeObjectURL(nextUrl);
   }, [selectedFile]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const stream = cameraStreamRef.current;
+    if (!cameraReady || !video || !stream) return;
+
+    video.srcObject = stream;
+    void video.play().catch(() => {
+      setCameraError(
+        "The camera preview could not start. Check your browser camera permission.",
+      );
+    });
+  }, [cameraReady]);
+
+  useEffect(
+    () => () => {
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    },
+    [],
+  );
 
   function selectFile(file: File | undefined, kind: DocumentKind) {
     if (!file) return;
@@ -59,12 +85,88 @@ export function ClaimDocumentUpload() {
     setError("");
   }
 
+  function stopCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraReady(false);
+    setCameraKind(null);
+    setCameraError("");
+  }
+
+  async function startCamera(kind: DocumentKind) {
+    setCameraKind(kind);
+    setCameraReady(false);
+    setCameraError("");
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError(
+        "Live camera is not available in this browser. Use Open camera below.",
+      );
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          height: { ideal: 1920 },
+          width: { ideal: 1080 },
+        },
+      });
+      cameraStreamRef.current = stream;
+      setCameraReady(true);
+    } catch {
+      setCameraError(
+        "Camera permission was blocked. Allow camera access for dekez.vercel.app, or use Open camera below.",
+      );
+    }
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current;
+    if (!video || !cameraKind || !video.videoWidth || !video.videoHeight) {
+      setCameraError("The camera is still starting. Please try again.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setCameraError("The photo could not be captured. Please try again.");
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setCameraError("The photo could not be captured. Please try again.");
+          return;
+        }
+
+        const kind = cameraKind;
+        const file = new File(
+          [blob],
+          `${kind === "a4_invoice" ? "invoice" : "receipt"}-${Date.now()}.jpg`,
+          { type: "image/jpeg" },
+        );
+        selectFile(file, kind);
+        stopCamera();
+      },
+      "image/jpeg",
+      0.92,
+    );
+  }
+
   function clearFile() {
     setSelectedFile(null);
     setError("");
     if (submissionInputRef.current) submissionInputRef.current.value = "";
-    if (receiptCameraRef.current) receiptCameraRef.current.value = "";
-    if (invoiceCameraRef.current) invoiceCameraRef.current.value = "";
+    if (cameraFallbackRef.current) cameraFallbackRef.current.value = "";
     if (filePickerRef.current) filePickerRef.current.value = "";
   }
 
@@ -79,34 +181,22 @@ export function ClaimDocumentUpload() {
       </p>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <label className={pickerClassName}>
+        <button
+          className={pickerClassName}
+          onClick={() => void startCamera("receipt")}
+          type="button"
+        >
           <Camera className="h-4 w-4" />
           Scan receipt
-          <input
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            onChange={(event) =>
-              selectFile(event.target.files?.[0], "receipt")
-            }
-            ref={receiptCameraRef}
-            type="file"
-          />
-        </label>
-        <label className={pickerClassName}>
+        </button>
+        <button
+          className={pickerClassName}
+          onClick={() => void startCamera("a4_invoice")}
+          type="button"
+        >
           <FileText className="h-4 w-4" />
           Scan A4 invoice
-          <input
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            onChange={(event) =>
-              selectFile(event.target.files?.[0], "a4_invoice")
-            }
-            ref={invoiceCameraRef}
-            type="file"
-          />
-        </label>
+        </button>
         <label className={pickerClassName}>
           <FileImage className="h-4 w-4" />
           Choose file
@@ -184,6 +274,94 @@ export function ClaimDocumentUpload() {
       )}
 
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
+
+      {cameraKind ? (
+        <div
+          aria-label="Document camera scanner"
+          aria-modal="true"
+          className="fixed inset-0 z-[100] flex flex-col bg-black"
+          role="dialog"
+        >
+          <div className="flex items-center justify-between bg-black/90 px-4 py-3 text-white">
+            <div>
+              <p className="font-semibold">
+                {cameraKind === "a4_invoice"
+                  ? "Scan A4 invoice"
+                  : "Scan receipt"}
+              </p>
+              <p className="text-xs text-gray-300">
+                Place the whole document inside the frame.
+              </p>
+            </div>
+            <button
+              aria-label="Close camera"
+              className="rounded-full p-2 hover:bg-white/10"
+              onClick={stopCamera}
+              type="button"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black">
+            {cameraReady ? (
+              <>
+                <video
+                  autoPlay
+                  className="h-full w-full object-contain"
+                  muted
+                  playsInline
+                  ref={videoRef}
+                />
+                <div
+                  className={`pointer-events-none absolute border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)] ${
+                    cameraKind === "a4_invoice"
+                      ? "aspect-[210/297] h-[76%]"
+                      : "h-[72%] w-[84%]"
+                  }`}
+                />
+              </>
+            ) : (
+              <div className="max-w-sm px-6 text-center text-white">
+                <CameraOff className="mx-auto h-12 w-12 text-gray-400" />
+                <p className="mt-4 text-sm">
+                  {cameraError || "Starting rear camera…"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-3 bg-black/90 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {cameraReady ? (
+              <button
+                className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-white/25"
+                onClick={capturePhoto}
+                type="button"
+              >
+                <span className="h-12 w-12 rounded-full bg-white" />
+                <span className="sr-only">Capture document</span>
+              </button>
+            ) : null}
+            <label className="relative mx-auto inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-white/50 px-4 text-sm font-medium text-white">
+              <Camera className="h-4 w-4" />
+              Open camera
+              <input
+                accept="image/*"
+                capture="environment"
+                className="absolute inset-0 cursor-pointer opacity-0"
+                onChange={(event) => {
+                  const kind = cameraKind;
+                  if (!kind) return;
+                  selectFile(event.target.files?.[0], kind);
+                  stopCamera();
+                }}
+                ref={cameraFallbackRef}
+                type="file"
+              />
+            </label>
+          </div>
+        </div>
+      ) : null}
     </fieldset>
   );
 }
