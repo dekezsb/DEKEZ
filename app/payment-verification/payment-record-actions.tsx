@@ -83,26 +83,32 @@ export function PaymentRecordActions({
     amountSubmittedValue.toFixed(2),
   );
   const correctedAmountValue = Math.max(Number(correctedAmount) || 0, 0);
-  const minimumExtraAmount = Math.max(
+  const availableExtraPayment = Math.max(
     correctedAmountValue - invoiceOutstanding,
     0,
   );
   const [extraChargeAmount, setExtraChargeAmount] = useState(
-    minimumExtraAmount.toFixed(2),
+    availableExtraPayment.toFixed(2),
   );
-  const hasExtraAmount = minimumExtraAmount > 0.005;
+  const hasExtraAmount = availableExtraPayment > 0.005;
   const selectedExtraAmount = hasExtraAmount
-    ? Math.min(
-        Math.max(Number(extraChargeAmount) || 0, minimumExtraAmount),
-        correctedAmountValue,
-      )
+    ? Math.max(Number(extraChargeAmount) || 0, 0)
     : 0;
-  const amountApplied = Math.min(
-    Math.max(correctedAmountValue - selectedExtraAmount, 0),
+  const amountAppliedBeforeExtra = Math.min(
+    correctedAmountValue,
     invoiceOutstanding,
   );
+  const extraPaymentApplied = Math.min(
+    availableExtraPayment,
+    selectedExtraAmount,
+  );
+  const paymentCredit = Math.max(
+    availableExtraPayment - extraPaymentApplied,
+    0,
+  );
+  const amountApplied = amountAppliedBeforeExtra + extraPaymentApplied;
   const remainingAfterVerification = Math.max(
-    invoiceOutstanding - amountApplied,
+    invoiceOutstanding + selectedExtraAmount - amountApplied,
     0,
   );
   const hasCorrection =
@@ -119,16 +125,12 @@ export function PaymentRecordActions({
 
     setExtraChargeAmount((current) => {
       const currentValue = Number(current);
-      if (
-        !Number.isFinite(currentValue) ||
-        currentValue < minimumExtraAmount ||
-        currentValue > correctedAmountValue
-      ) {
-        return minimumExtraAmount.toFixed(2);
+      if (!Number.isFinite(currentValue) || currentValue < 0) {
+        return availableExtraPayment.toFixed(2);
       }
       return current;
     });
-  }, [correctedAmountValue, hasExtraAmount, minimumExtraAmount]);
+  }, [availableExtraPayment, hasExtraAmount]);
 
   return (
     <div className="space-y-3">
@@ -201,6 +203,14 @@ export function PaymentRecordActions({
                   <dd className="font-bold">
                     RM {remainingAfterVerification.toFixed(2)}
                   </dd>
+                  {paymentCredit > 0.005 ? (
+                    <>
+                      <dt>Payment credit</dt>
+                      <dd className="font-bold">
+                        RM {paymentCredit.toFixed(2)}
+                      </dd>
+                    </>
+                  ) : null}
                 </dl>
                 <p className="mt-3 text-sm text-amber-900">
                   Select the charge type and write exactly what it is for. The
@@ -335,8 +345,7 @@ export function PaymentRecordActions({
                     </span>
                     <input
                       className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 font-semibold"
-                      max={correctedAmountValue}
-                      min={minimumExtraAmount}
+                      min="0.01"
                       name="extraChargeAmount"
                       step="0.01"
                       type="number"
@@ -347,8 +356,8 @@ export function PaymentRecordActions({
                       required
                     />
                     <span className="mt-1 block text-xs text-gray-500">
-                      Minimum RM {minimumExtraAmount.toFixed(2)}; maximum RM{" "}
-                      {correctedAmountValue.toFixed(2)}.
+                      Enter the actual charge amount. It is not limited by the
+                      submitted payment amount.
                     </span>
                   </label>
                   <label className="block">
