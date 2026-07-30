@@ -464,18 +464,48 @@ function CollectionDetails({
 export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   const role = await requireRole(["super_admin", "owner", "admin"]);
   const canUploadSlip = role === "super_admin" || role === "admin";
+  const managementView = role === "admin";
   const params = await searchParams;
-  const tracker = await getRentDueMap(params.month);
+  const tracker = await getRentDueMap(
+    managementView ? undefined : params.month,
+  );
   const today = malaysiaToday();
+  const roleProperties = managementView
+    ? tracker.properties
+        .map((property) => ({
+          ...property,
+          collections: property.collections.filter(
+            (collection) =>
+              collection.depositOutstanding > 0
+              || (
+                collection.outstanding > 0
+                && collection.dueDate < today
+              ),
+          ),
+          rooms: property.rooms.filter(
+            (room) =>
+              room.depositOutstanding > 0
+              || (
+                room.outstanding > 0
+                && Boolean(room.dueDate)
+                && String(room.dueDate) < today
+              ),
+          ),
+        }))
+        .filter(
+          (property) =>
+            property.collections.length > 0 || property.rooms.length > 0,
+        )
+    : tracker.properties;
   const requestedProperty = params.property ?? "";
-  const selectedProperty = tracker.properties.some(
+  const selectedProperty = roleProperties.some(
     (property) => property.id === requestedProperty,
   )
     ? requestedProperty
     : "";
   const visibleProperties = selectedProperty
-    ? tracker.properties.filter((property) => property.id === selectedProperty)
-    : tracker.properties;
+    ? roleProperties.filter((property) => property.id === selectedProperty)
+    : roleProperties;
   const visibleCollections = visibleProperties.flatMap(
     (property) => property.collections,
   );
@@ -518,7 +548,9 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           <p className="text-xs font-semibold uppercase text-[#b37b14]">Rental Collection</p>
           <h1 className="mt-1 text-3xl font-semibold text-[#0b1733]">Rent Due Tracker</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Monthly collection, verified payments and room status for {tracker.selectedMonthLabel}.
+            {managementView
+              ? `Current-month overdue rent and outstanding deposits for ${tracker.selectedMonthLabel}.`
+              : `Monthly collection, verified payments and room status for ${tracker.selectedMonthLabel}.`}
           </p>
         </div>
 
@@ -526,19 +558,23 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:w-auto"
           action="/rent-due-tracker"
         >
-          <div className="min-w-0 sm:w-64">
-            <label className="mb-1.5 block text-sm font-medium" htmlFor="month">
-              Billing month
-            </label>
-            <input
-              id="month"
-              name="month"
-              type="month"
-              max={tracker.currentMonth}
-              defaultValue={tracker.selectedMonth}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-            />
-          </div>
+          {managementView ? (
+            <input name="month" type="hidden" value={tracker.currentMonth} />
+          ) : (
+            <div className="min-w-0 sm:w-64">
+              <label className="mb-1.5 block text-sm font-medium" htmlFor="month">
+                Billing month
+              </label>
+              <input
+                id="month"
+                name="month"
+                type="month"
+                max={tracker.currentMonth}
+                defaultValue={tracker.selectedMonth}
+                className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+              />
+            </div>
+          )}
           <div className="min-w-0 sm:w-72">
             <label className="mb-1.5 block text-sm font-medium" htmlFor="property">
               Property
@@ -550,7 +586,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
               className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
             >
               <option value="">All Properties</option>
-              {tracker.properties.map((property) => (
+              {roleProperties.map((property) => (
                 <option key={property.id} value={property.id}>
                   {property.name}
                 </option>

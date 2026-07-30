@@ -13,6 +13,7 @@ import { portalText } from "@/lib/i18n-portal";
 import type { AppLocale } from "@/lib/i18n";
 
 type CompactRentDueTrackerProps = {
+  currentMonthOverdueOnly?: boolean;
   locale?: AppLocale;
   selectedBucket?: string;
   summary: RentDueSummary;
@@ -112,12 +113,22 @@ function selectionDescription(bucket: BucketDefinition, locale: AppLocale) {
 }
 
 export function CompactRentDueTracker({
+  currentMonthOverdueOnly = false,
   locale = "en",
   selectedBucket,
   summary,
 }: CompactRentDueTrackerProps) {
+  const currentMonth = malaysiaDateString().slice(0, 7);
   const actionableBills = summary.bills.filter(
-    (bill) => bill.paymentStatus !== "pending_verification",
+    (bill) =>
+      bill.paymentStatus !== "pending_verification"
+      && (
+        !currentMonthOverdueOnly
+        || (
+          bill.bill_month.slice(0, 7) === currentMonth
+          && bill.daysUntilDue < 0
+        )
+      ),
   );
   const actionableCounts = Object.fromEntries(
     buckets.map((item) => [
@@ -164,7 +175,9 @@ export function CompactRentDueTracker({
               {actionableSummary.totalComingUp} {portalText(locale, "coming up")}
             </span>
             <Button asChild size="sm" variant="outline">
-              <Link href="/rent-due-tracker">{portalText(locale, "Open full tracker")}</Link>
+              <Link href="/rent-due-tracker">
+                {portalText(locale, "Open full tracker")}
+              </Link>
             </Button>
           </div>
         </div>

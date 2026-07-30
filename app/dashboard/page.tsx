@@ -225,6 +225,7 @@ async function ManagementDashboard({
       </div>
 
       <CompactRentDueTracker
+        currentMonthOverdueOnly
         locale={locale}
         selectedBucket={query.rentBucket}
         summary={rentDueSummary}
