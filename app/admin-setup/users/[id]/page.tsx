@@ -43,6 +43,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { updatePortalUser } from "../../actions";
 import { CredentialControls } from "./credential-controls";
+import { DeleteUserDialog } from "./delete-user-dialog";
 import { RemoveAccessDialog } from "./remove-access-dialog";
 
 type UserProfilePageProps = {
@@ -62,6 +63,12 @@ const errorMessages: Record<string, string> = {
   removal_reason: "Enter a reason before removing access.",
   self_remove: "You cannot remove your own Super Admin access.",
   service_key: "SUPABASE_SERVICE_ROLE_KEY is required for user management.",
+  user_delete: "The user account could not be deleted.",
+  user_delete_check:
+    "DEKEZ could not safely check this user's linked records. No deletion was made.",
+  user_delete_confirm: "Type DELETE and enter a reason to permanently delete this user.",
+  user_in_use:
+    "This user has linked records and cannot be deleted. Use Remove Access to disable login while preserving history.",
   user_missing: "Complete all required profile fields.",
   user_not_found: "This user profile could not be found.",
   user_update: "The user profile could not be updated.",
@@ -339,10 +346,16 @@ export default async function UserProfilePage({
           </div>
         </div>
         {canRemove ? (
-          <RemoveAccessDialog
-            fullName={profile.full_name || "This user"}
-            profileId={profile.id}
-          />
+          <div className="flex flex-wrap gap-2">
+            <RemoveAccessDialog
+              fullName={profile.full_name || "This user"}
+              profileId={profile.id}
+            />
+            <DeleteUserDialog
+              fullName={profile.full_name || "This user"}
+              profileId={profile.id}
+            />
+          </div>
         ) : null}
       </div>
 

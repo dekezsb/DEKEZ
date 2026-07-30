@@ -124,6 +124,8 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
           {params.activated
             ? `${params.accounts ?? "0"} tenant logins are active across ${params.rooms ?? "0"} room assignments. ${params.skipped ?? "0"} records without valid phones and ${params.conflicts ?? "0"} conflicts require review.${Number(params.errors ?? 0) ? ` ${params.errors} processing errors were recorded.` : ""}`
+            : params.removed === "deleted"
+            ? "Unused user account permanently deleted."
             : params.removed
             ? "User access removed. Historical records were preserved."
             : successMessages[params.created ?? ""] ?? "Saved successfully."}

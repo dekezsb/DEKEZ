@@ -821,6 +821,129 @@ export async function removePortalUserAccess(formData: FormData) {
   redirect("/admin-setup?removed=user");
 }
 
+export async function deletePortalUser(formData: FormData) {
+  await requireRole(["super_admin"], {
+    module: "admin_setup",
+    level: "manage",
+  });
+  const actor = await getCurrentUser();
+  const profileId = textValue(formData, "profileId");
+  const reason = textValue(formData, "reason");
+  const confirmation = textValue(formData, "confirmation");
+
+  if (!actor || !profileId || !reason || confirmation !== "DELETE") {
+    redirect(
+      profilePath(
+        profileId || "unknown",
+        "error=user_delete_confirm",
+      ),
+    );
+  }
+
+  if (actor.id === profileId) {
+    redirect(profilePath(profileId, "error=self_remove"));
+  }
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    redirect(profilePath(profileId, "error=service_key"));
+  }
+
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("id, full_name, phone, role, registration_status, organization_id")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (!profile) {
+    redirect(profilePath(profileId, "error=user_not_found"));
+  }
+
+  if (normalizeRole(profile.role) === "super_admin") {
+    redirect(profilePath(profileId, "error=permission"));
+  }
+
+  const linkedRecordChecks = await Promise.all([
+    admin
+      .from("property_owners")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", profile.id),
+    admin
+      .from("tenants")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profile.id),
+    admin
+      .from("tenant_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", profile.id),
+    admin
+      .from("tenant_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", profile.id),
+    admin
+      .from("payment_submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", profile.id),
+    admin
+      .from("claims")
+      .select("id", { count: "exact", head: true })
+      .eq("submitted_by", profile.id),
+    admin
+      .from("profile_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profile.id),
+    admin
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("actor_profile_id", profile.id),
+    admin
+      .from("tenancy_agreement_deletion_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("performed_by", profile.id),
+    admin
+      .from("tenancy_agreement_verification_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("performed_by", profile.id),
+  ]);
+
+  if (linkedRecordChecks.some((result) => result.error)) {
+    redirect(profilePath(profile.id, "error=user_delete_check"));
+  }
+
+  if (linkedRecordChecks.some((result) => (result.count ?? 0) > 0)) {
+    redirect(profilePath(profile.id, "error=user_in_use"));
+  }
+
+  const { error: deleteError } = await admin.auth.admin.deleteUser(profile.id);
+
+  if (deleteError) {
+    redirect(profilePath(profile.id, "error=user_delete"));
+  }
+
+  await admin.from("audit_logs").insert({
+    company_id: profile.organization_id ?? null,
+    actor_profile_id: actor.id,
+    action: "unused_user_deleted",
+    entity_table: "profiles",
+    entity_id: profile.id,
+    metadata: {
+      deleted_profile: {
+        full_name: profile.full_name,
+        phone: profile.phone,
+        role: profile.role,
+        registration_status: profile.registration_status,
+      },
+      reason,
+    },
+  });
+
+  revalidatePath("/admin-setup");
+  revalidatePath("/verification");
+  redirect("/admin-setup?removed=deleted");
+}
+
 export async function createUnit(formData: FormData) {
   await assertAdmin();
 
