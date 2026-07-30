@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMalaysiaDateTime } from "@/lib/date-format";
@@ -79,12 +79,28 @@ export function PaymentRecordActions({
   const originalBillingMonth = billMonth === "-" ? "" : billMonth.slice(0, 7);
   const [correctedBillingMonth, setCorrectedBillingMonth] =
     useState(originalBillingMonth);
-  const extraAmount = Math.max(
-    amountSubmittedValue - invoiceOutstanding,
+  const [correctedAmount, setCorrectedAmount] = useState(
+    amountSubmittedValue.toFixed(2),
+  );
+  const correctedAmountValue = Math.max(Number(correctedAmount) || 0, 0);
+  const minimumExtraAmount = Math.max(
+    correctedAmountValue - invoiceOutstanding,
     0,
   );
-  const hasExtraAmount = extraAmount > 0.005;
-  const amountApplied = Math.min(amountSubmittedValue, invoiceOutstanding);
+  const [extraChargeAmount, setExtraChargeAmount] = useState(
+    minimumExtraAmount.toFixed(2),
+  );
+  const hasExtraAmount = minimumExtraAmount > 0.005;
+  const selectedExtraAmount = hasExtraAmount
+    ? Math.min(
+        Math.max(Number(extraChargeAmount) || 0, minimumExtraAmount),
+        correctedAmountValue,
+      )
+    : 0;
+  const amountApplied = Math.min(
+    Math.max(correctedAmountValue - selectedExtraAmount, 0),
+    invoiceOutstanding,
+  );
   const remainingAfterVerification = Math.max(
     invoiceOutstanding - amountApplied,
     0,
@@ -92,7 +108,27 @@ export function PaymentRecordActions({
   const hasCorrection =
     selectedPurpose !== paymentPurpose ||
     correctedPaymentDate !== paymentDate ||
-    correctedBillingMonth !== originalBillingMonth;
+    correctedBillingMonth !== originalBillingMonth ||
+    Math.abs(correctedAmountValue - amountSubmittedValue) > 0.005;
+
+  useEffect(() => {
+    if (!hasExtraAmount) {
+      setExtraChargeAmount("0.00");
+      return;
+    }
+
+    setExtraChargeAmount((current) => {
+      const currentValue = Number(current);
+      if (
+        !Number.isFinite(currentValue) ||
+        currentValue < minimumExtraAmount ||
+        currentValue > correctedAmountValue
+      ) {
+        return minimumExtraAmount.toFixed(2);
+      }
+      return current;
+    });
+  }, [correctedAmountValue, hasExtraAmount, minimumExtraAmount]);
 
   return (
     <div className="space-y-3">
@@ -158,7 +194,9 @@ export function PaymentRecordActions({
                   <dt>Applied to current invoice</dt>
                   <dd className="font-semibold">RM {amountApplied.toFixed(2)}</dd>
                   <dt>Extra charge to add</dt>
-                  <dd className="font-bold">RM {extraAmount.toFixed(2)}</dd>
+                  <dd className="font-bold">
+                    RM {selectedExtraAmount.toFixed(2)}
+                  </dd>
                   <dt>Invoice balance after verification</dt>
                   <dd className="font-bold">
                     RM {remainingAfterVerification.toFixed(2)}
@@ -185,7 +223,24 @@ export function PaymentRecordActions({
                     Super Admin may correct details selected wrongly by the
                     tenant before verification.
                   </p>
-                  <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <label className="block">
+                      <span className="text-sm font-medium text-gray-800">
+                        Amount submitted (RM)
+                      </span>
+                      <input
+                        className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                        min="0.01"
+                        name="amountSubmittedOverride"
+                        step="0.01"
+                        type="number"
+                        value={correctedAmount}
+                        onChange={(event) =>
+                          setCorrectedAmount(event.target.value)
+                        }
+                        required
+                      />
+                    </label>
                     <label className="block">
                       <span className="text-sm font-medium text-gray-800">
                         Payment for
@@ -279,10 +334,22 @@ export function PaymentRecordActions({
                       Extra charge amount
                     </span>
                     <input
-                      className="mt-2 w-full rounded-md border border-[#d7dde5] bg-gray-100 px-3 py-2 font-semibold"
-                      readOnly
-                      value={`RM ${extraAmount.toFixed(2)}`}
+                      className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 font-semibold"
+                      max={correctedAmountValue}
+                      min={minimumExtraAmount}
+                      name="extraChargeAmount"
+                      step="0.01"
+                      type="number"
+                      value={extraChargeAmount}
+                      onChange={(event) =>
+                        setExtraChargeAmount(event.target.value)
+                      }
+                      required
                     />
+                    <span className="mt-1 block text-xs text-gray-500">
+                      Minimum RM {minimumExtraAmount.toFixed(2)}; maximum RM{" "}
+                      {correctedAmountValue.toFixed(2)}.
+                    </span>
                   </label>
                   <label className="block">
                     <span className="text-sm font-medium text-gray-800">

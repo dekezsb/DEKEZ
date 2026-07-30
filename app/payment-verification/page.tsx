@@ -86,6 +86,9 @@ const errorMessages: Record<string, string> = {
     "Check the corrected payment details and explain why they are being changed.",
   correction_date: "Choose a valid payment date.",
   correction_month: "Choose a valid billing month.",
+  correction_amount: "Enter a valid payment amount greater than RM 0.00.",
+  extra_amount:
+    "Enter a valid extra-charge amount within the allowed range.",
   correction_bill_missing:
     "No invoice exists for that tenancy and billing month. Create or select the correct invoice before verifying.",
   correction_bill_paid:

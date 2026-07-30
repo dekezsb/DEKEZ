@@ -65,6 +65,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
     textValue(formData, "correctionReason") || purposeCorrectionReason;
   const paymentDateOverride = textValue(formData, "paymentDateOverride");
   const billMonthOverride = textValue(formData, "billMonthOverride");
+  const amountSubmittedOverride = textValue(
+    formData,
+    "amountSubmittedOverride",
+  );
   const extraChargeCategory = textValue(
     formData,
     "extraChargeCategory",
@@ -73,6 +77,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     formData,
     "extraChargeDescription",
   );
+  const extraChargeAmountInput = textValue(formData, "extraChargeAmount");
   const returnTo = returnPath(formData);
 
   if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
@@ -102,6 +107,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   let effectivePaymentDate = currentSubmission.payment_date;
   let effectiveBillMonth = currentSubmission.bill_month;
   let effectiveRentBillId = currentSubmission.rent_bill_id;
+  let effectiveAmount = Number(currentSubmission.amount ?? 0);
   const purposeWasCorrected =
     decision === "verified" &&
     paymentPurposeOverride &&
@@ -117,10 +123,17 @@ export async function reviewPaymentSubmission(formData: FormData) {
     decision === "verified" &&
     normalizedBillMonth &&
     normalizedBillMonth !== currentSubmission.bill_month;
+  const requestedAmount = Number(amountSubmittedOverride);
+  const amountWasCorrected =
+    decision === "verified" &&
+    amountSubmittedOverride !== "" &&
+    Number.isFinite(requestedAmount) &&
+    Math.abs(requestedAmount - effectiveAmount) > 0.005;
   const paymentDetailsWereCorrected =
     purposeWasCorrected ||
     paymentDateWasCorrected ||
-    billMonthWasCorrected;
+    billMonthWasCorrected ||
+    amountWasCorrected;
 
   if (paymentDetailsWereCorrected) {
     if (
@@ -150,6 +163,18 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (billMonthOverride && !/^\d{4}-\d{2}$/.test(billMonthOverride)) {
     redirect(withResult(returnTo, "error=correction_month"));
+  }
+
+  if (
+    decision === "verified" &&
+    amountSubmittedOverride !== "" &&
+    (!Number.isFinite(requestedAmount) || requestedAmount <= 0)
+  ) {
+    redirect(withResult(returnTo, "error=correction_amount"));
+  }
+
+  if (amountWasCorrected) {
+    effectiveAmount = requestedAmount;
   }
 
   if (billMonthWasCorrected) {
@@ -246,7 +271,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       });
       verifiedAllocation = allocatePaymentPurpose({
         purpose: effectivePaymentType,
-        amount: Number(currentSubmission.amount ?? 0),
+        amount: effectiveAmount,
         rentOutstanding: Math.max(
           Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
           0,
@@ -267,12 +292,44 @@ export async function reviewPaymentSubmission(formData: FormData) {
         0,
       );
       extraAmount = Math.max(
-        Number(currentSubmission.amount ?? 0) - outstanding,
+        effectiveAmount - outstanding,
         0,
       );
     }
 
     if (extraAmount > 0.005) {
+      const submittedAmount = effectiveAmount;
+      const requestedExtraAmount = Number(extraChargeAmountInput);
+
+      if (
+        !Number.isFinite(requestedExtraAmount) ||
+        requestedExtraAmount < extraAmount - 0.005 ||
+        requestedExtraAmount > submittedAmount + 0.005
+      ) {
+        redirect(withResult(returnTo, "error=extra_amount"));
+      }
+
+      extraAmount = requestedExtraAmount;
+
+      if (isPaymentPurpose(effectivePaymentType)) {
+        const allocationWithoutExtra = allocatePaymentPurpose({
+          purpose: effectivePaymentType,
+          amount: Math.max(submittedAmount - extraAmount, 0),
+          rentOutstanding: Math.max(
+            Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
+            0,
+          ),
+          depositOutstanding: Math.max(
+            verifiedDepositRequired - verifiedDepositPaidBefore,
+            0,
+          ),
+        });
+        verifiedAllocation = {
+          ...allocationWithoutExtra,
+          extra: extraAmount,
+        };
+      }
+
       if (
         !isExtraChargeCategory(extraChargeCategory) ||
         !extraChargeDescription
@@ -294,6 +351,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       payment_date: effectivePaymentDate,
       bill_month: effectiveBillMonth,
       rent_bill_id: effectiveRentBillId,
+      amount: effectiveAmount,
       verification_status: decision,
       verified_by: decision === "verified" ? user.id : null,
       verified_at: decision === "verified" ? new Date().toISOString() : null,
@@ -324,6 +382,9 @@ export async function reviewPaymentSubmission(formData: FormData) {
             : "",
           billMonthWasCorrected
             ? `Billing month: ${currentSubmission.bill_month} to ${effectiveBillMonth}.`
+            : "",
+          amountWasCorrected
+            ? `Submitted amount: RM ${Number(currentSubmission.amount ?? 0).toFixed(2)} to RM ${effectiveAmount.toFixed(2)}.`
             : "",
           `Reason: ${correctionReason}`,
         ]
