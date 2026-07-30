@@ -263,10 +263,11 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
 
   const roomViews = rooms
     .map((room): PropertyRoomView => {
-      const tenantRecord = tenantRecordByRoom.get(room.id);
-      const tenancy = tenancyByRoom.get(room.id);
+      const hasCurrentOccupancy = room.status === "occupied";
+      const tenantRecord = hasCurrentOccupancy ? tenantRecordByRoom.get(room.id) : undefined;
+      const tenancy = hasCurrentOccupancy ? tenancyByRoom.get(room.id) : undefined;
       const canonicalTenant = relatedOne(tenancy?.tenants);
-      const bill = billByRoom.get(room.id);
+      const bill = hasCurrentOccupancy ? billByRoom.get(room.id) : undefined;
       const tenancyId = tenancy?.id ?? tenantRecord?.tenancy_id ?? room.current_tenancy_id ?? null;
       const agreement = tenancyId ? agreementByTenancy.get(tenancyId) : null;
       const billAmount = Number(bill?.amount ?? 0);

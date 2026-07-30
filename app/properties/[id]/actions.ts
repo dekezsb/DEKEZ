@@ -1363,11 +1363,18 @@ export async function checkoutRoom(formData: FormData) {
       .in("status", ["draft", "unpaid", "overdue"]),
   ]);
   if (room?.current_tenancy_id) {
-    await supabase
-      .from("agreement_notifications")
-      .update({ status: "cancelled" })
-      .eq("tenancy_id", room.current_tenancy_id)
-      .eq("status", "pending");
+    await Promise.all([
+      supabase
+        .from("agreement_notifications")
+        .update({ status: "cancelled" })
+        .eq("tenancy_id", room.current_tenancy_id)
+        .eq("status", "pending"),
+      supabase
+        .from("tenancy_agreements")
+        .delete()
+        .eq("tenancy_id", room.current_tenancy_id)
+        .is("signed_at", null),
+    ]);
   }
   revalidatePath(propertyPath(property.id));
   revalidatePath("/verification");

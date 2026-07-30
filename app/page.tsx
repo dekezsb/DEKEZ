@@ -25,8 +25,8 @@ export default async function Home() {
         destination = "/registration-status";
       } else {
         const role =
-          normalizeRole(user.app_metadata?.role) ??
           normalizeRole(profile.role) ??
+          normalizeRole(user.app_metadata?.role) ??
           "tenant";
         destination = roleHome[role];
       }

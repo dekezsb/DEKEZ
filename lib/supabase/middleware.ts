@@ -69,8 +69,8 @@ export async function updateSession(request: NextRequest) {
     }
 
     const role =
-      normalizeRole(claims.app_metadata?.role) ??
       normalizeRole(profile.role) ??
+      normalizeRole(claims.app_metadata?.role) ??
       "tenant";
     const module = moduleForPath(request.nextUrl.pathname);
 

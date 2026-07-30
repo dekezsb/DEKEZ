@@ -83,9 +83,23 @@ export async function loadTenancyAgreementArchive(
       tenancy,
     ]),
   );
+  const closedStatuses = new Set([
+    "ended",
+    "terminated",
+    "completed",
+    "cancelled",
+  ]);
+  const visibleAgreements = agreementRows.filter((agreement) => {
+    const tenancy = tenancyById.get(agreement.tenancy_id);
+    const isCheckedOut =
+      Boolean(tenancy?.checkout_date) ||
+      Boolean(tenancy?.status && closedStatuses.has(tenancy.status));
+
+    return !isCheckedOut || Boolean(agreement.signed_at);
+  });
 
   return {
-    agreements: agreementRows.map((agreement) => ({
+    agreements: visibleAgreements.map((agreement) => ({
       ...agreement,
       tenancies: tenancyById.get(agreement.tenancy_id) ?? null,
     })),

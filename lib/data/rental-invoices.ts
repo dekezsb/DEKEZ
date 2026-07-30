@@ -54,6 +54,7 @@ type InvoiceRoom = {
 type InvoiceTenancy = {
   id: string;
   tenant_id: string;
+  status: string;
   contract_start: string | null;
   contract_end: string | null;
   check_in_date: string | null;
@@ -279,7 +280,7 @@ async function hydrateInvoices(
         ? supabase
             .from("tenancies")
             .select(
-              "id, tenant_id, contract_start, contract_end, check_in_date, checkout_date",
+              "id, tenant_id, status, contract_start, contract_end, check_in_date, checkout_date",
             )
             .in("id", tenancyIds)
         : Promise.resolve({ data: [], error: null }),
@@ -353,7 +354,7 @@ async function hydrateInvoices(
     lineItemsByBill.set(item.rent_bill_id, lineItems);
   }
 
-  return bills.map((bill) => {
+  const invoices = bills.map((bill) => {
     const property = propertyById.get(bill.property_id);
     const room = roomById.get(bill.room_id);
     const tenancy = bill.tenancy_id
@@ -441,6 +442,24 @@ async function hydrateInvoices(
       receipts,
       receiptCount: receipts.length,
     };
+  });
+
+  const closedStatuses = new Set([
+    "ended",
+    "terminated",
+    "completed",
+    "cancelled",
+  ]);
+
+  return invoices.filter((invoice) => {
+    const tenancy = invoice.tenancyId
+      ? tenancyById.get(invoice.tenancyId)
+      : undefined;
+    const isCheckedOut =
+      Boolean(tenancy?.checkout_date) ||
+      Boolean(tenancy?.status && closedStatuses.has(tenancy.status));
+
+    return !isCheckedOut || invoice.invoiceStatus === "paid";
   });
 }
 

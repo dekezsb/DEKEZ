@@ -28,10 +28,6 @@ function verifiedUserFromClaims(claims: JwtPayload): User {
 export async function resolveUserRole(user: User) {
   const metadataRole = normalizeRole(user.app_metadata?.role);
 
-  if (metadataRole) {
-    return metadataRole;
-  }
-
   let dataClient;
   try {
     dataClient = createAdminClient();
@@ -45,7 +41,7 @@ export async function resolveUserRole(user: User) {
     .eq("id", user.id)
     .maybeSingle();
 
-  return normalizeRole(profile?.role) ?? "tenant";
+  return normalizeRole(profile?.role) ?? metadataRole ?? "tenant";
 }
 
 export const getOptionalUserAccess = cache(async () => {

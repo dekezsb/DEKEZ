@@ -23,8 +23,8 @@ export default async function RegistrationStatusPage() {
 
   if (profile?.registration_status === "approved") {
     const role =
-      normalizeRole(user.app_metadata?.role) ??
       normalizeRole(profile.role) ??
+      normalizeRole(user.app_metadata?.role) ??
       "tenant";
     redirect(roleHome[role]);
   }

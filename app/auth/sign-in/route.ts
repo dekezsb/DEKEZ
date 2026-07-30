@@ -232,8 +232,8 @@ export async function POST(request: NextRequest) {
   }
 
   const role =
-    normalizeRole(signedInUser.app_metadata?.role) ??
     normalizeRole(profile.role) ??
+    normalizeRole(signedInUser.app_metadata?.role) ??
     "tenant";
 
   return responseWithCookies(

@@ -149,6 +149,18 @@ export const protectedRoutes = [
   "/super-admin",
 ];
 
+const roleAliases: Record<string, AppRole> = {
+  admin_team: "admin",
+  management: "admin",
+  management_team: "admin",
+  technician_team: "technician",
+};
+
 export function normalizeRole(value: unknown): AppRole | null {
-  return appRoles.find((role) => role === value) ?? null;
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return appRoles.find((role) => role === normalized) ?? roleAliases[normalized] ?? null;
 }
