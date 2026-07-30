@@ -482,7 +482,11 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   const outstandingCollections = visibleCollections.filter(
     (collection) =>
       collection.totalOutstanding > 0
-      && collection.paymentStatus !== "pending_verification",
+      && collection.paymentStatus !== "pending_verification"
+      && (
+        collection.settlementStatus !== "paid"
+        || collection.depositOutstanding > 0
+      ),
   );
   const propertiesWithUnpaidRooms = visibleProperties
     .map((property) => ({
