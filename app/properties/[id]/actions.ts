@@ -1334,6 +1334,26 @@ export async function checkoutRoom(formData: FormData) {
     .eq("id", roomId)
     .eq("property_id", property.id)
     .maybeSingle();
+  const { data: activeTenancies } = await supabase
+    .from("tenancies")
+    .select("id")
+    .eq("room_id", roomId)
+    .eq("status", "active");
+  const tenancyIds = (activeTenancies ?? []).map((tenancy) => tenancy.id);
+  const { data: agreements } = tenancyIds.length
+    ? await supabase
+        .from("tenancy_agreements")
+        .select("id, pdf_url")
+        .in("tenancy_id", tenancyIds)
+    : { data: [] };
+  const agreementIds = (agreements ?? []).map((agreement) => agreement.id);
+  const { data: signatures } = agreementIds.length
+    ? await supabase
+        .from("tenancy_agreement_signatures")
+        .select("signature_url")
+        .in("agreement_id", agreementIds)
+    : { data: [] };
+
   await Promise.all([
     supabase
       .from("tenancies")
@@ -1361,6 +1381,22 @@ export async function checkoutRoom(formData: FormData) {
       .eq("room_id", roomId)
       .gt("due_date", checkoutDate)
       .in("status", ["draft", "unpaid", "overdue"]),
+  ]);
+  const agreementPdfPaths = (agreements ?? [])
+    .map((agreement) => agreement.pdf_url)
+    .filter((path): path is string => Boolean(path));
+  const signaturePaths = (signatures ?? [])
+    .map((signature) => signature.signature_url)
+    .filter((path): path is string => Boolean(path));
+  await Promise.all([
+    agreementPdfPaths.length
+      ? supabase.storage
+          .from("tenancy-agreements")
+          .remove(agreementPdfPaths)
+      : Promise.resolve(),
+    signaturePaths.length
+      ? supabase.storage.from("tenancy-signatures").remove(signaturePaths)
+      : Promise.resolve(),
   ]);
   if (room?.current_tenancy_id) {
     await Promise.all([
