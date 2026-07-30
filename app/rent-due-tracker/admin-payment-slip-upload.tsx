@@ -143,11 +143,13 @@ export function AdminPaymentSlipUpload({
                     const purpose = event.target.value as PaymentPurpose;
                     setPaymentPurpose(purpose);
                     setAmount(
-                      paymentPurposeTotal(
-                        purpose,
-                        rentOutstanding,
-                        depositOutstanding,
-                      ).toFixed(2),
+                      purpose === "other"
+                        ? ""
+                        : paymentPurposeTotal(
+                            purpose,
+                            rentOutstanding,
+                            depositOutstanding,
+                          ).toFixed(2),
                     );
                   }}
                   value={paymentPurpose}
@@ -179,10 +181,12 @@ export function AdminPaymentSlipUpload({
                       ? " - both balances required"
                       : ""}
                   </option>
+                  <option value="other">Other / Extra Charge</option>
                 </select>
                 <span className="mt-1 block text-xs text-gray-500">
-                  Choose how the verified payment should reduce the tenant&apos;s
-                  balance.
+                  {paymentPurpose === "other"
+                    ? "Enter the separate charge amount. Super Admin will confirm its exact category and description."
+                    : "Choose how the verified payment should reduce the tenant's balance."}
                 </span>
               </label>
               <label className="block">

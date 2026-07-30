@@ -234,7 +234,8 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     (paymentPurpose === "deposit" && depositOutstanding > 0.005) ||
     (paymentPurpose === "rent_and_deposit" &&
       rentOutstanding > 0.005 &&
-      depositOutstanding > 0.005);
+      depositOutstanding > 0.005) ||
+    paymentPurpose === "other";
   if (!purposeAvailable) {
     redirect("/payments?error=proof_closed");
   }
@@ -274,7 +275,12 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
       unit_id: bill.unit_id,
       room_id: bill.room_id,
       bill_month: bill.bill_month,
-      bill_type: paymentPurpose === "deposit" ? "deposit" : "monthly_rent",
+      bill_type:
+        paymentPurpose === "deposit"
+          ? "deposit"
+          : paymentPurpose === "other"
+            ? "other"
+            : "monthly_rent",
       payment_type: paymentPurpose,
       amount,
       payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
@@ -302,7 +308,10 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     content_type: receipt.type || null,
   });
 
-  if (paymentPurpose !== "deposit") {
+  if (
+    paymentPurpose === "monthly_rent" ||
+    paymentPurpose === "rent_and_deposit"
+  ) {
     await supabase
       .from("rent_bills")
       .update({ status: "payment_submitted", updated_at: new Date().toISOString() })

@@ -131,11 +131,13 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
               const purpose = event.target.value as PaymentPurpose;
               setPaymentPurpose(purpose);
               setAmount(
-                paymentPurposeTotal(
-                  purpose,
-                  selectedBill.rentOutstanding,
-                  selectedBill.depositOutstanding,
-                ).toFixed(2),
+                purpose === "other"
+                  ? ""
+                  : paymentPurposeTotal(
+                      purpose,
+                      selectedBill.rentOutstanding,
+                      selectedBill.depositOutstanding,
+                    ).toFixed(2),
               );
             }}
             value={paymentPurpose}
@@ -150,7 +152,14 @@ export function PaymentAmountFields({ bills }: PaymentAmountFieldsProps) {
             selectedBill.depositOutstanding > 0.005 ? (
               <option value="rent_and_deposit">Rent + Deposit</option>
             ) : null}
+            <option value="other">Other / Extra Charge</option>
           </select>
+          {paymentPurpose === "other" ? (
+            <span className="mt-2 block text-sm text-amber-700">
+              Enter the separate extra-charge amount. Admin will confirm its
+              exact category and description before verification.
+            </span>
+          ) : null}
         </label>
       ) : null}
 

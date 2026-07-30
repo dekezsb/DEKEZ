@@ -2,6 +2,7 @@ export const PAYMENT_PURPOSES = [
   "monthly_rent",
   "deposit",
   "rent_and_deposit",
+  "other",
 ] as const;
 
 export type PaymentPurpose = (typeof PAYMENT_PURPOSES)[number];
@@ -13,6 +14,7 @@ export function isPaymentPurpose(value: string): value is PaymentPurpose {
 export function paymentPurposeLabel(value: string) {
   if (value === "deposit") return "Deposit";
   if (value === "rent_and_deposit") return "Rent + Deposit";
+  if (value === "other") return "Other / Extra Charge";
   return "Monthly Rent";
 }
 
@@ -25,6 +27,7 @@ export function paymentPurposeTotal(
   if (purpose === "rent_and_deposit") {
     return Math.max(rentOutstanding, 0) + Math.max(depositOutstanding, 0);
   }
+  if (purpose === "other") return 0;
   return Math.max(rentOutstanding, 0);
 }
 
@@ -37,6 +40,10 @@ export function allocatePaymentPurpose(input: {
   const amount = Math.max(input.amount, 0);
   const rentOutstanding = Math.max(input.rentOutstanding, 0);
   const depositOutstanding = Math.max(input.depositOutstanding, 0);
+
+  if (input.purpose === "other") {
+    return { rent: 0, deposit: 0, extra: amount };
+  }
 
   if (input.purpose === "deposit") {
     const deposit = Math.min(amount, depositOutstanding);

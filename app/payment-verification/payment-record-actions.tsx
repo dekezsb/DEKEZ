@@ -235,9 +235,15 @@ export function PaymentRecordActions({
                         step="0.01"
                         type="number"
                         value={correctedAmount}
-                        onChange={(event) =>
-                          setCorrectedAmount(event.target.value)
-                        }
+                        onChange={(event) => {
+                          const nextAmount = event.target.value;
+                          setCorrectedAmount(nextAmount);
+                          if (selectedPurpose === "other") {
+                            setRentalAmount("0");
+                            setDepositAmount("0");
+                            setExtraChargeAmount(nextAmount);
+                          }
+                        }}
                         required
                       />
                     </label>
@@ -249,7 +255,15 @@ export function PaymentRecordActions({
                         className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
                         name="paymentPurposeOverride"
                         value={selectedPurpose}
-                        onChange={(event) => setSelectedPurpose(event.target.value)}
+                        onChange={(event) => {
+                          const nextPurpose = event.target.value;
+                          setSelectedPurpose(nextPurpose);
+                          if (nextPurpose === "other") {
+                            setRentalAmount("0");
+                            setDepositAmount("0");
+                            setExtraChargeAmount(correctedAmount);
+                          }
+                        }}
                       >
                         {PAYMENT_PURPOSES.map((purpose) => (
                           <option key={purpose} value={purpose}>

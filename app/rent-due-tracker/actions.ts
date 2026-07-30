@@ -432,7 +432,8 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     (paymentPurpose === "deposit" && balances.depositOutstanding > 0.005) ||
     (paymentPurpose === "rent_and_deposit" &&
       balances.rentOutstanding > 0.005 &&
-      balances.depositOutstanding > 0.005);
+      balances.depositOutstanding > 0.005) ||
+    paymentPurpose === "other";
   if (!purposeAvailable) {
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
@@ -474,7 +475,12 @@ export async function uploadRentPaymentSlip(formData: FormData) {
       unit_id: bill.unit_id,
       room_id: bill.room_id,
       bill_month: bill.bill_month,
-      bill_type: paymentPurpose === "deposit" ? "deposit" : "monthly_rent",
+      bill_type:
+        paymentPurpose === "deposit"
+          ? "deposit"
+          : paymentPurpose === "other"
+            ? "other"
+            : "monthly_rent",
       payment_type: paymentPurpose,
       amount,
       payment_date: paymentDate,
@@ -506,7 +512,10 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     redirect(rentTrackerPath(formData, "error", "proof_create"));
   }
 
-  if (paymentPurpose !== "deposit") {
+  if (
+    paymentPurpose === "monthly_rent" ||
+    paymentPurpose === "rent_and_deposit"
+  ) {
     await supabase
       .from("rent_bills")
       .update({
