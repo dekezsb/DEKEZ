@@ -4,7 +4,6 @@ import { TenantMaintenance } from "@/components/tenant/tenant-portal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentPreview } from "@/components/ui/document-preview";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { getTenantPortalData } from "@/lib/data/tenant-portal";
 import { formatMalaysiaDate } from "@/lib/date-format";
@@ -58,6 +57,30 @@ function claimStatusLabel(status: string) {
   if (status === "approved") return "Verified";
   if (status === "information_requested") return "Information requested";
   return status.replaceAll("_", " ");
+}
+
+const urgencyOrder: Record<string, number> = {
+  urgent: 0,
+  normal: 1,
+  low: 2,
+};
+
+function urgencyLabel(urgency: string | null) {
+  if (urgency === "urgent") return "Urgent";
+  if (urgency === "low") return "Low";
+  return "Normal";
+}
+
+function urgencyBadgeClass(urgency: string | null) {
+  if (urgency === "urgent") return "border-red-200 bg-red-100 text-red-700";
+  if (urgency === "low") return "border-slate-200 bg-slate-100 text-slate-700";
+  return "border-amber-200 bg-amber-100 text-amber-800";
+}
+
+function ticketStatusLabel(status: string) {
+  if (status === "completed") return "Resolved";
+  if (status === "in_progress") return "In Progress";
+  return "Open";
 }
 
 export default async function MaintenancePage({ searchParams }: MaintenancePageProps) {
@@ -128,16 +151,70 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
     "cleaning_staff",
   ].includes(role);
   const canSubmitUnlinkedClaim = ["super_admin", "admin"].includes(role);
+  const canUpdateTicket = [
+    "super_admin",
+    "admin",
+    "technician",
+    "maintenance_staff",
+    "cleaning_staff",
+  ].includes(role);
 
-  const { data: claimAttachments } = claims.length
-    ? await supabase
-        .from("claim_attachments")
-        .select("id, claim_id, bucket_name, file_path, content_type")
-        .in(
-          "claim_id",
-          claims.map((claim) => claim.id),
-        )
-    : { data: [] };
+  const [{ data: ticketAttachments }, { data: claimAttachments }] = await Promise.all([
+    tickets.length
+      ? supabase
+          .from("maintenance_attachments")
+          .select("id, ticket_id, attachment_type, bucket_name, file_path, content_type, created_at")
+          .in(
+            "ticket_id",
+            tickets.map((ticket) => ticket.id),
+          )
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    claims.length
+      ? supabase
+          .from("claim_attachments")
+          .select("id, claim_id, bucket_name, file_path, content_type")
+          .in(
+            "claim_id",
+            claims.map((claim) => claim.id),
+          )
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const signedTicketAttachments = await Promise.all(
+    (ticketAttachments ?? []).map(async (attachment) => {
+      const { data } = await supabase.storage
+        .from(attachment.bucket_name)
+        .createSignedUrl(attachment.file_path, 60 * 10);
+      return {
+        ...attachment,
+        fileName: attachment.file_path.split("/").at(-1) ?? "Maintenance photo",
+        signedUrl: data?.signedUrl ?? null,
+      };
+    }),
+  );
+  const attachmentsByTicket = new Map<
+    string,
+    typeof signedTicketAttachments
+  >();
+  for (const attachment of signedTicketAttachments) {
+    const list = attachmentsByTicket.get(attachment.ticket_id) ?? [];
+    list.push(attachment);
+    attachmentsByTicket.set(attachment.ticket_id, list);
+  }
+
+  const signedClaimAttachments = await Promise.all(
+    (claimAttachments ?? []).map(async (attachment) => {
+      const { data } = await supabase.storage
+        .from(attachment.bucket_name)
+        .createSignedUrl(attachment.file_path, 60 * 10);
+      return {
+        ...attachment,
+        fileName: attachment.file_path.split("/").at(-1) ?? "Claim receipt",
+        signedUrl: data?.signedUrl ?? null,
+      };
+    }),
+  );
   const attachmentsByClaim = new Map<
     string,
     {
@@ -147,19 +224,33 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
       signedUrl: string | null;
     }[]
   >();
-  for (const attachment of claimAttachments ?? []) {
-    const { data } = await supabase.storage
-      .from(attachment.bucket_name)
-      .createSignedUrl(attachment.file_path, 60 * 10);
+  for (const attachment of signedClaimAttachments) {
     const list = attachmentsByClaim.get(attachment.claim_id) ?? [];
     list.push({
       id: attachment.id,
       content_type: attachment.content_type,
-      fileName: attachment.file_path.split("/").at(-1) ?? "Claim receipt",
-      signedUrl: data?.signedUrl ?? null,
+      fileName: attachment.fileName,
+      signedUrl: attachment.signedUrl,
     });
     attachmentsByClaim.set(attachment.claim_id, list);
   }
+
+  const workQueue = [...tickets].sort((left, right) => {
+    const leftCompleted = left.status === "completed" ? 1 : 0;
+    const rightCompleted = right.status === "completed" ? 1 : 0;
+    if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+
+    const urgencyDifference =
+      (urgencyOrder[left.urgency ?? "normal"] ?? 1)
+      - (urgencyOrder[right.urgency ?? "normal"] ?? 1);
+    if (urgencyDifference !== 0) return urgencyDifference;
+
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+  const openTicketCount = workQueue.filter((ticket) => ticket.status !== "completed").length;
+  const urgentTicketCount = workQueue.filter(
+    (ticket) => ticket.status !== "completed" && ticket.urgency === "urgent",
+  ).length;
 
   return (
     <section className="space-y-6">
@@ -258,13 +349,35 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
 
       <Card>
         <CardHeader>
-          <CardTitle>Tickets</CardTitle>
-          <CardDescription>Only tickets your role can access are shown.</CardDescription>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>Maintenance Work Queue</CardTitle>
+              <CardDescription className="mt-1">
+                Open jobs are listed by priority. Select any report photo to open it full size.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2 text-sm">
+              <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">
+                {openTicketCount} open
+              </span>
+              {urgentTicketCount ? (
+                <span className="rounded-full bg-red-100 px-3 py-1 font-medium text-red-700">
+                  {urgentTicketCount} urgent
+                </span>
+              ) : null}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          {tickets.length && role === "admin" ? (
-            <div className="space-y-3">
-              {tickets.map((ticket) => {
+          {workQueue.length ? (
+            <div className="overflow-hidden rounded-lg border border-[#d7dde5]">
+              <div className="hidden grid-cols-[112px_minmax(0,1fr)_minmax(200px,auto)] gap-4 bg-[#f4f6f8] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 lg:grid">
+                <span>Report photo</span>
+                <span>Priority / Job details</span>
+                <span>Status / Action</span>
+              </div>
+              <div className="divide-y divide-[#d7dde5]">
+              {workQueue.map((ticket) => {
                 const property = properties.find(
                   (item) => item.id === ticket.property_id,
                 );
@@ -272,16 +385,50 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
                 const completed = ticket.status === "completed";
                 return (
                   <article
-                    className={`rounded-md border p-4 ${
+                    className={`grid gap-4 p-4 lg:grid-cols-[112px_minmax(0,1fr)_minmax(200px,auto)] lg:items-start ${
                       completed
-                        ? "border-emerald-200 bg-emerald-50"
-                        : "border-[#d7dde5] bg-white"
+                        ? "bg-emerald-50/70"
+                        : "bg-white"
                     }`}
                     key={ticket.id}
                   >
+                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase text-gray-500 lg:hidden">
+                        Report photo
+                      </p>
+                      {(attachmentsByTicket.get(ticket.id) ?? []).length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {(attachmentsByTicket.get(ticket.id) ?? []).map((attachment) => (
+                            <DocumentPreview
+                              contentType={attachment.content_type}
+                              fileName={
+                                attachment.attachment_type === "after"
+                                  ? "Completion photo"
+                                  : "Report photo"
+                              }
+                              key={attachment.id}
+                              label={
+                                attachment.attachment_type === "after"
+                                  ? "completion photo"
+                                  : "report photo"
+                              }
+                              size="sm"
+                              url={attachment.signedUrl}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex h-16 w-20 items-center justify-center rounded-md border border-dashed border-[#cbd2dc] bg-[#f8fafc] px-2 text-center text-xs text-gray-500">
+                          No photo
+                        </div>
+                      )}
+                    </div>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={urgencyBadgeClass(ticket.urgency)}>
+                            {urgencyLabel(ticket.urgency)}
+                          </Badge>
                           <h2 className="font-semibold text-gray-950">
                             {ticket.ticket_number ?? ticket.id.slice(0, 8)}
                           </h2>
@@ -292,11 +439,7 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
                                 : statusBadgeClass(ticket.status)
                             }
                           >
-                            {completed
-                              ? "Resolved"
-                              : ticket.status === "in_progress"
-                                ? "In Progress"
-                                : "Open"}
+                            {ticketStatusLabel(ticket.status)}
                           </Badge>
                         </div>
                         <p className="mt-2 text-sm font-medium">
@@ -313,10 +456,10 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
                       </div>
                     </div>
 
-                    {!completed ? (
+                    {!completed && canUpdateTicket ? (
                       <form
                         action={updateMaintenanceTicketStatus}
-                        className="mt-4 grid gap-3 border-t border-[#e3e8ef] pt-4 sm:grid-cols-2"
+                        className="grid gap-3 rounded-md border border-[#e3e8ef] bg-white p-3 lg:col-span-1"
                       >
                         <input
                           name="ticketId"
@@ -364,40 +507,22 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
                           Update Ticket
                         </Button>
                       </form>
-                    ) : (
-                      <p className="mt-4 border-t border-emerald-200 pt-3 text-sm font-medium text-emerald-700">
+                    ) : completed ? (
+                      <p className="text-sm font-medium text-emerald-700">
                         Work completed and submitted.
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        View-only job.
                       </p>
                     )}
                   </article>
                 );
               })}
+              </div>
             </div>
-          ) : tickets.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ticket</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Urgency</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tickets.map((ticket) => (
-                  <TableRow key={ticket.id}>
-                    <TableCell className="font-medium text-gray-950">{ticket.ticket_number ?? ticket.id.slice(0, 8)}</TableCell>
-                    <TableCell>{ticket.ticket_type}</TableCell>
-                    <TableCell>{ticket.description}</TableCell>
-                    <TableCell><Badge>{ticket.urgency}</Badge></TableCell>
-                    <TableCell><Badge>{ticket.status}</Badge></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           ) : (
-            <p className="text-sm text-gray-500">No tickets yet.</p>
+            <p className="text-sm text-gray-500">No maintenance jobs yet.</p>
           )}
         </CardContent>
       </Card>
