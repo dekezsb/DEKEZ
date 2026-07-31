@@ -1,4 +1,9 @@
 import { FileImage, ReceiptText } from "lucide-react";
+import { AddExpenseForm } from "@/components/expenses/add-expense-form";
+import {
+  ExpensePaymentBatchForm,
+  type PayableExpense,
+} from "@/components/expenses/expense-payment-batch-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +13,7 @@ import { requireRole } from "@/lib/auth/session";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { createExpense, createExpenseCategory, reviewExpense } from "./actions";
+import { createExpenseCategory, reviewExpense } from "./actions";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -32,6 +37,8 @@ type ExpenseRecord = {
   payment_method: string;
   funding_source: string;
   reimbursement_source: string | null;
+  payment_status: string;
+  paid_at: string | null;
   charge_to: string;
   status: string;
   tax_claimable: boolean;
@@ -58,6 +65,7 @@ type PageProps = {
   searchParams: Promise<{
     created?: string;
     reviewed?: string;
+    payment_recorded?: string;
     error?: string;
     month?: string;
     year?: string;
@@ -76,6 +84,11 @@ const errorMessages: Record<string, string> = {
   category_create: "Category could not be created.",
   review_missing: "Choose an expense and review action.",
   review: "Expense review could not be saved.",
+  payment_missing:
+    "Select at least one bill, enter the payment details, and attach a bank slip or card statement up to 3 MB.",
+  payment_changed:
+    "One of the selected bills was already paid or changed. Refresh and select the unpaid bills again.",
+  payment_proof: "The payment slip or card statement could not be uploaded.",
   use_claim_payout:
     "Use Verification → Claim Bills to record a staff lump-sum payout with proof.",
 };
@@ -144,12 +157,17 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const supabase = await getAdmin();
   const currentDate = new Date();
+  const malaysiaToday = currentDate.toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+  });
   const selectedMonth = params.month ?? String(currentDate.getMonth() + 1).padStart(2, "0");
   const selectedYear = params.year ?? String(currentDate.getFullYear());
+  const canVerify = ["super_admin", "owner", "admin"].includes(role);
+  const canRecordPayments = ["super_admin", "admin"].includes(role);
 
   let expenseQuery = supabase
     .from("expenses")
-    .select("id, property_id, unit_id, room_id, maintenance_ticket_id, claim_id, category_id, expense_date, amount, tax_amount, supplier, description, paid_by, payment_method, funding_source, reimbursement_source, charge_to, status, tax_claimable, uploaded_by, verified_at, created_at, expense_categories(name), properties(name), units(name), rooms(name, room_number), maintenance_tickets(ticket_number)")
+    .select("id, property_id, unit_id, room_id, maintenance_ticket_id, claim_id, category_id, expense_date, amount, tax_amount, supplier, description, paid_by, payment_method, funding_source, reimbursement_source, payment_status, paid_at, charge_to, status, tax_claimable, uploaded_by, verified_at, created_at, expense_categories(name), properties(name), units(name), rooms(name, room_number), maintenance_tickets(ticket_number)")
     .order("expense_date", { ascending: false });
 
   if (selectedMonth && selectedYear) {
@@ -180,6 +198,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     ticketsResult,
     claimsResult,
     profilesResult,
+    payableExpensesResult,
+    paymentBatchesResult,
   ] = await Promise.all([
     expenseQuery,
     supabase.from("expense_categories").select("id, name").order("name", { ascending: true }),
@@ -189,6 +209,23 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     supabase.from("maintenance_tickets").select("id, ticket_number, description, status").order("created_at", { ascending: false }).limit(100),
     supabase.from("claims").select("id, description, status, total_amount").order("submitted_at", { ascending: false }).limit(100),
     supabase.from("profiles").select("id, full_name, role").order("full_name", { ascending: true }),
+    canRecordPayments
+      ? supabase
+          .from("expenses")
+          .select("id, amount, expense_date, supplier, description, expense_categories(name), properties(name), rooms(name, room_number)")
+          .eq("status", "verified")
+          .eq("payment_status", "unpaid")
+          .in("funding_source", ["company_cash", "company_bank"])
+          .order("expense_date", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    canRecordPayments
+      ? supabase
+          .from("expense_payment_batches")
+          .select("id, total_amount, payment_method, paid_on, reference_number, notes, proof_bucket_name, proof_file_path, proof_file_name, proof_content_type, retain_until, recorded_by, created_at, expense_payment_allocations(id, expense_id, amount)")
+          .order("paid_on", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(50)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   const expenses = (expensesResult.data ?? []) as ExpenseRecord[];
@@ -200,20 +237,66 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const claims = claimsResult.data ?? [];
   const profiles = profilesResult.data ?? [];
   const profileById = new Map(profiles.map((profile) => [profile.id, profile.full_name ?? profile.id]));
-  const canVerify = ["super_admin", "owner", "admin"].includes(role);
+  const payableExpenses: PayableExpense[] = (payableExpensesResult.data ?? []).map(
+    (expense) => {
+      const room = single(expense.rooms);
+      return {
+        id: expense.id,
+        amount: Number(expense.amount ?? 0),
+        expenseDate: expense.expense_date,
+        supplier: expense.supplier,
+        description: expense.description,
+        categoryName: single(expense.expense_categories)?.name ?? "Other",
+        propertyName:
+          single(expense.properties)?.name ?? "General Company Expense",
+        roomName: room?.room_number ?? room?.name ?? null,
+      };
+    },
+  );
+  const paymentBatches = await Promise.all(
+    (paymentBatchesResult.data ?? []).map(async (batch) => {
+      const { data } = await supabase.storage
+        .from(batch.proof_bucket_name)
+        .createSignedUrl(batch.proof_file_path, 60 * 10);
+      return { ...batch, signedUrl: data?.signedUrl ?? null };
+    }),
+  );
 
-  const { data: attachmentsData } = expenses.length
-    ? await supabase
-      .from("expense_attachments")
-      .select("id, expense_id, file_path, file_name, content_type")
-      .in("expense_id", expenses.map((expense) => expense.id))
-    : { data: [] };
+  const [attachmentsResult, paymentAllocationsResult] = expenses.length
+    ? await Promise.all([
+        supabase
+          .from("expense_attachments")
+          .select("id, expense_id, file_path, file_name, content_type")
+          .in("expense_id", expenses.map((expense) => expense.id)),
+        supabase
+          .from("expense_payment_allocations")
+          .select("expense_id, batch_id")
+          .in("expense_id", expenses.map((expense) => expense.id)),
+      ])
+    : [{ data: [] }, { data: [] }];
+  const attachmentsData = attachmentsResult.data ?? [];
+  const paymentAllocationByExpense = new Map(
+    (paymentAllocationsResult.data ?? []).map((allocation) => [
+      allocation.expense_id,
+      allocation.batch_id,
+    ]),
+  );
+  const paymentBatchById = new Map(
+    paymentBatches.map((batch) => [batch.id, batch]),
+  );
 
+  const attachmentsWithUrls = await Promise.all(
+    ((attachmentsData ?? []) as AttachmentRecord[]).map(async (attachment) => {
+      const { data } = await supabase.storage
+        .from("expense-receipts")
+        .createSignedUrl(attachment.file_path, 60 * 10);
+      return { ...attachment, signedUrl: data?.signedUrl ?? null };
+    }),
+  );
   const attachmentsByExpense = new Map<string, AttachmentRecord[]>();
-  for (const attachment of (attachmentsData ?? []) as AttachmentRecord[]) {
-    const { data } = await supabase.storage.from("expense-receipts").createSignedUrl(attachment.file_path, 60 * 10);
+  for (const attachment of attachmentsWithUrls) {
     const list = attachmentsByExpense.get(attachment.expense_id) ?? [];
-    list.push({ ...attachment, signedUrl: data?.signedUrl ?? null });
+    list.push(attachment);
     attachmentsByExpense.set(attachment.expense_id, list);
   }
 
@@ -223,6 +306,10 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const companyExpenses = sumExpenses(expenses.filter((expense) => expense.charge_to === "company" && expense.status === "verified"));
   const pendingExpenses = expenses.filter((expense) => expense.status === "pending_verification").length;
   const taxClaimable = sumExpenses(expenses.filter((expense) => expense.tax_claimable && expense.status === "verified"));
+  const awaitingPayment = payableExpenses.reduce(
+    (total, expense) => total + expense.amount,
+    0,
+  );
 
   return (
     <section className="space-y-6">
@@ -249,17 +336,100 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           Expense review saved.
         </div>
       ) : null}
+      {params.payment_recorded === "1" ? (
+        <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
+          Combined payment recorded. Every selected bill is now marked paid and
+          linked to the same retained proof.
+        </div>
+      ) : null}
       {params.error ? (
         <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
           {errorMessages[params.error] ?? "Expense could not be saved."}
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <AddExpenseForm
+        categories={categories}
+        claims={claims}
+        profiles={profiles}
+        properties={properties}
+        rooms={rooms}
+        tickets={tickets}
+        units={units}
+      />
+
+      {canRecordPayments ? (
+        <Card id="payment-knockoff">
+          <CardHeader>
+            <CardTitle>Knock Off Multiple Expense Bills</CardTitle>
+            <CardDescription>
+              Select several verified unpaid bills, then attach one bank slip
+              or company-card statement for the exact combined payment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <ExpensePaymentBatchForm
+              expenses={payableExpenses}
+              paidOn={malaysiaToday}
+            />
+
+            {paymentBatches.length ? (
+              <div className="space-y-3 border-t border-[#e3e8ef] pt-5">
+                <h3 className="font-semibold text-gray-950">
+                  Recent combined payments
+                </h3>
+                {paymentBatches.map((batch) => (
+                  <details
+                    className="rounded-lg border border-[#d7dde5] bg-white p-4"
+                    id={`payment-batch-${batch.id}`}
+                    key={batch.id}
+                  >
+                    <summary className="grid cursor-pointer gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <span>
+                        <span className="block font-medium text-gray-950">
+                          {batch.paid_on} ·{" "}
+                          {batch.payment_method.replaceAll("_", " ")}
+                        </span>
+                        <span className="mt-1 block text-sm text-gray-600">
+                          {batch.expense_payment_allocations?.length ?? 0} bill
+                          {(batch.expense_payment_allocations?.length ?? 0) === 1
+                            ? ""
+                            : "s"}{" "}
+                          · Ref {batch.reference_number ?? "-"} · Retain until{" "}
+                          {batch.retain_until}
+                        </span>
+                      </span>
+                      <span className="font-semibold text-gray-950">
+                        {money(batch.total_amount)}
+                      </span>
+                    </summary>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3e8ef] pt-4">
+                      <p className="text-sm text-gray-600">
+                        {batch.notes || "No additional payment notes."}
+                      </p>
+                      {batch.signedUrl ? (
+                        <DocumentPreview
+                          contentType={batch.proof_content_type}
+                          fileName={batch.proof_file_name}
+                          label="Payment proof"
+                          url={batch.signedUrl}
+                        />
+                      ) : null}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <SummaryCard title="Total Expenses This Month" value={money(totalThisMonth)} />
         <SummaryCard title="Property Expenses" value={money(propertyExpenses)} />
         <SummaryCard title="Company Expenses" value={money(companyExpenses)} />
         <SummaryCard title="Pending Verification" value={pendingExpenses} />
+        <SummaryCard title="Awaiting Payment" value={money(awaitingPayment)} />
         <SummaryCard title="Tax Claimable" value={money(taxClaimable)} />
       </div>
 
@@ -348,6 +518,29 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                   const attachments = attachmentsByExpense.get(expense.id) ?? [];
                   const firstAttachment = attachments[0];
                   const isImage = firstAttachment?.content_type?.startsWith("image/");
+                  const paymentBatchId =
+                    paymentAllocationByExpense.get(expense.id) ?? null;
+                  const paymentBatch = paymentBatchId
+                    ? paymentBatchById.get(paymentBatchId)
+                    : null;
+                  const paymentDisplayStatus =
+                    expense.funding_source === "staff_personal"
+                      ? expense.payment_status === "paid" ||
+                        expense.status === "reimbursed"
+                        ? "paid back to staff"
+                        : "owed to staff"
+                      : expense.payment_status === "paid"
+                        ? "paid"
+                        : expense.status === "verified"
+                          ? "awaiting payment"
+                          : "not ready for payment";
+                  const paymentBadgeStatus =
+                    expense.payment_status === "paid" ||
+                    expense.status === "reimbursed"
+                      ? "paid"
+                      : expense.status === "verified"
+                        ? "unpaid"
+                        : "pending";
 
                   return (
                     <details className="rounded-lg border border-[#d7dde5] bg-white p-4" key={expense.id}>
@@ -362,9 +555,12 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                         <div>
                           <p className="text-lg font-semibold text-[#07142f]">{money(expense.amount)}</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Badge>{category}</Badge>
-                            <Badge className={statusBadgeClass(expense.status)}>{expense.status}</Badge>
-                            <Badge className="bg-[#eef3f9] text-[#496386]">charge to {expense.charge_to}</Badge>
+                             <Badge>{category}</Badge>
+                             <Badge className={statusBadgeClass(expense.status)}>{expense.status}</Badge>
+                             <Badge className={statusBadgeClass(paymentBadgeStatus)}>
+                               {paymentDisplayStatus}
+                             </Badge>
+                             <Badge className="bg-[#eef3f9] text-[#496386]">charge to {expense.charge_to}</Badge>
                           </div>
                           <p className="mt-2 text-sm text-[#496386]">
                             {expense.expense_date} - {property}
@@ -378,8 +574,17 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                         <div className="space-y-2 text-sm text-gray-600">
                           <p>Supplier: {expense.supplier ?? "-"}</p>
                           <p>Description: {expense.description ?? "-"}</p>
-                          <p>Payment method: {expense.payment_method}</p>
-                          <p>Paid from: {expense.funding_source.replaceAll("_", " ")}</p>
+                           <p>Payment method: {expense.payment_method}</p>
+                           <p>Paid from: {expense.funding_source.replaceAll("_", " ")}</p>
+                           <p>Payment status: {paymentDisplayStatus}</p>
+                           {expense.paid_at ? (
+                             <p>
+                               Payment recorded:{" "}
+                               {new Date(expense.paid_at).toLocaleString("en-MY", {
+                                 timeZone: "Asia/Kuala_Lumpur",
+                               })}
+                             </p>
+                           ) : null}
                           {expense.reimbursement_source ? (
                             <p>Reimbursed from: {expense.reimbursement_source.replaceAll("_", " ")}</p>
                           ) : null}
@@ -400,10 +605,45 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                                   url={attachment.signedUrl}
                                 />
                               ) : null
-                            ))}
-                          </div>
-                          {canVerify ? (
-                            <form action={reviewExpense} className="grid gap-3">
+                             ))}
+                           </div>
+                           {paymentBatchId ? (
+                             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                               <p className="font-semibold">
+                                 Paid in a retained combined payment
+                               </p>
+                               <p className="mt-1">
+                                 This bill is locked to prevent audit records
+                                 from being changed after payment.
+                               </p>
+                               {paymentBatch ? (
+                                 <div className="mt-3 flex flex-wrap items-center gap-3">
+                                   <a
+                                     className="font-medium text-[#126b5f] underline"
+                                     href={`#payment-batch-${paymentBatch.id}`}
+                                   >
+                                     Ref {paymentBatch.reference_number ?? "-"} ·{" "}
+                                     {paymentBatch.paid_on}
+                                   </a>
+                                   {paymentBatch.signedUrl ? (
+                                     <DocumentPreview
+                                       contentType={paymentBatch.proof_content_type}
+                                       fileName={paymentBatch.proof_file_name}
+                                       label="Combined payment proof"
+                                       url={paymentBatch.signedUrl}
+                                     />
+                                   ) : null}
+                                 </div>
+                               ) : (
+                                 <p className="mt-2">
+                                   The linked payment record is retained in the
+                                   combined payment archive above.
+                                 </p>
+                               )}
+                             </div>
+                           ) : null}
+                           {canVerify && !paymentBatchId ? (
+                             <form action={reviewExpense} className="grid gap-3">
                               <input name="expenseId" type="hidden" value={expense.id} />
                               <label className="block">
                                 <span className="text-sm font-medium text-gray-700">
@@ -494,130 +734,6 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
         </div>
 
         <div className="space-y-6">
-          <Card id="add-expense">
-            <CardHeader>
-              <CardTitle>+ Add Expense</CardTitle>
-              <CardDescription>Take a receipt photo on mobile or upload image/PDF invoice.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form action={createExpense} className="space-y-4">
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Receipt / invoice</span>
-                  <input accept="image/*,.pdf" capture="environment" className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="receipt" type="file" />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Expense date</span>
-                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="expenseDate" type="date" />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Amount RM</span>
-                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="amount" type="number" min="0" step="0.01" required />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Tax amount RM</span>
-                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="taxAmount" type="number" min="0" step="0.01" />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Category</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="categoryId" required>
-                    <option value="">Choose category</option>
-                    {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Property optional</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="propertyId">
-                    <option value="">General Company Expense</option>
-                    {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Unit optional</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="unitId">
-                    <option value="">No unit</option>
-                    {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Room optional</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="roomId">
-                    <option value="">No room</option>
-                    {rooms.map((room) => <option key={room.id} value={room.id}>{room.room_number ?? room.name}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Maintenance ticket optional</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="maintenanceTicketId">
-                    <option value="">No ticket</option>
-                    {tickets.map((ticket) => <option key={ticket.id} value={ticket.id}>{ticket.ticket_number ?? ticket.id} - {ticket.status}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Claim optional</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="claimId">
-                    <option value="">No claim link</option>
-                    {claims.map((claim) => <option key={claim.id} value={claim.id}>{claim.description ?? claim.id} - {claim.status}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Supplier</span>
-                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="supplier" />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Receipt number</span>
-                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="receiptNumber" />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Paid by</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paidBy">
-                    <option value="">Current user</option>
-                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name ?? profile.id}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Payment method</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentMethod" defaultValue="cash">
-                    <option value="cash">Cash</option>
-                    <option value="bank_transfer">Bank transfer</option>
-                    <option value="duitnow">DuitNow</option>
-                    <option value="online_payment">Online payment</option>
-                    <option value="cheque">Cheque</option>
-                    <option value="card">Card</option>
-                    <option value="other">Other</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Paid from</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="fundingSource" defaultValue="company_cash">
-                    <option value="company_cash">Company cash in hand</option>
-                    <option value="company_bank">Company bank account</option>
-                    <option value="staff_personal">Staff personal money (company owes staff)</option>
-                  </select>
-                  <span className="mt-1 block text-xs text-gray-500">
-                    This controls the Cash in Hand and Owed to Staff dashboard totals.
-                  </span>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Charge to</span>
-                  <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="chargeTo" defaultValue="company">
-                    <option value="company">Company</option>
-                    <option value="owner">Owner</option>
-                    <option value="tenant">Tenant</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Description</span>
-                  <textarea className="mt-2 min-h-24 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="description" />
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input name="taxClaimable" type="checkbox" />
-                  Tax claimable
-                </label>
-                <Button className="w-full" type="submit">Submit expense</Button>
-              </form>
-            </CardContent>
-          </Card>
-
           {canVerify ? (
             <Card>
               <CardHeader>

@@ -29,7 +29,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
       : await createClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, tenancy_id, term_type, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until")
+    .select("id, tenancy_id, term_type, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until, admin_rejected_at, admin_rejection_reason, replacement_agreement_id")
     .eq("id", id)
     .single();
 
@@ -64,6 +64,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const backPath =
     role === "tenant" ? "/e-tenancy" : "/tenancy-agreements";
   const pdfPath = `/api/tenancy-agreements/${agreement.id}/pdf`;
+  const signatureRejected = Boolean(agreement.admin_rejected_at);
   const signingErrors: Record<string, string> = {
     agreement_unavailable:
       "This agreement is no longer available for signing. Please contact DEKEZ.",
@@ -96,7 +97,15 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
               {agreementTypeLabel(agreement.agreement_type)}
             </p>
           </div>
-          <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>
+          <Badge
+            className={
+              signatureRejected
+                ? "bg-red-100 text-red-700"
+                : statusBadgeClass(agreement.status)
+            }
+          >
+            {signatureRejected ? "signature rejected" : agreement.status}
+          </Badge>
         </div>
       </div>
 
@@ -109,6 +118,23 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
         <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
           {signingErrors[query.error] ??
             "The agreement could not be signed. Please try again."}
+        </div>
+      ) : null}
+      {signatureRejected ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-semibold">
+            Admin did not accept this signed copy.
+          </p>
+          <p className="mt-1">
+            Reason: {agreement.admin_rejection_reason}
+          </p>
+          {agreement.replacement_agreement_id ? (
+            <Button asChild className="mt-3">
+              <Link href={`/e-tenancy/${agreement.replacement_agreement_id}`}>
+                Open replacement and sign again
+              </Link>
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

@@ -31,6 +31,7 @@ export async function getAgreementRenewalReminders() {
       "renewal_sent",
       "expiring_soon",
     ])
+    .is("admin_rejected_at", null)
     .order("term_end_date", { ascending: true });
 
   return (data ?? [])

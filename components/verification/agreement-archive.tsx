@@ -37,6 +37,10 @@ export type AgreementArchiveItem = {
   signed_at: string | null;
   admin_verified_at: string | null;
   admin_verified_by: string | null;
+  admin_rejected_at: string | null;
+  admin_rejected_by: string | null;
+  admin_rejection_reason: string | null;
+  replacement_agreement_id: string | null;
   retention_until: string | null;
   pdf_url: string | null;
   tenant_name_snapshot: string | null;
@@ -249,9 +253,22 @@ export function AgreementArchive({
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge className={statusBadgeClass(agreement.status)}>
-                        {agreement.status.replaceAll("_", " ")}
+                      <Badge
+                        className={
+                          agreement.admin_rejected_at
+                            ? "bg-red-100 text-red-700"
+                            : statusBadgeClass(agreement.status)
+                        }
+                      >
+                        {agreement.admin_rejected_at
+                          ? "signature rejected"
+                          : agreement.status.replaceAll("_", " ")}
                       </Badge>
+                      {agreement.admin_rejection_reason ? (
+                        <p className="mt-1 max-w-56 text-xs text-red-600">
+                          {agreement.admin_rejection_reason}
+                        </p>
+                      ) : null}
                       <p className="mt-1 text-xs text-gray-500">
                         {agreement.term_type} ·{" "}
                         {agreement.agreement_type === "commercial_office"
@@ -290,6 +307,16 @@ export function AgreementArchive({
                             View
                           </Link>
                         </Button>
+                        {agreement.admin_rejected_at &&
+                        agreement.replacement_agreement_id ? (
+                          <Button asChild size="sm">
+                            <Link
+                              href={`/e-tenancy/${agreement.replacement_agreement_id}`}
+                            >
+                              Replacement
+                            </Link>
+                          </Button>
+                        ) : null}
                         {canManage &&
                         !agreement.signed_at &&
                         !["signed", "renewal_signed"].includes(
@@ -347,9 +374,27 @@ export function AgreementArchive({
                     {formatMalaysiaDate(agreement.retention_until)}
                   </p>
                 </div>
+                {agreement.admin_rejection_reason ? (
+                  <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p className="font-semibold">Signature rejected</p>
+                    <p className="mt-1">
+                      {agreement.admin_rejection_reason}
+                    </p>
+                  </div>
+                ) : null}
                 <Button asChild className="mt-4 w-full" variant="outline">
                   <Link href={`/e-tenancy/${agreement.id}`}>View agreement</Link>
                 </Button>
+                {agreement.admin_rejected_at &&
+                agreement.replacement_agreement_id ? (
+                  <Button asChild className="mt-2 w-full">
+                    <Link
+                      href={`/e-tenancy/${agreement.replacement_agreement_id}`}
+                    >
+                      View replacement
+                    </Link>
+                  </Button>
+                ) : null}
                 {canManage &&
                 !agreement.signed_at &&
                 !["signed", "renewal_signed"].includes(agreement.status) ? (

@@ -1056,7 +1056,8 @@ export async function sendRoomAgreement(formData: FormData) {
     .from("tenancy_agreements")
     .update({ status: "pending_signature" })
     .eq("id", agreementId)
-    .eq("tenancy_id", tenancyId);
+    .eq("tenancy_id", tenancyId)
+    .is("admin_rejected_at", null);
   await supabase.from("agreement_notifications").insert({
     tenancy_id: tenancyId,
     agreement_id: agreementId,

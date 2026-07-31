@@ -245,6 +245,7 @@ export async function verifySignedAgreement(formData: FormData) {
     .eq("id", agreementId)
     .in("status", ["signed", "renewal_signed"])
     .is("admin_verified_at", null)
+    .is("admin_rejected_at", null)
     .select("id")
     .maybeSingle();
 
@@ -271,6 +272,80 @@ export async function verifySignedAgreement(formData: FormData) {
   revalidatePath("/verification");
   revalidatePath("/e-tenancy");
   redirect(verificationPath("agreements", "agreement_verified=1"));
+}
+
+export async function rejectSignedAgreementForResign(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const agreementId = textValue(formData, "agreementId");
+  const reason = textValue(formData, "reason");
+
+  if (!user || !agreementId || !reason || reason.length > 1000) {
+    redirect(verificationPath("agreements", "error=agreement_reject_missing"));
+  }
+
+  const supabase = createAdminClient();
+  const { data: agreement } = await supabase
+    .from("tenancy_agreements")
+    .select("id, rendered_content")
+    .eq("id", agreementId)
+    .in("status", ["signed", "renewal_signed"])
+    .is("admin_verified_at", null)
+    .is("admin_rejected_at", null)
+    .maybeSingle();
+
+  if (!agreement) {
+    redirect(verificationPath("agreements", "error=agreement_reject"));
+  }
+
+  const replacementContent = agreement.rendered_content.replace(
+    /Signed digitally by [^\r\n]+/,
+    "[Pending tenant signature]",
+  );
+  if (
+    replacementContent === agreement.rendered_content ||
+    !replacementContent.includes("[Pending tenant signature]")
+  ) {
+    redirect(
+      verificationPath("agreements", "error=agreement_replacement_prepare"),
+    );
+  }
+
+  const { data: replacementId, error } = await supabase.rpc(
+    "reject_signed_agreement_and_request_resign",
+    {
+      source_agreement_id: agreement.id,
+      rejection_reason: reason,
+      replacement_rendered_content: replacementContent,
+      performed_by_user_id: user.id,
+    },
+  );
+
+  if (error || typeof replacementId !== "string") {
+    redirect(verificationPath("agreements", "error=agreement_reject"));
+  }
+
+  const sendResult = await sendAgreementRequest(supabase, replacementId, {
+    rejectionReason: reason,
+    resign: true,
+  });
+
+  revalidatePath("/verification");
+  revalidatePath("/e-tenancy");
+  revalidatePath(`/e-tenancy/${agreement.id}`);
+  revalidatePath(`/e-tenancy/${replacementId}`);
+  revalidatePath("/tenancy-agreements");
+  redirect(
+    verificationPath(
+      "agreements",
+      `agreement_rejected=1&resign_sent=${
+        sendResult.status === "sent" ? "1" : "0"
+      }`,
+    ),
+  );
 }
 
 export async function reviewClaim(formData: FormData) {
@@ -602,6 +677,10 @@ export async function recordStaffReimbursementPayout(formData: FormData) {
 async function sendAgreementRequest(
   supabase: Awaited<ReturnType<typeof adminClient>>,
   agreementId: string,
+  options: {
+    rejectionReason?: string;
+    resign?: boolean;
+  } = {},
 ) {
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
@@ -615,22 +694,43 @@ async function sendAgreementRequest(
     ? tenancy?.tenants[0]
     : tenancy?.tenants;
 
+  const isRenewal = agreement?.term_type === "renewal";
+  const notificationType = options.resign
+    ? "signature_resign_request"
+    : isRenewal
+      ? "renewal_signature_request"
+      : "signature_request";
+
   if (!agreement || !tenancy || !tenant?.phone) {
+    if (agreement && tenancy) {
+      await supabase.from("agreement_notifications").insert({
+        tenancy_id: agreement.tenancy_id,
+        agreement_id: agreement.id,
+        notification_type: notificationType,
+        status: "pending",
+      });
+    }
     return { status: "missing" as const };
   }
 
   const normalizedPhone = normalizePhoneNumber(tenant.phone);
   const agreementUrl = `${baseUrl()}/e-tenancy/${agreement.id}`;
-  const isRenewal = agreement.term_type === "renewal";
   const message = [
     `Hello ${tenant.full_name ?? "Tenant"},`,
-    isRenewal
-      ? "Your DEKEZ tenancy renewal agreement is ready for review and signature."
-      : "Your DEKEZ tenancy agreement is ready for review and signature.",
+    options.resign
+      ? "Admin could not approve your previous signed tenancy agreement. A replacement copy is ready and must be signed again."
+      : isRenewal
+        ? "Your DEKEZ tenancy renewal agreement is ready for review and signature."
+        : "Your DEKEZ tenancy agreement is ready for review and signature.",
+    options.resign && options.rejectionReason
+      ? `Reason: ${options.rejectionReason}`
+      : "",
     agreement.term_start_date && agreement.term_end_date
       ? `Term: ${agreement.term_start_date} to ${agreement.term_end_date}.`
       : "",
-    `Open and sign here: ${agreementUrl}`,
+    options.resign
+      ? `Review and sign the replacement here: ${agreementUrl}`
+      : `Open and sign here: ${agreementUrl}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -678,7 +778,7 @@ async function sendAgreementRequest(
   await supabase.from("agreement_notifications").insert({
     tenancy_id: agreement.tenancy_id,
     agreement_id: agreement.id,
-    notification_type: isRenewal ? "renewal_signature_request" : "signature_request",
+    notification_type: notificationType,
     status: sendStatus,
     sent_at: sendStatus === "sent" ? new Date().toISOString() : null,
   });
@@ -792,6 +892,7 @@ export async function requestRenewalSignature(formData: FormData) {
     .eq("tenancy_id", tenancyId)
     .eq("term_type", "renewal")
     .in("status", ["renewal_pending", "renewal_sent", "pending_signature"])
+    .is("admin_rejected_at", null)
     .order("term_end_date", { ascending: false })
     .limit(1)
     .maybeSingle();

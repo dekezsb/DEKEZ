@@ -548,6 +548,7 @@ export async function getRentalInvoiceArchive(input: {
   page?: number;
   pageSize?: number;
   invoiceNumber?: string;
+  searchText?: string;
   month?: string;
   status?: string;
 }) {
@@ -556,6 +557,11 @@ export async function getRentalInvoiceArchive(input: {
   const pageSize = Math.min(Math.max(input.pageSize ?? 25, 1), 100);
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
+  const searchText = (input.searchText ?? input.invoiceNumber ?? "")
+    .replace(/[%_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const searchPattern = `%${searchText}%`;
 
   let query = supabase
     .from("rent_bills")
@@ -564,11 +570,110 @@ export async function getRentalInvoiceArchive(input: {
     .order("invoice_number", { ascending: false })
     .range(from, to);
 
-  if (input.invoiceNumber?.trim()) {
-    query = query.ilike(
-      "invoice_number",
-      `%${input.invoiceNumber.trim()}%`,
-    );
+  if (searchText) {
+    const [
+      invoiceMatches,
+      propertiesByName,
+      propertiesByCode,
+      roomsByName,
+      roomsByNumber,
+      tenantMatches,
+      tenantRecordMatches,
+    ] = await Promise.all([
+      supabase
+        .from("rent_bills")
+        .select("id")
+        .ilike("invoice_number", searchPattern),
+      supabase
+        .from("properties")
+        .select("id")
+        .ilike("name", searchPattern),
+      supabase
+        .from("properties")
+        .select("id")
+        .ilike("property_code", searchPattern),
+      supabase
+        .from("rooms")
+        .select("id")
+        .ilike("name", searchPattern),
+      supabase
+        .from("rooms")
+        .select("id")
+        .ilike("room_number", searchPattern),
+      supabase
+        .from("tenants")
+        .select("id")
+        .ilike("full_name", searchPattern),
+      supabase
+        .from("tenant_records")
+        .select("id")
+        .ilike("full_name", searchPattern),
+    ]);
+
+    const searchError = [
+      invoiceMatches.error,
+      propertiesByName.error,
+      propertiesByCode.error,
+      roomsByName.error,
+      roomsByNumber.error,
+      tenantMatches.error,
+      tenantRecordMatches.error,
+    ].find(Boolean);
+    if (searchError) {
+      throw new Error(searchError.message);
+    }
+
+    const tenantIds = (tenantMatches.data ?? []).map((tenant) => tenant.id);
+    const { data: tenancyMatches, error: tenancySearchError } = tenantIds.length
+      ? await supabase
+          .from("tenancies")
+          .select("id")
+          .in("tenant_id", tenantIds)
+      : { data: [], error: null };
+    if (tenancySearchError) {
+      throw new Error(tenancySearchError.message);
+    }
+
+    const ids = (rows: Array<{ id: string }> | null) =>
+      [...new Set((rows ?? []).map((row) => row.id))];
+    const filterSources: Array<{ column: string; matchingIds: string[] }> = [
+      { column: "id", matchingIds: ids(invoiceMatches.data) },
+      {
+        column: "property_id",
+        matchingIds: ids([
+          ...(propertiesByName.data ?? []),
+          ...(propertiesByCode.data ?? []),
+        ]),
+      },
+      {
+        column: "room_id",
+        matchingIds: ids([
+          ...(roomsByName.data ?? []),
+          ...(roomsByNumber.data ?? []),
+        ]),
+      },
+      { column: "tenancy_id", matchingIds: ids(tenancyMatches) },
+      {
+        column: "tenant_record_id",
+        matchingIds: ids(tenantRecordMatches.data),
+      },
+    ];
+    const filters = filterSources
+      .filter(({ matchingIds }) => matchingIds.length)
+      .map(
+        ({ matchingIds, column }) =>
+          `${column}.in.(${matchingIds.join(",")})`,
+      );
+
+    if (!filters.length) {
+      return {
+        invoices: [],
+        total: 0,
+        page,
+        pageSize,
+      };
+    }
+    query = query.or(filters.join(","));
   }
   if (input.month && /^\d{4}-\d{2}$/.test(input.month)) {
     query = query.eq("bill_month", `${input.month}-01`);

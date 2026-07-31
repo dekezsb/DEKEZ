@@ -8,6 +8,7 @@ import {
   Send,
   ShieldCheck,
   UserCheck,
+  XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import {
 } from "@/lib/tenancy/agreement-types";
 import {
   requestRenewalSignature,
+  rejectSignedAgreementForResign,
   reviewClaim,
   reviewUserRegistration,
   sendAgreementWhatsApp,
@@ -71,6 +73,8 @@ type PageProps = {
     method?: string;
     occupancy?: string;
     agreement_verified?: string;
+    agreement_rejected?: string;
+    resign_sent?: string;
     payout_recorded?: string;
   }>;
 };
@@ -120,6 +124,12 @@ const errorMessages: Record<string, string> = {
     "The agreement rent could not be changed. Signed agreements are locked.",
   agreement_verify:
     "The signed agreement could not be verified. It may already be verified.",
+  agreement_reject_missing:
+    "Enter the reason this signed agreement is not accepted.",
+  agreement_reject:
+    "The signed agreement could not be rejected. It may already have been reviewed.",
+  agreement_replacement_prepare:
+    "The replacement agreement could not be prepared safely. The signed copy was not changed.",
 };
 
 async function getAdmin() {
@@ -297,7 +307,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const signedAgreementsPendingVerification = agreements.filter(
     (agreement) =>
       ["signed", "renewal_signed"].includes(agreement.status) &&
-      !agreement.admin_verified_at,
+      !agreement.admin_verified_at &&
+      !agreement.admin_rejected_at,
   );
 
   const pendingCounts: Record<VerificationView, number> = {
@@ -436,6 +447,10 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> }) {
   const success = params.reviewed
     ? "Verification record updated."
+    : params.agreement_rejected
+      ? params.resign_sent === "1"
+        ? "Signed agreement rejected. The audit copy was retained, a replacement was created, and the tenant was asked by WhatsApp to sign again."
+        : "Signed agreement rejected and retained for audit. The replacement is ready in the tenant portal, but WhatsApp could not be sent."
     : params.payout_recorded
       ? "Staff lump-sum payout recorded. All linked claims are now paid back."
     : params.agreement_verified
@@ -482,7 +497,8 @@ function SignedAgreementVerification({
             <CardTitle>Signed Agreement Verification</CardTitle>
             <CardDescription>
               Only agreements already signed by tenants are shown here. Review
-              the signed PDF, then verify it.
+              the signed PDF, then verify it or reject it with a reason and ask
+              the tenant to sign a replacement.
             </CardDescription>
           </div>
           <Badge>{agreements.length} pending</Badge>
@@ -541,7 +557,8 @@ function SignedAgreementVerification({
                         : "Original agreement"}
                     </p>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid min-w-72 gap-2">
+                    <div className="grid gap-2 sm:grid-cols-2">
                     <Button asChild type="button" variant="outline">
                       <Link
                         href={`/api/tenancy-agreements/${agreement.id}/pdf`}
@@ -559,6 +576,35 @@ function SignedAgreementVerification({
                       <Button className="w-full" type="submit">
                         <CheckCircle2 className="h-4 w-4" />
                         Verify
+                      </Button>
+                    </form>
+                    </div>
+                    <form
+                      action={rejectSignedAgreementForResign}
+                      className="grid gap-2 rounded-md border border-red-200 bg-red-50 p-3"
+                    >
+                      <input
+                        name="agreementId"
+                        type="hidden"
+                        value={agreement.id}
+                      />
+                      <label className="grid gap-1 text-sm font-medium text-red-900">
+                        Reason tenant must sign again *
+                        <textarea
+                          className="min-h-20 rounded-md border border-red-200 bg-white px-3 py-2 text-gray-950"
+                          maxLength={1000}
+                          name="reason"
+                          placeholder="Example: Signature is incomplete or does not match the tenant."
+                          required
+                        />
+                      </label>
+                      <Button
+                        className="border-red-300 text-red-700 hover:bg-red-100"
+                        type="submit"
+                        variant="outline"
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Reject & Ask Sign Again
                       </Button>
                     </form>
                   </div>

@@ -52,6 +52,7 @@ async function TenantAgreementList() {
 
       <div className="grid gap-4">
         {agreements.map((agreement) => {
+          const signatureRejected = Boolean(agreement.admin_rejected_at);
           const tenancy = Array.isArray(agreement.tenancies)
             ? agreement.tenancies[0]
             : agreement.tenancies;
@@ -63,7 +64,10 @@ async function TenantAgreementList() {
             : tenancy?.rooms;
 
           return (
-            <Card key={agreement.id}>
+            <Card
+              className={signatureRejected ? "border-red-200 bg-red-50/40" : ""}
+              key={agreement.id}
+            >
               <CardHeader>
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -85,8 +89,16 @@ async function TenantAgreementList() {
                       {agreementTypeLabel(agreement.agreement_type)}
                     </CardDescription>
                   </div>
-                  <Badge className={statusBadgeClass(agreement.status)}>
-                    {agreement.status.replaceAll("_", " ")}
+                  <Badge
+                    className={
+                      signatureRejected
+                        ? "bg-red-100 text-red-700"
+                        : statusBadgeClass(agreement.status)
+                    }
+                  >
+                    {signatureRejected
+                      ? "signature rejected"
+                      : agreement.status.replaceAll("_", " ")}
                   </Badge>
                 </div>
               </CardHeader>
@@ -97,15 +109,38 @@ async function TenantAgreementList() {
                   Generated: {formatMalaysiaDateTime(agreement.generated_at)}
                 </p>
                 <p>Signed: {formatMalaysiaDateTime(agreement.signed_at)}</p>
+                {signatureRejected ? (
+                  <div className="rounded-md border border-red-200 bg-white px-3 py-2 text-red-700 sm:col-span-2">
+                    <p className="font-semibold">
+                      Admin did not accept this signed copy.
+                    </p>
+                    <p className="mt-1">
+                      Reason: {agreement.admin_rejection_reason}
+                    </p>
+                    {agreement.replacement_agreement_id ? (
+                      <p className="mt-1">
+                        Please open and sign the replacement agreement.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <Button asChild className="sm:col-span-2">
-                  <Link href={`/e-tenancy/${agreement.id}`}>
-                    {[
-                      "pending_signature",
-                      "renewal_pending",
-                      "renewal_sent",
-                    ].includes(agreement.status)
-                      ? "Review and sign"
-                      : "View agreement"}
+                  <Link
+                    href={
+                      signatureRejected && agreement.replacement_agreement_id
+                        ? `/e-tenancy/${agreement.replacement_agreement_id}`
+                        : `/e-tenancy/${agreement.id}`
+                    }
+                  >
+                    {signatureRejected && agreement.replacement_agreement_id
+                      ? "Open replacement and sign again"
+                      : [
+                            "pending_signature",
+                            "renewal_pending",
+                            "renewal_sent",
+                          ].includes(agreement.status)
+                        ? "Review and sign"
+                        : "View agreement"}
                   </Link>
                 </Button>
               </CardContent>

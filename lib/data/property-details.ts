@@ -222,6 +222,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .from("tenancy_agreements")
         .select("id, tenancy_id, status, created_at")
         .in("tenancy_id", tenancyIds)
+        .is("admin_rejected_at", null)
         .order("created_at", { ascending: false })
     : { data: [], error: null };
   const agreements = agreementResult.data ?? [];

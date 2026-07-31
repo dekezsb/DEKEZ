@@ -31,6 +31,7 @@ import { InvoiceReceiptPreview } from "./invoice-receipt-preview";
 type PageProps = {
   searchParams: Promise<{
     invoice?: string;
+    search?: string;
     month?: string;
     page?: string;
     status?: string;
@@ -76,7 +77,9 @@ function archiveHref(
   page: number,
 ) {
   const params = new URLSearchParams();
-  if (query.invoice) params.set("invoice", query.invoice);
+  if (query.search ?? query.invoice) {
+    params.set("search", query.search ?? query.invoice ?? "");
+  }
   if (query.month) params.set("month", query.month);
   if (query.status) params.set("status", query.status);
   params.set("page", String(page));
@@ -92,10 +95,11 @@ export default async function RentalInvoicesPage({
   });
   const query = await searchParams;
   const page = Math.max(Number(query.page ?? 1) || 1, 1);
+  const searchText = query.search ?? query.invoice;
   const canManage = role === "super_admin" || role === "admin";
   const [archive, options] = await Promise.all([
     getRentalInvoiceArchive({
-      invoiceNumber: query.invoice,
+      searchText,
       month: query.month,
       page,
       status: query.status,
@@ -175,16 +179,18 @@ export default async function RentalInvoicesPage({
         <CardHeader>
           <CardTitle>Find Invoices</CardTitle>
           <CardDescription>
-            Search by invoice number, rental month, or payment status.
+            Search by invoice number, tenant name, property, room, rental
+            month, or payment status.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_14rem_14rem_auto]">
             <input
               className="h-10 rounded-md border border-[#cfd6df] bg-white px-3 text-sm"
-              defaultValue={query.invoice}
-              name="invoice"
-              placeholder="Invoice number"
+              aria-label="Invoice number, tenant, property, or room"
+              defaultValue={searchText}
+              name="search"
+              placeholder="Tenant name, room, property or invoice no."
             />
             <input
               className="h-10 rounded-md border border-[#cfd6df] bg-white px-3 text-sm"

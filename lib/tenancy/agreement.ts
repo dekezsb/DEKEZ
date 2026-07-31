@@ -413,6 +413,7 @@ async function createTermAgreement(
     .eq("tenancy_id", context.id)
     .eq("term_start_date", startDate)
     .eq("term_end_date", endDate)
+    .is("admin_rejected_at", null)
     .limit(1)
     .maybeSingle();
 
@@ -585,6 +586,7 @@ export async function createRentChangeAgreement(
     .from("tenancy_agreements")
     .select("term_end_date")
     .eq("tenancy_id", tenancyId)
+    .is("admin_rejected_at", null)
     .not("term_end_date", "is", null)
     .gte("term_end_date", options.effectiveStartDate)
     .order("term_end_date", { ascending: false })
@@ -646,7 +648,9 @@ export async function prepareNextRenewalAgreement(
       "id, version_number, term_start_date, term_end_date, status, agreement_type",
     )
     .eq("tenancy_id", tenancyId)
-    .order("term_end_date", { ascending: false });
+    .is("admin_rejected_at", null)
+    .order("term_end_date", { ascending: false })
+    .order("version_number", { ascending: false });
   const latest = ((agreements ?? []) as ExistingAgreement[])[0];
   if (!latest?.term_end_date) {
     return null;
@@ -844,6 +848,7 @@ export async function ensureCurrentAgreementTerms(
     .select("id")
     .eq("tenancy_id", tenancyId)
     .eq("term_type", "original")
+    .is("admin_rejected_at", null)
     .limit(1)
     .maybeSingle();
   const originalId = await createAgreementForTenancy(
@@ -868,6 +873,7 @@ export async function ensureCurrentAgreementTerms(
       .from("tenancy_agreements")
       .select("id, term_end_date")
       .eq("tenancy_id", tenancyId)
+      .is("admin_rejected_at", null)
       .order("term_end_date", { ascending: false })
       .limit(1)
       .maybeSingle();
