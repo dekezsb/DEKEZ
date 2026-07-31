@@ -183,6 +183,7 @@ export function RentDueActions({
           </p>
           <form action={uploadRentPaymentSlip} className="grid gap-4 sm:grid-cols-2">
             <input name="billId" type="hidden" value={billId} />
+            <input name="returnTo" type="hidden" value="/dashboard" />
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Amount submitted RM</span>
               <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" defaultValue={outstandingAmountValue} min="0.01" name="amount" required step="0.01" type="number" />

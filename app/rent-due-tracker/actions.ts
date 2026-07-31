@@ -39,8 +39,14 @@ function rentTrackerPath(
   resultValue: string,
 ) {
   const params = new URLSearchParams();
+  const returnTo = textValue(formData, "returnTo");
   const month = textValue(formData, "returnMonth");
   const property = textValue(formData, "returnProperty");
+
+  if (returnTo === "/dashboard") {
+    params.set(resultKey, resultValue);
+    return `/dashboard?${params.toString()}#dashboard-rent-due`;
+  }
 
   if (/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     params.set("month", month);
@@ -386,10 +392,9 @@ export async function markRentBillPaid(formData: FormData) {
 }
 
 export async function uploadRentPaymentSlip(formData: FormData) {
-  await requireRole(["super_admin", "admin"], {
-    module: "rent_due_tracker",
-    level: "manage",
-  });
+  // Management staff can submit proof from their dashboard without receiving
+  // access to the separate Rent Due Tracker administration module.
+  await requireRole(["super_admin", "admin"]);
   const user = await getCurrentUser();
   const billId = textValue(formData, "billId");
   const amount = numberValue(formData, "amount");
