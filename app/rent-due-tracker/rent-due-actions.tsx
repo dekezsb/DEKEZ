@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { Banknote, MessageCircle, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DocumentPreview } from "@/components/ui/document-preview";
+import { uploadManagementRentPaymentSlip } from "@/app/dashboard/payment-actions";
 import {
   markRentBillPaid,
   rejectRentSubmission,
@@ -54,6 +55,9 @@ export function RentDueActions({
   const [rejectOpen, setRejectOpen] = useState(false);
 
   const canVerify = Boolean(latestSubmissionId && latestSubmissionStatus === "pending_verification");
+  const paymentSlipAction = compact
+    ? uploadManagementRentPaymentSlip
+    : uploadRentPaymentSlip;
 
   return (
     <div className="space-y-2">
@@ -181,7 +185,7 @@ export function RentDueActions({
           <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Uploading a slip keeps this bill pending. Rent is counted as paid only after an authorized user verifies the payment.
           </p>
-          <form action={uploadRentPaymentSlip} className="grid gap-4 sm:grid-cols-2">
+          <form action={paymentSlipAction} className="grid gap-4 sm:grid-cols-2">
             <input name="billId" type="hidden" value={billId} />
             <input name="returnTo" type="hidden" value="/dashboard" />
             <label className="block">
