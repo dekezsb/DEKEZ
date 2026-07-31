@@ -42,6 +42,16 @@ function money(value: number) {
   return ringgitFormatter.format(value);
 }
 
+const paymentUploadErrors: Record<string, string> = {
+  proof_missing: "Enter the payment details and attach a payment slip.",
+  proof_type: "Upload an image or PDF payment slip.",
+  proof_size: "The payment slip is too large. Take the photo again or choose a smaller file.",
+  bill_not_found: "This rent bill is no longer available for payment.",
+  proof_pending: "A payment slip for this bill is already waiting for verification.",
+  proof_upload: "The payment slip could not be uploaded. Please try again.",
+  proof_create: "The payment record could not be created. Please try again.",
+};
+
 function StatCard({
   label,
   value,
@@ -105,6 +115,7 @@ export default async function DashboardPage({
     cash_saved?: string;
     cash_cancelled?: string;
     rentBucket?: string;
+    uploaded?: string;
   }>;
 }) {
   const query = await searchParams;
@@ -178,7 +189,9 @@ async function ManagementDashboard({
 }: {
   locale: AppLocale;
   query: {
+    error?: string;
     rentBucket?: string;
+    uploaded?: string;
   };
 }) {
   const [rentDueSummary, depositSummary] = await Promise.all([
@@ -188,6 +201,16 @@ async function ManagementDashboard({
 
   return (
     <section className="space-y-6">
+      {query.uploaded === "1" ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+          Payment slip submitted. It is now waiting for verification.
+        </div>
+      ) : null}
+      {query.error && query.error !== "access_denied" ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 shadow-sm">
+          {paymentUploadErrors[query.error] ?? "The payment slip could not be submitted."}
+        </div>
+      ) : null}
       <div>
         <p className="text-xs font-semibold uppercase text-[#b98a2c]">
           {portalText(locale, "Management Team")}

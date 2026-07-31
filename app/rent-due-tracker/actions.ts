@@ -423,6 +423,14 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     redirect(rentTrackerPath(formData, "error", "proof_size"));
   }
 
+  console.info("[payment-slip] submission started", {
+    billId,
+    fileSize: receipt.size,
+    fileType: receipt.type || "unknown",
+    paymentPurpose,
+    submittedBy: user.id,
+  });
+
   const supabase = await getAdmin();
   const bill = await getBillContext(supabase, billId);
 
@@ -466,6 +474,11 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     });
 
   if (uploadError) {
+    console.error("[payment-slip] storage upload failed", {
+      billId,
+      code: "statusCode" in uploadError ? uploadError.statusCode : undefined,
+      message: uploadError.message,
+    });
     redirect(rentTrackerPath(formData, "error", "proof_upload"));
   }
 
@@ -498,6 +511,11 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     .single();
 
   if (submissionError || !submission) {
+    console.error("[payment-slip] submission insert failed", {
+      billId,
+      code: submissionError?.code,
+      message: submissionError?.message,
+    });
     await supabase.storage.from("payment-receipts").remove([path]);
     redirect(rentTrackerPath(formData, "error", "proof_create"));
   }
@@ -512,6 +530,12 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   });
 
   if (attachmentError) {
+    console.error("[payment-slip] attachment insert failed", {
+      billId,
+      code: attachmentError.code,
+      message: attachmentError.message,
+      submissionId: submission.id,
+    });
     await supabase.from("payment_submissions").delete().eq("id", submission.id);
     await supabase.storage.from("payment-receipts").remove([path]);
     redirect(rentTrackerPath(formData, "error", "proof_create"));
@@ -534,6 +558,10 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   revalidatePath("/payment-verification");
   revalidatePath("/payments");
   revalidatePath("/dashboard");
+  console.info("[payment-slip] submission completed", {
+    billId,
+    submissionId: submission.id,
+  });
   redirect(rentTrackerPath(formData, "uploaded", "1"));
 }
 
