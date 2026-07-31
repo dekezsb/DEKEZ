@@ -116,6 +116,8 @@ const errorMessages: Record<string, string> = {
   payout_changed:
     "The outstanding total changed before payout. Refresh and review the balance again.",
   payout_proof: "The staff payout proof could not be stored.",
+  payout_receipt_missing:
+    "Every staff bill must have its receipt attached before it can be paid and knocked off.",
   agreement_missing: "The tenancy agreement could not be found.",
   whatsapp_failed: "The WhatsApp request could not be sent. The failed attempt was logged.",
   renewal_missing: "The active tenancy does not have enough information for renewal.",

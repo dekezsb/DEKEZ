@@ -4,6 +4,10 @@ import {
   ExpensePaymentBatchForm,
   type PayableExpense,
 } from "@/components/expenses/expense-payment-batch-form";
+import {
+  StaffReimbursementPayoutForm,
+  type StaffPayableBill,
+} from "@/components/maintenance/staff-reimbursement-payout-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +70,7 @@ type PageProps = {
     created?: string;
     reviewed?: string;
     payment_recorded?: string;
+    payout_recorded?: string;
     error?: string;
     month?: string;
     year?: string;
@@ -89,6 +94,13 @@ const errorMessages: Record<string, string> = {
   payment_changed:
     "One of the selected bills was already paid or changed. Refresh and select the unpaid bills again.",
   payment_proof: "The payment slip or card statement could not be uploaded.",
+  payout_missing:
+    "Tick at least one staff bill, enter the payout details, and attach a bank slip or proof up to 3 MB.",
+  payout_changed:
+    "One of the selected staff bills was already paid or changed. Refresh and select the unpaid bills again.",
+  payout_proof: "The staff payout proof could not be uploaded.",
+  payout_receipt_missing:
+    "Every staff bill must have its receipt attached before it can be paid and knocked off.",
   use_claim_payout:
     "Use Verification → Claim Bills to record a staff lump-sum payout with proof.",
 };
@@ -200,6 +212,9 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     profilesResult,
     payableExpensesResult,
     paymentBatchesResult,
+    reimbursementLiabilitiesResult,
+    reimbursementPayoutsResult,
+    payoutProfilesResult,
   ] = await Promise.all([
     expenseQuery,
     supabase.from("expense_categories").select("id, name").order("name", { ascending: true }),
@@ -226,6 +241,26 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           .order("created_at", { ascending: false })
           .limit(50)
       : Promise.resolve({ data: [], error: null }),
+    canRecordPayments
+      ? supabase
+          .from("staff_reimbursement_liabilities")
+          .select("id, claim_id, expense_id, staff_id, amount, status, owed_at, paid_at, payout_id")
+          .order("owed_at", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    canRecordPayments
+      ? supabase
+          .from("staff_reimbursement_payouts")
+          .select("id, staff_id, total_amount, payment_source, paid_on, reference_number, notes, proof_bucket_name, proof_file_path, proof_content_type, retain_until, recorded_by, created_at")
+          .order("paid_on", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [], error: null }),
+    canRecordPayments
+      ? supabase
+          .from("profiles")
+          .select("id, full_name, bank_name, bank_account_holder, bank_account_number")
+          .order("full_name", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   const expenses = (expensesResult.data ?? []) as ExpenseRecord[];
@@ -237,6 +272,15 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const claims = claimsResult.data ?? [];
   const profiles = profilesResult.data ?? [];
   const profileById = new Map(profiles.map((profile) => [profile.id, profile.full_name ?? profile.id]));
+  const profileDetailsById = new Map(
+    (payoutProfilesResult.data ?? []).map((profile) => [
+      profile.id,
+      profile,
+    ]),
+  );
+  const reimbursementLiabilities =
+    reimbursementLiabilitiesResult.data ?? [];
+  const reimbursementPayouts = reimbursementPayoutsResult.data ?? [];
   const payableExpenses: PayableExpense[] = (payableExpensesResult.data ?? []).map(
     (expense) => {
       const room = single(expense.rooms);
@@ -261,6 +305,111 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       return { ...batch, signedUrl: data?.signedUrl ?? null };
     }),
   );
+  const reimbursementPayoutsWithProof = await Promise.all(
+    reimbursementPayouts.map(async (payout) => {
+      const { data } = await supabase.storage
+        .from(payout.proof_bucket_name)
+        .createSignedUrl(payout.proof_file_path, 60 * 10);
+      return { ...payout, signedUrl: data?.signedUrl ?? null };
+    }),
+  );
+
+  const owedLiabilities = reimbursementLiabilities.filter(
+    (liability) => liability.status === "owed",
+  );
+  const liabilityExpenseIds = owedLiabilities.map(
+    (liability) => liability.expense_id,
+  );
+  const [liabilityExpensesResult, liabilityAttachmentsResult] =
+    liabilityExpenseIds.length
+      ? await Promise.all([
+          supabase
+            .from("expenses")
+            .select("id, expense_date, amount, supplier, description, expense_categories(name), properties(name), rooms(name, room_number)")
+            .in("id", liabilityExpenseIds),
+          supabase
+            .from("expense_attachments")
+            .select("id, expense_id, bucket_name, file_path, file_name, content_type")
+            .in("expense_id", liabilityExpenseIds),
+        ])
+      : [{ data: [] }, { data: [] }];
+  const liabilityExpenseById = new Map(
+    (liabilityExpensesResult.data ?? []).map((expense) => [
+      expense.id,
+      expense,
+    ]),
+  );
+  const liabilityAttachmentsWithUrls = await Promise.all(
+    (liabilityAttachmentsResult.data ?? []).map(async (attachment) => {
+      const { data } = await supabase.storage
+        .from(attachment.bucket_name || "expense-receipts")
+        .createSignedUrl(attachment.file_path, 60 * 10);
+      return {
+        ...attachment,
+        signedUrl: data?.signedUrl ?? null,
+      };
+    }),
+  );
+  const liabilityReceiptsByExpense = new Map<
+    string,
+    { fileName: string; url: string }[]
+  >();
+  for (const attachment of liabilityAttachmentsWithUrls) {
+    if (!attachment.signedUrl) continue;
+    const receipts =
+      liabilityReceiptsByExpense.get(attachment.expense_id) ?? [];
+    receipts.push({
+      fileName: attachment.file_name || "View receipt",
+      url: attachment.signedUrl,
+    });
+    liabilityReceiptsByExpense.set(attachment.expense_id, receipts);
+  }
+  const staffPayablesById = new Map<
+    string,
+    {
+      liabilityIds: string[];
+      items: StaffPayableBill[];
+      total: number;
+    }
+  >();
+  for (const liability of owedLiabilities) {
+    const expense = liabilityExpenseById.get(liability.expense_id);
+    if (!expense) continue;
+    const room = single(expense.rooms);
+    const group = staffPayablesById.get(liability.staff_id) ?? {
+      liabilityIds: [],
+      items: [],
+      total: 0,
+    };
+    const amount = Number(liability.amount ?? 0);
+    group.liabilityIds.push(liability.id);
+    group.items.push({
+      amount,
+      categoryName: single(expense.expense_categories)?.name ?? "Other",
+      description: expense.description,
+      expenseDate: expense.expense_date,
+      liabilityId: liability.id,
+      propertyName:
+        single(expense.properties)?.name ?? "General Company Expense",
+      receipts: liabilityReceiptsByExpense.get(expense.id) ?? [],
+      roomName: room?.room_number ?? room?.name ?? null,
+      supplier: expense.supplier,
+    });
+    group.total += amount;
+    staffPayablesById.set(liability.staff_id, group);
+  }
+  const totalStaffOwing = owedLiabilities.reduce(
+    (total, liability) => total + Number(liability.amount ?? 0),
+    0,
+  );
+  const liabilityCountByPayout = new Map<string, number>();
+  for (const liability of reimbursementLiabilities) {
+    if (!liability.payout_id) continue;
+    liabilityCountByPayout.set(
+      liability.payout_id,
+      (liabilityCountByPayout.get(liability.payout_id) ?? 0) + 1,
+    );
+  }
 
   const [attachmentsResult, paymentAllocationsResult] = expenses.length
     ? await Promise.all([
@@ -342,6 +491,12 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           linked to the same retained proof.
         </div>
       ) : null}
+      {params.payout_recorded === "1" ? (
+        <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
+          Staff payout recorded. The selected bills are no longer company
+          owing and the bank slip is retained with the payee record.
+        </div>
+      ) : null}
       {params.error ? (
         <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
           {errorMessages[params.error] ?? "Expense could not be saved."}
@@ -359,12 +514,149 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       />
 
       {canRecordPayments ? (
+        <Card id="staff-ap-payments">
+          <CardHeader>
+            <CardTitle>Staff AP Payments</CardTitle>
+            <CardDescription>
+              Pay staff reimbursements like an AP knock-off: choose one payee,
+              tick the bills covered by the payment, and attach one bank slip.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                <p className="text-sm font-medium text-red-800">
+                  Company owing all staff
+                </p>
+                <p className="mt-2 text-2xl font-bold text-red-700">
+                  {money(totalStaffOwing)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-[#d7dde5] bg-white p-4">
+                <p className="text-sm text-gray-600">Staff payees owing</p>
+                <p className="mt-2 text-2xl font-bold text-gray-950">
+                  {staffPayablesById.size}
+                </p>
+              </div>
+              <div className="rounded-lg border border-[#d7dde5] bg-white p-4">
+                <p className="text-sm text-gray-600">
+                  Verified bills not yet paid back
+                </p>
+                <p className="mt-2 text-2xl font-bold text-gray-950">
+                  {owedLiabilities.length}
+                </p>
+              </div>
+            </div>
+
+            {staffPayablesById.size ? (
+              <div className="space-y-4">
+                {[...staffPayablesById.entries()]
+                  .sort(([leftId], [rightId]) =>
+                    (profileDetailsById.get(leftId)?.full_name ?? leftId)
+                      .localeCompare(
+                        profileDetailsById.get(rightId)?.full_name ?? rightId,
+                      ),
+                  )
+                  .map(([staffId, group]) => {
+                    const profile = profileDetailsById.get(staffId);
+                    return (
+                      <StaffReimbursementPayoutForm
+                        bankAccountHolder={
+                          profile?.bank_account_holder ?? null
+                        }
+                        bankAccountNumber={
+                          profile?.bank_account_number ?? null
+                        }
+                        bankName={profile?.bank_name ?? null}
+                        items={group.items}
+                        key={staffId}
+                        liabilityIds={group.liabilityIds}
+                        paidOn={malaysiaToday}
+                        returnTo="expenses"
+                        staffId={staffId}
+                        staffName={profile?.full_name ?? "Staff member"}
+                        total={group.total}
+                      />
+                    );
+                  })}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
+                Company does not currently owe any verified staff-funded bills.
+              </div>
+            )}
+
+            {reimbursementPayoutsWithProof.length ? (
+              <div className="space-y-3 border-t border-[#e3e8ef] pt-5">
+                <div>
+                  <h3 className="font-semibold text-gray-950">
+                    Recent staff AP payments
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Each payment shows who was paid and keeps its bank slip with
+                    every knocked-off bill for audit.
+                  </p>
+                </div>
+                {reimbursementPayoutsWithProof.map((payout) => (
+                  <details
+                    className="rounded-lg border border-[#d7dde5] bg-white p-4"
+                    id={`staff-payout-${payout.id}`}
+                    key={payout.id}
+                  >
+                    <summary className="grid cursor-pointer gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <span>
+                        <span className="block font-medium text-gray-950">
+                          Pay to:{" "}
+                          {profileDetailsById.get(payout.staff_id)?.full_name ??
+                            "Staff member"}
+                        </span>
+                        <span className="mt-1 block text-sm text-gray-600">
+                          {payout.paid_on} -{" "}
+                          {payout.payment_source.replaceAll("_", " ")} -{" "}
+                          {liabilityCountByPayout.get(payout.id) ?? 0} bill
+                          {(liabilityCountByPayout.get(payout.id) ?? 0) === 1
+                            ? ""
+                            : "s"}{" "}
+                          - Ref {payout.reference_number ?? "-"} - Retain until{" "}
+                          {payout.retain_until}
+                        </span>
+                      </span>
+                      <span className="font-semibold text-emerald-700">
+                        {money(payout.total_amount)}
+                      </span>
+                    </summary>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3e8ef] pt-4">
+                      <p className="text-sm text-gray-600">
+                        {payout.notes || "No additional payout notes."}
+                      </p>
+                      {payout.signedUrl ? (
+                        <DocumentPreview
+                          contentType={payout.proof_content_type}
+                          fileName={
+                            payout.proof_file_path.split("/").at(-1) ??
+                            "Staff payout proof"
+                          }
+                          label="Bank slip / payout proof"
+                          url={payout.signedUrl}
+                        />
+                      ) : null}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canRecordPayments ? (
         <Card id="payment-knockoff">
           <CardHeader>
-            <CardTitle>Knock Off Multiple Expense Bills</CardTitle>
+            <CardTitle>Pay Company-Funded Expense Bills</CardTitle>
             <CardDescription>
               Select several verified unpaid bills, then attach one bank slip
-              or company-card statement for the exact combined payment.
+              or company-card statement for the exact combined payment. Staff
+              reimbursements are handled separately above.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -424,12 +716,13 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         <SummaryCard title="Total Expenses This Month" value={money(totalThisMonth)} />
         <SummaryCard title="Property Expenses" value={money(propertyExpenses)} />
         <SummaryCard title="Company Expenses" value={money(companyExpenses)} />
         <SummaryCard title="Pending Verification" value={pendingExpenses} />
         <SummaryCard title="Awaiting Payment" value={money(awaitingPayment)} />
+        <SummaryCard title="Company Owing Staff" value={money(totalStaffOwing)} />
         <SummaryCard title="Tax Claimable" value={money(taxClaimable)} />
       </div>
 

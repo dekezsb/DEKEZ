@@ -1,13 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { ReceiptText } from "lucide-react";
+import { ExternalLink, ReceiptText } from "lucide-react";
 import { recordStaffReimbursementPayout } from "@/app/verification/actions";
 import { Button } from "@/components/ui/button";
 import { money } from "@/lib/e-tenancy";
 
 const maxProofSize = 3 * 1024 * 1024;
+
+export type StaffPayableBill = {
+  amount: number;
+  categoryName: string;
+  description: string | null;
+  expenseDate: string;
+  liabilityId: string;
+  propertyName: string;
+  receipts: {
+    fileName: string;
+    url: string;
+  }[];
+  roomName: string | null;
+  supplier: string | null;
+};
 
 async function prepareProof(file: File) {
   if (file.size <= maxProofSize) return file;
@@ -52,9 +67,17 @@ async function prepareProof(file: File) {
   }
 }
 
-function PayoutButton({ preparing, total }: { preparing: boolean; total: number }) {
+function PayoutButton({
+  count,
+  preparing,
+  total,
+}: {
+  count: number;
+  preparing: boolean;
+  total: number;
+}) {
   const { pending } = useFormStatus();
-  const disabled = pending || preparing;
+  const disabled = pending || preparing || count === 0;
 
   return (
     <Button
@@ -64,10 +87,10 @@ function PayoutButton({ preparing, total }: { preparing: boolean; total: number 
       type="submit"
     >
       {preparing
-        ? "Preparing proof…"
+        ? "Preparing proof..."
         : pending
-          ? "Recording payout…"
-          : `Knock off total ${money(total)}`}
+          ? "Recording payout..."
+          : `Pay & knock off ${count} bill${count === 1 ? "" : "s"} - ${money(total)}`}
     </Button>
   );
 }
@@ -77,7 +100,9 @@ export function StaffReimbursementPayoutForm({
   bankAccountNumber,
   bankName,
   liabilityIds,
+  items,
   paidOn,
+  returnTo = "verification",
   staffId,
   staffName,
   total,
@@ -86,14 +111,28 @@ export function StaffReimbursementPayoutForm({
   bankAccountNumber: string | null;
   bankName: string | null;
   liabilityIds: string[];
+  items?: StaffPayableBill[];
   paidOn: string;
+  returnTo?: "expenses" | "verification";
   staffId: string;
   staffName: string;
   total: number;
 }) {
+  const hasSelectableItems = Boolean(items?.length);
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    hasSelectableItems ? [] : liabilityIds,
+  );
   const [preparing, setPreparing] = useState(false);
   const [proofName, setProofName] = useState("");
   const [error, setError] = useState("");
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedTotal = hasSelectableItems
+    ? (items ?? []).reduce(
+        (sum, item) =>
+          sum + (selected.has(item.liabilityId) ? item.amount : 0),
+        0,
+      )
+    : total;
 
   return (
     <form
@@ -101,21 +140,24 @@ export function StaffReimbursementPayoutForm({
       className="grid gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4"
     >
       <input name="staffId" type="hidden" value={staffId} />
-      {liabilityIds.map((id) => (
-        <input key={id} name="liabilityIds" type="hidden" value={id} />
-      ))}
+      <input name="returnTo" type="hidden" value={returnTo} />
+      {!hasSelectableItems
+        ? liabilityIds.map((id) => (
+            <input key={id} name="liabilityIds" type="hidden" value={id} />
+          ))
+        : null}
 
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-semibold text-gray-950">{staffName}</p>
           <p className="text-sm text-gray-600">
-            {liabilityIds.length} verified claim
-            {liabilityIds.length === 1 ? "" : "s"} to knock off
+            Pay to: {staffName} - {liabilityIds.length} verified bill
+            {liabilityIds.length === 1 ? "" : "s"} available
           </p>
         </div>
         <div className="text-right">
           <p className="text-xs font-medium uppercase text-amber-700">
-            Total owing
+            Company owing this staff
           </p>
           <p className="text-xl font-bold text-red-700">{money(total)}</p>
         </div>
@@ -124,11 +166,122 @@ export function StaffReimbursementPayoutForm({
       <div className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm">
         <p className="font-medium">Staff repayment account</p>
         <p className="mt-1 text-gray-600">
-          {bankName || "Bank not provided"} ·{" "}
-          {bankAccountHolder || "Account holder not provided"} ·{" "}
+          {bankName || "Bank not provided"} -{" "}
+          {bankAccountHolder || "Account holder not provided"} -{" "}
           {bankAccountNumber || "Account number not provided"}
         </p>
       </div>
+
+      {hasSelectableItems ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-gray-950">
+              Tick the bills covered by this bank slip
+            </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={() =>
+                  setSelectedIds(
+                    (items ?? [])
+                      .filter((item) => item.receipts.length)
+                      .map((item) => item.liabilityId),
+                  )
+                }
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Select all
+              </Button>
+              <Button
+                disabled={!selectedIds.length}
+                onClick={() => setSelectedIds([])}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+
+          <div className="max-h-80 divide-y divide-amber-100 overflow-y-auto rounded-md border border-amber-200 bg-white">
+            {(items ?? []).map((item) => {
+              const checked = selected.has(item.liabilityId);
+              return (
+                <div
+                  className={`grid gap-3 p-3 sm:grid-cols-[auto_1fr_auto] sm:items-center ${
+                    checked ? "bg-amber-50" : ""
+                  }`}
+                  key={item.liabilityId}
+                >
+                  <input
+                    aria-label={`Select ${item.description || item.categoryName}`}
+                    checked={checked}
+                    className="h-5 w-5"
+                    disabled={!item.receipts.length}
+                    name="liabilityIds"
+                    onChange={(event) =>
+                      setSelectedIds((current) =>
+                        event.target.checked
+                          ? [...current, item.liabilityId]
+                          : current.filter((id) => id !== item.liabilityId),
+                      )
+                    }
+                    type="checkbox"
+                    value={item.liabilityId}
+                  />
+                  <div>
+                    <p className="font-medium text-gray-950">
+                      {item.supplier ||
+                        item.description ||
+                        item.categoryName}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      {item.expenseDate} - {item.categoryName} -{" "}
+                      {item.propertyName}
+                      {item.roomName ? ` / ${item.roomName}` : ""}
+                    </p>
+                    {item.receipts.length ? (
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {item.receipts.map((receipt) => (
+                          <a
+                            className="inline-flex items-center gap-1 text-xs font-medium text-[#9d7424] underline"
+                            href={receipt.url}
+                            key={`${item.liabilityId}-${receipt.url}`}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            {receipt.fileName}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-red-700">
+                        No receipt attachment found
+                      </p>
+                    )}
+                  </div>
+                  <p className="font-semibold text-gray-950">
+                    {money(item.amount)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-white px-3 py-2">
+            <span className="text-sm font-medium text-amber-900">
+              Selected {selectedIds.length} bill
+              {selectedIds.length === 1 ? "" : "s"}
+            </span>
+            <span className="text-lg font-bold text-amber-950">
+              {money(selectedTotal)}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
@@ -172,7 +325,7 @@ export function StaffReimbursementPayoutForm({
 
       <label className="block">
         <span className="text-sm font-medium text-gray-700">
-          Payout proof *
+          Bank slip / payout proof *
         </span>
         <input
           accept="image/jpeg,image/png,image/webp,application/pdf"
@@ -190,7 +343,7 @@ export function StaffReimbursementPayoutForm({
               transfer.items.add(prepared);
               input.files = transfer.files;
               setProofName(
-                `${prepared.name} · ${(prepared.size / 1024 / 1024).toFixed(2)} MB`,
+                `${prepared.name} - ${(prepared.size / 1024 / 1024).toFixed(2)} MB`,
               );
             } catch (nextError) {
               input.value = "";
@@ -230,10 +383,14 @@ export function StaffReimbursementPayoutForm({
         />
       </label>
 
-      <PayoutButton preparing={preparing} total={total} />
+      <PayoutButton
+        count={selectedIds.length}
+        preparing={preparing}
+        total={selectedTotal}
+      />
       <p className="text-xs text-amber-800">
-        This one payout will mark every listed claim as Paid back and attach
-        the same proof to the permanent knock-off record.
+        This payout records who was paid, marks only the ticked bills as paid
+        back, and keeps the same proof with the permanent audit record.
       </p>
     </form>
   );

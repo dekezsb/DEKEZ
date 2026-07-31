@@ -29,6 +29,15 @@ function verificationPath(view: string, result: string) {
   return `/verification?view=${view}&${result}`;
 }
 
+function staffPayoutPath(
+  returnTo: "expenses" | "verification",
+  result: string,
+) {
+  return returnTo === "expenses"
+    ? `/expenses?${result}#staff-ap-payments`
+    : verificationPath("claims", result);
+}
+
 function baseUrl() {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
@@ -578,8 +587,12 @@ export async function reviewClaim(formData: FormData) {
 }
 
 export async function recordStaffReimbursementPayout(formData: FormData) {
-  await requireRole(["super_admin"], {
-    module: "verification",
+  const returnTo =
+    textValue(formData, "returnTo") === "expenses"
+      ? "expenses"
+      : "verification";
+  await requireRole(["super_admin", "admin"], {
+    module: returnTo,
     level: "manage",
   });
   const user = await getCurrentUser();
@@ -615,19 +628,33 @@ export async function recordStaffReimbursementPayout(formData: FormData) {
       "application/pdf",
     ].includes(proof.type)
   ) {
-    redirect(verificationPath("claims", "error=payout_missing"));
+    redirect(staffPayoutPath(returnTo, "error=payout_missing"));
   }
 
   const supabase = createAdminClient();
   const { data: liabilities } = await supabase
     .from("staff_reimbursement_liabilities")
-    .select("id")
+    .select("id, expense_id")
     .in("id", liabilityIds)
     .eq("staff_id", staffId)
     .eq("status", "owed");
 
   if ((liabilities ?? []).length !== liabilityIds.length) {
-    redirect(verificationPath("claims", "error=payout_changed"));
+    redirect(staffPayoutPath(returnTo, "error=payout_changed"));
+  }
+
+  const expenseIds = (liabilities ?? []).map(
+    (liability) => liability.expense_id,
+  );
+  const { data: billReceipts } = await supabase
+    .from("expense_attachments")
+    .select("expense_id")
+    .in("expense_id", expenseIds);
+  const expensesWithReceipts = new Set(
+    (billReceipts ?? []).map((receipt) => receipt.expense_id),
+  );
+  if (expenseIds.some((expenseId) => !expensesWithReceipts.has(expenseId))) {
+    redirect(staffPayoutPath(returnTo, "error=payout_receipt_missing"));
   }
 
   const safeName = proof.name.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -641,7 +668,7 @@ export async function recordStaffReimbursementPayout(formData: FormData) {
     });
 
   if (uploadError) {
-    redirect(verificationPath("claims", "error=payout_proof"));
+    redirect(staffPayoutPath(returnTo, "error=payout_proof"));
   }
 
   const { error: payoutError } = await supabase.rpc(
@@ -662,7 +689,7 @@ export async function recordStaffReimbursementPayout(formData: FormData) {
 
   if (payoutError) {
     await supabase.storage.from("reimbursement-proofs").remove([proofPath]);
-    redirect(verificationPath("claims", "error=payout_changed"));
+    redirect(staffPayoutPath(returnTo, "error=payout_changed"));
   }
 
   revalidatePath("/verification");
@@ -671,7 +698,7 @@ export async function recordStaffReimbursementPayout(formData: FormData) {
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
   revalidatePath("/reports");
-  redirect(verificationPath("claims", "payout_recorded=1"));
+  redirect(staffPayoutPath(returnTo, "payout_recorded=1"));
 }
 
 async function sendAgreementRequest(
