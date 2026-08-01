@@ -121,6 +121,8 @@ const errorMessages: Record<string, string> = {
   agreement_missing: "The tenancy agreement could not be found.",
   whatsapp_failed: "The WhatsApp request could not be sent. The failed attempt was logged.",
   renewal_missing: "The active tenancy does not have enough information for renewal.",
+  renewal_decision:
+    "Record the tenant's Yes decision in the dashboard before preparing or sending a renewal agreement.",
   renewal_create: "The renewal agreement could not be prepared.",
   agreement_rent:
     "The agreement rent could not be changed. Signed agreements are locked.",

@@ -796,6 +796,16 @@ export async function requestRenewalSignature(formData: FormData) {
 
   let agreementId: string | null = existing?.id ?? null;
   if (agreementId) {
+    const { data: approvedDecision } = await supabase
+      .from("tenancy_renewals")
+      .select("id")
+      .eq("new_agreement_id", agreementId)
+      .eq("decision_status", "renew")
+      .limit(1)
+      .maybeSingle();
+    if (!approvedDecision) {
+      redirect(verificationPath("tenancy", "error=renewal_decision"));
+    }
     try {
       await updateUnsignedAgreementRent(
         supabase,

@@ -52,6 +52,18 @@ export async function sendAgreementRequest(
   }
 
   const isRenewal = agreement.term_type === "renewal";
+  if (isRenewal && !options.resign) {
+    const { data: approvedDecision } = await supabase
+      .from("tenancy_renewals")
+      .select("id")
+      .eq("new_agreement_id", agreement.id)
+      .eq("decision_status", "renew")
+      .limit(1)
+      .maybeSingle();
+    if (!approvedDecision) {
+      return { status: "invalid" };
+    }
+  }
   const notificationType = options.resign
     ? "signature_resign_request"
     : isRenewal

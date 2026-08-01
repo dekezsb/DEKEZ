@@ -115,6 +115,8 @@ export default async function DashboardPage({
     cash_saved?: string;
     cash_cancelled?: string;
     rentBucket?: string;
+    renewalBucket?: string;
+    renewalResult?: string;
     uploaded?: string;
   }>;
 }) {
@@ -191,6 +193,8 @@ async function ManagementDashboard({
   query: {
     error?: string;
     rentBucket?: string;
+    renewalBucket?: string;
+    renewalResult?: string;
     uploaded?: string;
   };
 }) {
@@ -360,6 +364,8 @@ async function AdminDashboard({
     cash_saved?: string;
     cash_cancelled?: string;
     rentBucket?: string;
+    renewalBucket?: string;
+    renewalResult?: string;
   };
 }) {
   const [
@@ -469,7 +475,11 @@ async function AdminDashboard({
 
       <DepositOutstanding canManage summary={depositSummary} />
 
-      <AgreementRenewalReminders reminders={agreementReminders} />
+      <AgreementRenewalReminders
+        result={query.renewalResult}
+        selectedBucket={query.renewalBucket}
+        summary={agreementReminders}
+      />
 
       <CompactRentDueTracker
         selectedBucket={query.rentBucket}

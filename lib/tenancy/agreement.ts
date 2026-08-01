@@ -40,6 +40,7 @@ type TenancyContext = {
   checkout_date: string | null;
   contract_duration_months: number | null;
   rent_due_day: number | null;
+  renewal_status: string | null;
   status: string;
   billing_status: string | null;
   tenants: {
@@ -114,7 +115,7 @@ async function loadTenancyContext(
   const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
     .select(
-      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, status, billing_status",
+      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, renewal_status, status, billing_status",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -385,6 +386,68 @@ async function renderExistingAgreement(
   };
 }
 
+async function linkRenewalAgreement(
+  supabase: SupabaseClient,
+  context: TenancyContext,
+  userId: string,
+  {
+    agreementId,
+    durationMonths,
+    endDate,
+    monthlyRent,
+    startDate,
+  }: {
+    agreementId: string;
+    durationMonths: number;
+    endDate: string;
+    monthlyRent: number;
+    startDate: string;
+  },
+) {
+  const renewalStatus =
+    agreementStatusForTerm(endDate) === "expired"
+      ? "expired"
+      : "renewal_pending";
+  const { data: existingRenewal } = await supabase
+    .from("tenancy_renewals")
+    .select("id")
+    .eq("tenancy_id", context.id)
+    .eq("new_start_date", startDate)
+    .maybeSingle();
+
+  if (existingRenewal) {
+    const { error } = await supabase
+      .from("tenancy_renewals")
+      .update({
+        selected_duration_months: durationMonths,
+        renewal_status: renewalStatus,
+        new_end_date: endDate,
+        new_agreement_id: agreementId,
+        new_monthly_rent: monthlyRent,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingRenewal.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { error } = await supabase.from("tenancy_renewals").insert({
+    tenancy_id: context.id,
+    selected_duration_months: durationMonths,
+    renewal_status: renewalStatus,
+    decision_status: "renew",
+    decision_recorded_at: new Date().toISOString(),
+    decision_recorded_by: userId,
+    decision_channel: "admin_direct",
+    new_start_date: startDate,
+    new_end_date: endDate,
+    new_agreement_id: agreementId,
+    new_monthly_rent: monthlyRent,
+    created_by: userId,
+  });
+  if (error) throw new Error(error.message);
+}
+
 async function createTermAgreement(
   supabase: SupabaseClient,
   context: TenancyContext,
@@ -429,6 +492,15 @@ async function createTermAgreement(
           ? monthlyRent
           : Number(sameTerm.monthly_rent_snapshot ?? monthlyRent),
       );
+    }
+    if (termType === "renewal") {
+      await linkRenewalAgreement(supabase, context, userId, {
+        agreementId: sameTerm.id,
+        durationMonths,
+        endDate,
+        monthlyRent,
+        startDate,
+      });
     }
     return { id: sameTerm.id, created: false };
   }
@@ -503,18 +575,12 @@ async function createTermAgreement(
   }
 
   if (termType === "renewal") {
-    await supabase.from("tenancy_renewals").insert({
-      tenancy_id: context.id,
-      selected_duration_months: durationMonths,
-      renewal_status:
-        agreementStatusForTerm(endDate) === "expired"
-          ? "expired"
-          : "renewal_pending",
-      new_start_date: startDate,
-      new_end_date: endDate,
-      new_agreement_id: agreement.id,
-      new_monthly_rent: monthlyRent,
-      created_by: userId,
+    await linkRenewalAgreement(supabase, context, userId, {
+      agreementId: agreement.id,
+      durationMonths,
+      endDate,
+      monthlyRent,
+      startDate,
     });
   }
 
@@ -640,32 +706,36 @@ export async function prepareNextRenewalAgreement(
     return null;
   }
 
-  await createAgreementForTenancy(supabase, tenancyId, userId);
-
-  const { data: agreements } = await supabase
-    .from("tenancy_agreements")
-    .select(
-      "id, version_number, term_start_date, term_end_date, status, agreement_type",
-    )
-    .eq("tenancy_id", tenancyId)
-    .is("admin_rejected_at", null)
-    .order("term_end_date", { ascending: false })
-    .order("version_number", { ascending: false });
-  const latest = ((agreements ?? []) as ExistingAgreement[])[0];
-  if (!latest?.term_end_date) {
+  const currentEndDate =
+    context.tenancy_end_date ?? context.contract_end ?? context.end_date;
+  if (!currentEndDate) {
     return null;
   }
 
-  const reminderDate = addDays(latest.term_end_date, -30);
+  const reminderDate = addDays(currentEndDate, -60);
   if (reminderDate > malaysiaToday()) {
     return null;
   }
 
+  const startDate = addDays(currentEndDate, 1);
+  const { data: decision } = await supabase
+    .from("tenancy_renewals")
+    .select("id, new_end_date, decision_status")
+    .eq("tenancy_id", tenancyId)
+    .eq("new_start_date", startDate)
+    .eq("decision_status", "renew")
+    .maybeSingle();
+  if (!decision) {
+    return null;
+  }
+
+  await createAgreementForTenancy(supabase, tenancyId, userId);
+
   const duration = renewalDurationMonths(
     context.properties?.is_commercial ?? false,
   );
-  const startDate = addDays(latest.term_end_date, 1);
-  const endDate = calculateTermEndDate(startDate, duration);
+  const endDate =
+    decision.new_end_date ?? calculateTermEndDate(startDate, duration);
   const agreement = await createTermAgreement(supabase, context, userId, {
     termType: "renewal",
     agreementType: agreementTypeForProperty(
@@ -679,7 +749,7 @@ export async function prepareNextRenewalAgreement(
     updateExistingRent: options.monthlyRent !== undefined,
   });
 
-  if (agreement.created && endDate >= malaysiaToday()) {
+  if (endDate >= malaysiaToday()) {
     await supabase
       .from("tenancies")
       .update({
@@ -858,51 +928,6 @@ export async function ensureCurrentAgreementTerms(
   );
   if (originalId && !existingOriginal) {
     created.push(originalId);
-  }
-
-  if (
-    context.status !== "active" ||
-    context.checkout_date ||
-    ["terminated", "completed"].includes(context.billing_status ?? "")
-  ) {
-    return created;
-  }
-
-  for (let index = 0; index < 24; index += 1) {
-    const { data: latest } = await supabase
-      .from("tenancy_agreements")
-      .select("id, term_end_date")
-      .eq("tenancy_id", tenancyId)
-      .is("admin_rejected_at", null)
-      .order("term_end_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (
-      !latest?.term_end_date ||
-      addDays(latest.term_end_date, -30) > malaysiaToday()
-    ) {
-      break;
-    }
-
-    const renewalId = await prepareNextRenewalAgreement(
-      supabase,
-      tenancyId,
-      userId,
-    );
-    if (!renewalId || renewalId === latest.id) {
-      break;
-    }
-    created.push(renewalId);
-
-    const { data: renewal } = await supabase
-      .from("tenancy_agreements")
-      .select("term_end_date")
-      .eq("id", renewalId)
-      .single();
-    if (renewal?.term_end_date && renewal.term_end_date >= malaysiaToday()) {
-      break;
-    }
   }
 
   return created;
