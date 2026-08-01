@@ -17,6 +17,7 @@ type PageProps = {
     detail?: string;
     deleted?: string;
     deleteError?: string;
+    reminder?: string;
   }>;
 };
 
@@ -84,6 +85,24 @@ export default async function TenancyAgreementsPage({
             : params.deleteError === "audit"
               ? "The deletion audit record could not be saved, so the agreement was not deleted."
               : "The agreement could not be deleted. Please refresh and try again."}
+        </div>
+      ) : null}
+
+      {params.reminder ? (
+        <div
+          className={`rounded-md border px-4 py-3 text-sm font-medium shadow-sm ${
+            params.reminder === "sent"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-red-200 bg-white text-red-600"
+          }`}
+        >
+          {params.reminder === "sent"
+            ? "The WhatsApp renewal signing reminder was sent and recorded."
+            : params.reminder === "missing"
+              ? "This tenant does not have a valid WhatsApp number. Update the tenant phone number, then send again."
+              : params.reminder === "invalid"
+                ? "This renewal is no longer waiting for a signature. Refresh the list and check its latest status."
+                : "WhatsApp could not deliver this reminder. The failed attempt was recorded so it can be checked and sent again."}
         </div>
       ) : null}
 

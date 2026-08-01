@@ -1,5 +1,5 @@
 import { Link } from "@/components/app-link";
-import { Archive, FileText, Search, X } from "lucide-react";
+import { Archive, FileText, Search, Send, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,8 @@ import {
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { DeleteAgreementButton } from "@/app/tenancy-agreements/delete-agreement-button";
+import { sendRenewalWhatsAppReminder } from "@/app/tenancy-agreements/actions";
+import { RenewalWhatsAppSubmit } from "@/components/tenancy/renewal-whatsapp-submit";
 
 export type AgreementArchiveItem = {
   id: string;
@@ -47,11 +49,16 @@ export type AgreementArchiveItem = {
   property_name_snapshot: string | null;
   room_name_snapshot: string | null;
   monthly_rent_snapshot: number | string | null;
+  renewal_reminder_status: string | null;
+  renewal_reminder_at: string | null;
   tenancies:
     | {
         status: string;
         checkout_date: string | null;
-        tenants: { full_name: string } | { full_name: string }[] | null;
+        tenants:
+          | { full_name: string; phone: string | null }
+          | { full_name: string; phone: string | null }[]
+          | null;
         properties:
           | { name: string; property_code: string | null; area: string | null }
           | { name: string; property_code: string | null; area: string | null }[]
@@ -64,7 +71,10 @@ export type AgreementArchiveItem = {
     | {
         status: string;
         checkout_date: string | null;
-        tenants: { full_name: string } | { full_name: string }[] | null;
+        tenants:
+          | { full_name: string; phone: string | null }
+          | { full_name: string; phone: string | null }[]
+          | null;
         properties:
           | { name: string; property_code: string | null; area: string | null }
           | { name: string; property_code: string | null; area: string | null }[]
@@ -98,6 +108,7 @@ function details(agreement: AgreementArchiveItem) {
   return {
     tenant:
       agreement.tenant_name_snapshot ?? tenant?.full_name ?? "Unknown tenant",
+    phone: tenant?.phone ?? null,
     property:
       agreement.property_name_snapshot ??
       property?.name ??
@@ -158,6 +169,29 @@ export function AgreementArchive({
       .toLocaleLowerCase()
       .includes(normalizedSearch);
   });
+  const latestRenewalByTenancy = new Map<string, AgreementArchiveItem>();
+  for (const agreement of agreements) {
+    if (
+      agreement.term_type !== "renewal" ||
+      isCheckedOut(agreement) ||
+      latestRenewalByTenancy.has(agreement.tenancy_id)
+    ) {
+      continue;
+    }
+    latestRenewalByTenancy.set(agreement.tenancy_id, agreement);
+  }
+  const unsignedRenewals = [...latestRenewalByTenancy.values()]
+    .filter(
+      (agreement) =>
+        !agreement.signed_at &&
+        !["signed", "renewal_signed"].includes(agreement.status) &&
+        !agreement.admin_rejected_at,
+    )
+    .sort((left, right) =>
+      String(left.term_start_date ?? "").localeCompare(
+        String(right.term_start_date ?? ""),
+      ),
+    );
 
   return (
     <Card>
@@ -177,6 +211,110 @@ export function AgreementArchive({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
+        {canManage ? (
+          <section
+            className="rounded-lg border border-[#dbc38e] bg-[#fffaf0] p-4"
+            id="renewal-signature-reminders"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-gray-950">
+                  Renewal TA Waiting for Tenant Signature
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Send the tenant a WhatsApp reminder with the secure agreement
+                  link. Each attempt and send time is recorded.
+                </p>
+              </div>
+              <Badge className="bg-[#f6edd9] text-[#7a5618]">
+                {unsignedRenewals.length} waiting
+              </Badge>
+            </div>
+
+            {unsignedRenewals.length ? (
+              <div className="mt-4 divide-y divide-[#e4d7ba]">
+                {unsignedRenewals.map((agreement) => {
+                  const item = details(agreement);
+                  const sent =
+                    agreement.renewal_reminder_status === "sent" ||
+                    agreement.status === "renewal_sent";
+                  const failed =
+                    agreement.renewal_reminder_status === "failed";
+                  return (
+                    <div
+                      className="grid gap-3 py-4 first:pt-0 last:pb-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                      key={agreement.id}
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-gray-950">
+                            {item.tenant}
+                          </p>
+                          <Badge className={statusBadgeClass(agreement.status)}>
+                            {agreement.status.replaceAll("_", " ")}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {item.property} - Room {item.room} - Renewal {" "}
+                          {formatMalaysiaDate(agreement.term_start_date)} to {" "}
+                          {formatMalaysiaDate(agreement.term_end_date)}
+                        </p>
+                        <p
+                          className={`mt-1 text-xs font-medium ${
+                            failed
+                              ? "text-red-600"
+                              : sent
+                                ? "text-emerald-700"
+                                : "text-amber-700"
+                          }`}
+                        >
+                          {failed
+                            ? `Last send failed ${formatMalaysiaDateTime(agreement.renewal_reminder_at)}`
+                            : sent
+                              ? agreement.renewal_reminder_at
+                                ? `Last WhatsApp sent ${formatMalaysiaDateTime(agreement.renewal_reminder_at)}`
+                                : "WhatsApp sent previously"
+                              : agreement.renewal_reminder_status ===
+                                  "missing_phone"
+                                ? "Tenant WhatsApp number is missing"
+                                : "WhatsApp reminder not sent yet"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/e-tenancy/${agreement.id}`}>
+                            <FileText className="h-4 w-4" />
+                            View TA
+                          </Link>
+                        </Button>
+                        {item.phone ? (
+                          <form action={sendRenewalWhatsAppReminder}>
+                            <input
+                              name="agreementId"
+                              type="hidden"
+                              value={agreement.id}
+                            />
+                            <RenewalWhatsAppSubmit resend={sent || failed} />
+                          </form>
+                        ) : (
+                          <Button disabled size="sm">
+                            <Send className="h-4 w-4" />
+                            No WhatsApp number
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                All current renewal agreements have been signed.
+              </p>
+            )}
+          </section>
+        ) : null}
+
         <form
           className="flex flex-wrap items-end gap-3"
           method="get"

@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { regenerateAllUnsignedAgreements } from "@/lib/tenancy/agreement";
+import { sendAgreementRequest } from "@/lib/tenancy/agreement-whatsapp";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -133,4 +134,34 @@ export async function deleteWrongUnsignedAgreement(formData: FormData) {
   revalidatePath("/tenant");
   revalidatePath("/dashboard");
   redirect("/tenancy-agreements?deleted=1");
+}
+
+export async function sendRenewalWhatsAppReminder(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "tenancy_agreements",
+    level: "manage",
+  });
+
+  const agreementId = textValue(formData, "agreementId");
+  if (!agreementId) {
+    redirect(
+      "/tenancy-agreements?reminder=invalid#renewal-signature-reminders",
+    );
+  }
+
+  const result = await sendAgreementRequest(
+    createAdminClient(),
+    agreementId,
+    { renewalOnly: true },
+  );
+
+  revalidatePath("/tenancy-agreements");
+  revalidatePath("/verification");
+  revalidatePath("/dashboard");
+  revalidatePath("/e-tenancy");
+  revalidatePath(`/e-tenancy/${agreementId}`);
+
+  redirect(
+    `/tenancy-agreements?reminder=${result.status}#renewal-signature-reminders`,
+  );
 }
