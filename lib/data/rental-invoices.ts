@@ -168,16 +168,28 @@ async function getInvoiceReceipts(
   if (!billIds.length) return new Map<string, RentalInvoiceReceipt[]>();
 
   const supabase = signUrls ? createAdminClient() : await createClient();
-  const { data: submissions } = await supabase
-    .from("payment_submissions")
-    .select(
-      "id, rent_bill_id, amount, payment_date, payment_method, reference_number, receipt_url, verified_at, retain_until",
-    )
-    .in("rent_bill_id", billIds)
-    .eq("verification_status", "verified")
-    .not("receipt_url", "is", null)
-    .order("payment_date", { ascending: true })
-    .order("created_at", { ascending: true });
+  const [{ data: submissions }, { data: utilityTopUps }] = await Promise.all([
+    supabase
+      .from("payment_submissions")
+      .select(
+        "id, rent_bill_id, amount, payment_date, payment_method, reference_number, receipt_url, verified_at, retain_until",
+      )
+      .in("rent_bill_id", billIds)
+      .eq("verification_status", "verified")
+      .not("receipt_url", "is", null)
+      .order("payment_date", { ascending: true })
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("smart_meter_top_up_requests")
+      .select(
+        "id, rent_bill_id, amount, payment_date, payment_slip_path, payment_slip_name, payment_slip_type, provider_reference, verified_at, credited_at, retain_until",
+      )
+      .in("rent_bill_id", billIds)
+      .eq("status", "credited")
+      .not("payment_slip_path", "is", null)
+      .order("payment_date", { ascending: true })
+      .order("created_at", { ascending: true }),
+  ]);
 
   const submissionIds = (submissions ?? []).map((submission) => submission.id);
   const { data: attachments } = submissionIds.length
@@ -211,6 +223,23 @@ async function getInvoiceReceipts(
         signedUrlByPath.set(receipt.path, receipt.signedUrl);
       }
     }
+
+    const topUpReceiptPaths = [
+      ...new Set(
+        (utilityTopUps ?? []).map((topUp) => topUp.payment_slip_path),
+      ),
+    ];
+    const { data: signedTopUpReceipts } = topUpReceiptPaths.length
+      ? await supabase.storage
+          .from("smart-meter-top-up-slips")
+          .createSignedUrls(topUpReceiptPaths, 60 * 60)
+      : { data: [] };
+
+    for (const receipt of signedTopUpReceipts ?? []) {
+      if (receipt.path && receipt.signedUrl) {
+        signedUrlByPath.set(receipt.path, receipt.signedUrl);
+      }
+    }
   }
 
   const receiptsByBill = new Map<string, RentalInvoiceReceipt[]>();
@@ -237,6 +266,32 @@ async function getInvoiceReceipts(
       signedUrl: signedUrlByPath.get(submission.receipt_url) ?? null,
     });
     receiptsByBill.set(submission.rent_bill_id, receipts);
+  }
+
+  for (const topUp of utilityTopUps ?? []) {
+    if (!topUp.rent_bill_id || !topUp.payment_slip_path) continue;
+    const receipts = receiptsByBill.get(topUp.rent_bill_id) ?? [];
+    receipts.push({
+      id: topUp.id,
+      amount: numberValue(topUp.amount),
+      paymentDate: topUp.payment_date,
+      paymentMethod: "bank_transfer",
+      referenceNumber: topUp.provider_reference,
+      verifiedAt: topUp.credited_at ?? topUp.verified_at,
+      retainUntil: topUp.retain_until,
+      filePath: topUp.payment_slip_path,
+      fileName: topUp.payment_slip_name,
+      contentType:
+        topUp.payment_slip_type ?? receiptContentType(topUp.payment_slip_name),
+      signedUrl: signedUrlByPath.get(topUp.payment_slip_path) ?? null,
+    });
+    receiptsByBill.set(topUp.rent_bill_id, receipts);
+  }
+
+  for (const receipts of receiptsByBill.values()) {
+    receipts.sort((left, right) =>
+      left.paymentDate.localeCompare(right.paymentDate),
+    );
   }
 
   return receiptsByBill;

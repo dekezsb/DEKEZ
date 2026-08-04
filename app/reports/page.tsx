@@ -42,6 +42,14 @@ export default async function ReportsPage() {
   const expenses = expensesResult.data ?? [];
   const properties = propertiesResult.data ?? [];
   const income = sum(payments.filter((payment) => payment.status !== "cancelled"), "amount");
+  const topUpUtilitiesIncome = sum(
+    payments.filter(
+      (payment) =>
+        payment.status !== "cancelled" &&
+        payment.category === "top_up_utilities",
+    ),
+    "amount",
+  );
   const activeUtilityBills = utilityBills.filter((bill) => bill.status !== "cancelled");
   const waterBills = sum(activeUtilityBills.filter((bill) => bill.utility_type === "water"), "amount");
   const electricityBills = sum(activeUtilityBills.filter((bill) => bill.utility_type === "electricity"), "amount");
@@ -78,6 +86,7 @@ export default async function ReportsPage() {
 
   const reportCards = [
     { title: "Monthly income", value: money(income), detail: "Confirmed non-cancelled payments" },
+    { title: "Top Up Utilities income", value: money(topUpUtilitiesIncome), detail: "Verified smart-meter top-ups posted to tenant invoices" },
     { title: "Monthly expenses", value: money(totalExpenses), detail: "Paid utilities, verified expenses and approved claims" },
     { title: "Net cash flow", value: money(income - totalExpenses), detail: "Income minus paid out items" },
     { title: "Expense bills", value: money(expenseBills), detail: "Verified expenses not already linked to claims" },
@@ -112,11 +121,21 @@ export default async function ReportsPage() {
       activeUtilityBills.filter((bill) => bill.property_id === property.id),
       "paid_amount",
     );
+    const propertyTopUpUtilitiesIncome = sum(
+      payments.filter(
+        (payment) =>
+          payment.status !== "cancelled" &&
+          payment.property_id === property.id &&
+          payment.category === "top_up_utilities",
+      ),
+      "amount",
+    );
 
     return {
       id: property.id,
       name: property.name,
       income: propertyIncome,
+      topUpUtilitiesIncome: propertyTopUpUtilitiesIncome,
       expenses: propertyExpenses,
       utilities: propertyUtilityPayments,
       claims: propertyClaimExpenses,
@@ -160,7 +179,7 @@ export default async function ReportsPage() {
               <div>
                 <p className="font-semibold text-gray-950">{property.name}</p>
                 <p className="text-gray-500">
-                  Income {money(property.income)} - expenses {money(property.expenses)} - utilities {money(property.utilities)} - claims {money(property.claims)}
+                  Income {money(property.income)} (Top Up Utilities {money(property.topUpUtilitiesIncome)}) - expenses {money(property.expenses)} - utilities {money(property.utilities)} - claims {money(property.claims)}
                 </p>
               </div>
               <p className="font-semibold text-[#126b5f]">{money(property.net)}</p>

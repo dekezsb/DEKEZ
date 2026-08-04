@@ -146,7 +146,8 @@ const errorMessages: Record<string, string> = {
   topup_changed: "This electricity top-up request was already reviewed. Refresh and check its latest status.",
   topup_credit_details: "Enter the meter-provider transaction reference after the physical meter is credited.",
   topup_credit: "The meter credit could not be recorded. Check the request and provider reference.",
-  meter_missing: "Assign an active BDS electricity meter to this room before confirming the meter credit.",
+  meter_missing: "Assign an active electricity meter to this room before confirming the meter credit.",
+  invoice_missing: "The monthly invoice could not be prepared for this electricity top-up.",
 };
 
 async function getAdmin() {
@@ -243,7 +244,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .order("uploaded_at", { ascending: true }),
     supabase
       .from("smart_meter_top_up_requests")
-      .select("id, property_id, room_id, tenancy_id, tenant_profile_id, meter_id, amount, payment_slip_bucket, payment_slip_path, payment_slip_name, payment_slip_type, status, rejection_reason, verified_at, credited_at, provider_reference, credit_before, credit_after, created_at, properties(name, property_code), rooms(name, room_number)")
+      .select("id, property_id, room_id, tenancy_id, tenant_profile_id, meter_id, rent_bill_id, bill_month, payment_date, amount, payment_slip_bucket, payment_slip_path, payment_slip_name, payment_slip_type, status, rejection_reason, verified_at, credited_at, provider_reference, credit_before, credit_after, created_at, properties(name, property_code), rooms(name, room_number), rent_bills(invoice_number)")
       .order("created_at", { ascending: false })
       .limit(100),
   ]);
@@ -493,7 +494,7 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
   const success = params.reviewed
     ? "Verification record updated."
     : params.topup_credited
-      ? "Physical meter credit confirmed and recorded with its provider reference."
+      ? "Meter credit confirmed. Top Up Utilities income, the monthly invoice item and its audit receipt are now linked."
     : params.topup_approved
       ? "Payment verified. The request is awaiting physical meter top-up confirmation."
     : params.topup_rejected
@@ -542,6 +543,9 @@ type SmartMeterTopUpRequestView = {
   tenancy_id: string;
   tenant_profile_id: string;
   meter_id: string | null;
+  rent_bill_id: string | null;
+  bill_month: string;
+  payment_date: string;
   amount: number;
   payment_slip_name: string;
   payment_slip_type: string | null;
@@ -556,6 +560,7 @@ type SmartMeterTopUpRequestView = {
   signedSlipUrl: string | null;
   properties: { name: string; property_code: string | null } | { name: string; property_code: string | null }[] | null;
   rooms: { name: string | null; room_number: string | null } | { name: string | null; room_number: string | null }[] | null;
+  rent_bills: { invoice_number: string } | { invoice_number: string }[] | null;
 };
 
 function SmartMeterTopUpVerification({
@@ -582,9 +587,10 @@ function SmartMeterTopUpVerification({
           <div>
             <CardTitle>Electricity Top-Up Verification</CardTitle>
             <CardDescription>
-              Review the BDS bank slip first. Approval never credits the meter by
+              Review the bank slip first. Approval never credits the meter by
               itself; record the provider reference only after the physical meter
-              top-up succeeds.
+              top-up succeeds. Completed top-ups post to Top Up Utilities income
+              and the tenant&apos;s monthly invoice automatically.
             </CardDescription>
           </div>
           <Badge>
@@ -598,6 +604,7 @@ function SmartMeterTopUpVerification({
             const profile = profiles.get(request.tenant_profile_id);
             const property = single(request.properties);
             const room = single(request.rooms);
+            const invoice = single(request.rent_bills);
             const statusLabel = request.status.replaceAll("_", " ");
 
             return (
@@ -624,11 +631,15 @@ function SmartMeterTopUpVerification({
                       {profile?.full_name ?? "Tenant"}
                     </p>
                     <p className="mt-1 text-sm text-gray-600">
-                      {property?.name ?? property?.property_code ?? "BDS"} / {room?.room_number ?? room?.name ?? "Room"}
+                      {property?.name ?? property?.property_code ?? "Property"} / {room?.room_number ?? room?.name ?? "Room"}
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
                       Submitted {formatMalaysiaDateTime(request.created_at)}
                       {profile?.phone ? ` / ${profile.phone}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Billing month {formatMalaysiaDate(request.bill_month)}
+                      {invoice?.invoice_number ? ` / ${invoice.invoice_number}` : ""}
                     </p>
                   </div>
                   {request.signedSlipUrl ? (
@@ -708,6 +719,9 @@ function SmartMeterTopUpVerification({
                     <p>
                       Credit: {money(Number(request.credit_before ?? 0))} → {money(Number(request.credit_after ?? 0))}
                     </p>
+                    <p className="sm:col-span-2">
+                      Accounting: Top Up Utilities income posted to {invoice?.invoice_number ?? "the monthly invoice"}; payment slip retained for audit.
+                    </p>
                   </div>
                 ) : null}
               </article>
@@ -715,7 +729,7 @@ function SmartMeterTopUpVerification({
           })
         ) : (
           <p className="text-sm text-gray-500">
-            No BDS electricity top-up slips have been submitted yet.
+            No electricity top-up slips have been submitted yet.
           </p>
         )}
       </CardContent>

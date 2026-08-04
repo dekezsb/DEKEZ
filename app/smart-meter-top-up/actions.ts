@@ -66,18 +66,13 @@ export async function submitSmartMeterTopUp(formData: FormData) {
     redirect(topUpResult("topup_error=tenancy"));
   }
 
-  const [{ data: tenant }, { data: property }, { data: existingRequest }] =
+  const [{ data: tenant }, { data: existingRequest }] =
     await Promise.all([
       supabase
         .from("tenants")
         .select("id, profile_id")
         .eq("id", tenancy.tenant_id)
         .eq("profile_id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("properties")
-        .select("id, property_code")
-        .eq("id", tenancy.property_id)
         .maybeSingle(),
       supabase
         .from("smart_meter_top_up_requests")
@@ -92,11 +87,7 @@ export async function submitSmartMeterTopUp(formData: FormData) {
         .maybeSingle(),
     ]);
 
-  if (
-    !tenant ||
-    property?.property_code?.toUpperCase() !== "BDS" ||
-    existingRequest
-  ) {
+  if (!tenant || existingRequest) {
     redirect(
       topUpResult(existingRequest ? "topup_error=pending" : "topup_error=access"),
     );

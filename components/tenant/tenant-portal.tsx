@@ -259,10 +259,6 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
     );
   }
 
-  const bdsTenancies = data.tenancies.filter(
-    (tenancy) => tenancy.propertyCode?.toUpperCase() === "BDS",
-  );
-
   return (
     <section className="space-y-5">
       <PortalHeading
@@ -313,9 +309,9 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
         ))}
       </div>
 
-      {bdsTenancies.length ? (
+      {data.tenancies.length ? (
         <div className="space-y-4">
-          {bdsTenancies.map((tenancy) => (
+          {data.tenancies.map((tenancy) => (
             <ElectricityTopUpPilot
               key={tenancy.id}
               latestRequest={data.topUpRequests.find(

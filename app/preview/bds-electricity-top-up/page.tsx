@@ -1,7 +1,7 @@
 import { ElectricityTopUpPilot } from "@/components/smart-meter/electricity-top-up-pilot";
 
 export const metadata = {
-  title: "BDS Electricity Top-Up Preview | DEKEZ",
+  title: "Tenant Electricity Top-Up Preview | DEKEZ",
 };
 
 export default function BdsElectricityTopUpPreviewPage() {
@@ -12,11 +12,11 @@ export default function BdsElectricityTopUpPreviewPage() {
           Safe design preview
         </p>
         <h1 className="mt-1 text-2xl font-bold text-gray-950 sm:text-3xl">
-          BDS Tenant Electricity Top-Up
+          Tenant Electricity Top-Up
         </h1>
         <p className="mt-2 text-sm leading-6 text-violet-900">
-          This page uses sample room data and does not connect to tenant records,
-          accept payment or change a smart-meter balance.
+          This all-property preview uses sample room data and does not connect to
+          tenant records, accept payment or change a smart-meter balance.
         </p>
       </div>
 

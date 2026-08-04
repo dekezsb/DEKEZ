@@ -503,7 +503,7 @@ async function TenantDashboard({
     invalid: "Choose a valid whole-Ringgit amount and attach an image or PDF slip up to 5 MB.",
     tenancy: "The selected active tenancy could not be found.",
     pending: "A top-up request for this room is already being processed.",
-    access: "Electricity top-up is currently available for BDS tenants only.",
+    access: "Electricity top-up is available only for your own active tenancy.",
     upload: "The payment slip could not be uploaded. Please try again.",
     create: "The top-up request could not be created. Please try again.",
   };

@@ -84,7 +84,7 @@ export function ElectricityTopUpPilot({
               <div className="flex flex-wrap items-center gap-2">
                 <CardTitle>Top Up Electricity</CardTitle>
                 <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">
-                  BDS PILOT
+                  BANK SLIP REQUIRED
                 </span>
               </div>
               <CardDescription className="mt-1">
@@ -309,7 +309,7 @@ export function ElectricityTopUpPilot({
 
         {adminPreview ? (
           <p className="rounded-md border border-violet-200 bg-violet-50 px-4 py-3 text-xs font-medium text-violet-800">
-            Admin preview: only BDS tenants will receive this card during the pilot.
+            Admin preview: every active tenant receives this card.
           </p>
         ) : null}
       </CardContent>
