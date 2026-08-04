@@ -1,26 +1,20 @@
-import { Fragment } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   BatteryCharging,
   Building2,
   CheckCircle2,
+  ChevronDown,
   KeyRound,
   Link2,
   LockKeyhole,
   RefreshCw,
   Router,
+  Search,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
@@ -39,6 +33,8 @@ type SmartDevicesPageProps = {
     accessUnchanged?: string;
     accessUpdated?: string;
     error?: string;
+    lockPage?: string;
+    lockSearch?: string;
     synced?: string;
   }>;
 };
@@ -141,6 +137,41 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     },
     {},
   );
+  const lockSearchText = (params.lockSearch ?? "").trim();
+  const lockSearch = lockSearchText.toLocaleLowerCase("en");
+  const filteredDevices = lockSearch
+    ? devices.filter((device) =>
+        [
+          device.provider_lock_name,
+          device.properties?.name,
+          device.properties?.property_code,
+          device.rooms?.name,
+          device.rooms?.room_number,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("en")
+          .includes(lockSearch),
+      )
+    : devices;
+  const locksPerPage = 20;
+  const requestedLockPage = Number.parseInt(params.lockPage ?? "1", 10);
+  const totalLockPages = Math.max(1, Math.ceil(filteredDevices.length / locksPerPage));
+  const currentLockPage = Math.min(
+    Number.isFinite(requestedLockPage) && requestedLockPage > 0 ? requestedLockPage : 1,
+    totalLockPages,
+  );
+  const visibleDevices = filteredDevices.slice(
+    (currentLockPage - 1) * locksPerPage,
+    currentLockPage * locksPerPage,
+  );
+  const lockPageHref = (page: number) => {
+    const query = new URLSearchParams();
+    if (lockSearchText) query.set("lockSearch", lockSearchText);
+    if (page > 1) query.set("lockPage", String(page));
+    const value = query.toString();
+    return value ? `/smart-devices?${value}` : "/smart-devices";
+  };
   const config = getTTLockConfigStatus();
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
@@ -177,7 +208,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         <div className="flex flex-wrap gap-2">
           <form action={syncTTLockDevices}>
             <Button disabled={!config.complete} type="submit" variant="outline">
-              <RefreshCw className="h-4 w-4" /> Sync four locks
+              <RefreshCw className="h-4 w-4" /> Sync installed locks
             </Button>
           </form>
           <form action={provisionTTLockAccess}>
@@ -244,138 +275,209 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
-            <CardTitle>Installed BDS locks</CardTitle>
+            <CardTitle>Installed lock directory</CardTitle>
             <p className="mt-1 text-sm text-gray-500">
-              Each lock shows its own current tenant access directly below the device details.
+              Search by lock, property or room. Open only the lock whose details you need.
             </p>
           </div>
-          <Badge>{devices.length} devices</Badge>
+          <Badge>{lockSearchText ? `${filteredDevices.length} matching` : `${devices.length} devices`}</Badge>
         </CardHeader>
-        <CardContent>
-          {devices.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lock</TableHead>
-                  <TableHead>Property / room</TableHead>
-                  <TableHead>Access path</TableHead>
-                  <TableHead>Battery</TableHead>
-                  <TableHead>Gateway</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last checked</TableHead>
-                  <TableHead>Control</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {devices.map((device) => {
-                  const lockAccess = accessGrantsByDeviceId[device.id] ?? [];
+        <CardContent className="space-y-4">
+          <form className="flex flex-col gap-2 sm:flex-row" method="get">
+            <label className="relative flex-1">
+              <span className="sr-only">Search installed locks</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                className="h-10 w-full rounded-md border border-gray-300 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
+                defaultValue={lockSearchText}
+                name="lockSearch"
+                placeholder="Search lock, property or room"
+                type="search"
+              />
+            </label>
+            <Button type="submit" variant="outline">
+              <Search className="h-4 w-4" /> Search
+            </Button>
+            {lockSearchText ? (
+              <Link
+                className="inline-flex h-10 items-center justify-center rounded-md border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                href="/smart-devices"
+              >
+                Clear
+              </Link>
+            ) : null}
+          </form>
 
-                  return (
-                    <Fragment key={device.id}>
-                      <TableRow>
-                        <TableCell>
-                          <div className="flex items-center gap-2 font-semibold text-gray-950">
-                            <KeyRound className="h-4 w-4 text-[#b8892c]" />
-                            {device.provider_lock_name}
-                          </div>
-                        </TableCell>
-                        <TableCell>
+          {visibleDevices.length ? (
+            <div className="overflow-hidden rounded-lg border border-gray-200">
+              {visibleDevices.map((device) => {
+                const lockAccess = accessGrantsByDeviceId[device.id] ?? [];
+
+                return (
+                    <details className="group border-b border-gray-200 last:border-b-0" key={device.id} name="installed-locks">
+                      <summary className="grid cursor-pointer list-none gap-3 p-4 transition hover:bg-gray-50 md:grid-cols-[minmax(180px,1.2fr)_minmax(180px,1fr)_minmax(220px,1.2fr)_minmax(140px,.8fr)_auto] md:items-center [&::-webkit-details-marker]:hidden">
+                        <div className="flex items-center gap-2 font-semibold text-gray-950">
+                          <KeyRound className="h-4 w-4 shrink-0 text-[#b8892c]" />
+                          {device.provider_lock_name}
+                        </div>
+                        <div>
                           <p className="font-medium text-gray-900">{device.properties?.name ?? "Not assigned"}</p>
                           <p className="text-xs text-amber-700">
                             {device.rooms?.name || device.rooms?.room_number || (device.access_scope === "property_entry" ? "Common / main entrance" : "Room confirmation required")}
                           </p>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={device.access_scope === "property_entry" ? "bg-blue-100 text-blue-800" : "bg-violet-100 text-violet-800"}>
-                            {device.access_scope === "property_entry" ? "Shared main entrance" : "Individual room"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
-                            <BatteryCharging className="h-4 w-4 text-emerald-600" />
-                            {device.battery_level === null ? "Not checked" : `${device.battery_level}%`}
-                          </span>
-                        </TableCell>
-                        <TableCell>{device.has_gateway === null ? "Not checked" : device.has_gateway ? "Installed" : "Not installed"}</TableCell>
-                        <TableCell>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
                           <Badge className={statusClass(device.sync_status)}>
                             {statusLabels[device.sync_status] ?? device.sync_status}
                           </Badge>
-                          {device.last_sync_error ? <p className="mt-1 max-w-56 text-xs text-red-600">{device.last_sync_error}</p> : null}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {dateTimeLabel(device.last_synced_at ?? device.snapshot_captured_at)}
-                        </TableCell>
-                        <TableCell>
-                          <Button disabled size="sm" variant="outline">
-                            <CheckCircle2 className="h-4 w-4" /> {device.sync_status === "connected" ? "Connected" : "Unavailable"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                      {lockAccess.length ? (
-                        <TableRow className="bg-gray-50/70 hover:bg-gray-50/70">
-                          <TableCell className="px-4 pb-5 pt-0" colSpan={8}>
-                            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
-                                  <KeyRound className="h-4 w-4" /> Current tenant access
-                                </p>
-                                <Badge className="bg-emerald-100 text-emerald-800">
-                                  {lockAccess.length} active
-                                </Badge>
-                              </div>
-                              <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                                {lockAccess.map((grant) => {
-                                  const tenancy = relatedOne(grant.tenancies);
-                                  const tenant = relatedOne(tenancy?.tenants ?? null);
-                                  const room = relatedOne(grant.rooms);
+                          <span className="inline-flex items-center gap-1 text-sm font-semibold text-gray-800">
+                            <BatteryCharging className="h-4 w-4 text-emerald-600" />
+                            {device.battery_level === null ? "Not checked" : `${device.battery_level}%`}
+                          </span>
+                        </div>
+                        <div>
+                          {lockAccess.length ? (
+                            <Badge className="bg-emerald-100 text-emerald-800">
+                              {lockAccess.length} active access
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-gray-500">No active access</span>
+                          )}
+                        </div>
+                        <span className="flex items-center justify-end gap-2 text-sm font-medium text-[#8b651e]">
+                          View
+                          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                        </span>
+                      </summary>
 
-                                  return (
-                                    <div className="rounded-md border border-emerald-100 bg-white p-3" key={grant.id}>
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <p className="font-semibold text-gray-950">{tenant?.full_name ?? "Tenant"}</p>
-                                        <Badge className="bg-emerald-100 text-emerald-800">Active</Badge>
+                      <div className="border-t border-gray-200 bg-gray-50/70 p-4">
+                        <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Access path</p>
+                            <Badge className={`mt-2 ${device.access_scope === "property_entry" ? "bg-blue-100 text-blue-800" : "bg-violet-100 text-violet-800"}`}>
+                              {device.access_scope === "property_entry" ? "Shared main entrance" : "Individual room"}
+                            </Badge>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Gateway</p>
+                            <p className="mt-2 font-medium text-gray-900">
+                              {device.has_gateway === null ? "Not checked" : device.has_gateway ? "Installed" : "Not installed"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Last checked</p>
+                            <p className="mt-2 font-medium text-gray-900">
+                              {dateTimeLabel(device.last_synced_at ?? device.snapshot_captured_at)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Control</p>
+                            <p className="mt-2 inline-flex items-center gap-2 font-medium text-gray-900">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              {device.sync_status === "connected" ? "Connected" : "Unavailable"}
+                            </p>
+                            {device.last_sync_error ? <p className="mt-1 text-xs text-red-600">{device.last_sync_error}</p> : null}
+                          </div>
+                        </div>
+
+                        {lockAccess.length ? (
+                          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+                                <KeyRound className="h-4 w-4" /> Current tenant access
+                              </p>
+                              <Badge className="bg-emerald-100 text-emerald-800">
+                                {lockAccess.length} active
+                              </Badge>
+                            </div>
+                            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                              {lockAccess.map((grant) => {
+                                const tenancy = relatedOne(grant.tenancies);
+                                const tenant = relatedOne(tenancy?.tenants ?? null);
+                                const room = relatedOne(grant.rooms);
+
+                                return (
+                                  <div className="rounded-md border border-emerald-100 bg-white p-3" key={grant.id}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="font-semibold text-gray-950">{tenant?.full_name ?? "Tenant"}</p>
+                                      <Badge className="bg-emerald-100 text-emerald-800">Active</Badge>
+                                    </div>
+                                    <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                                      <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">Access</p>
+                                        <p className="mt-1 font-medium text-gray-900">
+                                          {grant.access_scope === "property_entry"
+                                            ? "Main entrance"
+                                            : room?.room_number ?? room?.name ?? "Room"}
+                                        </p>
                                       </div>
-                                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-                                        <div>
-                                          <p className="text-xs uppercase tracking-wide text-gray-500">Access</p>
-                                          <p className="mt-1 font-medium text-gray-900">
-                                            {grant.access_scope === "property_entry"
-                                              ? "Main entrance"
-                                              : room?.room_number ?? room?.name ?? "Room"}
-                                          </p>
-                                        </div>
-                                        <div>
-                                          <p className="text-xs uppercase tracking-wide text-gray-500">Passcode</p>
-                                          <code className="mt-1 inline-block rounded bg-gray-100 px-2 py-1 font-bold tracking-widest text-gray-950">
-                                            {grant.keyboard_password ?? "Pending"}
-                                          </code>
-                                        </div>
-                                        <div>
-                                          <p className="text-xs uppercase tracking-wide text-gray-500">Valid period</p>
-                                          <p className="mt-1 text-gray-900">
-                                            {dateTimeLabel(grant.valid_from)} – {dateTimeLabel(grant.valid_until)}
-                                          </p>
-                                        </div>
+                                      <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">Passcode</p>
+                                        <code className="mt-1 inline-block rounded bg-gray-100 px-2 py-1 font-bold tracking-widest text-gray-950">
+                                          {grant.keyboard_password ?? "Pending"}
+                                        </code>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">Valid period</p>
+                                        <p className="mt-1 text-gray-900">
+                                          {dateTimeLabel(grant.valid_from)} – {dateTimeLabel(grant.valid_until)}
+                                        </p>
                                       </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
+                                  </div>
+                                );
+                              })}
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                          </div>
+                        ) : (
+                          <p className="mt-4 rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-500">
+                            This lock has no active tenant access.
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                );
+              })}
+            </div>
           ) : (
             <p className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-              No smart locks have been added yet.
+              {lockSearchText ? "No locks match this search." : "No smart locks have been added yet."}
             </p>
           )}
+
+          {filteredDevices.length ? (
+            <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-gray-500">
+                Page {currentLockPage} of {totalLockPages} · Maximum {locksPerPage} locks per page
+              </p>
+              <div className="flex gap-2">
+                {currentLockPage > 1 ? (
+                  <Link
+                    className="inline-flex h-9 items-center justify-center rounded-md border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    href={lockPageHref(currentLockPage - 1)}
+                  >
+                    Previous
+                  </Link>
+                ) : (
+                  <span className="inline-flex h-9 items-center justify-center rounded-md border border-gray-200 bg-gray-50 px-3 text-sm text-gray-400">
+                    Previous
+                  </span>
+                )}
+                {currentLockPage < totalLockPages ? (
+                  <Link
+                    className="inline-flex h-9 items-center justify-center rounded-md border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    href={lockPageHref(currentLockPage + 1)}
+                  >
+                    Next
+                  </Link>
+                ) : (
+                  <span className="inline-flex h-9 items-center justify-center rounded-md border border-gray-200 bg-gray-50 px-3 text-sm text-gray-400">
+                    Next
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -402,7 +504,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             />
           </div>
           <p className="mt-4 rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-600">
-            All four installed locks are live, gateway-connected and compatible with V4 passcodes. Expired tenancies are deliberately skipped until their renewal end date is confirmed.
+            All {devices.length} installed lock(s) are live, gateway-connected and compatible with V4 passcodes. Expired tenancies are deliberately skipped until their renewal end date is confirmed.
           </p>
         </CardContent>
       </Card>
@@ -415,7 +517,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <ol className="grid gap-4 md:grid-cols-5">
             <NextStep number="1" title="API approved" text="The DEKEZ TTLock application is approved and active." />
             <NextStep number="2" title="Secrets secured" text="The API credentials are encrypted in Vercel and never sent to the browser." />
-            <NextStep number="3" title="Four locks connected" text="Live IDs, battery, gateway and V4 support are confirmed." />
+            <NextStep number="3" title="Installed locks connected" text="Live IDs, battery, gateway and V4 support are confirmed." />
             <NextStep number="4" title="Rooms mapped" text="The main entrance and numbered BDS room locks are linked." />
             <NextStep number="5" title="Automation enabled" text="Check-in creates both passwords; renewal extends both; checkout revokes both." />
           </ol>
