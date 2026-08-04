@@ -21,7 +21,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DocumentPreview } from "@/components/ui/document-preview";
-import { StaffReimbursementPayoutForm } from "@/components/maintenance/staff-reimbursement-payout-form";
 import {
   Table,
   TableBody,
@@ -78,7 +77,6 @@ type PageProps = {
     agreement_verified?: string;
     agreement_rejected?: string;
     resign_sent?: string;
-    payout_recorded?: string;
     topup_approved?: string;
     topup_rejected?: string;
     topup_credited?: string;
@@ -119,13 +117,6 @@ const errorMessages: Record<string, string> = {
   claim_expense: "The approved claim could not be added to Expense Bills.",
   claim_reimbursement:
     "The staff reimbursement balance could not be recorded.",
-  payout_missing:
-    "Choose a payout date and source, then attach an image or PDF proof no larger than 3 MB.",
-  payout_changed:
-    "The outstanding total changed before payout. Refresh and review the balance again.",
-  payout_proof: "The staff payout proof could not be stored.",
-  payout_receipt_missing:
-    "Every staff bill must have its receipt attached before it can be paid and knocked off.",
   agreement_missing: "The tenancy agreement could not be found.",
   whatsapp_failed: "The WhatsApp request could not be sent. The failed attempt was logged.",
   renewal_missing: "The active tenancy does not have enough information for renewal.",
@@ -193,9 +184,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     assignmentsResult,
     tenantApplicationsResult,
     claimsResult,
-    claimExpensesResult,
-    reimbursementLiabilitiesResult,
-    reimbursementPayoutsResult,
     paymentSubmissionsResult,
     profilesResult,
     profileDocumentsResult,
@@ -219,19 +207,8 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     supabase
       .from("claims")
       .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, bill_date, status, submitted_at, reviewed_at, rejection_reason, properties(name), rooms(name, room_number), maintenance_tickets(ticket_number), claim_attachments(id, bucket_name, file_path, content_type)")
+      .eq("status", "pending_owner_approval")
       .order("submitted_at", { ascending: false }),
-    supabase
-      .from("expenses")
-      .select("claim_id, funding_source, amount, status")
-      .not("claim_id", "is", null),
-    supabase
-      .from("staff_reimbursement_liabilities")
-      .select("id, claim_id, expense_id, staff_id, amount, status, owed_at, paid_at, payout_id")
-      .order("owed_at", { ascending: true }),
-    supabase
-      .from("staff_reimbursement_payouts")
-      .select("id, staff_id, total_amount, payment_source, paid_on, reference_number, notes, proof_bucket_name, proof_file_path, proof_content_type, recorded_by, created_at")
-      .order("paid_on", { ascending: false }),
     supabase
       .from("payment_submissions")
       .select("id, verification_status"),
@@ -254,10 +231,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const assignments = assignmentsResult.data ?? [];
   const tenantApplications = tenantApplicationsResult.data ?? [];
   const claims = claimsResult.data ?? [];
-  const claimExpenses = claimExpensesResult.data ?? [];
-  const reimbursementLiabilities =
-    reimbursementLiabilitiesResult.data ?? [];
-  const reimbursementPayouts = reimbursementPayoutsResult.data ?? [];
   const agreementArchive = await loadTenancyAgreementArchive(supabase);
   const agreements = agreementArchive.agreements;
   const paymentSubmissions = paymentSubmissionsResult.data ?? [];
@@ -285,13 +258,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       signedUrl: string | null;
     }[]
   >();
-  const payoutProofs = new Map<string, string | null>();
-  for (const payout of reimbursementPayouts) {
-    const { data } = await supabase.storage
-      .from(payout.proof_bucket_name)
-      .createSignedUrl(payout.proof_file_path, 60 * 10);
-    payoutProofs.set(payout.id, data?.signedUrl ?? null);
-  }
   for (const claim of claims) {
     for (const attachment of claim.claim_attachments ?? []) {
       const { data } = await supabase.storage
@@ -456,10 +422,6 @@ export default async function VerificationPage({ searchParams }: PageProps) {
           <ClaimBills
             attachmentsByClaim={claimAttachments}
             claims={claims}
-            expenses={claimExpenses}
-            liabilities={reimbursementLiabilities}
-            payoutProofs={payoutProofs}
-            payouts={reimbursementPayouts}
             profiles={profiles}
           />
       ) : null}
@@ -503,8 +465,6 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
       ? params.resign_sent === "1"
         ? "Signed agreement rejected. The audit copy was retained, a replacement was created, and the tenant was asked by WhatsApp to sign again."
         : "Signed agreement rejected and retained for audit. The replacement is ready in the tenant portal, but WhatsApp could not be sent."
-    : params.payout_recorded
-      ? "Staff lump-sum payout recorded. All linked claims are now paid back."
     : params.agreement_verified
       ? "Signed tenancy agreement verified."
     : params.sent
@@ -1104,10 +1064,6 @@ function UserRegistrations({
 function ClaimBills({
   attachmentsByClaim,
   claims,
-  expenses,
-  liabilities,
-  payoutProofs,
-  payouts,
   profiles,
 }: {
   attachmentsByClaim: Map<
@@ -1142,115 +1098,25 @@ function ClaimBills({
       | { ticket_number: string }[]
       | null;
   }[];
-  expenses: {
-    claim_id: string | null;
-    funding_source: string;
-    amount: number | string;
-    status: string;
-  }[];
-  liabilities: {
-    id: string;
-    claim_id: string;
-    expense_id: string;
-    staff_id: string;
-    amount: number | string;
-    status: string;
-    owed_at: string;
-    paid_at: string | null;
-    payout_id: string | null;
-  }[];
-  payoutProofs: Map<string, string | null>;
-  payouts: {
-    id: string;
-    staff_id: string;
-    total_amount: number | string;
-    payment_source: string;
-    paid_on: string;
-    reference_number: string | null;
-    notes: string | null;
-    proof_bucket_name: string;
-    proof_file_path: string;
-    proof_content_type: string | null;
-    recorded_by: string;
-    created_at: string;
-  }[];
   profiles: Map<
     string,
     {
       id: string;
       full_name: string | null;
       phone: string | null;
-      bank_name: string | null;
-      bank_account_holder: string | null;
-      bank_account_number: string | null;
     }
   >;
 }) {
-  const liabilityByClaim = new Map(
-    liabilities.map((liability) => [liability.claim_id, liability]),
-  );
-  const payoutById = new Map(payouts.map((payout) => [payout.id, payout]));
-  const outstandingByStaff = new Map<
-    string,
-    { liabilityIds: string[]; total: number }
-  >();
-  for (const liability of liabilities) {
-    if (liability.status !== "owed") continue;
-    const group = outstandingByStaff.get(liability.staff_id) ?? {
-      liabilityIds: [],
-      total: 0,
-    };
-    group.liabilityIds.push(liability.id);
-    group.total += Number(liability.amount);
-    outstandingByStaff.set(liability.staff_id, group);
-  }
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Claim Bills</CardTitle>
         <CardDescription>
-          Repair bills paid with company cash or personal money. Every claim
-          requires Admin verification.
+          Review each submitted repair bill here. Approve or reject the bill;
+          staff payouts and knock-off are handled separately in Expense Bills.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {outstandingByStaff.size ? (
-          <section className="space-y-3">
-            <div>
-              <h3 className="font-semibold text-gray-950">
-                Staff money owing — lump-sum knock off
-              </h3>
-              <p className="mt-1 text-sm text-gray-600">
-                One payout proof clips together every verified outstanding
-                claim included in the total.
-              </p>
-            </div>
-            <div className="grid gap-4 xl:grid-cols-2">
-              {[...outstandingByStaff.entries()].map(([staffId, group]) => {
-                const profile = profiles.get(staffId);
-                return (
-                  <StaffReimbursementPayoutForm
-                    bankAccountHolder={profile?.bank_account_holder ?? null}
-                    bankAccountNumber={profile?.bank_account_number ?? null}
-                    bankName={profile?.bank_name ?? null}
-                    key={staffId}
-                    liabilityIds={group.liabilityIds}
-                    paidOn={malaysiaToday()}
-                    staffId={staffId}
-                    staffName={profile?.full_name ?? "Staff member"}
-                    total={group.total}
-                  />
-                );
-              })}
-            </div>
-          </section>
-        ) : (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-            No verified staff-funded claims are awaiting payout.
-          </div>
-        )}
-
         {claims.length ? (
           <div className="overflow-x-auto">
             <Table>
@@ -1272,14 +1138,7 @@ function ClaimBills({
                   const property = single(claim.properties);
                   const room = single(claim.rooms);
                   const ticket = single(claim.maintenance_tickets);
-                  const expense = expenses.find(
-                    (item) => item.claim_id === claim.id,
-                  );
                   const attachments = attachmentsByClaim.get(claim.id) ?? [];
-                  const liability = liabilityByClaim.get(claim.id);
-                  const payout = liability?.payout_id
-                    ? payoutById.get(liability.payout_id)
-                    : undefined;
                   const total =
                     claim.total_amount ??
                     Number(claim.labour_cost ?? 0) +
@@ -1308,8 +1167,7 @@ function ClaimBills({
                         {claim.description ?? "-"}
                       </TableCell>
                       <TableCell>
-                        {(expense?.funding_source ?? claim.funding_source) ===
-                        "staff_personal"
+                        {claim.funding_source === "staff_personal"
                           ? "My own money"
                           : "Company money"}
                       </TableCell>
@@ -1346,101 +1204,54 @@ function ClaimBills({
                         ) : null}
                       </TableCell>
                       <TableCell>
-                        {["approved", "paid"].includes(claim.status) ? (
-                          claim.funding_source === "staff_personal" &&
-                          liability ? (
-                            liability.status === "paid" && payout ? (
-                              <div className="space-y-2 text-sm">
-                                <p className="font-medium text-emerald-700">
-                                  Paid back {formatMalaysiaDate(payout.paid_on)}
-                                </p>
-                                <p className="text-gray-600">
-                                  Knock-off batch {money(payout.total_amount)}
-                                  {payout.reference_number
-                                    ? ` · ${payout.reference_number}`
-                                    : ""}
-                                </p>
-                                <DocumentPreview
-                                  contentType={payout.proof_content_type}
-                                  fileName={
-                                    payout.proof_file_path.split("/").at(-1) ??
-                                    "Payout proof"
-                                  }
-                                  label="Payout proof"
-                                  showName={false}
-                                  size="sm"
-                                  url={payoutProofs.get(payout.id) ?? null}
-                                />
-                              </div>
-                            ) : (
-                              <div className="text-sm">
-                                <p className="font-semibold text-red-700">
-                                  Company owes{" "}
-                                  {profiles.get(liability.staff_id)?.full_name ??
-                                    "staff"}{" "}
-                                  {money(liability.amount)}
-                                </p>
-                                <p className="mt-1 text-gray-500">
-                                  Included in the staff lump-sum payout above.
-                                </p>
-                              </div>
-                            )
-                          ) : (
-                            <p className="text-sm text-[#126b5f]">
-                              Verified by Admin — company-funded expense
-                              recorded
-                            </p>
-                          )
-                        ) : (
-                          <div className="space-y-2">
-                            <form action={reviewClaim}>
-                              <input
-                                name="claimId"
-                                type="hidden"
-                                value={claim.id}
-                              />
-                              <input
-                                name="decision"
-                                type="hidden"
-                                value="approved"
-                              />
-                              <Button className="w-full" size="sm" type="submit">
-                                Approve Claim
-                              </Button>
-                            </form>
-                            <form
-                              action={reviewClaim}
-                              className="grid gap-2 sm:grid-cols-[1fr_auto]"
+                        <div className="space-y-2">
+                          <form action={reviewClaim}>
+                            <input
+                              name="claimId"
+                              type="hidden"
+                              value={claim.id}
+                            />
+                            <input
+                              name="decision"
+                              type="hidden"
+                              value="approved"
+                            />
+                            <Button className="w-full" size="sm" type="submit">
+                              Approve Claim
+                            </Button>
+                          </form>
+                          <form
+                            action={reviewClaim}
+                            className="grid gap-2 sm:grid-cols-[1fr_auto]"
+                          >
+                            <input
+                              name="claimId"
+                              type="hidden"
+                              value={claim.id}
+                            />
+                            <select
+                              className="rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
+                              name="decision"
+                              defaultValue=""
+                              required
                             >
-                              <input
-                                name="claimId"
-                                type="hidden"
-                                value={claim.id}
-                              />
-                              <select
-                                className="rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
-                                name="decision"
-                                defaultValue=""
-                                required
-                              >
-                                <option value="">Choose other action</option>
-                                <option value="information_requested">
-                                  Request information
-                                </option>
-                                <option value="rejected">Reject</option>
-                              </select>
-                              <Button size="sm" type="submit" variant="outline">
-                                Save
-                              </Button>
-                              <textarea
-                                className="min-h-16 rounded-md border border-[#d7dde5] px-3 py-2 text-sm sm:col-span-2"
-                                name="reason"
-                                placeholder="Reason required"
-                                required
-                              />
-                            </form>
-                          </div>
-                        )}
+                              <option value="">Choose other action</option>
+                              <option value="information_requested">
+                                Request information
+                              </option>
+                              <option value="rejected">Reject</option>
+                            </select>
+                            <Button size="sm" type="submit" variant="outline">
+                              Save
+                            </Button>
+                            <textarea
+                              className="min-h-16 rounded-md border border-[#d7dde5] px-3 py-2 text-sm sm:col-span-2"
+                              name="reason"
+                              placeholder="Reason required"
+                              required
+                            />
+                          </form>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );

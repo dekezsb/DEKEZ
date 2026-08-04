@@ -102,7 +102,7 @@ const errorMessages: Record<string, string> = {
   payout_receipt_missing:
     "Every staff bill must have its receipt attached before it can be paid and knocked off.",
   use_claim_payout:
-    "Use Verification → Claim Bills to record a staff lump-sum payout with proof.",
+    "Use Staff AP Payments on this page to record a staff lump-sum payout with proof.",
 };
 
 async function getAdmin() {
@@ -999,7 +999,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                                 {expense.claim_id &&
                                 expense.funding_source === "staff_personal" ? (
                                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs font-medium text-amber-800">
-                                    Use Claim Bills lump-sum payout
+                                    Pay through Staff AP Payments above
                                   </div>
                                 ) : (
                                   <Button name="decision" type="submit" value="reimbursed" variant="outline">Reimbursed</Button>
