@@ -244,13 +244,16 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 <span className="text-sm font-medium text-gray-700">Payment date</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentDate" type="date" />
               </label>
-              <input name="paymentMethod" type="hidden" value="online_payment" />
-              <div className="rounded-md border border-[#d8c28c] bg-[#fbf8f1] p-4">
-                <p className="text-sm font-semibold text-gray-950">Online Payment Only</p>
-                <p className="mt-1 text-xs leading-5 text-gray-600">
-                  Pay by online bank transfer or DuitNow and attach the receipt for Admin verification. Cash payments are not accepted.
-                </p>
-              </div>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Method</span>
+                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentMethod" defaultValue="bank_transfer">
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="duitnow">DuitNow QR</option>
+                  <option value="online_payment">Online payment</option>
+                  <option value="other">Other non-cash payment</option>
+                </select>
+                <span className="mt-2 block text-xs text-amber-700">Cash is not accepted.</span>
+              </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Reference number</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="referenceNumber" />

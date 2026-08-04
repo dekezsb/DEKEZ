@@ -189,16 +189,24 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
                 }))}
               />
 
-              <input name="paymentMethod" type="hidden" value="online_payment" />
-              <div className="flex items-start gap-3 rounded-md border border-[#d8c28c] bg-[#fbf8f1] p-4">
-                <Banknote className="mt-0.5 h-5 w-5 shrink-0 text-[#b8892c]" />
-                <div>
-                  <p className="font-semibold text-gray-950">Online Payment Only</p>
-                  <p className="mt-1 text-sm text-gray-600">
-                    Pay by online bank transfer or DuitNow, then upload the payment slip below. Cash payments are not accepted.
-                  </p>
-                </div>
-              </div>
+              <label className="block">
+                <span className="text-sm font-semibold text-gray-800">
+                  Payment method
+                </span>
+                <select
+                  className="mt-2 h-12 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-base"
+                  defaultValue="bank_transfer"
+                  name="paymentMethod"
+                >
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="duitnow">DuitNow QR</option>
+                  <option value="online_payment">Online payment</option>
+                  <option value="other">Other non-cash payment</option>
+                </select>
+                <span className="mt-2 block text-sm text-amber-700">
+                  Cash payments are not accepted. A payment slip is required.
+                </span>
+              </label>
 
               <label className="block">
                 <span className="text-sm font-semibold text-gray-800">

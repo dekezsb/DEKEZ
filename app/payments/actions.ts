@@ -160,9 +160,22 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
   const paymentPurpose: PaymentPurpose = isPaymentPurpose(requestedPurpose)
     ? requestedPurpose
     : "monthly_rent";
+  const paymentMethod = textValue(formData, "paymentMethod") || "bank_transfer";
+  const allowedTenantPaymentMethods = [
+    "bank_transfer",
+    "duitnow",
+    "online_payment",
+    "other",
+  ];
   const receipt = fileValue(formData, "receipt");
 
-  if (!user || !rentBillId || amount <= 0 || !receipt) {
+  if (
+    !user ||
+    !rentBillId ||
+    amount <= 0 ||
+    !receipt ||
+    !allowedTenantPaymentMethods.includes(paymentMethod)
+  ) {
     redirect("/payments?error=proof_missing");
   }
 
@@ -284,7 +297,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
       payment_type: paymentPurpose,
       amount,
       payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
-      payment_method: "online_payment",
+      payment_method: paymentMethod,
       reference_number: textValue(formData, "referenceNumber") || null,
       receipt_url: path,
       verification_status: "pending_verification",
