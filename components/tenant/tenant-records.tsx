@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DocumentPreview } from "@/components/ui/document-preview";
+import { DeleteTenantDocumentButton } from "@/components/tenant/delete-tenant-document-button";
 import { uploadTenantDocument } from "@/app/tenants/[id]/actions";
 import {
   formatMalaysiaDate,
@@ -44,6 +45,22 @@ const resultMessages: Record<string, { className: string; message: string }> = {
   uploaded: {
     className: "border-emerald-200 bg-emerald-50 text-emerald-800",
     message: "Document uploaded and stored securely.",
+  },
+  deleted: {
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    message: "Tenant document deleted.",
+  },
+  delete_invalid: {
+    className: "border-red-200 bg-red-50 text-red-700",
+    message: "That document could not be found for this tenant.",
+  },
+  delete_failed: {
+    className: "border-red-200 bg-red-50 text-red-700",
+    message: "The document could not be deleted. Please try again.",
+  },
+  delete_cleanup: {
+    className: "border-amber-200 bg-amber-50 text-amber-800",
+    message: "The document was removed from the portal, but file cleanup needs attention.",
   },
   invalid: {
     className: "border-red-200 bg-red-50 text-red-700",
@@ -213,6 +230,14 @@ export function TenantDocuments({
                       >
                         {document.verificationStatus.replaceAll("_", " ")}
                       </Badge>
+                      <DeleteTenantDocumentButton
+                        documentId={document.id}
+                        documentLabel={document.fileName}
+                        propertyId={propertyId}
+                        returnView={returnView}
+                        roomId={roomId}
+                        tenantKey={tenantKey}
+                      />
                     </div>
                   </div>
                 </div>

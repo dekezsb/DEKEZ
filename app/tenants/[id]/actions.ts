@@ -153,6 +153,162 @@ export async function uploadTenantDocument(formData: FormData) {
   redirect(destination(tenantKey, propertyId, roomId, returnView, "uploaded"));
 }
 
+export async function deleteTenantDocument(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "properties",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const documentId = textValue(formData, "documentId");
+  const tenantKey = textValue(formData, "tenantKey");
+  const propertyId = textValue(formData, "propertyId");
+  const roomId = textValue(formData, "roomId");
+  const returnView = textValue(formData, "returnView");
+  const go = (result: string) =>
+    destination(tenantKey, propertyId, roomId, returnView, result);
+
+  if (!user || !documentId || !tenantKey || !propertyId || !roomId) {
+    redirect(go("delete_invalid"));
+  }
+
+  const property = (await getProperties()).find((item) => item.id === propertyId);
+  if (!property) {
+    redirect("/properties");
+  }
+
+  const supabase = await getAdmin();
+  const [documentResult, selectedRecordResult, selectedTenancyResult] =
+    await Promise.all([
+      supabase
+        .from("tenant_documents")
+        .select(
+          "id, tenant_application_id, tenant_id, tenant_record_id, document_type, file_path, file_name, verification_status",
+        )
+        .eq("id", documentId)
+        .maybeSingle(),
+      supabase
+        .from("tenant_records")
+        .select("id, tenant_id")
+        .eq("id", tenantKey)
+        .eq("property_id", propertyId)
+        .eq("room_id", roomId)
+        .maybeSingle(),
+      supabase
+        .from("tenancies")
+        .select("tenant_id")
+        .eq("tenant_id", tenantKey)
+        .eq("property_id", propertyId)
+        .eq("room_id", roomId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+  const document = documentResult.data;
+  const selectedRecord = selectedRecordResult.data;
+  const selectedTenantId =
+    selectedRecord?.tenant_id ?? selectedTenancyResult.data?.tenant_id ?? null;
+
+  if (
+    documentResult.error ||
+    selectedRecordResult.error ||
+    selectedTenancyResult.error ||
+    !document ||
+    (!selectedRecord && !selectedTenantId)
+  ) {
+    redirect(go("delete_invalid"));
+  }
+
+  const [relatedRecordsResult, relatedTenantResult] = await Promise.all([
+    selectedTenantId
+      ? supabase
+          .from("tenant_records")
+          .select("id")
+          .eq("tenant_id", selectedTenantId)
+      : Promise.resolve({
+          data: selectedRecord ? [{ id: selectedRecord.id }] : [],
+          error: null,
+        }),
+    selectedTenantId
+      ? supabase
+          .from("tenants")
+          .select("id, profile_id")
+          .eq("id", selectedTenantId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  if (relatedRecordsResult.error || relatedTenantResult.error) {
+    redirect(go("delete_invalid"));
+  }
+
+  const tenantRecordIds = new Set(
+    (relatedRecordsResult.data ?? []).map((record) => record.id),
+  );
+  const allowedTenantDocumentIds = new Set(
+    [selectedTenantId, relatedTenantResult.data?.profile_id].filter(
+      (id): id is string => Boolean(id),
+    ),
+  );
+  let applicationMatchesRoom = false;
+
+  if (document.tenant_application_id) {
+    const { data: application } = await supabase
+      .from("tenant_applications")
+      .select("id, tenant_id")
+      .eq("id", document.tenant_application_id)
+      .eq("property_id", propertyId)
+      .eq("room_id", roomId)
+      .maybeSingle();
+    applicationMatchesRoom = Boolean(
+      application && allowedTenantDocumentIds.has(application.tenant_id),
+    );
+  }
+
+  const belongsToDisplayedTenant =
+    (document.tenant_record_id &&
+      tenantRecordIds.has(document.tenant_record_id)) ||
+    (document.tenant_id &&
+      allowedTenantDocumentIds.has(document.tenant_id)) ||
+    applicationMatchesRoom;
+
+  if (!belongsToDisplayedTenant) {
+    redirect(go("delete_invalid"));
+  }
+
+  const { error: deleteError } = await supabase
+    .from("tenant_documents")
+    .delete()
+    .eq("id", document.id);
+
+  if (deleteError) {
+    redirect(go("delete_failed"));
+  }
+
+  const { error: storageError } = await supabase.storage
+    .from("tenant-documents")
+    .remove([document.file_path]);
+
+  await supabase.from("audit_logs").insert({
+    company_id: property.company_id,
+    actor_profile_id: user.id,
+    action: "tenant_document_deleted",
+    entity_table: "tenant_documents",
+    entity_id: document.id,
+    metadata: {
+      document_type: document.document_type,
+      file_name: document.file_name,
+      previous_status: document.verification_status,
+      property_id: propertyId,
+      room_id: roomId,
+      storage_removed: !storageError,
+    },
+  });
+
+  revalidatePath(`/tenants/${tenantKey}`);
+  revalidatePath(`/properties/${propertyId}/rooms/${roomId}`);
+  redirect(go(storageError ? "delete_cleanup" : "deleted"));
+}
+
 function paymentDestination(
   tenantKey: string,
   propertyId: string,
