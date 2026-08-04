@@ -137,7 +137,11 @@ export async function getTenantPortalData() {
     status: string;
     billing_status: string | null;
     created_at: string;
-    properties: Relation<{ name: string; payment_qr_url: string | null }>;
+    properties: Relation<{
+      name: string;
+      property_code: string | null;
+      payment_qr_url: string | null;
+    }>;
     rooms: Relation<{
       name: string | null;
       room_number: string | null;
@@ -168,7 +172,7 @@ export async function getTenantPortalData() {
       propertyIds.length
         ? dataClient
             .from("properties")
-            .select("id, name, payment_qr_url")
+            .select("id, name, property_code, payment_qr_url")
             .in("id", propertyIds)
         : Promise.resolve({ data: [] }),
       roomIds.length
@@ -183,6 +187,7 @@ export async function getTenantPortalData() {
         property.id,
         {
           name: property.name,
+          property_code: property.property_code,
           payment_qr_url: property.payment_qr_url,
         },
       ]),
@@ -211,6 +216,7 @@ export async function getTenantPortalData() {
     tenancies[0] ??
     null;
   const tenancyIds = tenancies.map((tenancy) => tenancy.id);
+  const tenancyRoomIds = tenancies.map((tenancy) => tenancy.room_id);
 
   let bills: Array<{
     id: string;
@@ -256,6 +262,16 @@ export async function getTenantPortalData() {
     pdf_url: string | null;
     term_start_date: string | null;
     term_end_date: string | null;
+  }> = [];
+  let smartMeters: Array<{
+    id: string;
+    tenancy_id: string | null;
+    tenant_id: string | null;
+    room_id: string;
+    meter_number: string;
+    remaining_credit: number | string;
+    rate: number | string;
+    status: string;
   }> = [];
 
   const billColumns =
@@ -325,7 +341,7 @@ export async function getTenantPortalData() {
   });
 
   if (tenancyIds.length) {
-    const [paymentsResult, agreementsResult] = await Promise.all([
+    const [paymentsResult, agreementsResult, smartMetersResult] = await Promise.all([
       dataClient
         .from("payments")
         .select(
@@ -340,9 +356,18 @@ export async function getTenantPortalData() {
         )
         .in("tenancy_id", tenancyIds)
         .order("generated_at", { ascending: false }),
+      dataClient
+        .from("smart_meters")
+        .select(
+          "id, tenancy_id, tenant_id, room_id, meter_number, remaining_credit, rate, status",
+        )
+        .eq("meter_type", "electricity")
+        .eq("status", "active")
+        .in("room_id", tenancyRoomIds),
     ]);
     payments = (paymentsResult.data ?? []) as typeof payments;
     agreements = (agreementsResult.data ?? []) as typeof agreements;
+    smartMeters = (smartMetersResult.data ?? []) as typeof smartMeters;
   }
 
   const tickets = await Promise.all(
@@ -405,6 +430,10 @@ export async function getTenantPortalData() {
       .map(async (tenancy) => {
         const tenancyProperty = one(tenancy.properties);
         const tenancyRoom = one(tenancy.rooms);
+        const electricityMeter = smartMeters.find(
+          (meter) =>
+            meter.tenancy_id === tenancy.id || meter.room_id === tenancy.room_id,
+        );
         const tenancyQrUrl = await signedUrl(
           dataClient,
           "room-payment-qr",
@@ -429,6 +458,7 @@ export async function getTenantPortalData() {
           tenantId: tenancy.tenant_id,
           roomId: tenancy.room_id,
           propertyName: tenancyProperty?.name ?? "Property",
+          propertyCode: tenancyProperty?.property_code ?? null,
           roomName:
             tenancyRoom?.room_number ?? tenancyRoom?.name ?? "Room",
           monthlyRent: numberValue(
@@ -448,6 +478,14 @@ export async function getTenantPortalData() {
           outstandingAmount: tenancyOutstanding,
           paymentQrUrl:
             tenancyQrUrl ?? tenancyProperty?.payment_qr_url ?? null,
+          electricityMeter: electricityMeter
+            ? {
+                id: electricityMeter.id,
+                meterNumber: electricityMeter.meter_number,
+                remainingCredit: numberValue(electricityMeter.remaining_credit),
+                rate: numberValue(electricityMeter.rate),
+              }
+            : null,
         };
       }),
   );

@@ -21,6 +21,7 @@ import { createMaintenanceTicket } from "@/app/maintenance/actions";
 import { uploadMonthlyPaymentProof } from "@/app/payments/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ElectricityTopUpPilot } from "@/components/smart-meter/electricity-top-up-pilot";
 import {
   Card,
   CardContent,
@@ -258,6 +259,10 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
     );
   }
 
+  const bdsTenancies = data.tenancies.filter(
+    (tenancy) => tenancy.propertyCode?.toUpperCase() === "BDS",
+  );
+
   return (
     <section className="space-y-5">
       <PortalHeading
@@ -307,6 +312,20 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
           </Card>
         ))}
       </div>
+
+      {bdsTenancies.length ? (
+        <div className="space-y-4">
+          {bdsTenancies.map((tenancy) => (
+            <ElectricityTopUpPilot
+              key={tenancy.id}
+              meterNumber={tenancy.electricityMeter?.meterNumber}
+              propertyName={tenancy.propertyName}
+              remainingCredit={tenancy.electricityMeter?.remainingCredit}
+              roomName={tenancy.roomName}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <PaymentForm data={data} />
     </section>
