@@ -42,6 +42,29 @@ type TTLockPasscodeResponse = {
   errmsg?: string;
 };
 
+type TTLockFingerprintListResponse = {
+  list?: TTLockFingerprint[];
+  pages?: number;
+  pageNo?: number;
+  pageSize?: number;
+  total?: number;
+  errcode?: number;
+  errmsg?: string;
+};
+
+export type TTLockFingerprint = {
+  fingerprintId: number;
+  lockId: number;
+  fingerprintNumber: string;
+  fingerprintType: number;
+  fingerprintName?: string;
+  startDate?: number;
+  endDate?: number;
+  createDate?: number;
+  status?: number;
+  senderUsername?: string;
+};
+
 export function getTTLockConfigStatus() {
   const fields = {
     clientId: Boolean(process.env.TTLOCK_CLIENT_ID),
@@ -195,6 +218,63 @@ export async function deleteTTLockPasscode(input: {
     {
       lockId: String(input.lockId),
       keyboardPwdId: String(input.keyboardPwdId),
+      deleteType: "2",
+    },
+  );
+}
+
+export async function listTTLockFingerprints(lockId: number) {
+  const fingerprints: TTLockFingerprint[] = [];
+  const pageSize = 100;
+
+  for (let pageNo = 1; pageNo <= 100; pageNo += 1) {
+    const payload = await authenticatedPost<TTLockFingerprintListResponse>(
+      "/v3/fingerprint/list",
+      {
+        lockId: String(lockId),
+        pageNo: String(pageNo),
+        pageSize: String(pageSize),
+      },
+    );
+    const page = payload.list ?? [];
+    fingerprints.push(...page);
+
+    const lastPage = payload.pages
+      ? pageNo >= payload.pages
+      : page.length < pageSize || fingerprints.length >= Number(payload.total ?? Infinity);
+    if (lastPage) break;
+  }
+
+  return fingerprints;
+}
+
+export async function changeTTLockFingerprintPeriod(input: {
+  lockId: number;
+  fingerprintId: number;
+  validFrom: Date;
+  validUntil: Date;
+}) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/fingerprint/changePeriod",
+    {
+      lockId: String(input.lockId),
+      fingerprintId: String(input.fingerprintId),
+      startDate: String(input.validFrom.getTime()),
+      endDate: String(input.validUntil.getTime()),
+      changeType: "2",
+    },
+  );
+}
+
+export async function deleteTTLockFingerprint(input: {
+  lockId: number;
+  fingerprintId: number;
+}) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/fingerprint/delete",
+    {
+      lockId: String(input.lockId),
+      fingerprintId: String(input.fingerprintId),
       deleteType: "2",
     },
   );

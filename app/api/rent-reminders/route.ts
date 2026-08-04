@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { dayDifference } from "@/lib/data/rent-due";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  suspendOverdueFingerprintAccess,
+  syncFingerprintEnrollments,
+} from "@/lib/ttlock/fingerprint";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -171,5 +175,27 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, sent, skipped, failed });
+  const fingerprintEnrollment = await syncFingerprintEnrollments().catch((error) => ({
+    matched: 0,
+    skipped: 0,
+    errors: [error instanceof Error ? error.message : "Fingerprint enrollment sync failed"],
+  }));
+  const fingerprintPolicy = await suspendOverdueFingerprintAccess().catch((error) => ({
+    suspended: 0,
+    skipped: 0,
+    errors: [error instanceof Error ? error.message : "Fingerprint policy failed"],
+  }));
+
+  return NextResponse.json({
+    ok: true,
+    sent,
+    skipped,
+    failed,
+    fingerprintMatched: fingerprintEnrollment.matched,
+    fingerprintWaiting: fingerprintEnrollment.skipped,
+    fingerprintEnrollmentErrors: fingerprintEnrollment.errors.length,
+    fingerprintSuspended: fingerprintPolicy.suspended,
+    fingerprintSkipped: fingerprintPolicy.skipped,
+    fingerprintErrors: fingerprintPolicy.errors.length,
+  });
 }

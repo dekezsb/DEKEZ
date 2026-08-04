@@ -13,6 +13,7 @@ import {
   updateUnsignedAgreementRent,
 } from "@/lib/tenancy/agreement";
 import { sendAgreementRequest } from "@/lib/tenancy/agreement-whatsapp";
+import { prepareFingerprintEnrollment } from "@/lib/ttlock/fingerprint";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -347,7 +348,7 @@ export async function verifySignedAgreement(formData: FormData) {
     .in("status", ["signed", "renewal_signed"])
     .is("admin_verified_at", null)
     .is("admin_rejected_at", null)
-    .select("id")
+    .select("id, tenancy_id")
     .maybeSingle();
 
   if (error || !agreement) {
@@ -370,8 +371,19 @@ export async function verifySignedAgreement(formData: FormData) {
     });
   }
 
+  await prepareFingerprintEnrollment(agreement.tenancy_id, user.id).catch(
+    (fingerprintError) => {
+      console.error("The agreement was verified, but fingerprint enrollment could not be invited.", {
+        agreementId: agreement.id,
+        tenancyId: agreement.tenancy_id,
+        error: fingerprintError,
+      });
+    },
+  );
+
   revalidatePath("/verification");
   revalidatePath("/e-tenancy");
+  revalidatePath("/smart-devices");
   redirect(verificationPath("agreements", "agreement_verified=1"));
 }
 

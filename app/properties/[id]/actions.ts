@@ -15,6 +15,7 @@ import {
   reconcileSmartLockAccessForTenancy,
   revokeSmartLockAccessForTenancy,
 } from "@/lib/ttlock/access";
+import { revokeFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
 import {
   formFile,
   isValidTenantDocument,
@@ -1330,12 +1331,13 @@ export async function checkoutRoom(formData: FormData) {
     module: "properties",
     level: "manage",
   });
+  const user = await getCurrentUser();
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
   const checkoutDate = textValue(formData, "checkoutDate") || today();
   const returnTo = textValue(formData, "returnTo");
   const property = await accessibleProperty(propertyId);
-  if (!property) {
+  if (!property || !user) {
     redirect("/properties");
   }
   const supabase = await getAdmin();
@@ -1367,9 +1369,10 @@ export async function checkoutRoom(formData: FormData) {
 
   try {
     await Promise.all(
-      tenancyIds.map((tenancyId) =>
+      tenancyIds.flatMap((tenancyId) => [
         revokeSmartLockAccessForTenancy(tenancyId),
-      ),
+        revokeFingerprintAccessForTenancy(tenancyId, user.id),
+      ]),
     );
   } catch (error) {
     console.error("Checkout stopped because TTLock access was not revoked.", {

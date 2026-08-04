@@ -3,9 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
+import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 import { getTTLockConfigStatus, listTTLockDevices } from "@/lib/ttlock/client";
+import {
+  prepareFingerprintEnrollment,
+  syncFingerprintEnrollments,
+} from "@/lib/ttlock/fingerprint";
+
+function textValue(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
 
 function onboardingKey(value: string) {
   return value
@@ -158,5 +168,53 @@ export async function provisionTTLockAccess() {
   revalidatePath("/dashboard");
   redirect(
     `/smart-devices?accessCreated=${created}&accessUpdated=${updated}&accessUnchanged=${unchanged}&accessSkipped=${skipped}&accessErrors=${errors}`,
+  );
+}
+
+export async function sendFingerprintEnrollmentInvite(formData: FormData) {
+  await requireRole(["super_admin"], { module: "properties", level: "manage" });
+  const user = await getCurrentUser();
+  const tenancyId = textValue(formData, "tenancyId");
+
+  if (!user || !tenancyId) {
+    redirect("/smart-devices?fingerprintError=missing");
+  }
+  if (!getTTLockConfigStatus().complete) {
+    redirect("/smart-devices?fingerprintError=credentials");
+  }
+
+  let result;
+  try {
+    result = await prepareFingerprintEnrollment(tenancyId, user.id);
+  } catch (error) {
+    console.error("Fingerprint enrollment invitation failed", { tenancyId, error });
+    const message = error instanceof Error ? error.message : "Fingerprint enrollment could not be prepared.";
+    redirect(`/smart-devices?fingerprintError=${encodeURIComponent(message)}`);
+  }
+  revalidatePath("/smart-devices");
+  redirect(
+    result.invitationSent
+      ? `/smart-devices?fingerprintInvited=${encodeURIComponent(result.tenantName)}&fingerprintCode=${result.enrollmentCode}`
+      : `/smart-devices?fingerprintExisting=${encodeURIComponent(result.tenantName)}`,
+  );
+}
+
+export async function syncTTLockFingerprintEnrollments() {
+  await requireRole(["super_admin"], { module: "properties", level: "manage" });
+
+  if (!getTTLockConfigStatus().complete) {
+    redirect("/smart-devices?fingerprintError=credentials");
+  }
+
+  let result;
+  try {
+    result = await syncFingerprintEnrollments();
+  } catch (error) {
+    console.error("Fingerprint enrollment sync failed", error);
+    redirect("/smart-devices?fingerprintError=sync");
+  }
+  revalidatePath("/smart-devices");
+  redirect(
+    `/smart-devices?fingerprintMatched=${result.matched}&fingerprintSkipped=${result.skipped}&fingerprintErrors=${result.errors.length}`,
   );
 }

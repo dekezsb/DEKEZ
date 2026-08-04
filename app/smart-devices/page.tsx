@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronDown,
+  Fingerprint,
   KeyRound,
   Link2,
   LockKeyhole,
@@ -20,6 +21,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
 import {
   provisionTTLockAccess,
+  sendFingerprintEnrollmentInvite,
+  syncTTLockFingerprintEnrollments,
   syncTTLockDevices,
 } from "./actions";
 
@@ -33,6 +36,13 @@ type SmartDevicesPageProps = {
     accessUnchanged?: string;
     accessUpdated?: string;
     error?: string;
+    fingerprintCode?: string;
+    fingerprintError?: string;
+    fingerprintErrors?: string;
+    fingerprintExisting?: string;
+    fingerprintInvited?: string;
+    fingerprintMatched?: string;
+    fingerprintSkipped?: string;
     lockPage?: string;
     lockSearch?: string;
     synced?: string;
@@ -67,6 +77,34 @@ type SmartLockAccessGrant = {
   rooms: Relation<{ name: string | null; room_number: string | null }>;
 };
 
+type SmartLockFingerprintGrant = {
+  id: string;
+  device_id: string;
+  access_scope: "property_entry" | "room_entry";
+  credential_state: string;
+  enrollment_code: string;
+  fingerprint_name: string | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  last_error: string | null;
+  tenancies: Relation<{ tenants: Relation<{ full_name: string }> }>;
+};
+
+type ActiveLockTenancy = {
+  id: string;
+  room_id: string;
+  tenants: Relation<{
+    profile_id: string | null;
+    full_name: string;
+    phone: string | null;
+  }>;
+  tenancy_agreements: Relation<{
+    signed_at: string | null;
+    admin_verified_at: string | null;
+    admin_rejected_at: string | null;
+  }>;
+};
+
 type Relation<T> = T | T[] | null;
 
 const statusLabels: Record<string, string> = {
@@ -87,6 +125,12 @@ function statusClass(status: string) {
   return "bg-amber-100 text-amber-800";
 }
 
+function fingerprintStatusClass(status: string) {
+  if (status === "active") return "bg-emerald-100 text-emerald-800";
+  if (status === "suspended" || status === "error") return "bg-red-100 text-red-700";
+  return "bg-amber-100 text-amber-800";
+}
+
 function dateTimeLabel(value: string | null) {
   if (!value) return "Not yet";
   return new Intl.DateTimeFormat("en-MY", {
@@ -104,7 +148,13 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
   await requireRole(["super_admin"], { module: "properties", level: "manage" });
 
   const admin = createAdminClient();
-  const [{ data, error }, { data: accessData, error: accessError }, params] = await Promise.all([
+  const [
+    { data, error },
+    { data: accessData, error: accessError },
+    { data: fingerprintData, error: fingerprintError },
+    { data: tenancyData, error: tenancyError },
+    params,
+  ] = await Promise.all([
     admin
       .from("smart_lock_devices")
       .select(
@@ -119,6 +169,27 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       )
       .eq("credential_state", "active")
       .order("valid_until"),
+    admin
+      .from("smart_lock_fingerprint_grants")
+      .select(
+        "id,device_id,access_scope,credential_state,enrollment_code,fingerprint_name,valid_from,valid_until,last_error,tenancies(tenants(full_name))",
+      )
+      .in("credential_state", [
+        "pending_enrollment",
+        "active",
+        "suspension_due",
+        "suspended",
+        "revoke_pending",
+        "error",
+      ])
+      .order("created_at"),
+    admin
+      .from("tenancies")
+      .select(
+        "id,room_id,tenants(profile_id,full_name,phone),tenancy_agreements(signed_at,admin_verified_at,admin_rejected_at)",
+      )
+      .eq("status", "active")
+      .is("checkout_date", null),
     searchParams,
   ]);
 
@@ -136,6 +207,18 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       return grouped;
     },
     {},
+  );
+  const fingerprintGrants = (fingerprintData ?? []) as unknown as SmartLockFingerprintGrant[];
+  const fingerprintGrantsByDeviceId = fingerprintGrants.reduce<Record<string, SmartLockFingerprintGrant[]>>(
+    (grouped, grant) => {
+      (grouped[grant.device_id] ??= []).push(grant);
+      return grouped;
+    },
+    {},
+  );
+  const activeTenancies = (tenancyData ?? []) as unknown as ActiveLockTenancy[];
+  const activeTenancyByRoomId = new Map(
+    activeTenancies.map((tenancy) => [tenancy.room_id, tenancy]),
   );
   const lockSearchText = (params.lockSearch ?? "").trim();
   const lockSearch = lockSearchText.toLocaleLowerCase("en");
@@ -176,7 +259,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
   const numberedRoomLockCount = devices.filter((device) => numberedRoomLockPattern.test(device.provider_lock_name)).length;
-  const errorMessage = error || accessError
+  const errorMessage = error || accessError || fingerprintError || tenancyError
     ? "Smart-device records could not be loaded."
     : params.error === "credentials"
       ? "TTLock has not released or configured the API credentials yet."
@@ -216,6 +299,11 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
               <KeyRound className="h-4 w-4" /> Provision current tenant access
             </Button>
           </form>
+          <form action={syncTTLockFingerprintEnrollments}>
+            <Button disabled={!config.complete || connectedCount !== devices.length} type="submit" variant="outline">
+              <Fingerprint className="h-4 w-4" /> Match enrolled fingerprints
+            </Button>
+          </form>
         </div>
       </div>
 
@@ -229,6 +317,34 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
           <p>{params.synced} installed lock(s) synchronized successfully.</p>
+        </div>
+      ) : null}
+      {params.fingerprintError ? (
+        <div className="flex gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>{params.fingerprintError === "sync" ? "TTLock fingerprints could not be synchronized." : params.fingerprintError}</p>
+        </div>
+      ) : null}
+      {params.fingerprintInvited ? (
+        <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>
+            Fingerprint setup instructions were sent to {params.fingerprintInvited}. Enrollment reference: <strong>{params.fingerprintCode}</strong>.
+          </p>
+        </div>
+      ) : null}
+      {params.fingerprintExisting ? (
+        <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+          <Fingerprint className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>{params.fingerprintExisting} already has linked fingerprint access, so no re-enrollment message was sent.</p>
+        </div>
+      ) : null}
+      {params.fingerprintMatched !== undefined ? (
+        <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+          <Fingerprint className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>
+            Fingerprint matching finished: {params.fingerprintMatched} activated, {params.fingerprintSkipped ?? "0"} still waiting for physical enrollment, and {params.fingerprintErrors ?? "0"} error(s).
+          </p>
         </div>
       ) : null}
       {accessAttempted ? (
@@ -250,12 +366,13 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <SummaryCard icon={Link2} label="TTLock integration" value={config.complete ? "Ready to sync" : "Under review"} />
         <SummaryCard icon={LockKeyhole} label="Installed locks" value={String(devices.length)} />
         <SummaryCard icon={Building2} label="Room locks assigned" value={`${assignedCount} / ${numberedRoomLockCount}`} />
         <SummaryCard icon={Router} label="Live connected" value={`${connectedCount} / ${devices.length}`} />
         <SummaryCard icon={KeyRound} label="Active tenant credentials" value={String(accessGrants.length)} />
+        <SummaryCard icon={Fingerprint} label="Fingerprint records" value={String(fingerprintGrants.length)} />
       </div>
 
       {!config.complete ? (
@@ -312,6 +429,29 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             <div className="overflow-hidden rounded-lg border border-gray-200">
               {visibleDevices.map((device) => {
                 const lockAccess = accessGrantsByDeviceId[device.id] ?? [];
+                const lockFingerprints = fingerprintGrantsByDeviceId[device.id] ?? [];
+                const roomTenancy = device.room_id
+                  ? activeTenancyByRoomId.get(device.room_id) ?? null
+                  : null;
+                const roomTenant = relatedOne(roomTenancy?.tenants ?? null);
+                const roomAgreements = roomTenancy
+                  ? Array.isArray(roomTenancy.tenancy_agreements)
+                    ? roomTenancy.tenancy_agreements
+                    : roomTenancy.tenancy_agreements
+                      ? [roomTenancy.tenancy_agreements]
+                      : []
+                  : [];
+                const fingerprintEligible = Boolean(
+                  roomTenancy
+                    && roomTenant?.profile_id
+                    && roomTenant.phone
+                    && roomAgreements.some(
+                      (agreement) =>
+                        agreement.signed_at
+                        && agreement.admin_verified_at
+                        && !agreement.admin_rejected_at,
+                    ),
+                );
 
                 return (
                     <details className="group border-b border-gray-200 last:border-b-0" key={device.id} name="installed-locks">
@@ -336,9 +476,9 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                           </span>
                         </div>
                         <div>
-                          {lockAccess.length ? (
+                          {lockAccess.length || lockFingerprints.length ? (
                             <Badge className="bg-emerald-100 text-emerald-800">
-                              {lockAccess.length} active access
+                              {lockAccess.length} code · {lockFingerprints.length} fingerprint
                             </Badge>
                           ) : (
                             <span className="text-xs text-gray-500">No active access</span>
@@ -434,6 +574,73 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                             This lock has no active tenant access.
                           </p>
                         )}
+
+                        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="flex items-center gap-2 text-sm font-semibold text-blue-950">
+                                <Fingerprint className="h-4 w-4" /> Fingerprint access
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-blue-800">
+                                Physical enrollment happens at this lock. DEKEZ stores the TTLock record number and validity only, never the fingerprint image.
+                              </p>
+                            </div>
+                            {device.access_scope === "room_entry" && roomTenancy ? (
+                              <form action={sendFingerprintEnrollmentInvite}>
+                                <input name="tenancyId" type="hidden" value={roomTenancy.id} />
+                                <Button disabled={!fingerprintEligible} size="sm" type="submit">
+                                  <Fingerprint className="h-4 w-4" /> Send setup WhatsApp
+                                </Button>
+                              </form>
+                            ) : null}
+                          </div>
+
+                          {device.access_scope === "room_entry" && roomTenancy && !fingerprintEligible ? (
+                            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                              {roomTenant?.full_name ?? "This tenant"} needs an active portal phone and a signed, Admin-verified tenancy agreement before fingerprint setup can be sent.
+                            </p>
+                          ) : null}
+
+                          {lockFingerprints.length ? (
+                            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                              {lockFingerprints.map((grant) => {
+                                const tenancy = relatedOne(grant.tenancies);
+                                const tenant = relatedOne(tenancy?.tenants ?? null);
+                                return (
+                                  <div className="rounded-md border border-blue-100 bg-white p-3" key={grant.id}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="font-semibold text-gray-950">{tenant?.full_name ?? "Tenant"}</p>
+                                      <Badge className={fingerprintStatusClass(grant.credential_state)}>
+                                        {grant.credential_state.replaceAll("_", " ")}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                                      <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">Reference</p>
+                                        <code className="mt-1 inline-block rounded bg-gray-100 px-2 py-1 font-bold tracking-widest text-gray-950">
+                                          {grant.enrollment_code}
+                                        </code>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">TTLock name</p>
+                                        <p className="mt-1 font-medium text-gray-900">{grant.fingerprint_name ?? "Waiting for enrollment"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">Valid until</p>
+                                        <p className="mt-1 text-gray-900">{dateTimeLabel(grant.valid_until)}</p>
+                                      </div>
+                                    </div>
+                                    {grant.last_error ? <p className="mt-2 text-xs text-red-700">{grant.last_error}</p> : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="mt-3 rounded-md border border-dashed border-blue-200 bg-white p-3 text-sm text-blue-800">
+                              No fingerprint record is linked to this lock yet.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </details>
                 );
@@ -489,22 +696,22 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <div className="grid gap-4 md:grid-cols-3">
             <AccessRule
               number="1"
-              title="Check-in creates two credentials"
-              text="DEKEZ creates one personal password for the shared main entrance and one personal password for the tenant's assigned room."
+              title="Verified TA opens enrollment"
+              text="After the tenant signs and Admin verifies the TA, DEKEZ sends one WhatsApp reference for physical fingerprint enrollment at the main entrance and assigned room lock."
             />
             <AccessRule
               number="2"
-              title="Access follows the tenancy"
-              text="Both credentials start on check-in and use the same verified tenancy end date. Another tenant receives different passwords."
+              title="Payment renews the same finger"
+              text="A verified rental payment extends the same fingerprint for another 30-day cycle. A pending payment slip prevents an overdue suspension while Admin reviews it."
             />
             <AccessRule
               number="3"
-              title="Checkout revokes both"
-              text="When checkout is confirmed, DEKEZ queues both the main-door and room-door passwords for removal and retains the audit record."
+              title="Overdue and checkout are controlled"
+              text="Seven days overdue with no pending slip suspends entry. Verified payment reopens it; checkout deletes the fingerprint from both locks and retains the audit record."
             />
           </div>
           <p className="mt-4 rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-600">
-            All {devices.length} installed lock(s) are live, gateway-connected and compatible with V4 passcodes. Expired tenancies are deliberately skipped until their renewal end date is confirmed.
+            Fingerprints are captured only by the physical TTLock hardware. DEKEZ stores provider record IDs, dates and audit events—not biometric images or templates.
           </p>
         </CardContent>
       </Card>
@@ -519,7 +726,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             <NextStep number="2" title="Secrets secured" text="The API credentials are encrypted in Vercel and never sent to the browser." />
             <NextStep number="3" title="Installed locks connected" text="Live IDs, battery, gateway and V4 support are confirmed." />
             <NextStep number="4" title="Rooms mapped" text="The main entrance and numbered BDS room locks are linked." />
-            <NextStep number="5" title="Automation enabled" text="Check-in creates both passwords; renewal extends both; checkout revokes both." />
+            <NextStep number="5" title="Fingerprint lifecycle" text="Signed TA enables setup; verified rent extends access; overdue policy suspends; checkout deletes." />
           </ol>
         </CardContent>
       </Card>

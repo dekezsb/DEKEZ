@@ -15,6 +15,7 @@ import {
 } from "@/lib/payments/payment-purpose";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { extendFingerprintAccessAfterPayment } from "@/lib/ttlock/fingerprint";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -679,6 +680,27 @@ export async function verifyRentSubmission(formData: FormData) {
     new_paid_amount: newPaidAmount,
     reason: submission.reference_number || "Tenant payment proof verified",
   });
+
+  const fingerprintResult = bill.tenancy_id
+    ? await extendFingerprintAccessAfterPayment({
+        tenancyId: bill.tenancy_id,
+        paymentSubmissionId: submission.id,
+        performedBy: user.id,
+      }).catch((fingerprintError) => {
+        console.error("Verified rent could not update TTLock fingerprint access.", {
+          tenancyId: bill.tenancy_id,
+          paymentSubmissionId: submission.id,
+          error: fingerprintError,
+        });
+        return null;
+      })
+    : null;
+  if (fingerprintResult?.errors.length) {
+    console.error("Some TTLock fingerprint credentials need attention.", {
+      tenancyId: bill.tenancy_id,
+      errors: fingerprintResult.errors,
+    });
+  }
 
   revalidatePath("/rent-due-tracker");
   revalidatePath("/dashboard");

@@ -21,6 +21,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { createRentChangeAgreement } from "@/lib/tenancy/agreement";
 import { convertTenantApplication } from "@/lib/tenancy/convert-application";
+import { extendFingerprintAccessAfterPayment } from "@/lib/ttlock/fingerprint";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -813,6 +814,27 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
       if (adjustmentError) {
         redirect(withResult(returnTo, "error=recurring_rent"));
+      }
+    }
+
+    if (rentBillId) {
+      const fingerprintResult = await extendFingerprintAccessAfterPayment({
+        tenancyId: tenancy.id,
+        paymentSubmissionId: submission.id,
+        performedBy: user.id,
+      }).catch((fingerprintError) => {
+        console.error("Verified payment could not update TTLock fingerprint access.", {
+          tenancyId: tenancy.id,
+          paymentSubmissionId: submission.id,
+          error: fingerprintError,
+        });
+        return null;
+      });
+      if (fingerprintResult?.errors.length) {
+        console.error("Some TTLock fingerprint credentials need attention.", {
+          tenancyId: tenancy.id,
+          errors: fingerprintResult.errors,
+        });
       }
     }
   } else {
