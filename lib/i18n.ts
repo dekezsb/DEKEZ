@@ -11,6 +11,7 @@ export const localeNames: Record<AppLocale, string> = {
 
 const messages = {
   en: {
+    "nav.smartDevices": "Smart Devices",
     "portal.tenant": "Tenant Portal",
     "portal.management": "Management Portal",
     "portal.rental": "Rental Management System",
@@ -45,6 +46,7 @@ const messages = {
     "nav.bills": "Bills",
   },
   ms: {
+    "nav.smartDevices": "Peranti Pintar",
     "portal.tenant": "Portal Penyewa",
     "portal.management": "Portal Pengurusan",
     "portal.rental": "Sistem Pengurusan Sewaan",
@@ -79,6 +81,7 @@ const messages = {
     "nav.bills": "Bil",
   },
   zh: {
+    "nav.smartDevices": "Smart Devices",
     "portal.tenant": "租户门户",
     "portal.management": "管理门户",
     "portal.rental": "租赁管理系统",
@@ -113,6 +116,7 @@ const messages = {
     "nav.bills": "账单",
   },
   ta: {
+    "nav.smartDevices": "Smart Devices",
     "portal.tenant": "வாடகையாளர் தளம்",
     "portal.management": "நிர்வாக தளம்",
     "portal.rental": "வாடகை மேலாண்மை அமைப்பு",
@@ -157,4 +161,3 @@ export function translate(locale: AppLocale, key: TranslationKey) {
 export function isAppLocale(value: string | null): value is AppLocale {
   return supportedLocales.includes(value as AppLocale);
 }
-
