@@ -36,6 +36,7 @@ const errorMessages: Record<string, string> = {
   proof_upload: "Payment receipt upload failed.",
   proof_create: "Payment proof could not be submitted.",
   proof_closed: "This rental invoice is already closed and cannot accept another payment slip.",
+  proof_early: "This invoice is not available yet. It will open 7 days before its due date.",
 };
 
 export default async function PaymentsPage({ searchParams }: PaymentsPageProps) {

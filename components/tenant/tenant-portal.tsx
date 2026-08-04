@@ -620,7 +620,7 @@ export function TenantBills({
         <CardHeader>
           <CardTitle>Monthly Rental Invoices</CardTitle>
           <CardDescription>
-            View, print, or save every monthly invoice.
+            Each monthly invoice appears 7 days before its due date.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

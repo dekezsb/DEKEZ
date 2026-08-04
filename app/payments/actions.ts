@@ -8,6 +8,7 @@ import {
   getVerifiedDepositPaymentMaps,
   verifiedDepositPaid,
 } from "@/lib/invoices/deposit-payments";
+import { isTenantInvoiceVisible } from "@/lib/billing/tenant-invoice-visibility";
 import {
   isPaymentPurpose,
   type PaymentPurpose,
@@ -202,13 +203,17 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
 
   const { data: bill } = await supabase
     .from("rent_bills")
-    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, amount, deposit_amount, paid_amount, status")
+    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, due_date, amount, deposit_amount, paid_amount, status")
     .eq("id", rentBillId)
     .in("tenancy_id", tenancyIds)
     .maybeSingle();
 
   if (!bill) {
     redirect("/payments?error=proof_missing");
+  }
+
+  if (!isTenantInvoiceVisible(bill.due_date)) {
+    redirect("/payments?error=proof_early");
   }
 
   if (["cancelled", "waived"].includes(String(bill.status))) {

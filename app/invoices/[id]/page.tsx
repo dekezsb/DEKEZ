@@ -1,6 +1,6 @@
 import { ArrowLeft, CheckCircle2, Paperclip } from "lucide-react";
 import { Link } from "@/components/app-link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
 import { InvoicePrintButton } from "@/components/invoices/invoice-print-button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import {
   ringgitInWords,
 } from "@/lib/invoices/format";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { isTenantInvoiceVisible } from "@/lib/billing/tenant-invoice-visibility";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -37,6 +38,10 @@ export default async function RentalInvoicePage({ params }: PageProps) {
 
   if (!invoice) {
     notFound();
+  }
+
+  if (role === "tenant" && !isTenantInvoiceVisible(invoice.dueDate)) {
+    redirect("/payments?error=proof_early");
   }
 
   const month = invoiceMonth(invoice.billMonth);

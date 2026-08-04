@@ -6,6 +6,7 @@ import {
   getVerifiedDepositPaymentMaps,
   verifiedDepositPaid,
 } from "@/lib/invoices/deposit-payments";
+import { tenantInvoiceVisibilityCutoffDate } from "@/lib/billing/tenant-invoice-visibility";
 
 type Relation<T> = T | T[] | null;
 
@@ -291,18 +292,21 @@ export async function getTenantPortalData() {
 
   const billColumns =
     "id, tenancy_id, property_id, room_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, deposit_amount, paid_amount, status, created_at, properties(name), rooms(name, room_number)";
+  const tenantInvoiceCutoffDate = tenantInvoiceVisibilityCutoffDate();
   const [tenancyBillsResult, directBillsResult] = await Promise.all([
     tenancyIds.length
       ? dataClient
           .from("rent_bills")
           .select(billColumns)
           .in("tenancy_id", tenancyIds)
+          .lte("due_date", tenantInvoiceCutoffDate)
           .order("bill_month", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     dataClient
       .from("rent_bills")
       .select(billColumns)
       .eq("tenant_id", user.id)
+      .lte("due_date", tenantInvoiceCutoffDate)
       .order("bill_month", { ascending: false }),
   ]);
   bills = Array.from(
