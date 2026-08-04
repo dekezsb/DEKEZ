@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import {
   AlertTriangle,
   BatteryCharging,
@@ -65,7 +66,7 @@ type SmartLockAccessGrant = {
   credential_state: string;
   valid_from: string;
   valid_until: string;
-  smart_lock_devices: Relation<{ provider_lock_name: string }>;
+  smart_lock_devices: Relation<{ id: string; provider_lock_name: string }>;
   tenancies: Relation<{ tenants: Relation<{ full_name: string }> }>;
   rooms: Relation<{ name: string | null; room_number: string | null }>;
 };
@@ -118,7 +119,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     admin
       .from("smart_lock_access_grants")
       .select(
-        "id,access_scope,keyboard_password,credential_state,valid_from,valid_until,smart_lock_devices(provider_lock_name),tenancies(tenants(full_name)),rooms(name,room_number)",
+        "id,access_scope,keyboard_password,credential_state,valid_from,valid_until,smart_lock_devices(id,provider_lock_name),tenancies(tenants(full_name)),rooms(name,room_number)",
       )
       .eq("credential_state", "active")
       .order("valid_until"),
@@ -131,6 +132,15 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     rooms: relatedOne(device.rooms),
   }));
   const accessGrants = (accessData ?? []) as unknown as SmartLockAccessGrant[];
+  const accessGrantsByDeviceId = accessGrants.reduce<Record<string, SmartLockAccessGrant[]>>(
+    (grouped, grant) => {
+      const device = relatedOne(grant.smart_lock_devices);
+      if (!device?.id) return grouped;
+      (grouped[device.id] ??= []).push(grant);
+      return grouped;
+    },
+    {},
+  );
   const config = getTTLockConfigStatus();
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
@@ -235,7 +245,9 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
             <CardTitle>Installed BDS locks</CardTitle>
-            <p className="mt-1 text-sm text-gray-500">Numbered lock names are matched to the same BDS room number. Main Office stays as a property lock.</p>
+            <p className="mt-1 text-sm text-gray-500">
+              Each lock shows its own current tenant access directly below the device details.
+            </p>
           </div>
           <Badge>{devices.length} devices</Badge>
         </CardHeader>
@@ -255,117 +267,113 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {devices.map((device) => (
-                  <TableRow key={device.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2 font-semibold text-gray-950">
-                        <KeyRound className="h-4 w-4 text-[#b8892c]" />
-                        {device.provider_lock_name}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <p className="font-medium text-gray-900">{device.properties?.name ?? "Not assigned"}</p>
-                      <p className="text-xs text-amber-700">
-                        {device.rooms?.name || device.rooms?.room_number || (device.access_scope === "property_entry" ? "Common / main entrance" : "Room confirmation required")}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={device.access_scope === "property_entry" ? "bg-blue-100 text-blue-800" : "bg-violet-100 text-violet-800"}>
-                        {device.access_scope === "property_entry" ? "Shared main entrance" : "Individual room"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
-                        <BatteryCharging className="h-4 w-4 text-emerald-600" />
-                        {device.battery_level === null ? "Not checked" : `${device.battery_level}%`}
-                      </span>
-                    </TableCell>
-                    <TableCell>{device.has_gateway === null ? "Not checked" : device.has_gateway ? "Installed" : "Not installed"}</TableCell>
-                    <TableCell>
-                      <Badge className={statusClass(device.sync_status)}>
-                        {statusLabels[device.sync_status] ?? device.sync_status}
-                      </Badge>
-                      {device.last_sync_error ? <p className="mt-1 max-w-56 text-xs text-red-600">{device.last_sync_error}</p> : null}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {dateTimeLabel(device.last_synced_at ?? device.snapshot_captured_at)}
-                    </TableCell>
-                    <TableCell>
-                      <Button disabled size="sm" variant="outline">
-                        <CheckCircle2 className="h-4 w-4" /> {device.sync_status === "connected" ? "Connected" : "Unavailable"}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-              No smart locks have been added yet.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+                {devices.map((device) => {
+                  const lockAccess = accessGrantsByDeviceId[device.id] ?? [];
 
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div>
-            <CardTitle>Live tenant door access</CardTitle>
-            <p className="mt-1 text-sm text-gray-500">
-              Each eligible tenant receives a separate main-entrance passcode and room passcode. Only that tenant and Super Admin can view it.
-            </p>
-          </div>
-          <Badge>{accessGrants.length} active</Badge>
-        </CardHeader>
-        <CardContent>
-          {accessGrants.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tenant</TableHead>
-                  <TableHead>Door</TableHead>
-                  <TableHead>Access</TableHead>
-                  <TableHead>Passcode</TableHead>
-                  <TableHead>Valid from</TableHead>
-                  <TableHead>Valid until</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {accessGrants.map((grant) => {
-                  const tenancy = relatedOne(grant.tenancies);
-                  const tenant = relatedOne(tenancy?.tenants ?? null);
-                  const device = relatedOne(grant.smart_lock_devices);
-                  const room = relatedOne(grant.rooms);
                   return (
-                    <TableRow key={grant.id}>
-                      <TableCell className="font-semibold text-gray-950">
-                        {tenant?.full_name ?? "Tenant"}
-                      </TableCell>
-                      <TableCell>{device?.provider_lock_name?.trim() ?? "TTLock"}</TableCell>
-                      <TableCell>
-                        {grant.access_scope === "property_entry"
-                          ? "Main entrance"
-                          : room?.room_number ?? room?.name ?? "Room"}
-                      </TableCell>
-                      <TableCell>
-                        <code className="rounded bg-gray-100 px-2 py-1 text-base font-bold tracking-widest text-gray-950">
-                          {grant.keyboard_password ?? "Pending"}
-                        </code>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{dateTimeLabel(grant.valid_from)}</TableCell>
-                      <TableCell className="whitespace-nowrap">{dateTimeLabel(grant.valid_until)}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-emerald-100 text-emerald-800">Active</Badge>
-                      </TableCell>
-                    </TableRow>
+                    <Fragment key={device.id}>
+                      <TableRow>
+                        <TableCell>
+                          <div className="flex items-center gap-2 font-semibold text-gray-950">
+                            <KeyRound className="h-4 w-4 text-[#b8892c]" />
+                            {device.provider_lock_name}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <p className="font-medium text-gray-900">{device.properties?.name ?? "Not assigned"}</p>
+                          <p className="text-xs text-amber-700">
+                            {device.rooms?.name || device.rooms?.room_number || (device.access_scope === "property_entry" ? "Common / main entrance" : "Room confirmation required")}
+                          </p>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={device.access_scope === "property_entry" ? "bg-blue-100 text-blue-800" : "bg-violet-100 text-violet-800"}>
+                            {device.access_scope === "property_entry" ? "Shared main entrance" : "Individual room"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
+                            <BatteryCharging className="h-4 w-4 text-emerald-600" />
+                            {device.battery_level === null ? "Not checked" : `${device.battery_level}%`}
+                          </span>
+                        </TableCell>
+                        <TableCell>{device.has_gateway === null ? "Not checked" : device.has_gateway ? "Installed" : "Not installed"}</TableCell>
+                        <TableCell>
+                          <Badge className={statusClass(device.sync_status)}>
+                            {statusLabels[device.sync_status] ?? device.sync_status}
+                          </Badge>
+                          {device.last_sync_error ? <p className="mt-1 max-w-56 text-xs text-red-600">{device.last_sync_error}</p> : null}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {dateTimeLabel(device.last_synced_at ?? device.snapshot_captured_at)}
+                        </TableCell>
+                        <TableCell>
+                          <Button disabled size="sm" variant="outline">
+                            <CheckCircle2 className="h-4 w-4" /> {device.sync_status === "connected" ? "Connected" : "Unavailable"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      {lockAccess.length ? (
+                        <TableRow className="bg-gray-50/70 hover:bg-gray-50/70">
+                          <TableCell className="px-4 pb-5 pt-0" colSpan={8}>
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+                                  <KeyRound className="h-4 w-4" /> Current tenant access
+                                </p>
+                                <Badge className="bg-emerald-100 text-emerald-800">
+                                  {lockAccess.length} active
+                                </Badge>
+                              </div>
+                              <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                                {lockAccess.map((grant) => {
+                                  const tenancy = relatedOne(grant.tenancies);
+                                  const tenant = relatedOne(tenancy?.tenants ?? null);
+                                  const room = relatedOne(grant.rooms);
+
+                                  return (
+                                    <div className="rounded-md border border-emerald-100 bg-white p-3" key={grant.id}>
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <p className="font-semibold text-gray-950">{tenant?.full_name ?? "Tenant"}</p>
+                                        <Badge className="bg-emerald-100 text-emerald-800">Active</Badge>
+                                      </div>
+                                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                                        <div>
+                                          <p className="text-xs uppercase tracking-wide text-gray-500">Access</p>
+                                          <p className="mt-1 font-medium text-gray-900">
+                                            {grant.access_scope === "property_entry"
+                                              ? "Main entrance"
+                                              : room?.room_number ?? room?.name ?? "Room"}
+                                          </p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs uppercase tracking-wide text-gray-500">Passcode</p>
+                                          <code className="mt-1 inline-block rounded bg-gray-100 px-2 py-1 font-bold tracking-widest text-gray-950">
+                                            {grant.keyboard_password ?? "Pending"}
+                                          </code>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs uppercase tracking-wide text-gray-500">Valid period</p>
+                                          <p className="mt-1 text-gray-900">
+                                            {dateTimeLabel(grant.valid_from)} – {dateTimeLabel(grant.valid_until)}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
                   );
                 })}
               </TableBody>
             </Table>
           ) : (
             <p className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-              No active tenant passcodes yet. Use Provision current tenant access after confirming the tenancy end dates.
+              No smart locks have been added yet.
             </p>
           )}
         </CardContent>
