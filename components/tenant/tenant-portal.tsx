@@ -189,36 +189,16 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
                 }))}
               />
 
-              <fieldset>
-                <legend className="text-sm font-semibold text-gray-800">
-                  How did you pay?
-                </legend>
-                <div className="mt-2 grid grid-cols-2 gap-3">
-                  <label className="cursor-pointer">
-                    <input
-                      className="peer sr-only"
-                      defaultChecked
-                      name="paymentMethod"
-                      type="radio"
-                      value="bank_transfer"
-                    />
-                    <span className="flex h-12 items-center justify-center rounded-md border border-[#cfd8e5] bg-white font-medium peer-checked:border-[#b8892c] peer-checked:bg-[#f6edd9] peer-checked:text-[#8a641d]">
-                      Online transfer
-                    </span>
-                  </label>
-                  <label className="cursor-pointer">
-                    <input
-                      className="peer sr-only"
-                      name="paymentMethod"
-                      type="radio"
-                      value="cash"
-                    />
-                    <span className="flex h-12 items-center justify-center rounded-md border border-[#cfd8e5] bg-white font-medium peer-checked:border-[#b8892c] peer-checked:bg-[#f6edd9] peer-checked:text-[#8a641d]">
-                      Cash
-                    </span>
-                  </label>
+              <input name="paymentMethod" type="hidden" value="online_payment" />
+              <div className="flex items-start gap-3 rounded-md border border-[#d8c28c] bg-[#fbf8f1] p-4">
+                <Banknote className="mt-0.5 h-5 w-5 shrink-0 text-[#b8892c]" />
+                <div>
+                  <p className="font-semibold text-gray-950">Online Payment Only</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Pay by online bank transfer or DuitNow, then upload the payment slip below. Cash payments are not accepted.
+                  </p>
                 </div>
-              </fieldset>
+              </div>
 
               <label className="block">
                 <span className="text-sm font-semibold text-gray-800">

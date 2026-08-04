@@ -284,7 +284,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
       payment_type: paymentPurpose,
       amount,
       payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
-      payment_method: textValue(formData, "paymentMethod") || "bank_transfer",
+      payment_method: "online_payment",
       reference_number: textValue(formData, "referenceNumber") || null,
       receipt_url: path,
       verification_status: "pending_verification",

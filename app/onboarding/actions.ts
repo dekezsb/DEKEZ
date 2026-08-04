@@ -196,9 +196,22 @@ export async function submitCheckInPayment(formData: FormData) {
 
   const applicationId = textValue(formData, "applicationId");
   const amount = numberValue(formData, "amount");
+  const paymentType = textValue(formData, "paymentType") || "rental_deposit";
   const receipt = fileValue(formData, "receipt");
+  const allowedPaymentTypes = [
+    "rental_deposit",
+    "utility_deposit",
+    "first_month_rental",
+    "access_card_deposit",
+    "other_check_in_charges",
+  ];
 
-  if (!applicationId || amount <= 0 || !receipt) {
+  if (
+    !applicationId ||
+    amount <= 0 ||
+    !receipt ||
+    !allowedPaymentTypes.includes(paymentType)
+  ) {
     redirect("/onboarding?error=payment_missing");
   }
 
@@ -235,10 +248,10 @@ export async function submitCheckInPayment(formData: FormData) {
       unit_id: application.unit_id,
       room_id: application.room_id,
       bill_type: "check_in",
-      payment_type: textValue(formData, "paymentType") || "rental_deposit",
+      payment_type: paymentType,
       amount,
       payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
-      payment_method: textValue(formData, "paymentMethod") || "bank_transfer",
+      payment_method: "online_payment",
       reference_number: textValue(formData, "referenceNumber") || null,
       receipt_url: path,
       verification_status: "pending_verification",
