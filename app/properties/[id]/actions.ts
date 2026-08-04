@@ -1347,25 +1347,15 @@ export async function checkoutRoom(formData: FormData) {
     .eq("id", roomId)
     .eq("property_id", property.id)
     .maybeSingle();
+  if (!room) {
+    redirect("/properties");
+  }
   const { data: activeTenancies } = await supabase
     .from("tenancies")
     .select("id")
     .eq("room_id", roomId)
     .eq("status", "active");
   const tenancyIds = (activeTenancies ?? []).map((tenancy) => tenancy.id);
-  const { data: agreements } = tenancyIds.length
-    ? await supabase
-        .from("tenancy_agreements")
-        .select("id, pdf_url")
-        .in("tenancy_id", tenancyIds)
-    : { data: [] };
-  const agreementIds = (agreements ?? []).map((agreement) => agreement.id);
-  const { data: signatures } = agreementIds.length
-    ? await supabase
-        .from("tenancy_agreement_signatures")
-        .select("signature_url")
-        .in("agreement_id", agreementIds)
-    : { data: [] };
 
   try {
     await Promise.all(
@@ -1396,6 +1386,8 @@ export async function checkoutRoom(formData: FormData) {
         billing_status: "completed",
         end_date: checkoutDate,
         contract_end: checkoutDate,
+        tenancy_end_date: checkoutDate,
+        renewal_status: "not_renewing",
       })
       .eq("room_id", roomId)
       .eq("status", "active"),
@@ -1408,43 +1400,7 @@ export async function checkoutRoom(formData: FormData) {
       .from("rooms")
       .update({ status: "vacant", current_tenancy_id: null })
       .eq("id", roomId),
-    supabase
-      .from("rent_bills")
-      .update({ status: "cancelled" })
-      .eq("room_id", roomId)
-      .gt("due_date", checkoutDate)
-      .in("status", ["draft", "unpaid", "overdue"]),
   ]);
-  const agreementPdfPaths = (agreements ?? [])
-    .map((agreement) => agreement.pdf_url)
-    .filter((path): path is string => Boolean(path));
-  const signaturePaths = (signatures ?? [])
-    .map((signature) => signature.signature_url)
-    .filter((path): path is string => Boolean(path));
-  await Promise.all([
-    agreementPdfPaths.length
-      ? supabase.storage
-          .from("tenancy-agreements")
-          .remove(agreementPdfPaths)
-      : Promise.resolve(),
-    signaturePaths.length
-      ? supabase.storage.from("tenancy-signatures").remove(signaturePaths)
-      : Promise.resolve(),
-  ]);
-  if (room?.current_tenancy_id) {
-    await Promise.all([
-      supabase
-        .from("agreement_notifications")
-        .update({ status: "cancelled" })
-        .eq("tenancy_id", room.current_tenancy_id)
-        .eq("status", "pending"),
-      supabase
-        .from("tenancy_agreements")
-        .delete()
-        .eq("tenancy_id", room.current_tenancy_id)
-        .is("signed_at", null),
-    ]);
-  }
   revalidatePath(propertyPath(property.id));
   revalidatePath("/verification");
   revalidatePath("/rent-due-tracker");
