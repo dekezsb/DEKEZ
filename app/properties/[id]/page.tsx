@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ElectricityTopUpPilot } from "@/components/smart-meter/electricity-top-up-pilot";
 import {
   Card,
   CardContent,
@@ -288,29 +287,6 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
           />
         </CardContent>
       </Card>
-
-      <div>
-        <div className="mb-3">
-          <p className="text-xs font-semibold uppercase text-[#b17f19]">
-            Tenant Portal Preview
-          </p>
-          <h2 className="mt-1 text-xl font-semibold text-gray-950">
-            Smart-Meter Top-Up Preview
-          </h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Preview the bank-slip and Admin-verification flow available to active tenants at this property.
-          </p>
-        </div>
-        <ElectricityTopUpPilot
-          adminPreview
-          propertyName={details.property.name}
-          roomName={
-            details.rooms.find((room) => room.status === "occupied")?.roomNumber ??
-            details.rooms[0]?.roomNumber ??
-            "Example room"
-          }
-        />
-      </div>
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
