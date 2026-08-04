@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
+import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 
 type ConvertApplicationOptions = {
   actorId: string;
@@ -304,6 +305,12 @@ export async function convertTenantApplication(
   });
   await createAgreementForTenancy(supabase, tenancy.id, actorId, {
     monthlyRent: Number(application.monthly_rent ?? 0),
+  });
+  await reconcileSmartLockAccessForTenancy(tenancy.id).catch((error) => {
+    console.error("Converted tenancy smart-lock access could not be provisioned.", {
+      tenancyId: tenancy.id,
+      error,
+    });
   });
   return { ok: true, tenancyId: tenancy.id };
 }

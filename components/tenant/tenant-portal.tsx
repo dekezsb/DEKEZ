@@ -10,6 +10,7 @@ import {
   FileText,
   House,
   Image as ImageIcon,
+  KeyRound,
   LockKeyhole,
   Paperclip,
   Phone,
@@ -308,6 +309,56 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
           </Card>
         ))}
       </div>
+
+      {data.lockAccess.length ? (
+        <Card className="border-[#d8c28c]">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Your Door Access</CardTitle>
+                <CardDescription>
+                  Your personal codes work only for the dates shown. Do not share them.
+                </CardDescription>
+              </div>
+              <KeyRound className="h-6 w-6 text-[#b8892c]" />
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            {data.lockAccess.map((access) => (
+              <div
+                className="rounded-lg border border-[#eadcb9] bg-[#fbf8f1] p-4"
+                key={access.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-gray-950">
+                      {access.accessScope === "property_entry"
+                        ? "Main entrance"
+                        : access.roomName ?? "Room door"}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">{access.lockName}</p>
+                  </div>
+                  <Badge className={access.state === "active" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                    {access.state === "active" ? "Active" : "Updating"}
+                  </Badge>
+                </div>
+                <div className="mt-4 rounded-md border border-[#d8c28c] bg-white px-4 py-3 text-center">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Passcode</p>
+                  <p className="mt-1 text-2xl font-bold tracking-[0.3em] text-gray-950">
+                    {access.state === "active" && access.passcode
+                      ? access.passcode
+                      : "Pending"}
+                  </p>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-600">
+                  <p>From<br /><strong className="text-gray-900">{dateTime(access.validFrom)}</strong></p>
+                  <p>Until<br /><strong className="text-gray-900">{dateTime(access.validUntil)}</strong></p>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {data.tenancies.length ? (
         <div className="space-y-4">

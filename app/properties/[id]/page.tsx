@@ -75,6 +75,8 @@ const messages: Record<string, string> = {
   qr_room: "The selected room could not be found.",
   qr_upload: "The room payment QR could not be uploaded.",
   qr_save: "The room payment QR could not be saved.",
+  lock_access:
+    "Checkout was stopped because the tenant's TTLock passcode could not be revoked. Review Smart Devices before trying again.",
 };
 
 function fieldClass() {

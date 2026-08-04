@@ -71,7 +71,7 @@ export async function getTenantPortalData() {
   // Every privileged query below is explicitly scoped from the authenticated
   // profile to its linked tenant and tenancy IDs.
   const dataClient = createAdminClient();
-  const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult, applicationsResult, topUpRequestsResult] =
+  const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult, applicationsResult, topUpRequestsResult, lockAccessResult] =
     await Promise.all([
       dataClient
         .from("profiles")
@@ -121,6 +121,14 @@ export async function getTenantPortalData() {
         )
         .eq("tenant_profile_id", user.id)
         .order("created_at", { ascending: false }),
+      dataClient
+        .from("smart_lock_access_grants")
+        .select(
+          "id,tenancy_id,access_scope,keyboard_password,credential_state,valid_from,valid_until,smart_lock_devices(provider_lock_name),rooms(name,room_number)",
+        )
+        .eq("tenant_profile_id", user.id)
+        .in("credential_state", ["active", "pending_generation", "revoke_pending"])
+        .order("valid_until"),
     ]);
 
   const tenantRecords = tenantRecordsResult.data ?? [];
@@ -571,6 +579,19 @@ export async function getTenantPortalData() {
     topUpRequests: (topUpRequestsResult.data ?? []).map((request) => ({
       ...request,
       amount: numberValue(request.amount),
+    })),
+    lockAccess: (lockAccessResult.data ?? []).map((grant) => ({
+      id: grant.id,
+      tenancyId: grant.tenancy_id,
+      accessScope: grant.access_scope,
+      passcode: grant.keyboard_password,
+      state: grant.credential_state,
+      validFrom: grant.valid_from,
+      validUntil: grant.valid_until,
+      lockName:
+        one(grant.smart_lock_devices)?.provider_lock_name?.trim() ?? "TTLock",
+      roomName:
+        one(grant.rooms)?.room_number ?? one(grant.rooms)?.name ?? null,
     })),
     tickets,
     documents,

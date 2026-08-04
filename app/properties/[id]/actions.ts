@@ -12,6 +12,10 @@ import { getCurrentUser, getProperties } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
+  reconcileSmartLockAccessForTenancy,
+  revokeSmartLockAccessForTenancy,
+} from "@/lib/ttlock/access";
+import {
   formFile,
   isValidTenantDocument,
   type TenantDocumentType,
@@ -1309,6 +1313,12 @@ export async function registerTenant(formData: FormData) {
     tenancyId: tenancy.id,
     includeTenantRecords: false,
   });
+  await reconcileSmartLockAccessForTenancy(tenancy.id).catch((error) => {
+    console.error("New tenancy smart-lock access could not be provisioned.", {
+      tenancyId: tenancy.id,
+      error,
+    });
+  });
   revalidatePath(propertyPath(property.id));
   revalidatePath("/dashboard");
   revalidatePath("/rent-due-tracker");
@@ -1354,6 +1364,25 @@ export async function checkoutRoom(formData: FormData) {
         .select("signature_url")
         .in("agreement_id", agreementIds)
     : { data: [] };
+
+  try {
+    await Promise.all(
+      tenancyIds.map((tenancyId) =>
+        revokeSmartLockAccessForTenancy(tenancyId),
+      ),
+    );
+  } catch (error) {
+    console.error("Checkout stopped because TTLock access was not revoked.", {
+      roomId,
+      tenancyIds,
+      error,
+    });
+    redirect(
+      returnTo === "/verification?view=tenancy"
+        ? "/verification?view=tenancy&checkout=lock"
+        : propertyPath(property.id, "?error=lock_access"),
+    );
+  }
 
   await Promise.all([
     supabase

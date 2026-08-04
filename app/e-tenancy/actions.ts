@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { agreementPdfName } from "@/lib/tenancy/agreement-filename";
 import { loadAgreementAppendixDocuments } from "@/lib/tenancy/agreement-appendix";
 import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
+import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -314,6 +315,15 @@ export async function signAgreement(formData: FormData) {
         agreementId,
         error: renewalUpdateError.message,
       });
+    } else {
+      await reconcileSmartLockAccessForTenancy(agreement.tenancy_id).catch(
+        (error) => {
+          console.error("Renewed tenancy smart-lock access could not be extended.", {
+            tenancyId: agreement.tenancy_id,
+            error,
+          });
+        },
+      );
     }
   }
 

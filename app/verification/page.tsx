@@ -453,6 +453,14 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 }
 
 function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> }) {
+  if (params.checkout === "lock") {
+    return (
+      <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+        Checkout was stopped because one or more TTLock passcodes could not be revoked. Review Smart Devices and try again so the tenant is not left with door access.
+      </div>
+    );
+  }
+
   const success = params.reviewed
     ? "Verification record updated."
     : params.topup_credited

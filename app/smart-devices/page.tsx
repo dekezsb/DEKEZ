@@ -23,12 +23,23 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
-import { syncTTLockTrialDevices } from "./actions";
+import {
+  provisionTTLockAccess,
+  syncTTLockDevices,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
 type SmartDevicesPageProps = {
-  searchParams: Promise<{ error?: string; synced?: string }>;
+  searchParams: Promise<{
+    accessCreated?: string;
+    accessErrors?: string;
+    accessSkipped?: string;
+    accessUnchanged?: string;
+    accessUpdated?: string;
+    error?: string;
+    synced?: string;
+  }>;
 };
 
 type SmartLockDevice = {
@@ -46,6 +57,20 @@ type SmartLockDevice = {
   properties: { name: string; property_code: string | null } | null;
   rooms: { name: string | null; room_number: string | null } | null;
 };
+
+type SmartLockAccessGrant = {
+  id: string;
+  access_scope: "property_entry" | "room_entry";
+  keyboard_password: string | null;
+  credential_state: string;
+  valid_from: string;
+  valid_until: string;
+  smart_lock_devices: Relation<{ provider_lock_name: string }>;
+  tenancies: Relation<{ tenants: Relation<{ full_name: string }> }>;
+  rooms: Relation<{ name: string | null; room_number: string | null }>;
+};
+
+type Relation<T> = T | T[] | null;
 
 const statusLabels: Record<string, string> = {
   awaiting_api_approval: "Awaiting API approval",
@@ -82,7 +107,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
   await requireRole(["super_admin"], { module: "properties", level: "manage" });
 
   const admin = createAdminClient();
-  const [{ data, error }, params] = await Promise.all([
+  const [{ data, error }, { data: accessData, error: accessError }, params] = await Promise.all([
     admin
       .from("smart_lock_devices")
       .select(
@@ -90,6 +115,13 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       )
       .neq("sync_status", "retired")
       .order("provider_lock_name"),
+    admin
+      .from("smart_lock_access_grants")
+      .select(
+        "id,access_scope,keyboard_password,credential_state,valid_from,valid_until,smart_lock_devices(provider_lock_name),tenancies(tenants(full_name)),rooms(name,room_number)",
+      )
+      .eq("credential_state", "active")
+      .order("valid_until"),
     searchParams,
   ]);
 
@@ -98,17 +130,29 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     properties: relatedOne(device.properties),
     rooms: relatedOne(device.rooms),
   }));
+  const accessGrants = (accessData ?? []) as unknown as SmartLockAccessGrant[];
   const config = getTTLockConfigStatus();
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
   const numberedRoomLockCount = devices.filter((device) => numberedRoomLockPattern.test(device.provider_lock_name)).length;
-  const errorMessage = error
+  const errorMessage = error || accessError
     ? "Smart-device records could not be loaded."
     : params.error === "credentials"
       ? "TTLock has not released or configured the API credentials yet."
       : params.error === "sync"
         ? "TTLock could not be synchronized. No room or tenancy data was changed."
+        : params.error === "access"
+          ? "Current tenant access could not be prepared. No existing passcode was changed."
+          : params.error === "revoke"
+            ? "A TTLock passcode could not be revoked. The access record remains flagged for attention."
         : null;
+  const accessAttempted =
+    params.accessCreated !== undefined ||
+    params.accessUpdated !== undefined ||
+    params.accessUnchanged !== undefined ||
+    params.accessSkipped !== undefined ||
+    params.accessErrors !== undefined;
+  const accessErrors = Number(params.accessErrors ?? 0);
 
   return (
     <section className="space-y-6">
@@ -120,11 +164,18 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             Connect TTLock devices to DEKEZ, confirm their physical rooms, and later automate tenant access from check-in to checkout.
           </p>
         </div>
-        <form action={syncTTLockTrialDevices}>
-          <Button disabled={!config.complete} type="submit">
-            <RefreshCw className="h-4 w-4" /> Sync trial locks
-          </Button>
-        </form>
+        <div className="flex flex-wrap gap-2">
+          <form action={syncTTLockDevices}>
+            <Button disabled={!config.complete} type="submit" variant="outline">
+              <RefreshCw className="h-4 w-4" /> Sync four locks
+            </Button>
+          </form>
+          <form action={provisionTTLockAccess}>
+            <Button disabled={!config.complete || connectedCount !== devices.length} type="submit">
+              <KeyRound className="h-4 w-4" /> Provision current tenant access
+            </Button>
+          </form>
+        </div>
       </div>
 
       {errorMessage ? (
@@ -136,15 +187,34 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       {params.synced ? (
         <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-          <p>{params.synced} trial lock(s) synchronized successfully.</p>
+          <p>{params.synced} installed lock(s) synchronized successfully.</p>
+        </div>
+      ) : null}
+      {accessAttempted ? (
+        <div
+          className={`flex gap-3 rounded-lg border p-4 text-sm ${
+            accessErrors
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+          }`}
+        >
+          {accessErrors ? (
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          ) : (
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+          )}
+          <p>
+            Access reconciliation finished: {params.accessCreated ?? "0"} created, {params.accessUpdated ?? "0"} extended, {params.accessUnchanged ?? "0"} already correct, {params.accessSkipped ?? "0"} expired or not eligible, and {params.accessErrors ?? "0"} error(s).
+          </p>
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard icon={Link2} label="TTLock integration" value={config.complete ? "Ready to sync" : "Under review"} />
-        <SummaryCard icon={LockKeyhole} label="Trial devices" value={String(devices.length)} />
+        <SummaryCard icon={LockKeyhole} label="Installed locks" value={String(devices.length)} />
         <SummaryCard icon={Building2} label="Room locks assigned" value={`${assignedCount} / ${numberedRoomLockCount}`} />
         <SummaryCard icon={Router} label="Live connected" value={`${connectedCount} / ${devices.length}`} />
+        <SummaryCard icon={KeyRound} label="Active tenant credentials" value={String(accessGrants.length)} />
       </div>
 
       {!config.complete ? (
@@ -164,7 +234,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
-            <CardTitle>BDS trial locks</CardTitle>
+            <CardTitle>Installed BDS locks</CardTitle>
             <p className="mt-1 text-sm text-gray-500">Numbered lock names are matched to the same BDS room number. Main Office stays as a property lock.</p>
           </div>
           <Badge>{devices.length} devices</Badge>
@@ -196,7 +266,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                     <TableCell>
                       <p className="font-medium text-gray-900">{device.properties?.name ?? "Not assigned"}</p>
                       <p className="text-xs text-amber-700">
-                        {device.rooms?.name || device.rooms?.room_number || (device.provider_lock_name === "BDS MAIN OFFICE" ? "Common / main office" : "Room confirmation required")}
+                        {device.rooms?.name || device.rooms?.room_number || (device.access_scope === "property_entry" ? "Common / main entrance" : "Room confirmation required")}
                       </p>
                     </TableCell>
                     <TableCell>
@@ -222,7 +292,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                     </TableCell>
                     <TableCell>
                       <Button disabled size="sm" variant="outline">
-                        <LockKeyhole className="h-4 w-4" /> Locked until live sync
+                        <CheckCircle2 className="h-4 w-4" /> {device.sync_status === "connected" ? "Connected" : "Unavailable"}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -232,6 +302,70 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           ) : (
             <p className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
               No smart locks have been added yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle>Live tenant door access</CardTitle>
+            <p className="mt-1 text-sm text-gray-500">
+              Each eligible tenant receives a separate main-entrance passcode and room passcode. Only that tenant and Super Admin can view it.
+            </p>
+          </div>
+          <Badge>{accessGrants.length} active</Badge>
+        </CardHeader>
+        <CardContent>
+          {accessGrants.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tenant</TableHead>
+                  <TableHead>Door</TableHead>
+                  <TableHead>Access</TableHead>
+                  <TableHead>Passcode</TableHead>
+                  <TableHead>Valid from</TableHead>
+                  <TableHead>Valid until</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accessGrants.map((grant) => {
+                  const tenancy = relatedOne(grant.tenancies);
+                  const tenant = relatedOne(tenancy?.tenants ?? null);
+                  const device = relatedOne(grant.smart_lock_devices);
+                  const room = relatedOne(grant.rooms);
+                  return (
+                    <TableRow key={grant.id}>
+                      <TableCell className="font-semibold text-gray-950">
+                        {tenant?.full_name ?? "Tenant"}
+                      </TableCell>
+                      <TableCell>{device?.provider_lock_name?.trim() ?? "TTLock"}</TableCell>
+                      <TableCell>
+                        {grant.access_scope === "property_entry"
+                          ? "Main entrance"
+                          : room?.room_number ?? room?.name ?? "Room"}
+                      </TableCell>
+                      <TableCell>
+                        <code className="rounded bg-gray-100 px-2 py-1 text-base font-bold tracking-widest text-gray-950">
+                          {grant.keyboard_password ?? "Pending"}
+                        </code>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{dateTimeLabel(grant.valid_from)}</TableCell>
+                      <TableCell className="whitespace-nowrap">{dateTimeLabel(grant.valid_until)}</TableCell>
+                      <TableCell>
+                        <Badge className="bg-emerald-100 text-emerald-800">Active</Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="rounded-md border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+              No active tenant passcodes yet. Use Provision current tenant access after confirming the tenancy end dates.
             </p>
           )}
         </CardContent>
@@ -260,22 +394,22 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             />
           </div>
           <p className="mt-4 rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-600">
-            Live creation and removal require compatible V4 passcodes and a connected TTLock gateway. DEKEZ will verify those capabilities during the first live sync.
+            All four installed locks are live, gateway-connected and compatible with V4 passcodes. Expired tenancies are deliberately skipped until their renewal end date is confirmed.
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>What needs to happen next</CardTitle>
+          <CardTitle>Live installation status</CardTitle>
         </CardHeader>
         <CardContent>
           <ol className="grid gap-4 md:grid-cols-5">
-            <NextStep number="1" title="TTLock approves" text="Wait for the developer application review." />
-            <NextStep number="2" title="Secure credentials" text="Save the API keys and TTLock App account only in Vercel." />
-            <NextStep number="3" title="Sync four locks" text="Pull live lock IDs, battery, gateway and feature support." />
-            <NextStep number="4" title="Confirm room names" text="Review that each numbered lock matches the same BDS room number." />
-            <NextStep number="5" title="Enable automation" text="Check-in creates both passwords; renewal extends both; checkout revokes both." />
+            <NextStep number="1" title="API approved" text="The DEKEZ TTLock application is approved and active." />
+            <NextStep number="2" title="Secrets secured" text="The API credentials are encrypted in Vercel and never sent to the browser." />
+            <NextStep number="3" title="Four locks connected" text="Live IDs, battery, gateway and V4 support are confirmed." />
+            <NextStep number="4" title="Rooms mapped" text="The main entrance and numbered BDS room locks are linked." />
+            <NextStep number="5" title="Automation enabled" text="Check-in creates both passwords; renewal extends both; checkout revokes both." />
           </ol>
         </CardContent>
       </Card>
