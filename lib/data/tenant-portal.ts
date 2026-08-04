@@ -71,7 +71,7 @@ export async function getTenantPortalData() {
   // Every privileged query below is explicitly scoped from the authenticated
   // profile to its linked tenant and tenancy IDs.
   const dataClient = createAdminClient();
-  const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult, applicationsResult] =
+  const [profileResult, tenantRecordsResult, submissionsResult, ticketsResult, documentsResult, applicationsResult, topUpRequestsResult] =
     await Promise.all([
       dataClient
         .from("profiles")
@@ -114,6 +114,13 @@ export async function getTenantPortalData() {
         .eq("tenant_id", user.id)
         .order("submitted_at", { ascending: false })
         .limit(1),
+      dataClient
+        .from("smart_meter_top_up_requests")
+        .select(
+          "id, tenancy_id, room_id, meter_id, amount, status, rejection_reason, provider_reference, verified_at, credited_at, created_at",
+        )
+        .eq("tenant_profile_id", user.id)
+        .order("created_at", { ascending: false }),
     ]);
 
   const tenantRecords = tenantRecordsResult.data ?? [];
@@ -561,6 +568,10 @@ export async function getTenantPortalData() {
       amount: numberValue(payment.amount),
     })),
     submissions,
+    topUpRequests: (topUpRequestsResult.data ?? []).map((request) => ({
+      ...request,
+      amount: numberValue(request.amount),
+    })),
     tickets,
     documents,
     agreements,

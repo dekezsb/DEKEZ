@@ -54,6 +54,105 @@ async function adminClient() {
   }
 }
 
+export async function reviewSmartMeterTopUp(formData: FormData) {
+  await requireRole(["super_admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const requestId = textValue(formData, "requestId");
+  const decision = textValue(formData, "decision");
+  const reason = textValue(formData, "reason");
+
+  if (
+    !user ||
+    !requestId ||
+    !["approved", "rejected"].includes(decision) ||
+    (decision === "rejected" && !reason)
+  ) {
+    redirect(verificationPath("meter_topups", "error=topup_review"));
+  }
+
+  const supabase = createAdminClient();
+  const { data: request } = await supabase
+    .from("smart_meter_top_up_requests")
+    .select("id, status")
+    .eq("id", requestId)
+    .maybeSingle();
+
+  if (!request || request.status !== "pending_verification") {
+    redirect(verificationPath("meter_topups", "error=topup_changed"));
+  }
+
+  const now = new Date().toISOString();
+  const { data: reviewedRequest, error } = await supabase
+    .from("smart_meter_top_up_requests")
+    .update({
+      status:
+        decision === "approved"
+          ? "approved_awaiting_top_up"
+          : "rejected",
+      rejection_reason: decision === "rejected" ? reason : null,
+      verified_by: user.id,
+      verified_at: now,
+      updated_at: now,
+    })
+    .eq("id", request.id)
+    .eq("status", "pending_verification")
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    redirect(verificationPath("meter_topups", "error=topup_review"));
+  }
+
+  if (!reviewedRequest) {
+    redirect(verificationPath("meter_topups", "error=topup_changed"));
+  }
+
+  revalidatePath("/verification");
+  revalidatePath("/dashboard");
+  redirect(
+    verificationPath(
+      "meter_topups",
+      decision === "approved" ? "topup_approved=1" : "topup_rejected=1",
+    ),
+  );
+}
+
+export async function confirmSmartMeterCredit(formData: FormData) {
+  await requireRole(["super_admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const requestId = textValue(formData, "requestId");
+  const providerReference = textValue(formData, "providerReference");
+
+  if (!user || !requestId || !providerReference) {
+    redirect(verificationPath("meter_topups", "error=topup_credit_details"));
+  }
+
+  const supabase = createAdminClient();
+  const { error } = await supabase.rpc("confirm_smart_meter_top_up_credit", {
+    request_id: requestId,
+    reviewer_id: user.id,
+    external_reference: providerReference,
+  });
+
+  if (error) {
+    const errorCode = error.message.includes("active_electricity_meter_required")
+      ? "meter_missing"
+      : "topup_credit";
+    redirect(verificationPath("meter_topups", `error=${errorCode}`));
+  }
+
+  revalidatePath("/verification");
+  revalidatePath("/dashboard");
+  revalidatePath("/properties");
+  redirect(verificationPath("meter_topups", "topup_credited=1"));
+}
+
 export async function reviewUserRegistration(formData: FormData) {
   await requireRole(["super_admin", "admin"], {
     module: "verification",

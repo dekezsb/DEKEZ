@@ -4,11 +4,13 @@ import { useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
-  CreditCard,
+  Clock3,
   Gauge,
+  Paperclip,
   ShieldCheck,
   Zap,
 } from "lucide-react";
+import { submitSmartMeterTopUp } from "@/app/smart-meter-top-up/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,20 +31,29 @@ const money = new Intl.NumberFormat("en-MY", {
 type ElectricityTopUpPilotProps = {
   propertyName: string;
   roomName: string;
+  tenancyId?: string | null;
   meterNumber?: string | null;
   remainingCredit?: number | null;
+  latestRequest?: {
+    amount: number;
+    status: string;
+    rejectionReason?: string | null;
+  } | null;
   adminPreview?: boolean;
 };
 
 export function ElectricityTopUpPilot({
   propertyName,
   roomName,
+  tenancyId,
   meterNumber,
   remainingCredit,
+  latestRequest,
   adminPreview = false,
 }: ElectricityTopUpPilotProps) {
   const [selectedAmount, setSelectedAmount] = useState(50);
   const [customAmount, setCustomAmount] = useState("");
+  const [receiptName, setReceiptName] = useState("");
   const [step, setStep] = useState<"choose" | "review" | "complete">("choose");
 
   const parsedCustomAmount = Number(customAmount);
@@ -51,6 +62,10 @@ export function ElectricityTopUpPilot({
       ? parsedCustomAmount
       : selectedAmount;
   const validAmount = amount >= 10 && amount <= 500 && amount % 1 === 0;
+  const openRequest = latestRequest && [
+    "pending_verification",
+    "approved_awaiting_top_up",
+  ].includes(latestRequest.status);
 
   function choosePreset(value: number) {
     setSelectedAmount(value);
@@ -110,7 +125,35 @@ export function ElectricityTopUpPilot({
           </div>
         </div>
 
-        {step === "choose" ? (
+        {openRequest ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <Clock3 className="mt-0.5 h-6 w-6 shrink-0 text-amber-700" />
+              <div>
+                <p className="font-bold text-amber-950">
+                  {latestRequest.status === "pending_verification"
+                    ? "Payment slip pending verification"
+                    : "Payment approved — awaiting meter top-up"}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-amber-900">
+                  {money.format(latestRequest.amount)} will not be added to the
+                  meter until the payment and physical meter credit are both confirmed.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {latestRequest?.status === "rejected" ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <p className="font-semibold">Previous payment slip was rejected.</p>
+            <p className="mt-1">
+              {latestRequest.rejectionReason || "Please attach the correct payment slip and submit again."}
+            </p>
+          </div>
+        ) : null}
+
+        {!openRequest && step === "choose" ? (
           <div className="space-y-5">
             <div>
               <p className="text-sm font-semibold text-gray-900">
@@ -170,11 +213,21 @@ export function ElectricityTopUpPilot({
           </div>
         ) : null}
 
-        {step === "review" ? (
-          <div className="space-y-5">
+        {!openRequest && step === "review" ? (
+          <form
+            action={adminPreview ? undefined : submitSmartMeterTopUp}
+            className="space-y-5"
+            onSubmit={(event) => {
+              if (!adminPreview) return;
+              event.preventDefault();
+              setStep("complete");
+            }}
+          >
+            <input name="tenancyId" type="hidden" value={tenancyId ?? ""} />
+            <input name="amount" type="hidden" value={String(amount)} />
             <div>
               <p className="text-sm font-semibold text-gray-900">
-                2. Check before payment
+                2. Check details and attach your payment slip
               </p>
               <dl className="mt-3 divide-y rounded-lg border border-gray-200 bg-white px-4">
                 <ReviewRow label="Property" value={propertyName} />
@@ -184,11 +237,34 @@ export function ElectricityTopUpPilot({
               </dl>
             </div>
 
+            <label className="block">
+              <span className="text-sm font-semibold text-gray-900">
+                Bank-transfer payment slip
+              </span>
+              <span className="mt-2 flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-4 text-sm text-amber-900">
+                <Paperclip className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 flex-1 font-semibold">
+                  {receiptName || "Choose an image or PDF up to 5 MB"}
+                </span>
+                <input
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="sr-only"
+                  name="paymentSlip"
+                  onChange={(event) =>
+                    setReceiptName(event.target.files?.[0]?.name ?? "")
+                  }
+                  required
+                  type="file"
+                />
+              </span>
+            </label>
+
             <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-              <p className="font-semibold">How the live version will work</p>
+              <p className="font-semibold">Protected verification flow</p>
               <p className="mt-1 leading-6">
-                Pay securely, wait for successful confirmation, then the meter
-                provider adds the credit and returns a transaction reference.
+                Uploading the slip does not top up the meter. DEKEZ must verify
+                the payment first, then confirm the physical meter credit with
+                a provider reference.
               </p>
             </div>
 
@@ -199,26 +275,26 @@ export function ElectricityTopUpPilot({
               </Button>
               <Button
                 className="h-12 bg-amber-500 text-base font-bold text-amber-950 hover:bg-amber-400"
-                onClick={() => setStep("complete")}
-                type="button"
+                disabled={!receiptName || (!adminPreview && !tenancyId)}
+                type="submit"
               >
-                <CreditCard className="h-5 w-5" />
-                Preview secure payment
+                <ShieldCheck className="h-5 w-5" />
+                Submit for verification
               </Button>
             </div>
-          </div>
+          </form>
         ) : null}
 
-        {step === "complete" ? (
+        {!openRequest && step === "complete" ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
             <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-700" />
             <p className="mt-3 text-lg font-bold text-emerald-950">
-              BDS top-up journey is ready for review
+              Payment slip submitted — Pending Verification
             </p>
             <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-emerald-900">
-              This pilot has not charged a card or changed a meter balance. Add
-              the real BDS meter numbers, payment gateway and meter-provider API
-              before activating the final payment button.
+              Preview only: no file was uploaded and no meter balance changed.
+              In the tenant portal, Admin must verify the slip before the meter
+              can be topped up.
             </p>
             <Button
               className="mt-4"

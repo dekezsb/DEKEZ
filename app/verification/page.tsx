@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   UserCheck,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,9 @@ import {
 import {
   requestRenewalSignature,
   rejectSignedAgreementForResign,
+  confirmSmartMeterCredit,
   reviewClaim,
+  reviewSmartMeterTopUp,
   reviewUserRegistration,
   sendAgreementWhatsApp,
   updateAgreementTermRent,
@@ -76,6 +79,9 @@ type PageProps = {
     agreement_rejected?: string;
     resign_sent?: string;
     payout_recorded?: string;
+    topup_approved?: string;
+    topup_rejected?: string;
+    topup_credited?: string;
   }>;
 };
 
@@ -84,6 +90,7 @@ type VerificationView =
   | "tenants"
   | "claims"
   | "agreements"
+  | "meter_topups"
   | "payments";
 
 const views: {
@@ -96,6 +103,7 @@ const views: {
   { key: "claims", label: "Claim Bills", icon: ClipboardCheck },
   { key: "agreements", label: "Signed Agreement Verification", icon: FileSignature },
   { key: "payments", label: "Payment Verification", icon: CreditCard },
+  { key: "meter_topups", label: "Electricity Top-Ups", icon: Zap },
 ];
 
 const errorMessages: Record<string, string> = {
@@ -134,6 +142,11 @@ const errorMessages: Record<string, string> = {
     "The signed agreement could not be rejected. It may already have been reviewed.",
   agreement_replacement_prepare:
     "The replacement agreement could not be prepared safely. The signed copy was not changed.",
+  topup_review: "Choose Approve or Reject and provide a reason when rejecting.",
+  topup_changed: "This electricity top-up request was already reviewed. Refresh and check its latest status.",
+  topup_credit_details: "Enter the meter-provider transaction reference after the physical meter is credited.",
+  topup_credit: "The meter credit could not be recorded. Check the request and provider reference.",
+  meter_missing: "Assign an active BDS electricity meter to this room before confirming the meter credit.",
 };
 
 async function getAdmin() {
@@ -185,6 +198,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     paymentSubmissionsResult,
     profilesResult,
     profileDocumentsResult,
+    smartMeterTopUpsResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -227,6 +241,11 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .from("profile_documents")
       .select("id, profile_id, document_type, file_path, file_name, content_type, verification_status")
       .order("uploaded_at", { ascending: true }),
+    supabase
+      .from("smart_meter_top_up_requests")
+      .select("id, property_id, room_id, tenancy_id, tenant_profile_id, meter_id, amount, payment_slip_bucket, payment_slip_path, payment_slip_name, payment_slip_type, status, rejection_reason, verified_at, credited_at, provider_reference, credit_before, credit_after, created_at, properties(name, property_code), rooms(name, room_number)")
+      .order("created_at", { ascending: false })
+      .limit(100),
   ]);
 
   const users = usersResult.data ?? [];
@@ -241,6 +260,18 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const agreementArchive = await loadTenancyAgreementArchive(supabase);
   const agreements = agreementArchive.agreements;
   const paymentSubmissions = paymentSubmissionsResult.data ?? [];
+  const smartMeterTopUps = await Promise.all(
+    (smartMeterTopUpsResult.data ?? []).map(async (request) => {
+      const { data } = await supabase.storage
+        .from(request.payment_slip_bucket)
+        .createSignedUrl(request.payment_slip_path, 60 * 10);
+      return {
+        ...request,
+        amount: Number(request.amount ?? 0),
+        signedSlipUrl: data?.signedUrl ?? null,
+      };
+    }),
+  );
   const profiles = new Map(
     (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
   );
@@ -327,6 +358,9 @@ export default async function VerificationPage({ searchParams }: PageProps) {
     payments: paymentSubmissions.filter(
       (submission) =>
         submission.verification_status === "pending_verification",
+    ).length,
+    meter_topups: smartMeterTopUps.filter(
+      (request) => request.status === "pending_verification",
     ).length,
   };
   const totalPending = availableViews.reduce(
@@ -444,6 +478,13 @@ export default async function VerificationPage({ searchParams }: PageProps) {
           searchParams={searchParams}
         />
       ) : null}
+
+      {activeView === "meter_topups" ? (
+        <SmartMeterTopUpVerification
+          profiles={profiles}
+          requests={smartMeterTopUps}
+        />
+      ) : null}
     </section>
   );
 }
@@ -451,6 +492,12 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> }) {
   const success = params.reviewed
     ? "Verification record updated."
+    : params.topup_credited
+      ? "Physical meter credit confirmed and recorded with its provider reference."
+    : params.topup_approved
+      ? "Payment verified. The request is awaiting physical meter top-up confirmation."
+    : params.topup_rejected
+      ? "Electricity top-up payment slip rejected. The tenant can submit a replacement."
     : params.agreement_rejected
       ? params.resign_sent === "1"
         ? "Signed agreement rejected. The audit copy was retained, a replacement was created, and the tenant was asked by WhatsApp to sign again."
@@ -486,6 +533,194 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
   }
 
   return null;
+}
+
+type SmartMeterTopUpRequestView = {
+  id: string;
+  property_id: string;
+  room_id: string;
+  tenancy_id: string;
+  tenant_profile_id: string;
+  meter_id: string | null;
+  amount: number;
+  payment_slip_name: string;
+  payment_slip_type: string | null;
+  status: string;
+  rejection_reason: string | null;
+  verified_at: string | null;
+  credited_at: string | null;
+  provider_reference: string | null;
+  credit_before: number | string | null;
+  credit_after: number | string | null;
+  created_at: string;
+  signedSlipUrl: string | null;
+  properties: { name: string; property_code: string | null } | { name: string; property_code: string | null }[] | null;
+  rooms: { name: string | null; room_number: string | null } | { name: string | null; room_number: string | null }[] | null;
+};
+
+function SmartMeterTopUpVerification({
+  profiles,
+  requests,
+}: {
+  profiles: Map<
+    string,
+    {
+      id: string;
+      full_name: string | null;
+      phone: string | null;
+      bank_name: string | null;
+      bank_account_holder: string | null;
+      bank_account_number: string | null;
+    }
+  >;
+  requests: SmartMeterTopUpRequestView[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle>Electricity Top-Up Verification</CardTitle>
+            <CardDescription>
+              Review the BDS bank slip first. Approval never credits the meter by
+              itself; record the provider reference only after the physical meter
+              top-up succeeds.
+            </CardDescription>
+          </div>
+          <Badge>
+            {requests.filter((request) => request.status === "pending_verification").length} pending
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {requests.length ? (
+          requests.map((request) => {
+            const profile = profiles.get(request.tenant_profile_id);
+            const property = single(request.properties);
+            const room = single(request.rooms);
+            const statusLabel = request.status.replaceAll("_", " ");
+
+            return (
+              <article
+                className="rounded-lg border border-[#d7dde5] p-4"
+                key={request.id}
+              >
+                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-lg font-bold text-gray-950">
+                        {money(request.amount)}
+                      </p>
+                      <Badge className={statusBadgeClass(request.status)}>
+                        {statusLabel}
+                      </Badge>
+                      {!request.meter_id ? (
+                        <Badge className="bg-red-100 text-red-700">
+                          Meter not assigned
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 font-semibold text-gray-950">
+                      {profile?.full_name ?? "Tenant"}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {property?.name ?? property?.property_code ?? "BDS"} / {room?.room_number ?? room?.name ?? "Room"}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Submitted {formatMalaysiaDateTime(request.created_at)}
+                      {profile?.phone ? ` / ${profile.phone}` : ""}
+                    </p>
+                  </div>
+                  {request.signedSlipUrl ? (
+                    <Button asChild variant="outline">
+                      <a href={request.signedSlipUrl} rel="noreferrer" target="_blank">
+                        View payment slip
+                      </a>
+                    </Button>
+                  ) : (
+                    <span className="text-sm font-medium text-red-600">
+                      Payment slip unavailable
+                    </span>
+                  )}
+                </div>
+
+                {request.status === "pending_verification" ? (
+                  <form
+                    action={reviewSmartMeterTopUp}
+                    className="mt-4 grid gap-3 border-t border-[#e5e9ef] pt-4 lg:grid-cols-[1fr_auto_auto]"
+                  >
+                    <input name="requestId" type="hidden" value={request.id} />
+                    <input
+                      className="h-11 rounded-md border border-[#d7dde5] px-3 text-sm"
+                      name="reason"
+                      placeholder="Reason required when rejecting"
+                    />
+                    <Button name="decision" type="submit" value="approved">
+                      Verify Payment
+                    </Button>
+                    <Button
+                      className="border-red-200 text-red-600 hover:bg-red-50"
+                      name="decision"
+                      type="submit"
+                      value="rejected"
+                      variant="outline"
+                    >
+                      Reject
+                    </Button>
+                  </form>
+                ) : null}
+
+                {request.status === "approved_awaiting_top_up" ? (
+                  <form
+                    action={confirmSmartMeterCredit}
+                    className="mt-4 grid gap-3 border-t border-[#e5e9ef] pt-4 lg:grid-cols-[1fr_auto]"
+                  >
+                    <input name="requestId" type="hidden" value={request.id} />
+                    <label className="block">
+                      <span className="text-sm font-semibold text-gray-800">
+                        Physical meter/provider reference
+                      </span>
+                      <input
+                        className="mt-1 h-11 w-full rounded-md border border-[#d7dde5] px-3 text-sm"
+                        name="providerReference"
+                        placeholder="Enter only after the meter credit succeeds"
+                        required
+                      />
+                    </label>
+                    <Button
+                      className="self-end bg-emerald-700 text-white hover:bg-emerald-600"
+                      type="submit"
+                    >
+                      Confirm Meter Credited
+                    </Button>
+                  </form>
+                ) : null}
+
+                {request.status === "rejected" ? (
+                  <p className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+                    Rejected: {request.rejection_reason}
+                  </p>
+                ) : null}
+
+                {request.status === "credited" ? (
+                  <div className="mt-4 grid gap-2 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-800 sm:grid-cols-2">
+                    <p>Provider reference: {request.provider_reference}</p>
+                    <p>
+                      Credit: {money(Number(request.credit_before ?? 0))} → {money(Number(request.credit_after ?? 0))}
+                    </p>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })
+        ) : (
+          <p className="text-sm text-gray-500">
+            No BDS electricity top-up slips have been submitted yet.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function SignedAgreementVerification({

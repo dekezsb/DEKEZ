@@ -118,6 +118,8 @@ export default async function DashboardPage({
     renewalBucket?: string;
     renewalResult?: string;
     uploaded?: string;
+    topup_submitted?: string;
+    topup_error?: string;
   }>;
 }) {
   const query = await searchParams;
@@ -136,7 +138,7 @@ export default async function DashboardPage({
     return (
       <>
         <AccessNotice show={query.error === "access_denied"} />
-        <TenantDashboard />
+        <TenantDashboard query={query} />
       </>
     );
   }
@@ -489,9 +491,38 @@ async function AdminDashboard({
   );
 }
 
-async function TenantDashboard() {
+async function TenantDashboard({
+  query,
+}: {
+  query: { topup_submitted?: string; topup_error?: string };
+}) {
   const data = await getTenantPortalData();
-  return data ? <TenantHome data={data} /> : null;
+  if (!data) return null;
+
+  const topUpErrors: Record<string, string> = {
+    invalid: "Choose a valid whole-Ringgit amount and attach an image or PDF slip up to 5 MB.",
+    tenancy: "The selected active tenancy could not be found.",
+    pending: "A top-up request for this room is already being processed.",
+    access: "Electricity top-up is currently available for BDS tenants only.",
+    upload: "The payment slip could not be uploaded. Please try again.",
+    create: "The top-up request could not be created. Please try again.",
+  };
+
+  return (
+    <div className="space-y-5">
+      {query.topup_submitted === "1" ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          Payment slip submitted. The electricity top-up is pending Admin verification.
+        </p>
+      ) : null}
+      {query.topup_error ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {topUpErrors[query.topup_error] ?? "The electricity top-up request could not be submitted."}
+        </p>
+      ) : null}
+      <TenantHome data={data} />
+    </div>
+  );
 }
 
 async function MaintenanceDashboard() {

@@ -318,10 +318,14 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
           {bdsTenancies.map((tenancy) => (
             <ElectricityTopUpPilot
               key={tenancy.id}
+              latestRequest={data.topUpRequests.find(
+                (request) => request.tenancy_id === tenancy.id,
+              )}
               meterNumber={tenancy.electricityMeter?.meterNumber}
               propertyName={tenancy.propertyName}
               remainingCredit={tenancy.electricityMeter?.remainingCredit}
               roomName={tenancy.roomName}
+              tenancyId={tenancy.id}
             />
           ))}
         </div>
