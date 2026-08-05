@@ -43,6 +43,7 @@ import {
   updatePropertyTenancySettings,
 } from "./actions";
 import { AgreementSettingsForm } from "./agreement-settings-form";
+import { QuickCheckoutDialog } from "./quick-checkout-dialog";
 import {
   InlineRoomField,
   InlineTermSelector,
@@ -77,6 +78,10 @@ const messages: Record<string, string> = {
   qr_save: "The room payment QR could not be saved.",
   lock_access:
     "Checkout was stopped because the tenant's TTLock passcode could not be revoked. Review Smart Devices before trying again.",
+  checkout_stale:
+    "Checkout was stopped because this room or tenant changed. Refresh the page and confirm the current tenant before trying again.",
+  checkout_failed:
+    "Checkout could not be completed safely. No new tenant should be registered in this room until an Admin reviews it.",
 };
 
 function fieldClass() {
@@ -183,7 +188,9 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
 
       {query.saved ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-          Changes saved successfully.
+          {query.saved === "checkout"
+            ? "Tenant checked out successfully. The room is now ready for a new tenant."
+            : "Changes saved successfully."}
         </div>
       ) : null}
       {query.error ? (
@@ -351,7 +358,9 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
             <div>
               <CardTitle>Room Management</CardTitle>
-              <CardDescription>One row is one room. Rent and due day save when you leave the field.</CardDescription>
+              <CardDescription>
+                One row is one room. Admin can check out the current tenant directly from Actions.
+              </CardDescription>
             </div>
             {canManage ? (
               <Button asChild>
@@ -714,6 +723,16 @@ function DesktopRoomRow({
               </Link>
             </Button>
           ) : null}
+          {!vacant && canManage && room.tenancyId && room.tenantName ? (
+            <QuickCheckoutDialog
+              checkoutDate={malaysiaDate()}
+              propertyId={propertyId}
+              roomId={room.id}
+              roomNumber={room.roomNumber}
+              tenancyId={room.tenancyId}
+              tenantName={room.tenantName}
+            />
+          ) : null}
           <Button asChild size="sm" variant="ghost">
             <Link href={`/properties/${propertyId}/rooms/${room.id}`}>
               Open Room
@@ -908,6 +927,16 @@ function MobileRoomCard({
               Register Tenant
             </Link>
           </Button>
+        ) : null}
+        {!vacant && canManage && room.tenancyId && room.tenantName ? (
+          <QuickCheckoutDialog
+            checkoutDate={malaysiaDate()}
+            propertyId={propertyId}
+            roomId={room.id}
+            roomNumber={room.roomNumber}
+            tenancyId={room.tenancyId}
+            tenantName={room.tenantName}
+          />
         ) : null}
         <Button asChild size="sm" variant="outline">
           <Link href={`/properties/${propertyId}/rooms/${room.id}`}>
