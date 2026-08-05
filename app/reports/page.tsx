@@ -91,7 +91,7 @@ function differenceClass(value: number) {
 
 const errorMessages: Record<string, string> = {
   accounting_context: "Your accounting company could not be loaded.",
-  bank_account_details: "Enter the bank account name, bank name and valid last four digits.",
+  bank_account_details: "Enter the bank account name, bank name and full account number (6 to 30 digits).",
   bank_account_create: "The bank account could not be created.",
   statement_details: "Choose a bank account, period and CSV statement.",
   statement_csv: "Upload a CSV bank statement of 10 MB or less.",
@@ -130,7 +130,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const [currentReport, priorReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate, endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: priorDates.startDate, endDate: priorDates.endDate, propertyId: selectedPropertyId || null }),
-    supabase.from("bank_accounts").select("id, name, bank_name, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
+    supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
     supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).order("period_end", { ascending: false }).limit(24),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
@@ -323,12 +323,24 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
       {tab === "bank" ? (
         <div className="space-y-5">
+          <Card>
+            <CardHeader><CardTitle>How to reconcile the bank</CardTitle><CardDescription>Reconciliation proves that every statement line agrees with a DEKEZ accounting record. Knock-off is only one part of the process.</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 text-sm md:grid-cols-5">
+              {[
+                ["1", "Add account", "Enter the full bank account number and the balance immediately before your first statement period."],
+                ["2", "Import statement", "Upload the bank CSV with the exact opening balance, closing balance and statement dates."],
+                ["3", "Match records", "Run Auto match, then match each bank line to payments, expenses, payouts or other records already in DEKEZ."],
+                ["4", "Handle exceptions", "If a tenant paid but forgot the slip, record and knock off that invoice. Use an adjustment only for fees, interest or genuine missing entries."],
+                ["5", "Finalise", "Finalise only when every line is matched, adjusted or explained and the statement difference is RM 0.00."],
+              ].map(([step, title, detail]) => <div className="rounded-lg border border-[#d7dde5] bg-gray-50 p-3" key={step}><div className="mb-2 flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#b8892c] text-xs font-semibold text-white">{step}</span><p className="font-semibold text-gray-950">{title}</p></div><p className="text-xs leading-5 text-gray-600">{detail}</p></div>)}
+            </CardContent>
+          </Card>
           <div className="grid gap-5 xl:grid-cols-2">
             <Card><CardHeader><CardTitle>Add a bank account</CardTitle><CardDescription>Each real account links to its own bank ledger.</CardDescription></CardHeader><CardContent>
               <form action={createBankAccount} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm">Account name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="name" placeholder="Public Bank Current" required /></label>
                 <label className="text-sm">Bank name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="bankName" placeholder="Public Bank" required /></label>
-                <label className="text-sm">Last 4 digits<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" inputMode="numeric" maxLength={4} name="last4" placeholder="1234" /></label>
+                <label className="text-sm">Full bank account number<input autoComplete="off" className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" inputMode="numeric" maxLength={30} minLength={6} name="accountNumber" pattern="[0-9 -]{6,30}" placeholder="Enter complete account number" required /></label>
                 <label className="text-sm">Opening balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /></label>
                 <label className="text-sm">Opening balance date<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalanceDate" type="date" /></label>
                 <Button className="self-end" type="submit"><PlusCircle className="h-4 w-4" />Add bank</Button>
@@ -336,7 +348,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </CardContent></Card>
             <Card><CardHeader><CardTitle>Import bank statement</CardTitle><CardDescription>Upload CSV. The original statement is retained as audit evidence.</CardDescription></CardHeader><CardContent>
               {bankAccounts.length ? <form action={importBankStatement} className="grid gap-3 sm:grid-cols-2">
-                <label className="text-sm sm:col-span-2">Bank account<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" name="bankAccountId" required>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.name}{account.account_number_last4 ? ` · ${account.account_number_last4}` : ""}</option>)}</select></label>
+                <label className="text-sm sm:col-span-2">Bank account<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" name="bankAccountId" required>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.name}{account.account_number ? ` · ${account.account_number}` : account.account_number_last4 ? ` · ending ${account.account_number_last4}` : ""}</option>)}</select></label>
                 <label className="text-sm">Period start<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" defaultValue={startDate} name="periodStart" required type="date" /></label>
                 <label className="text-sm">Period end<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" defaultValue={endDate} name="periodEnd" required type="date" /></label>
                 <label className="text-sm">Opening balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" required step="0.01" type="number" /></label>
@@ -356,7 +368,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             <>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
                 {[
-                  { label: "Bank account", value: statementAccount ? `${statementAccount.bank_name} · ${statementAccount.name}` : "Bank", icon: Building2, warn: false },
+                  { label: "Bank account", value: statementAccount ? `${statementAccount.bank_name} · ${statementAccount.name}${statementAccount.account_number ? ` · ${statementAccount.account_number}` : ""}` : "Bank", icon: Building2, warn: false },
                   { label: "Opening", value: money(selectedStatement.opening_balance), icon: WalletCards, warn: false },
                   { label: "Money in", value: money(statementLines.filter((line) => Number(line.amount) > 0).reduce((sum, line) => sum + Number(line.amount), 0)), icon: ArrowDownLeft, warn: false },
                   { label: "Money out", value: money(Math.abs(statementLines.filter((line) => Number(line.amount) < 0).reduce((sum, line) => sum + Number(line.amount), 0))), icon: ArrowUpRight, warn: false },
@@ -398,14 +410,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <Button className="w-full" type="submit" variant="outline"><Link2 className="h-4 w-4" />Match</Button>
                             </form>
                             {remaining > 0.005 ? <form action={createTenantPaymentFromBankLine} className="space-y-3 rounded-lg border-2 border-[#b8892c] bg-[#fffaf0] p-4">
-                              <div><p className="font-semibold">Create &amp; Match tenant payment</p><p className="text-xs text-gray-600">When the tenant forgot a slip, the bank statement becomes the proof.</p></div>
+                              <div><p className="font-semibold">Tenant paid but did not upload a slip</p><p className="text-xs text-gray-600">Use only for a real unmatched bank receipt. DEKEZ records the payment, knocks off the invoice and retains the statement as proof.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
                               <label className="block text-xs font-medium">Tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="rentBillId" required><option disabled value="">Choose invoice</option>{invoiceOptions.map((bill) => <option key={bill.id} value={bill.id}>{bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.billMonth} · owing {money(bill.outstanding)}</option>)}</select></label>
                               <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="otherAmount" step="0.01" type="number" /></label></div>
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>
                               <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="other" name="otherCategory"><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>
                               <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="otherDescription" placeholder="Required only when Other amount is used" />
-                              <Button className="w-full" type="submit"><Banknote className="h-4 w-4" />Create verified payment &amp; knock off</Button>
+                              <Button className="w-full" type="submit"><Banknote className="h-4 w-4" />Record payment, knock off &amp; match</Button>
                             </form> : null}
                             <div className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
                               <form action={createBankAdjustment} className="space-y-3"><div><p className="font-semibold">Create bank adjustment</p><p className="text-xs text-gray-500">For bank fees, interest or a missing expense/income.</p></div><input name="lineId" type="hidden" value={line.id} /><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="accountId" required><option disabled value="">Choose income / expense</option>{adjustmentAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="description" placeholder="Adjustment description" required /><Button className="w-full" type="submit" variant="outline">Create &amp; match adjustment</Button></form>
