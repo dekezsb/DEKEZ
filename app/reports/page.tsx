@@ -84,6 +84,13 @@ function tabHref(tab: string, month: string, propertyId: string, statementId?: s
   return `/reports?${search.toString()}`;
 }
 
+function bankLineHref(month: string, propertyId: string, statementId: string, lineId?: string) {
+  const search = new URLSearchParams({ tab: "bank", month, statement: statementId });
+  if (propertyId) search.set("property", propertyId);
+  if (lineId) search.set("line", lineId);
+  return `/reports?${search.toString()}${lineId ? `#bank-line-${lineId}` : "#bank-transactions"}`;
+}
+
 function differenceClass(value: number) {
   if (Math.abs(value) < 0.005) return "text-gray-500";
   return value > 0 ? "text-emerald-700" : "text-red-600";
@@ -427,12 +434,21 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 ].map((summary) => { const Icon = summary.icon; return <Card key={summary.label}><CardHeader className="pb-3"><CardDescription>{summary.label}</CardDescription><CardTitle className={`text-lg ${summary.warn ? "text-red-600" : ""}`}>{summary.value}</CardTitle><Icon className="mt-2 h-4 w-4 text-[#9a6b19]" /></CardHeader></Card>; })}
               </div>
 
-              <Card>
+              <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><CardTitle>Transactions to review</CardTitle><CardDescription>{unmatchedCount} still need attention. Open only one line at a time.</CardDescription></div>
-                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Match recorded payments</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
+                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe matches</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {params.auto_matched !== undefined ? Number(params.auto_matched) > 0 ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                      Linked {Number(params.auto_matched)} exact bank {Number(params.auto_matched) === 1 ? "transaction" : "transactions"}. Existing payments and paid invoices were linked only; no duplicate payment was created.
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      No additional exact matches were safe to link. Press <strong>Open</strong> on a transaction and choose its recorded payment, paid invoice or accounting category.
+                    </div>
+                  ) : null}
                   {statementLines.map((line) => {
                     const lineMatches = matchesByLine.get(line.id) ?? [];
                     const matchedAmount = lineMatches.reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
@@ -458,15 +474,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       const rightScore = locationHint && rightHint?.propertyCode === locationHint.propertyCode && rightHint.roomCode === locationHint.roomCode ? 1 : 0;
                       return rightScore - leftScore;
                     }).slice(0, 150);
+                    const isLineOpen = params.line === line.id;
                     return (
-                      <details className="group rounded-lg border border-[#d7dde5] bg-white" key={line.id}>
-                        <summary className="grid cursor-pointer list-none gap-3 p-4 sm:grid-cols-[110px_1fr_150px_130px] sm:items-center">
+                      <div className="rounded-lg border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
+                        <div className="grid gap-3 p-4 sm:grid-cols-[110px_1fr_150px_150px] sm:items-center">
                           <div className="text-sm"><p className="font-medium">{dateLabel(line.transaction_date)}</p><p className="text-xs text-gray-500">{line.reference_number || "No reference"}</p></div>
                           <div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-gray-950">{transactionLabel}</p>{locationHint ? <Badge className="bg-blue-100 text-blue-800">{locationHint.propertyCode} Room {locationHint.roomCode}</Badge> : null}</div><p className="mt-1 line-clamp-2 text-xs text-gray-600">{transactionDetails || "No additional bank description"}</p></div>
                           <div className="text-right"><p className={`font-semibold ${Number(line.amount) >= 0 ? "text-emerald-700" : "text-red-600"}`}>{Number(line.amount) >= 0 ? "+" : "-"}{money(Math.abs(Number(line.amount)))}</p><p className="text-xs text-gray-500">{Number(line.amount) >= 0 ? "Money received" : "Money paid out"}</p></div>
-                          <div className="text-right"><Badge className={statusClasses[line.status] ?? ""}>{line.status === "unmatched" ? "Needs review" : line.status}</Badge><p className="mt-2 text-xs font-semibold text-[#7a5618] group-open:hidden">Review →</p><p className="mt-2 hidden text-xs text-gray-500 group-open:block">Close ↑</p></div>
-                        </summary>
-                        <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
+                          <div className="flex flex-col items-stretch gap-2 sm:items-end"><Badge className={statusClasses[line.status] ?? ""}>{line.status === "unmatched" ? "Needs review" : line.status}</Badge><Button asChild size="sm" variant={isLineOpen ? "outline" : "default"}><Link href={bankLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, isLineOpen ? undefined : line.id)}>{isLineOpen ? "Close" : "Open"}</Link></Button></div>
+                        </div>
+                        {isLineOpen ? <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
                           {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="grid gap-4 xl:grid-cols-3">
                             <form action={matchBankLine} className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
@@ -491,8 +508,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <form action={ignoreBankLine} className="space-y-2 border-t border-[#d7dde5] pt-3"><input name="lineId" type="hidden" value={line.id} /><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="reason" placeholder="Audit reason to ignore" required /><Button className="w-full" type="submit" variant="ghost">Ignore with reason</Button></form>
                             </div>
                           </div> : null}
-                        </div>
-                      </details>
+                        </div> : null}
+                      </div>
                     );
                   })}
                   {!statementLines.length ? <p className="text-sm text-gray-500">No statement lines were imported.</p> : null}
