@@ -2,7 +2,6 @@ import { Link } from "@/components/app-link";
 import {
   ArrowRight,
   Banknote,
-  Building2,
   CircleCheckBig,
   CircleDollarSign,
   CircleEllipsis,
@@ -14,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { AdminPaymentSlipUpload } from "./admin-payment-slip-upload";
+import { OutstandingRoomMap } from "./outstanding-room-map";
 import { PaymentFlashNotice } from "./payment-flash-notice";
 import {
   getRentDueMap,
@@ -21,7 +21,6 @@ import {
   type RentCollectionRow,
   type RentCollectionStatus,
   type RentMapProperty,
-  type RentMapRoom,
 } from "@/lib/data/rent-due-map";
 import { money } from "@/lib/e-tenancy";
 
@@ -99,15 +98,6 @@ function CollectionBadge({ status }: { status: RentCollectionStatus }) {
   );
 }
 
-type DueUrgency = "future" | "due_today" | "overdue" | "severely_overdue";
-
-const dueUrgencyStyles: Record<DueUrgency, string> = {
-  future: "border-gray-300 bg-white text-gray-950 hover:border-gray-500",
-  due_today: "border-yellow-400 bg-yellow-50 text-yellow-950 hover:border-yellow-500",
-  overdue: "border-orange-400 bg-orange-50 text-orange-950 hover:border-orange-500",
-  severely_overdue: "border-red-400 bg-red-50 text-red-950 hover:border-red-500",
-};
-
 function malaysiaToday() {
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Kuala_Lumpur",
@@ -120,51 +110,6 @@ function malaysiaToday() {
   return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
 }
 
-function dateOnlyValue(value: string) {
-  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
-  return Date.UTC(year, month - 1, day);
-}
-
-function dueTiming(room: RentMapRoom, today: string) {
-  if (!room.dueDate) {
-    return {
-      urgency: "future" as DueUrgency,
-      label: `Due day ${room.dueDay ?? "-"}`,
-    };
-  }
-
-  const daysOverdue = Math.round(
-    (dateOnlyValue(today) - dateOnlyValue(room.dueDate)) / 86_400_000,
-  );
-
-  if (daysOverdue >= 7) {
-    return {
-      urgency: "severely_overdue" as DueUrgency,
-      label: `${daysOverdue} days overdue`,
-    };
-  }
-
-  if (daysOverdue > 0) {
-    return {
-      urgency: "overdue" as DueUrgency,
-      label: `${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue`,
-    };
-  }
-
-  if (daysOverdue === 0) {
-    return {
-      urgency: "due_today" as DueUrgency,
-      label: "Due today",
-    };
-  }
-
-  const daysUntilDue = Math.abs(daysOverdue);
-  return {
-    urgency: "future" as DueUrgency,
-    label: `Due in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}`,
-  };
-}
-
 function compactRoomLabel(roomNumber: string) {
   const number = roomNumber
     .trim()
@@ -172,25 +117,6 @@ function compactRoomLabel(roomNumber: string) {
     .replace(/\s+/g, "")
     .toUpperCase();
   return number ? `R${number}` : "Room";
-}
-
-function RoomCard({ room, today }: { room: RentMapRoom; today: string }) {
-  const timing = dueTiming(room, today);
-  const roomLabel = compactRoomLabel(room.roomNumber);
-
-  return (
-    <Link
-      href={`/properties/${room.propertyId}/rooms/${room.id}`}
-      aria-label={`Open ${roomLabel}, due day ${room.dueDay ?? "not set"}, ${timing.label}`}
-      className={`group rounded-lg border p-3 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a2c] ${dueUrgencyStyles[timing.urgency]}`}
-    >
-      <p className="font-semibold">{roomLabel}</p>
-      <p className="mt-1 text-xs font-medium text-current/75">
-        Due day {room.dueDay ?? "-"}
-      </p>
-      <p className="mt-0.5 text-xs font-semibold">{timing.label}</p>
-    </Link>
-  );
 }
 
 function PropertySummaryTable({
@@ -659,86 +585,31 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
         Monthly totals do not include earlier balances. Previous outstanding amounts remain visible separately for each tenant.
       </p>
 
-      <PropertySummaryTable properties={visibleProperties} />
-
-      <section className="space-y-5">
-        <div>
-          <h2 className="text-xl font-semibold text-[#0b1733]">Rooms Still Unpaid</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Only occupied rooms with a tenant and an outstanding bill for {tracker.selectedMonthLabel} are shown.
-            Paid rooms disappear automatically.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-x-5 gap-y-2 border-y border-[#d8dee8] py-3 text-xs font-medium text-[#42516a]">
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-gray-300" />
-            Not due yet
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-yellow-400" />
-            Due today
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-orange-500" />
-            1-6 days overdue
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-red-500" />
-            7+ days overdue
-          </span>
-        </div>
-
-        {propertiesWithUnpaidRooms.length ? (
-          <div className="space-y-8">
-            {propertiesWithUnpaidRooms.map((property) => (
-              <section key={property.id} className="space-y-4">
-                <div className="flex flex-col gap-3 border-b border-[#d8dee8] pb-3 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Building2 className="size-5 text-[#b37b14]" />
-                      <h3 className="text-xl font-semibold text-[#0b1733]">{property.name}</h3>
-                    </div>
-                    {property.area ? (
-                      <p className="mt-1 text-sm text-muted-foreground">{property.area}</p>
-                    ) : null}
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {property.rooms.length} outstanding room{property.rooms.length === 1 ? "" : "s"} | Rent + deposit{" "}
-                    <span className="font-semibold text-red-700">
-                      {money(property.rooms.reduce((total, room) => total + room.outstanding, 0))}
-                    </span>
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
-                  {property.rooms.map((room) => (
-                    <RoomCard key={room.id} room={room} today={today} />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed border-[#cfd7e3] py-16 text-center">
-            <CircleCheckBig className="mx-auto size-8 text-emerald-600" />
-            <p className="mt-3 font-medium text-[#0b1733]">
-              All occupied rooms are paid for {tracker.selectedMonthLabel}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Vacant rooms and rooms without a current bill are hidden.
-            </p>
-          </div>
-        )}
-      </section>
-
-      <CollectionDetails
+      <OutstandingRoomMap
         canUploadSlip={canUploadSlip}
-        collections={outstandingCollections}
         paymentDateDefault={today}
+        properties={propertiesWithUnpaidRooms}
         selectedMonth={tracker.selectedMonth}
         selectedProperty={selectedProperty}
+        today={today}
       />
+
+      <PropertySummaryTable properties={visibleProperties} />
+
+      <details className="rounded-lg border border-[#d8dee8] bg-white p-4">
+        <summary className="cursor-pointer font-semibold text-[#0b1733]">
+          View detailed outstanding records
+        </summary>
+        <div className="mt-5">
+          <CollectionDetails
+            canUploadSlip={false}
+            collections={outstandingCollections}
+            paymentDateDefault={today}
+            selectedMonth={tracker.selectedMonth}
+            selectedProperty={selectedProperty}
+          />
+        </div>
+      </details>
     </section>
   );
 }
