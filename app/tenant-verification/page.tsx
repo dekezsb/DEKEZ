@@ -8,11 +8,15 @@ import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { reviewTenantApplication } from "./actions";
+import {
+  correctTenantApplicationName,
+  reviewTenantApplication,
+} from "./actions";
 
 export type TenantVerificationPageProps = {
   searchParams: Promise<{
     reviewed?: string;
+    identity_corrected?: string;
     error?: string;
   }>;
 };
@@ -22,6 +26,14 @@ const errorMessages: Record<string, string> = {
   review: "Application could not be updated.",
   conversion:
     "The tenant could not be assigned to the room. The application remains pending so it can be reviewed again.",
+  identity_correction_auth:
+    "The applicant login name could not be synchronized. Nothing was changed.",
+  identity_correction_changed:
+    "This application changed before the correction was saved. Refresh and review it again.",
+  identity_correction_details:
+    "Enter the applicant's correct full name and a correction reason. The name cannot be the IC or passport number.",
+  identity_correction_save:
+    "The applicant name could not be corrected. Nothing was changed.",
 };
 
 async function getAdmin() {
@@ -56,7 +68,7 @@ export async function TenantVerificationContent({
   embedded?: boolean;
   returnTo?: string;
 }) {
-  await requireRole(["super_admin", "admin"]);
+  const role = await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
   const supabase = await getAdmin();
 
@@ -127,6 +139,11 @@ export async function TenantVerificationContent({
           Tenant application updated.
         </div>
       ) : null}
+      {params.identity_corrected === "1" ? (
+        <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
+          Applicant name corrected. The application and linked login profile now match; the IC or passport number was not changed.
+        </div>
+      ) : null}
       {params.error ? (
         <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
           {errorMessages[params.error] ?? "Unable to update tenant application."}
@@ -168,7 +185,64 @@ export async function TenantVerificationContent({
 
                     return (
                       <TableRow key={application.id}>
-                        <TableCell className="min-w-48 font-medium text-gray-950">{application.full_name}</TableCell>
+                        <TableCell className="min-w-64 align-top">
+                          <p className="font-medium text-gray-950">
+                            {application.full_name}
+                          </p>
+                          {role === "super_admin" ? (
+                            <details className="mt-2 rounded-md border border-[#d7dde5] bg-[#f8fafc] p-2 text-sm">
+                              <summary className="cursor-pointer font-medium text-[#8a641e]">
+                                Correct applicant name
+                              </summary>
+                              <form
+                                action={correctTenantApplicationName}
+                                className="mt-3 space-y-3"
+                              >
+                                <input
+                                  name="applicationId"
+                                  type="hidden"
+                                  value={application.id}
+                                />
+                                <input
+                                  name="returnTo"
+                                  type="hidden"
+                                  value={returnTo}
+                                />
+                                <label className="block space-y-1">
+                                  <span className="text-xs font-medium text-gray-600">
+                                    Correct full name
+                                  </span>
+                                  <input
+                                    autoComplete="name"
+                                    className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm"
+                                    defaultValue={application.full_name}
+                                    maxLength={150}
+                                    name="fullName"
+                                    required
+                                  />
+                                </label>
+                                <p className="text-xs text-gray-500">
+                                  IC / Passport stays as {application.ic_passport_number ?? "-"}.
+                                </p>
+                                <label className="block space-y-1">
+                                  <span className="text-xs font-medium text-gray-600">
+                                    Correction reason
+                                  </span>
+                                  <textarea
+                                    className="min-h-16 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2 text-sm"
+                                    defaultValue="Applicant entered the IC or passport number in the full-name field."
+                                    maxLength={500}
+                                    name="correctionReason"
+                                    required
+                                  />
+                                </label>
+                                <Button className="w-full" size="sm" type="submit">
+                                  Save name correction
+                                </Button>
+                              </form>
+                            </details>
+                          ) : null}
+                        </TableCell>
                         <TableCell>
                           {application.submission_source === "admin_assisted"
                             ? "Admin"

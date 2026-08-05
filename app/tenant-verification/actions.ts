@@ -201,3 +201,109 @@ export async function reviewTenantApplication(formData: FormData) {
   revalidatePath("/registration-status");
   redirect(withResult(returnTo, "reviewed=1"));
 }
+
+export async function correctTenantApplicationName(formData: FormData) {
+  await requireRole(["super_admin"], {
+    module: "verification",
+    level: "manage",
+  });
+  const actor = await getCurrentUser();
+  const applicationId = textValue(formData, "applicationId");
+  const fullName = textValue(formData, "fullName").replace(/\s+/g, " ");
+  const correctionReason = textValue(formData, "correctionReason");
+  const returnTo = returnPath(formData);
+
+  if (
+    !actor ||
+    !applicationId ||
+    fullName.length < 2 ||
+    fullName.length > 150 ||
+    !/[\p{L}]/u.test(fullName) ||
+    !correctionReason
+  ) {
+    redirect(withResult(returnTo, "error=identity_correction_details"));
+  }
+
+  const supabase = createAdminClient();
+  const { data: application } = await supabase
+    .from("tenant_applications")
+    .select(
+      "id, tenant_id, full_name, ic_passport_number, verification_status, status",
+    )
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  if (
+    !application ||
+    application.verification_status !== "pending_verification" ||
+    !["submitted", "pending_verification"].includes(application.status)
+  ) {
+    redirect(withResult(returnTo, "error=identity_correction_changed"));
+  }
+
+  if (
+    fullName.localeCompare(application.full_name, undefined, {
+      sensitivity: "base",
+    }) === 0 ||
+    (application.ic_passport_number &&
+      fullName.localeCompare(application.ic_passport_number, undefined, {
+        sensitivity: "base",
+      }) === 0)
+  ) {
+    redirect(withResult(returnTo, "error=identity_correction_details"));
+  }
+
+  let previousUserMetadata: Record<string, unknown> | null = null;
+  if (application.tenant_id) {
+    const { data: authUserResult } = await supabase.auth.admin.getUserById(
+      application.tenant_id,
+    );
+    previousUserMetadata = authUserResult.user?.user_metadata ?? {};
+    const { error: authError } = await supabase.auth.admin.updateUserById(
+      application.tenant_id,
+      {
+        user_metadata: {
+          ...previousUserMetadata,
+          full_name: fullName,
+        },
+      },
+    );
+
+    if (authError) {
+      redirect(withResult(returnTo, "error=identity_correction_auth"));
+    }
+  }
+
+  const { error } = await supabase.rpc(
+    "correct_pending_tenant_application_name",
+    {
+      p_actor_id: actor.id,
+      p_application_id: application.id,
+      p_full_name: fullName,
+      p_reason: correctionReason,
+    },
+  );
+
+  if (error) {
+    if (application.tenant_id && previousUserMetadata) {
+      await supabase.auth.admin.updateUserById(application.tenant_id, {
+        user_metadata: previousUserMetadata,
+      });
+    }
+
+    redirect(
+      withResult(
+        returnTo,
+        error.message.includes("identity_correction_application_changed")
+          ? "error=identity_correction_changed"
+          : "error=identity_correction_save",
+      ),
+    );
+  }
+
+  revalidatePath("/tenant-verification");
+  revalidatePath("/verification");
+  revalidatePath("/registration-status");
+  revalidatePath("/admin-setup");
+  redirect(withResult(returnTo, "identity_corrected=1"));
+}
