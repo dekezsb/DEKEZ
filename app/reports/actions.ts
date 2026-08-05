@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -31,6 +32,15 @@ function fileValue(formData: FormData, key: string) {
 function reportPath(params: Record<string, string>) {
   const search = new URLSearchParams({ tab: "bank", ...params });
   return `/reports?${search.toString()}`;
+}
+
+function statementImportPath(params: Record<string, string>) {
+  return `${reportPath(params)}#bank-import`;
+}
+
+function bankLocationToken(value: string) {
+  const match = value.toUpperCase().match(/\b(PTT|DGG|BDS|BVH|INS|HLT|KLB|SLY|MGT|SLS)\s*(?:ROOM\s*)?([A-Z]?\d+)\b/);
+  return match ? `${match[1]}:${match[2].replace(/^0+/, "") || "0"}` : null;
 }
 
 async function accountingContext() {
@@ -117,10 +127,10 @@ export async function importBankStatement(formData: FormData) {
   const statement = fileValue(formData, "statement");
 
   if (!bankAccountId || !periodStart || !periodEnd || !statement) {
-    redirect(reportPath({ error: "statement_details" }));
+    redirect(statementImportPath({ error: "statement_details" }));
   }
   if (statement.size > 10 * 1024 * 1024 || !/\.csv$/i.test(statement.name)) {
-    redirect(reportPath({ error: "statement_csv" }));
+    redirect(statementImportPath({ error: "statement_csv" }));
   }
 
   const { data: bankAccount } = await supabase
@@ -130,15 +140,34 @@ export async function importBankStatement(formData: FormData) {
     .eq("company_id", company.id)
     .eq("is_active", true)
     .maybeSingle();
-  if (!bankAccount) redirect(reportPath({ error: "bank_account_missing" }));
+  if (!bankAccount) redirect(statementImportPath({ error: "bank_account_missing" }));
+
+  const bytes = Buffer.from(await statement.arrayBuffer());
+  const fileHash = createHash("sha256").update(bytes).digest("hex");
+  const { data: existingImport } = await supabase
+    .from("bank_statement_imports")
+    .select("id")
+    .eq("bank_account_id", bankAccountId)
+    .eq("original_file_hash", fileHash)
+    .neq("status", "void")
+    .maybeSingle();
+  if (existingImport) {
+    redirect(reportPath({ statement: existingImport.id, error: "statement_duplicate" }));
+  }
 
   let parsedLines;
   try {
-    parsedLines = parseBankStatementCsv(await statement.text());
-  } catch {
-    redirect(reportPath({ error: "statement_format" }));
+    parsedLines = parseBankStatementCsv(bytes.toString("utf8"));
+  } catch (error) {
+    console.error("[bank-statement] parse failed", {
+      bankAccountId,
+      fileName: statement.name,
+      fileSize: statement.size,
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    redirect(statementImportPath({ error: "statement_format" }));
   }
-  if (!parsedLines.length) redirect(reportPath({ error: "statement_empty" }));
+  if (!parsedLines.length) redirect(statementImportPath({ error: "statement_empty" }));
 
   const { data: statementImport, error: importError } = await supabase
     .from("bank_statement_imports")
@@ -152,21 +181,44 @@ export async function importBankStatement(formData: FormData) {
       closing_balance: closingBalance,
       source_format: "csv",
       original_file_name: statement.name,
+      original_file_hash: fileHash,
       created_by: user.id,
     })
     .select("id")
     .single();
-  if (importError || !statementImport) redirect(reportPath({ error: "statement_create" }));
+  if (importError || !statementImport) {
+    console.error("[bank-statement] import header failed", {
+      bankAccountId,
+      fileName: statement.name,
+      code: importError?.code,
+      message: importError?.message,
+    });
+    if (importError?.code === "23505") {
+      const { data: duplicate } = await supabase
+        .from("bank_statement_imports")
+        .select("id")
+        .eq("bank_account_id", bankAccountId)
+        .eq("original_file_hash", fileHash)
+        .neq("status", "void")
+        .maybeSingle();
+      if (duplicate) redirect(reportPath({ statement: duplicate.id, error: "statement_duplicate" }));
+    }
+    redirect(statementImportPath({ error: "statement_create" }));
+  }
 
   const safeName = statement.name.replace(/[^a-zA-Z0-9._-]/g, "-");
   const filePath = `${company.id}/${bankAccountId}/${statementImport.id}/${safeName}`;
-  const bytes = Buffer.from(await statement.arrayBuffer());
   const { error: uploadError } = await supabase.storage
     .from("accounting-documents")
     .upload(filePath, bytes, { contentType: statement.type || "text/csv", upsert: false });
   if (uploadError) {
+    console.error("[bank-statement] source upload failed", {
+      statementImportId: statementImport.id,
+      code: uploadError.name,
+      message: uploadError.message,
+    });
     await supabase.from("bank_statement_imports").delete().eq("id", statementImport.id);
-    redirect(reportPath({ error: "statement_upload" }));
+    redirect(statementImportPath({ error: "statement_upload" }));
   }
 
   const { error: updateError } = await supabase
@@ -185,7 +237,15 @@ export async function importBankStatement(formData: FormData) {
       external_hash: line.externalHash,
     })),
   );
-  if (updateError || linesError) redirect(reportPath({ error: "statement_lines" }));
+  if (updateError || linesError) {
+    console.error("[bank-statement] line import failed", {
+      statementImportId: statementImport.id,
+      updateError: updateError?.message,
+      linesError: linesError?.message,
+      parsedLineCount: parsedLines.length,
+    });
+    redirect(statementImportPath({ error: "statement_lines" }));
+  }
 
   revalidatePath("/reports");
   redirect(reportPath({ statement: statementImport.id, imported: String(parsedLines.length) }));
@@ -234,10 +294,14 @@ export async function autoMatchStatement(formData: FormData) {
     const available = candidates.filter((candidate) => {
       const key = `${candidate.sourceType}:${candidate.sourceId}`;
       const remaining = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
+      const sameHistoricalRoom = candidate.sourceType === "rent_bill"
+        && line.transaction_date.slice(0, 7) === candidate.date.slice(0, 7)
+        && bankLocationToken(line.description) !== null
+        && bankLocationToken(line.description) === bankLocationToken(candidate.description);
       return (
         Math.sign(candidate.amount) === Math.sign(amount) &&
         Math.abs(remaining - Math.abs(amount)) < 0.005 &&
-        dateDistance(candidate.date, line.transaction_date) <= 3
+        (dateDistance(candidate.date, line.transaction_date) <= 3 || sameHistoricalRoom)
       );
     });
     const referenceMatches = available.filter((candidate) => {
@@ -337,14 +401,21 @@ export async function createBankAdjustment(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const lineId = textValue(formData, "lineId");
   const accountId = textValue(formData, "accountId");
+  const propertyId = textValue(formData, "propertyId") || null;
   const description = textValue(formData, "description");
-  const [{ data: line }, { data: matches }, { data: account }] = await Promise.all([
+  const [{ data: line }, { data: matches }, { data: account }, { data: property }] = await Promise.all([
     supabase.from("bank_statement_lines").select("id, bank_account_id, statement_import_id, transaction_date, reference_number, amount, status").eq("id", lineId).single(),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("statement_line_id", lineId),
-    supabase.from("accounting_accounts").select("id, account_type").eq("id", accountId).eq("company_id", company.id).maybeSingle(),
+    supabase.from("accounting_accounts").select("id, account_type, system_key").eq("id", accountId).eq("company_id", company.id).maybeSingle(),
+    propertyId
+      ? supabase.from("properties").select("id").eq("id", propertyId).eq("company_id", company.id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
-  if (!line || !account || !description || !["income", "expense"].includes(account.account_type)) {
+  if (!line || !account || !description || (propertyId && !property)) {
     redirect(reportPath({ error: "adjustment_details" }));
+  }
+  if (account.system_key === "property_rental_cost" && !propertyId) {
+    redirect(reportPath({ statement: line.statement_import_id, error: "adjustment_property" }));
   }
   const matched = (matches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
   const remaining = Number(line.amount) - matched;
@@ -355,6 +426,7 @@ export async function createBankAdjustment(formData: FormData) {
       company_id: company.id,
       bank_account_id: line.bank_account_id,
       offset_account_id: account.id,
+      property_id: propertyId,
       transaction_date: line.transaction_date,
       amount: remaining,
       description,

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const bankSourceTypes = [
   "payment",
+  "rent_bill",
   "expense_payment_batch",
   "staff_reimbursement_payout",
   "cash_bank_in",
@@ -30,7 +31,7 @@ export async function getBankCandidates(
   supabase: SupabaseClient,
   companyId: string,
 ): Promise<BankCandidate[]> {
-  const [paymentsResult, batchesResult, payoutsResult, bankInsResult, expensesResult, manualResult] = await Promise.all([
+  const [paymentsResult, paidBillsResult, batchesResult, payoutsResult, bankInsResult, expensesResult, manualResult] = await Promise.all([
     supabase
       .from("payments")
       .select("id, payment_date, amount, category, reference_number, property_id, rent_bill_id, payment_method")
@@ -38,6 +39,12 @@ export async function getBankCandidates(
       .eq("status", "confirmed")
       .is("reversed_at", null)
       .not("payment_method", "in", '("cash","manual_adjustment")'),
+    supabase
+      .from("rent_bills")
+      .select("id, due_date, bill_month, amount, paid_amount, invoice_number, property_id, room_id, tenant_record_id, properties!inner(company_id)")
+      .eq("properties.company_id", companyId)
+      .eq("status", "paid")
+      .is("removed_at", null),
     supabase
       .from("expense_payment_batches")
       .select("id, paid_on, total_amount, reference_number, payment_method")
@@ -75,6 +82,21 @@ export async function getBankCandidates(
   const allocatedExpenseIds = new Set((allocatedExpenses ?? []).map((item) => item.expense_id));
 
   const candidates: BankCandidate[] = [];
+  const paidBills = paidBillsResult.data ?? [];
+  const propertyIds = Array.from(new Set(paidBills.map((bill) => bill.property_id).filter(Boolean)));
+  const roomIds = Array.from(new Set(paidBills.map((bill) => bill.room_id).filter(Boolean)));
+  const tenantRecordIds = Array.from(new Set(paidBills.map((bill) => bill.tenant_record_id).filter(Boolean)));
+  const [propertiesResult, roomsResult, tenantsResult] = await Promise.all([
+    propertyIds.length ? supabase.from("properties").select("id, name").in("id", propertyIds) : Promise.resolve({ data: [] }),
+    roomIds.length ? supabase.from("rooms").select("id, name, room_number").in("id", roomIds) : Promise.resolve({ data: [] }),
+    tenantRecordIds.length ? supabase.from("tenant_records").select("id, full_name").in("id", tenantRecordIds) : Promise.resolve({ data: [] }),
+  ]);
+  const propertyNames = new Map((propertiesResult.data ?? []).map((item) => [item.id, item.name]));
+  const rooms = new Map((roomsResult.data ?? []).map((item) => [item.id, item]));
+  const tenantNames = new Map((tenantsResult.data ?? []).map((item) => [item.id, item.full_name]));
+  const paymentBillIds = new Set(
+    (paymentsResult.data ?? []).map((payment) => payment.rent_bill_id).filter(Boolean),
+  );
 
   for (const payment of paymentsResult.data ?? []) {
     candidates.push({
@@ -85,6 +107,25 @@ export async function getBankCandidates(
       description: `${String(payment.category ?? "Tenant payment").replaceAll("_", " ")} · ${payment.rent_bill_id ? "Invoice payment" : "Unallocated receipt"}`,
       referenceNumber: payment.reference_number,
       propertyId: payment.property_id,
+    });
+  }
+
+  for (const bill of paidBills) {
+    if (paymentBillIds.has(bill.id)) continue;
+    const paidAmount = numberValue(bill.paid_amount) || numberValue(bill.amount);
+    if (paidAmount <= 0) continue;
+    const room = rooms.get(bill.room_id);
+    const propertyName = propertyNames.get(bill.property_id) ?? "Property";
+    const propertyCode = propertyName.trim().toUpperCase().match(/^[A-Z]{3}/)?.[0] ?? propertyName;
+    const roomName = room?.name || `Room ${room?.room_number ?? ""}`;
+    candidates.push({
+      sourceType: "rent_bill",
+      sourceId: bill.id,
+      date: bill.due_date || bill.bill_month,
+      amount: Math.abs(paidAmount),
+      description: `Paid invoice · ${propertyCode} ${roomName} · ${tenantNames.get(bill.tenant_record_id) ?? "Tenant"} · ${bill.invoice_number ?? bill.bill_month}`,
+      referenceNumber: null,
+      propertyId: bill.property_id,
     });
   }
 
