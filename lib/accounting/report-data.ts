@@ -8,8 +8,11 @@ type ProfitLossRow = {
 
 export type ProfitLossReport = {
   revenue: ProfitLossRow[];
+  costsOfSales: ProfitLossRow[];
   expenses: ProfitLossRow[];
   totalRevenue: number;
+  totalCostOfSales: number;
+  grossProfit: number;
   totalExpenses: number;
   netProfit: number;
   invoiceCount: number;
@@ -99,6 +102,7 @@ export async function getProfitLossReport(
     : { data: [] };
 
   const revenue = new Map<string, ProfitLossRow>();
+  const costOfSalesRows = new Map<string, ProfitLossRow>();
   const expenseRows = new Map<string, ProfitLossRow>();
 
   addRow(
@@ -137,10 +141,11 @@ export async function getProfitLossReport(
 
   let manualTransactionsQuery = supabase
     .from("bank_manual_transactions")
-    .select("id, amount, transaction_date, accounting_accounts!bank_manual_transactions_offset_account_id_fkey(name, account_type, report_group)")
+    .select("id, amount, transaction_date, property_id, accounting_accounts!bank_manual_transactions_offset_account_id_fkey(name, account_type, report_group)")
     .eq("company_id", input.companyId)
     .gte("transaction_date", input.startDate)
     .lte("transaction_date", input.endDate);
+  if (input.propertyId) manualTransactionsQuery = manualTransactionsQuery.eq("property_id", input.propertyId);
   const { data: manualTransactions } = await manualTransactionsQuery;
 
   for (const transaction of manualTransactions ?? []) {
@@ -150,21 +155,28 @@ export async function getProfitLossReport(
     if (account?.account_type === "income") {
       addRow(revenue, `account_${account.name}`, account.name, amount);
     } else if (account?.account_type === "expense") {
-      addRow(expenseRows, `account_${account.name}`, account.name, amount);
+      const target = account.report_group === "cost_of_sales" ? costOfSalesRows : expenseRows;
+      addRow(target, `account_${account.name}`, account.name, amount);
     }
   }
 
   const revenueRows = Array.from(revenue.values()).sort((left, right) => left.label.localeCompare(right.label));
+  const directCostRows = Array.from(costOfSalesRows.values()).sort((left, right) => left.label.localeCompare(right.label));
   const operatingExpenseRows = Array.from(expenseRows.values()).sort((left, right) => left.label.localeCompare(right.label));
   const totalRevenue = revenueRows.reduce((total, row) => total + row.amount, 0);
+  const totalCostOfSales = directCostRows.reduce((total, row) => total + row.amount, 0);
+  const grossProfit = totalRevenue - totalCostOfSales;
   const totalExpenses = operatingExpenseRows.reduce((total, row) => total + row.amount, 0);
 
   return {
     revenue: revenueRows,
+    costsOfSales: directCostRows,
     expenses: operatingExpenseRows,
     totalRevenue,
+    totalCostOfSales,
+    grossProfit,
     totalExpenses,
-    netProfit: totalRevenue - totalExpenses,
+    netProfit: grossProfit - totalExpenses,
     invoiceCount: (rentBills ?? []).length,
     expenseCount: (expenses ?? []).length + (utilityBills ?? []).length,
   };

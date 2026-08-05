@@ -89,6 +89,19 @@ function differenceClass(value: number) {
   return value > 0 ? "text-emerald-700" : "text-red-600";
 }
 
+function bankRoomHint(value: string) {
+  const match = value.toUpperCase().match(/\b(PTT|DGG|BDS|BVH|INS|HLT|KLB|SLY|MGT|SLS)\s*(?:ROOM\s*)?([A-Z]?\d+)\b/);
+  return match ? { propertyCode: match[1], roomCode: match[2].replace(/^0+/, "") || "0" } : null;
+}
+
+function propertyCode(value: string) {
+  return value.trim().toUpperCase().match(/^[A-Z]{3}/)?.[0] ?? "";
+}
+
+function roomCode(value: string) {
+  return value.toUpperCase().replace(/^ROOM\s*/i, "").replace(/^0+/, "") || "0";
+}
+
 const errorMessages: Record<string, string> = {
   accounting_context: "Your accounting company could not be loaded.",
   bank_account_details: "Enter the bank account name, bank name and full account number (6 to 30 digits).",
@@ -97,6 +110,8 @@ const errorMessages: Record<string, string> = {
   statement_csv: "Upload a CSV bank statement of 10 MB or less.",
   statement_format: "The CSV columns could not be recognised. Include date, description and amount/debit/credit.",
   statement_empty: "The statement does not contain any transaction lines.",
+  statement_create: "The statement could not be started. Please try again.",
+  statement_duplicate: "This exact bank statement was already imported. DEKEZ opened the existing copy instead of duplicating it.",
   statement_upload: "The retained statement file could not be stored.",
   statement_lines: "The bank statement lines could not be imported.",
   statement_closed: "This statement is already reconciled and locked.",
@@ -104,7 +119,8 @@ const errorMessages: Record<string, string> = {
   match_direction: "Money-in must match a receipt and money-out must match a payment.",
   match_create: "This bank match could not be saved.",
   tenant_payment_match: "The direct tenant knock-off failed. Rent, deposit and other must equal the unmatched bank amount.",
-  adjustment_details: "Choose an income or expense account and enter a description.",
+  adjustment_details: "Choose an accounting category and enter a description.",
+  adjustment_property: "Choose the property for a Property Rental Cost entry.",
   ignore_details: "Enter an audit reason before ignoring a statement line.",
   ignore_matched: "Remove existing matches before ignoring this statement line.",
   statement_unmatched: "Match, adjust or explain every bank line before finalising.",
@@ -130,8 +146,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const [currentReport, priorReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate, endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: priorDates.startDate, endDate: priorDates.endDate, propertyId: selectedPropertyId || null }),
-    supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
-    supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).order("period_end", { ascending: false }).limit(24),
+    supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
+    supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(24),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
     supabase.from("staff_reimbursement_liabilities").select("amount, status, expense_id").eq("status", "outstanding"),
@@ -187,6 +203,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       tenantName: tenantNames.get(bill.tenant_record_id) || `Tenant ${String(bill.tenant_id ?? "").slice(0, 8)}`,
       propertyName: propertyNames.get(bill.property_id) ?? "Property",
       roomName: roomNames.get(bill.room_id) ?? "Room",
+      propertyCode: propertyCode(propertyNames.get(bill.property_id) ?? ""),
+      roomCode: roomCode(roomNames.get(bill.room_id) ?? ""),
       rentOutstanding,
       depositOutstanding,
       outstanding: rentOutstanding + depositOutstanding,
@@ -218,11 +236,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const unmatchedCount = statementLines.filter((line) => line.status === "unmatched").length;
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
   const unreconciledTotal = statementImports.filter((item) => item.status === "in_progress").length;
-  const adjustmentAccounts = accounts.filter((account) => ["income", "expense"].includes(account.account_type));
+  const adjustmentAccounts = accounts.filter((account) => account.id !== statementAccount?.accounting_account_id);
+  const adjustmentAccountGroups = ["expense", "asset", "liability", "equity", "income"].map((type) => ({
+    type,
+    accounts: adjustmentAccounts.filter((account) => account.account_type === type),
+  })).filter((group) => group.accounts.length);
 
   const mergedRows = new Map<string, { label: string; current: number; previous: number }>();
-  for (const row of [...currentReport.revenue, ...currentReport.expenses]) mergedRows.set(row.key, { label: row.label, current: row.amount, previous: 0 });
-  for (const row of [...priorReport.revenue, ...priorReport.expenses]) {
+  for (const row of [...currentReport.revenue, ...currentReport.costsOfSales, ...currentReport.expenses]) mergedRows.set(row.key, { label: row.label, current: row.amount, previous: 0 });
+  for (const row of [...priorReport.revenue, ...priorReport.costsOfSales, ...priorReport.expenses]) {
     const existing = mergedRows.get(row.key);
     mergedRows.set(row.key, { label: row.label, current: existing?.current ?? 0, previous: row.amount });
   }
@@ -272,7 +294,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
             {[
               { label: "Accrued revenue", value: currentReport.totalRevenue, icon: ArrowDownLeft, tone: "text-emerald-700", detail: `${currentReport.invoiceCount} issued invoices`, count: false },
-              { label: "Operating expenses", value: currentReport.totalExpenses, icon: ArrowUpRight, tone: "text-red-600", detail: `${currentReport.expenseCount} verified bills`, count: false },
+              { label: "All costs & expenses", value: currentReport.totalCostOfSales + currentReport.totalExpenses, icon: ArrowUpRight, tone: "text-red-600", detail: `${currentReport.expenseCount} verified bills`, count: false },
               { label: "Net profit", value: currentReport.netProfit, icon: FileBarChart, tone: currentReport.netProfit >= 0 ? "text-emerald-700" : "text-red-600", detail: "Accrual basis", count: false },
               { label: "Tenant outstanding", value: tenantOutstanding, icon: ReceiptText, tone: "text-amber-700", detail: `${invoiceOptions.length} open invoices`, count: false },
               { label: "Owing to staff", value: staffPayable, icon: WalletCards, tone: "text-red-600", detail: "Verified, not paid back", count: false },
@@ -312,6 +334,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               <TableRow className="bg-emerald-50"><TableCell className="font-semibold text-emerald-900" colSpan={4}>Revenue</TableCell></TableRow>
               {currentReport.revenue.map((row) => { const previous = priorReport.revenue.find((item) => item.key === row.key)?.amount ?? 0; return <TableRow key={row.key}><TableCell className="pl-8">{row.label}</TableCell><TableCell className="text-right">{money(row.amount)}</TableCell><TableCell className="text-right">{money(previous)}</TableCell><TableCell className={`text-right ${differenceClass(row.amount - previous)}`}>{money(row.amount - previous)}</TableCell></TableRow>; })}
               <TableRow><TableCell className="font-semibold">Total revenue</TableCell><TableCell className="text-right font-semibold">{money(currentReport.totalRevenue)}</TableCell><TableCell className="text-right font-semibold">{money(priorReport.totalRevenue)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(currentReport.totalRevenue - priorReport.totalRevenue)}`}>{money(currentReport.totalRevenue - priorReport.totalRevenue)}</TableCell></TableRow>
+              <TableRow className="bg-amber-50"><TableCell className="font-semibold text-amber-900" colSpan={4}>Cost of sales / direct property costs</TableCell></TableRow>
+              {currentReport.costsOfSales.length ? currentReport.costsOfSales.map((row) => { const previous = priorReport.costsOfSales.find((item) => item.key === row.key)?.amount ?? 0; return <TableRow key={row.key}><TableCell className="pl-8">{row.label}</TableCell><TableCell className="text-right">{money(row.amount)}</TableCell><TableCell className="text-right">{money(previous)}</TableCell><TableCell className="text-right">{money(row.amount - previous)}</TableCell></TableRow>; }) : <TableRow><TableCell className="pl-8 text-gray-500" colSpan={4}>No direct property costs recorded for this period.</TableCell></TableRow>}
+              <TableRow><TableCell className="font-semibold">Gross profit</TableCell><TableCell className="text-right font-semibold">{money(currentReport.grossProfit)}</TableCell><TableCell className="text-right font-semibold">{money(priorReport.grossProfit)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(currentReport.grossProfit - priorReport.grossProfit)}`}>{money(currentReport.grossProfit - priorReport.grossProfit)}</TableCell></TableRow>
               <TableRow className="bg-red-50"><TableCell className="font-semibold text-red-900" colSpan={4}>Operating expenses</TableCell></TableRow>
               {currentReport.expenses.map((row) => { const previous = priorReport.expenses.find((item) => item.key === row.key)?.amount ?? 0; return <TableRow key={row.key}><TableCell className="pl-8">{row.label}</TableCell><TableCell className="text-right">{money(row.amount)}</TableCell><TableCell className="text-right">{money(previous)}</TableCell><TableCell className={`text-right ${differenceClass(previous - row.amount)}`}>{money(row.amount - previous)}</TableCell></TableRow>; })}
               <TableRow><TableCell className="font-semibold">Total expenses</TableCell><TableCell className="text-right font-semibold">{money(currentReport.totalExpenses)}</TableCell><TableCell className="text-right font-semibold">{money(priorReport.totalExpenses)}</TableCell><TableCell className="text-right font-semibold">{money(currentReport.totalExpenses - priorReport.totalExpenses)}</TableCell></TableRow>
@@ -323,6 +348,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
       {tab === "bank" ? (
         <div className="space-y-5">
+          <details className="rounded-lg border border-[#d7dde5] bg-white">
+            <summary className="cursor-pointer list-none px-5 py-4"><span className="font-semibold text-gray-950">How bank reconciliation works</span><span className="ml-2 text-sm text-gray-500">Open only when you need help</span></summary>
           <Card>
             <CardHeader><CardTitle>Bank reconciliation — simple guide</CardTitle><CardDescription>The goal is simple: the DEKEZ bank records and your real bank statement must agree exactly.</CardDescription></CardHeader>
             <CardContent className="space-y-5 text-sm">
@@ -353,8 +380,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-800">Important: if the payment already exists in DEKEZ, use Match existing transaction. Do not record and knock off again, or you will duplicate the payment.</div>
             </CardContent>
           </Card>
+          </details>
           <div className="grid gap-5 xl:grid-cols-2">
             <Card><CardHeader><CardTitle>Add a bank account</CardTitle><CardDescription>Each real account links to its own bank ledger.</CardDescription></CardHeader><CardContent>
+              <details open={!bankAccounts.length}>
+                <summary className="mb-3 cursor-pointer text-sm font-semibold text-[#7a5618]">{bankAccounts.length ? "+ Add another bank account" : "+ Add first bank account"}</summary>
               <form action={createBankAccount} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm">Account name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="name" placeholder="Public Bank Current" required /></label>
                 <label className="text-sm">Bank name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="bankName" placeholder="Public Bank" required /></label>
@@ -363,8 +393,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 <label className="text-sm">Balance date<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalanceDate" type="date" /><span className="mt-1 block text-xs text-gray-500">Use the day before your first statement starts.</span></label>
                 <Button className="self-end" type="submit"><PlusCircle className="h-4 w-4" />Add bank</Button>
               </form>
+              </details>
             </CardContent></Card>
-            <Card><CardHeader><CardTitle>Import bank statement</CardTitle><CardDescription>Upload CSV. The original statement is retained as audit evidence.</CardDescription></CardHeader><CardContent>
+            <Card id="bank-import"><CardHeader><CardTitle>Import monthly bank statement</CardTitle><CardDescription>Upload the CSV once. The original is retained for seven years and the same file cannot be duplicated.</CardDescription></CardHeader><CardContent>
+              {params.error?.startsWith("statement_") ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessages[params.error] ?? "The statement could not be imported."}</div> : null}
               {bankAccounts.length ? <form action={importBankStatement} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm sm:col-span-2">Bank account<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" name="bankAccountId" required>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.name}{account.account_number ? ` · ${account.account_number}` : account.account_number_last4 ? ` · ending ${account.account_number_last4}` : ""}</option>)}</select></label>
                 <label className="text-sm">Period start<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" defaultValue={startDate} name="periodStart" required type="date" /></label>
@@ -373,7 +405,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 <label className="text-sm">Statement closing balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="closingBalance" required step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Copy the final balance printed on this statement.</span></label>
                 <input name="statementDate" type="hidden" value={endDate} />
                 <label className="text-sm sm:col-span-2">CSV statement<input accept=".csv,text/csv" className="mt-1 block w-full rounded-md border border-[#d7dde5] bg-white p-2 text-sm" name="statement" required type="file" /></label>
-                <Button className="sm:col-span-2" type="submit"><Upload className="h-4 w-4" />Import statement</Button>
+                <Button className="sm:col-span-2" type="submit"><Upload className="h-4 w-4" />Import this monthly statement</Button>
               </form> : <p className="text-sm text-gray-600">Add your first bank account before importing a statement.</p>}
             </CardContent></Card>
           </div>
@@ -397,26 +429,42 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
               <Card>
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div><CardTitle>Smart bank reconciliation</CardTitle><CardDescription>{unmatchedCount} unmatched · manual split/merge and Create &amp; Match are available</CardDescription></div>
-                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto match</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
+                  <div><CardTitle>Transactions to review</CardTitle><CardDescription>{unmatchedCount} still need attention. Open only one line at a time.</CardDescription></div>
+                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Match recorded payments</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {statementLines.map((line) => {
                     const lineMatches = matchesByLine.get(line.id) ?? [];
                     const matchedAmount = lineMatches.reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
                     const remaining = Number(line.amount) - matchedAmount;
+                    const locationHint = bankRoomHint(line.description);
+                    const descriptionParts = line.description.split(" · ").filter(Boolean);
+                    const transactionLabel = descriptionParts[0] || "Bank transaction";
+                    const transactionDetails = descriptionParts.slice(1).join(" · ");
+                    const suggestedInvoice = locationHint
+                      ? invoiceOptions.find((bill) => bill.propertyCode === locationHint.propertyCode && bill.roomCode === locationHint.roomCode)
+                      : null;
+                    const invoiceChoices = suggestedInvoice
+                      ? [suggestedInvoice, ...invoiceOptions.filter((bill) => bill.id !== suggestedInvoice.id)]
+                      : invoiceOptions;
                     const availableCandidates = candidates.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
                       const available = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
                       return Math.sign(candidate.amount) === Math.sign(remaining) && available > 0.005;
+                    }).sort((left, right) => {
+                      const leftHint = bankRoomHint(left.description);
+                      const rightHint = bankRoomHint(right.description);
+                      const leftScore = locationHint && leftHint?.propertyCode === locationHint.propertyCode && leftHint.roomCode === locationHint.roomCode ? 1 : 0;
+                      const rightScore = locationHint && rightHint?.propertyCode === locationHint.propertyCode && rightHint.roomCode === locationHint.roomCode ? 1 : 0;
+                      return rightScore - leftScore;
                     }).slice(0, 150);
                     return (
-                      <details className="group rounded-lg border border-[#d7dde5] bg-white" key={line.id} open={line.status === "unmatched"}>
-                        <summary className="grid cursor-pointer list-none gap-3 p-4 sm:grid-cols-[110px_1fr_150px_120px] sm:items-center">
+                      <details className="group rounded-lg border border-[#d7dde5] bg-white" key={line.id}>
+                        <summary className="grid cursor-pointer list-none gap-3 p-4 sm:grid-cols-[110px_1fr_150px_130px] sm:items-center">
                           <div className="text-sm"><p className="font-medium">{dateLabel(line.transaction_date)}</p><p className="text-xs text-gray-500">{line.reference_number || "No reference"}</p></div>
-                          <div><p className="font-medium text-gray-950">{line.description}</p><p className="text-xs text-gray-500">Click to view matches and actions</p></div>
-                          <p className={`text-right font-semibold ${Number(line.amount) >= 0 ? "text-emerald-700" : "text-red-600"}`}>{Number(line.amount) >= 0 ? "+" : "-"}{money(Math.abs(Number(line.amount)))}</p>
-                          <Badge className={statusClasses[line.status] ?? ""}>{line.status}</Badge>
+                          <div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-gray-950">{transactionLabel}</p>{locationHint ? <Badge className="bg-blue-100 text-blue-800">{locationHint.propertyCode} Room {locationHint.roomCode}</Badge> : null}</div><p className="mt-1 line-clamp-2 text-xs text-gray-600">{transactionDetails || "No additional bank description"}</p></div>
+                          <div className="text-right"><p className={`font-semibold ${Number(line.amount) >= 0 ? "text-emerald-700" : "text-red-600"}`}>{Number(line.amount) >= 0 ? "+" : "-"}{money(Math.abs(Number(line.amount)))}</p><p className="text-xs text-gray-500">{Number(line.amount) >= 0 ? "Money received" : "Money paid out"}</p></div>
+                          <div className="text-right"><Badge className={statusClasses[line.status] ?? ""}>{line.status === "unmatched" ? "Needs review" : line.status}</Badge><p className="mt-2 text-xs font-semibold text-[#7a5618] group-open:hidden">Review →</p><p className="mt-2 hidden text-xs text-gray-500 group-open:block">Close ↑</p></div>
                         </summary>
                         <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
@@ -430,15 +478,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             {remaining > 0.005 ? <form action={createTenantPaymentFromBankLine} className="space-y-3 rounded-lg border-2 border-[#b8892c] bg-[#fffaf0] p-4">
                               <div><p className="font-semibold">Tenant paid but did not upload a slip</p><p className="text-xs text-gray-600">Use only for a real unmatched bank receipt. DEKEZ records the payment, knocks off the invoice and retains the statement as proof.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
-                              <label className="block text-xs font-medium">Tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="rentBillId" required><option disabled value="">Choose invoice</option>{invoiceOptions.map((bill) => <option key={bill.id} value={bill.id}>{bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.billMonth} · owing {money(bill.outstanding)}</option>)}</select></label>
-                              <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="otherAmount" step="0.01" type="number" /></label></div>
+                              {suggestedInvoice ? <p className="rounded-md bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800">Suggested from QR code: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName}</p> : null}
+                              <label className="block text-xs font-medium">Tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.billMonth} · owing {money(bill.outstanding)}</option>)}</select></label>
+                              <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={suggestedInvoice ? Math.min(Number(remaining), suggestedInvoice.rentOutstanding).toFixed(2) : undefined} min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={suggestedInvoice ? Math.min(Math.max(Number(remaining) - suggestedInvoice.rentOutstanding, 0), suggestedInvoice.depositOutstanding).toFixed(2) : undefined} min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="otherAmount" step="0.01" type="number" /></label></div>
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>
                               <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="other" name="otherCategory"><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>
                               <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="otherDescription" placeholder="Required only when Other amount is used" />
                               <Button className="w-full" type="submit"><Banknote className="h-4 w-4" />Record payment, knock off &amp; match</Button>
                             </form> : null}
                             <div className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
-                              <form action={createBankAdjustment} className="space-y-3"><div><p className="font-semibold">Create bank adjustment</p><p className="text-xs text-gray-500">For bank fees, interest or a missing expense/income.</p></div><input name="lineId" type="hidden" value={line.id} /><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="accountId" required><option disabled value="">Choose income / expense</option>{adjustmentAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="description" placeholder="Adjustment description" required /><Button className="w-full" type="submit" variant="outline">Create &amp; match adjustment</Button></form>
+                              <form action={createBankAdjustment} className="space-y-3"><div><p className="font-semibold">Record a missing accounting entry</p><p className="text-xs text-gray-500">Includes property rent/COGS, salary, AP/AR, fixed assets, loans, capital, transfers, bank fees, tax and other categories.</p></div><input name="lineId" type="hidden" value={line.id} /><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="accountId" required><option disabled value="">Choose accounting category</option>{adjustmentAccountGroups.map((group) => <optgroup key={group.type} label={group.type.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase())}>{group.accounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</optgroup>)}</select><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={locationHint ? properties.find((property) => propertyCode(property.name) === locationHint.propertyCode)?.id ?? "" : ""} name="propertyId"><option value="">General company / no property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="description" placeholder="What was this transaction for?" required /><Button className="w-full" type="submit" variant="outline">Record &amp; match</Button></form>
                               <form action={ignoreBankLine} className="space-y-2 border-t border-[#d7dde5] pt-3"><input name="lineId" type="hidden" value={line.id} /><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="reason" placeholder="Audit reason to ignore" required /><Button className="w-full" type="submit" variant="ghost">Ignore with reason</Button></form>
                             </div>
                           </div> : null}

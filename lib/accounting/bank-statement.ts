@@ -42,6 +42,19 @@ function normalizedHeader(value: string) {
     .trim();
 }
 
+function cleanCsvValue(value: string | undefined) {
+  if (!value) return "";
+  let clean = value.trim();
+
+  // Public Bank CSV exports cells as Excel formulas, for example
+  // ="01/04/2026" and ="QR REF NO:12345678 KLB 17".
+  if (clean.startsWith('="') && clean.endsWith('"')) {
+    clean = clean.slice(2, -1).replace(/""/g, '"');
+  }
+
+  return clean.trim();
+}
+
 function findColumn(headers: string[], candidates: string[]) {
   return headers.findIndex((header) =>
     candidates.some((candidate) => header === candidate || header.includes(candidate)),
@@ -49,10 +62,11 @@ function findColumn(headers: string[], candidates: string[]) {
 }
 
 function parseAmount(value: string | undefined) {
-  if (!value) return 0;
-  const negative = /^\s*\(.*\)\s*$/.test(value) || /\bdr\b/i.test(value);
+  const clean = cleanCsvValue(value);
+  if (!clean) return 0;
+  const negative = /^\s*\(.*\)\s*$/.test(clean) || /\bdr\b/i.test(clean);
   const numeric = Number(
-    value
+    clean
       .replace(/[(),]/g, "")
       .replace(/\b(?:cr|dr|myr|rm)\b/gi, "")
       .replace(/[^0-9.-]/g, ""),
@@ -62,8 +76,8 @@ function parseAmount(value: string | undefined) {
 }
 
 function parseDate(value: string | undefined) {
-  if (!value) return null;
-  const clean = value.trim().replace(/\s+\d{1,2}:\d{2}(?::\d{2})?.*$/, "");
+  const clean = cleanCsvValue(value).replace(/\s+\d{1,2}:\d{2}(?::\d{2})?.*$/, "");
+  if (!clean) return null;
   const iso = clean.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   const dayFirst = clean.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   let year: number;
@@ -79,12 +93,14 @@ function parseDate(value: string | undefined) {
     month = Number(dayFirst[2]);
     year = Number(dayFirst[3]);
     if (year < 100) year += 2000;
-  } else {
+  } else if (/[a-z]/i.test(clean)) {
     const parsed = new Date(clean);
     if (Number.isNaN(parsed.getTime())) return null;
     year = parsed.getFullYear();
     month = parsed.getMonth() + 1;
     day = parsed.getDate();
+  } else {
+    return null;
   }
 
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -106,7 +122,7 @@ export function parseBankStatementCsv(content: string): ParsedBankLine[] {
     .map((row) => row.trim())
     .filter(Boolean);
 
-  const parsedRows = rows.map(parseCsvRow);
+  const parsedRows = rows.map((row) => parseCsvRow(row).map(cleanCsvValue));
   const headerIndex = parsedRows.findIndex((row) => {
     const headers = row.map(normalizedHeader);
     return (
@@ -128,6 +144,10 @@ export function parseBankStatementCsv(content: string): ParsedBankLine[] {
   const valueDateIndex = findColumn(headers, ["value date"]);
   const descriptionIndex = findColumn(headers, ["transaction description", "description", "details", "narrative"]);
   const referenceIndex = findColumn(headers, ["reference number", "reference", "ref no", "cheque no"]);
+  const detailIndexes = headers
+    .map((header, index) => ({ header, index }))
+    .filter(({ header }) => /^reference \d+$/.test(header))
+    .map(({ index }) => index);
   const debitIndex = findColumn(headers, ["debit amount", "withdrawal", "debit"]);
   const creditIndex = findColumn(headers, ["credit amount", "deposit", "credit"]);
   const amountIndex = findColumn(headers, ["transaction amount", "amount"]);
@@ -152,8 +172,14 @@ export function parseBankStatementCsv(content: string): ParsedBankLine[] {
       }
 
       if (Math.abs(amount) < 0.005) return null;
-      const description = row[descriptionIndex] || "Bank transaction";
-      const referenceNumber = row[referenceIndex] || null;
+      const detailValues = detailIndexes.map((index) => row[index]).filter(Boolean);
+      const description = Array.from(
+        new Set([row[descriptionIndex], ...detailValues].filter(Boolean)),
+      ).join(" · ") || "Bank transaction";
+      const primaryReference = row[referenceIndex];
+      const referenceNumber = primaryReference && !/^0+$/.test(primaryReference)
+        ? primaryReference
+        : detailValues.find((value) => /(?:ref|qr|room|\b[A-Z]{3}\s*\d+)/i.test(value)) ?? null;
       const valueDate = valueDateIndex >= 0 ? parseDate(row[valueDateIndex]) : null;
       const rawKey = [transactionDate, valueDate, amount.toFixed(2), description, referenceNumber, rowIndex].join("|");
 
