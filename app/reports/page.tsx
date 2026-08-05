@@ -84,11 +84,11 @@ function tabHref(tab: string, month: string, propertyId: string, statementId?: s
   return `/reports?${search.toString()}`;
 }
 
-function bankLineHref(month: string, propertyId: string, statementId: string, lineId?: string) {
+function bankReviewPageHref(month: string, propertyId: string, statementId: string, reviewPage: number) {
   const search = new URLSearchParams({ tab: "bank", month, statement: statementId });
   if (propertyId) search.set("property", propertyId);
-  if (lineId) search.set("line", lineId);
-  return `/reports?${search.toString()}${lineId ? `#bank-line-${lineId}` : "#bank-transactions"}`;
+  if (reviewPage > 1) search.set("reviewPage", String(reviewPage));
+  return `/reports?${search.toString()}#bank-transactions`;
 }
 
 function differenceClass(value: number) {
@@ -252,7 +252,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
   const statementMovement = statementLines.reduce((total, line) => total + Number(line.amount ?? 0), 0);
   const statementDifference = selectedStatement ? Number(selectedStatement.opening_balance ?? 0) + statementMovement - Number(selectedStatement.closing_balance ?? 0) : 0;
-  const unmatchedCount = statementLines.filter((line) => line.status === "unmatched").length;
+  const unmatchedLines = statementLines.filter((line) => line.status === "unmatched");
+  const unmatchedCount = unmatchedLines.length;
+  const reviewPageSize = 20;
+  const reviewPageCount = Math.max(1, Math.ceil(unmatchedCount / reviewPageSize));
+  const requestedReviewPage = Number(params.reviewPage ?? "1");
+  const reviewPage = Number.isInteger(requestedReviewPage) ? Math.min(Math.max(requestedReviewPage, 1), reviewPageCount) : 1;
+  const reviewLines = unmatchedLines.slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize);
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
   const unreconciledTotal = statementImports.filter((item) => item.status === "in_progress").length;
   const adjustmentAccounts = accounts.filter((account) => account.id !== statementAccount?.accounting_account_id);
@@ -448,7 +454,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
               <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div><CardTitle>Transactions to review</CardTitle><CardDescription>{unmatchedCount} still need attention. Open only one line at a time.</CardDescription></div>
+                  <div><CardTitle>Unmatched bank transactions</CardTitle><CardDescription>{unmatchedCount} still need attention. Suggestions and confirmation are shown directly below each transaction.</CardDescription></div>
                   {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe matches</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -461,7 +467,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       No additional exact matches were safe to link. Press <strong>Open</strong> on a transaction and choose its recorded payment, paid invoice or accounting category.
                     </div>
                   ) : null}
-                  {statementLines.map((line) => {
+                  {reviewLines.map((line) => {
                     const lineMatches = matchesByLine.get(line.id) ?? [];
                     const matchedAmount = lineMatches.reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
                     const remaining = Number(line.amount) - matchedAmount;
@@ -509,16 +515,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         : rankedCandidates[0]?.score >= 2 && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
                           ? rankedCandidates[0].candidate
                           : null;
-                    const isLineOpen = params.line === line.id;
                     return (
                       <div className="rounded-lg border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
                         <div className="grid gap-3 p-4 sm:grid-cols-[110px_1fr_150px_150px] sm:items-center">
                           <div className="text-sm"><p className="font-medium">{dateLabel(line.transaction_date)}</p><p className="text-xs text-gray-500">{line.reference_number || "No reference"}</p></div>
                           <div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-gray-950">{transactionLabel}</p>{locationHint ? <Badge className="bg-blue-100 text-blue-800">{locationHint.propertyCode} Room {locationHint.roomCode}</Badge> : null}</div><p className="mt-1 line-clamp-2 text-xs text-gray-600">{transactionDetails || "No additional bank description"}</p></div>
                           <div className="text-right"><p className={`font-semibold ${Number(line.amount) >= 0 ? "text-emerald-700" : "text-red-600"}`}>{Number(line.amount) >= 0 ? "+" : "-"}{money(Math.abs(Number(line.amount)))}</p><p className="text-xs text-gray-500">{Number(line.amount) >= 0 ? "Money received" : "Money paid out"}</p></div>
-                          <div className="flex flex-col items-stretch gap-2 sm:items-end"><Badge className={statusClasses[line.status] ?? ""}>{line.status === "unmatched" ? "Needs review" : line.status}</Badge><Button asChild size="sm" variant={isLineOpen ? "outline" : "default"}><Link href={bankLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, isLineOpen ? undefined : line.id)} prefetch={false}>{isLineOpen ? "Close" : "Open"}</Link></Button></div>
+                          <div className="flex flex-col items-stretch gap-2 sm:items-end"><Badge className={statusClasses[line.status] ?? ""}>Needs review</Badge></div>
                         </div>
-                        {isLineOpen ? <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
+                        <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
                           {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="space-y-4">
                             {recommendedCandidate ? <form action={matchBankLine} className="flex flex-col gap-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -554,11 +559,12 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               </div>
                             </details>
                           </div> : null}
-                        </div> : null}
+                        </div>
                       </div>
                     );
                   })}
-                  {!statementLines.length ? <p className="text-sm text-gray-500">No statement lines were imported.</p> : null}
+                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All bank transactions have been matched or explained.</div> : null}
+                  {reviewPageCount > 1 ? <div className="flex items-center justify-between gap-3 border-t border-[#d7dde5] pt-4 text-sm"><span>Page {reviewPage} of {reviewPageCount} · showing up to {reviewPageSize} unmatched transactions</span><div className="flex gap-2">{reviewPage > 1 ? <Button asChild size="sm" variant="outline"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage - 1)} prefetch={false}>Previous</Link></Button> : null}{reviewPage < reviewPageCount ? <Button asChild size="sm"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage + 1)} prefetch={false}>Next</Link></Button> : null}</div></div> : null}
                 </CardContent>
               </Card>
             </>
