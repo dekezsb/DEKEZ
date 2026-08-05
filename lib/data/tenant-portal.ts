@@ -286,6 +286,11 @@ export async function getTenantPortalData() {
     room_id: string;
     meter_number: string;
     remaining_credit: number | string;
+    remaining_units: number | string;
+    unit_label: string;
+    connection_status: string;
+    power_state: string;
+    provider: string;
     rate: number | string;
     status: string;
   }> = [];
@@ -378,7 +383,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("smart_meters")
         .select(
-          "id, tenancy_id, tenant_id, room_id, meter_number, remaining_credit, rate, status",
+          "id, tenancy_id, tenant_id, room_id, meter_number, remaining_credit, remaining_units, unit_label, connection_status, power_state, provider, rate, status",
         )
         .eq("meter_type", "electricity")
         .eq("status", "active")
@@ -501,7 +506,11 @@ export async function getTenantPortalData() {
             ? {
                 id: electricityMeter.id,
                 meterNumber: electricityMeter.meter_number,
-                remainingCredit: numberValue(electricityMeter.remaining_credit),
+                remainingUnits: numberValue(electricityMeter.remaining_units),
+                unitLabel: electricityMeter.unit_label,
+                connectionStatus: electricityMeter.connection_status,
+                powerState: electricityMeter.power_state,
+                provider: electricityMeter.provider,
                 rate: numberValue(electricityMeter.rate),
               }
             : null,

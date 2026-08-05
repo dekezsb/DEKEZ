@@ -1,5 +1,5 @@
 import { Link } from "@/components/app-link";
-import { BatteryCharging, ChevronRight, FileText, Gauge, Phone, UserRound } from "lucide-react";
+import { ChevronRight, FileText, Gauge, Phone, Power, UserRound, Wifi } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -314,14 +314,20 @@ export default async function RoomDetailsPage({
                         {meter.meter_type === "electricity" ? "Electricity" : "Water"} Meter
                       </p>
                       <p className="text-sm text-gray-500">
-                        Room {room.roomNumber} · Meter {meter.meter_number}
+                        Room {room.roomNumber} · Meter {meter.provider_meter_id ?? meter.meter_number}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <BatteryCharging className="h-4 w-4 text-[#126b5f]" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Gauge className="h-4 w-4 text-[#126b5f]" />
                       <span className="text-sm font-medium">
-                        Credit {money.format(Number(meter.remaining_credit ?? 0))}
+                        Remaining {Number(meter.remaining_units ?? 0).toFixed(2)} {meter.unit_label ?? "kWh"}
                       </span>
+                      <Badge className={meter.connection_status === "online" ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-700"}>
+                        <Wifi className="mr-1 h-3 w-3" /> {meter.connection_status ?? "unknown"}
+                      </Badge>
+                      <Badge className={meter.power_state === "on" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                        <Power className="mr-1 h-3 w-3" /> {meter.power_state ?? "unknown"}
+                      </Badge>
                       <Badge className={statusBadgeClass(meter.status)}>{meter.status}</Badge>
                     </div>
                   </div>

@@ -6,17 +6,22 @@ import {
   CheckCircle2,
   ChevronDown,
   Fingerprint,
+  Gauge,
   KeyRound,
   Link2,
   LockKeyhole,
+  Power,
   RefreshCw,
   Router,
   Search,
+  Wifi,
+  Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
+import { getCnyiotConfigStatus } from "@/lib/cnyiot/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
 import {
@@ -105,6 +110,25 @@ type ActiveLockTenancy = {
   }>;
 };
 
+type SmartMeterDevice = {
+  id: string;
+  property_id: string;
+  room_id: string;
+  provider: string;
+  provider_meter_id: string | null;
+  meter_number: string;
+  rate: number;
+  remaining_units: number;
+  unit_label: string;
+  connection_status: "online" | "offline" | "unknown";
+  power_state: "on" | "off" | "unknown";
+  last_reported_at: string | null;
+  last_synced_at: string | null;
+  last_sync_error: string | null;
+  properties: Relation<{ name: string; property_code: string | null }>;
+  rooms: Relation<{ name: string | null; room_number: string | null }>;
+};
+
 type Relation<T> = T | T[] | null;
 
 const statusLabels: Record<string, string> = {
@@ -153,6 +177,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     { data: accessData, error: accessError },
     { data: fingerprintData, error: fingerprintError },
     { data: tenancyData, error: tenancyError },
+    { data: meterData, error: meterError },
     params,
   ] = await Promise.all([
     admin
@@ -190,6 +215,13 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       )
       .eq("status", "active")
       .is("checkout_date", null),
+    admin
+      .from("smart_meters")
+      .select(
+        "id,property_id,room_id,provider,provider_meter_id,meter_number,rate,remaining_units,unit_label,connection_status,power_state,last_reported_at,last_synced_at,last_sync_error,properties(name,property_code),rooms(name,room_number)",
+      )
+      .eq("meter_type", "electricity")
+      .eq("status", "active"),
     searchParams,
   ]);
 
@@ -217,6 +249,19 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     {},
   );
   const activeTenancies = (tenancyData ?? []) as unknown as ActiveLockTenancy[];
+  const smartMeters = ((meterData ?? []) as unknown as SmartMeterDevice[])
+    .map((meter) => ({
+      ...meter,
+      properties: relatedOne(meter.properties),
+      rooms: relatedOne(meter.rooms),
+    }))
+    .sort((left, right) =>
+      `${left.properties?.property_code ?? ""} ${left.rooms?.room_number ?? ""}`.localeCompare(
+        `${right.properties?.property_code ?? ""} ${right.rooms?.room_number ?? ""}`,
+        "en",
+        { numeric: true },
+      ),
+    );
   const activeTenancyByRoomId = new Map(
     activeTenancies.map((tenancy) => [tenancy.room_id, tenancy]),
   );
@@ -256,10 +301,11 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     return value ? `/smart-devices?${value}` : "/smart-devices";
   };
   const config = getTTLockConfigStatus();
+  const meterConfig = getCnyiotConfigStatus();
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
   const numberedRoomLockCount = devices.filter((device) => numberedRoomLockPattern.test(device.provider_lock_name)).length;
-  const errorMessage = error || accessError || fingerprintError || tenancyError
+  const errorMessage = error || accessError || fingerprintError || tenancyError || meterError
     ? "Smart-device records could not be loaded."
     : params.error === "credentials"
       ? "TTLock has not released or configured the API credentials yet."
@@ -285,7 +331,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <p className="text-xs font-semibold uppercase tracking-wide text-[#b47d17]">Admin control</p>
           <h1 className="mt-1 text-3xl font-bold text-gray-950">Smart Devices</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Connect TTLock devices to DEKEZ, confirm their physical rooms, and later automate tenant access from check-in to checkout.
+            Manage TTLock door access and CNYIOT prepaid electricity meters from one DEKEZ workspace.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -365,6 +411,95 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           </p>
         </div>
       ) : null}
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-[#b47d17]" /> Hilltop electricity meters
+            </CardTitle>
+            <p className="mt-1 text-sm text-gray-500">
+              Verified CNYIOT inventory mapped directly to HLT Room 1–9.
+            </p>
+          </div>
+          <Badge>{smartMeters.length} devices</Badge>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!meterConfig.complete ? (
+            <div className="flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">Inventory connected; automatic provider commands are waiting for the CNYIOT server API.</p>
+                <p className="mt-1 leading-6">
+                  DEKEZ will not reuse the vendor website password or CAPTCHA session. Once CNYIOT issues an API URL, account ID and key, approved top-ups can be sent to the physical meter automatically.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MeterSummary icon={Gauge} label="Mapped meters" value={String(smartMeters.length)} />
+            <MeterSummary
+              icon={Wifi}
+              label="Online at last report"
+              value={`${smartMeters.filter((meter) => meter.connection_status === "online").length} / ${smartMeters.length}`}
+            />
+            <MeterSummary
+              icon={Power}
+              label="Power on"
+              value={`${smartMeters.filter((meter) => meter.power_state === "on").length} / ${smartMeters.length}`}
+            />
+            <MeterSummary icon={Zap} label="Electricity rate" value="RM 0.57 / kWh" />
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full min-w-[780px] text-left text-sm">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-4 py-3">Room</th>
+                  <th className="px-4 py-3">Meter</th>
+                  <th className="px-4 py-3">Remaining</th>
+                  <th className="px-4 py-3">Connection</th>
+                  <th className="px-4 py-3">Power</th>
+                  <th className="px-4 py-3">Last provider report</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {smartMeters.map((meter) => (
+                  <tr key={meter.id}>
+                    <td className="px-4 py-3 font-semibold text-gray-950">
+                      {meter.properties?.property_code ?? "-"} · {meter.rooms?.room_number ?? "Unassigned"}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                      {meter.provider_meter_id ?? meter.meter_number}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-gray-950">
+                      {Number(meter.remaining_units).toFixed(2)} {meter.unit_label}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge className={meter.connection_status === "online" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700"}>
+                        {meter.connection_status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge className={meter.power_state === "on" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
+                        {meter.power_state}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{dateTimeLabel(meter.last_reported_at)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Link className="font-medium text-[#9b6c14] hover:underline" href={`/properties/${meter.property_id}/rooms/${meter.room_id}`}>
+                        Open room
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <SummaryCard icon={Link2} label="TTLock integration" value={config.complete ? "Ready to sync" : "Under review"} />
@@ -755,6 +890,28 @@ function SummaryCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function MeterSummary({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Gauge;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/60 p-4">
+      <span className="rounded-md bg-[#f6edd9] p-2 text-[#9a6b16]">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div>
+        <p className="text-xs text-gray-500">{label}</p>
+        <p className="mt-0.5 font-semibold text-gray-950">{value}</p>
+      </div>
+    </div>
   );
 }
 
