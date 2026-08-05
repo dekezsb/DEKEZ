@@ -407,7 +407,7 @@ export async function getRoomDetails(
       .order("bill_month", { ascending: false }),
     supabase
       .from("payments")
-      .select("id, amount, payment_date, payment_method, reference_number, status, verified_at, category, notes")
+      .select("id, tenancy_id, tenant_id, amount, payment_date, payment_method, reference_number, status, verified_at, category, notes")
       .eq("room_id", roomId)
       .order("payment_date", { ascending: false }),
     supabase
@@ -482,7 +482,29 @@ export async function getRoomDetails(
           (bill.tenant_record_id &&
             tenantRecordIds.includes(bill.tenant_record_id)),
       )
-    : roomBills;
+    : roomBills.filter(
+        (bill) =>
+          (room.tenancyId && bill.tenancy_id === room.tenancyId) ||
+          (!bill.tenancy_id &&
+            room.tenantRecordId &&
+            bill.tenant_record_id === room.tenantRecordId),
+      );
+  const roomPayments = paymentsResult.data ?? [];
+  const scopedPayments = options.includeAllTenantTerms
+    ? roomPayments.filter(
+        (payment) =>
+          (payment.tenancy_id && tenancyIds.includes(payment.tenancy_id)) ||
+          (!payment.tenancy_id &&
+            selectedTenantId &&
+            payment.tenant_id === selectedTenantId),
+      )
+    : roomPayments.filter(
+        (payment) =>
+          (room.tenancyId && payment.tenancy_id === room.tenancyId) ||
+          (!payment.tenancy_id &&
+            selectedTenantId &&
+            payment.tenant_id === selectedTenantId),
+      );
 
   const tenantDocumentRows: Array<{
     id: string;
@@ -581,7 +603,7 @@ export async function getRoomDetails(
     property: propertyDetails.property,
     room,
     bills: scopedBills,
-    payments: paymentsResult.data ?? [],
+    payments: scopedPayments,
     maintenance: maintenanceResult.data ?? [],
     smartMeters: meters.map((meter) => ({
       ...meter,

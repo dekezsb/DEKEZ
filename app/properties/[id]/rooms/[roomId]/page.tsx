@@ -218,8 +218,10 @@ export default async function RoomDetailsPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly Bills</CardTitle>
-          <CardDescription>Historical and current rent bills are retained.</CardDescription>
+          <CardTitle>Current Tenancy Bills</CardTitle>
+          <CardDescription>
+            Only this room&apos;s current tenant invoices are shown here. Previous tenant invoices remain in Rental Invoices for seven years.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {details.bills.length ? (
@@ -255,7 +257,7 @@ export default async function RoomDetailsPage({
                 </TableBody>
               </Table>
             </div>
-          ) : <p className="text-sm text-gray-500">No rent bills found for this room.</p>}
+          ) : <p className="text-sm text-gray-500">No rent bills found for the current tenancy.</p>}
         </CardContent>
       </Card>
 

@@ -514,7 +514,10 @@ async function hydrateInvoices(
       Boolean(tenancy?.checkout_date) ||
       Boolean(tenancy?.status && closedStatuses.has(tenancy.status));
 
-    return !isCheckedOut || invoice.invoiceStatus === "paid";
+    return (
+      !isCheckedOut ||
+      ["paid", "cancelled", "waived"].includes(invoice.invoiceStatus)
+    );
   });
 }
 
