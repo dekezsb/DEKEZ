@@ -44,6 +44,10 @@ function followingMonth(value: string) {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
+function normalizeStoredPaymentType(value: string) {
+  return value === "first_month_rental" ? "monthly_rent" : value;
+}
+
 async function getAdmin() {
   try {
     return createAdminClient();
@@ -107,7 +111,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status, rent_bill_id, tenancy_id, tenant_record_id, payment_type, amount, payment_date, bill_month")
+    .select("id, verification_status, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month")
     .eq("id", submissionId)
     .single();
 
@@ -119,7 +123,31 @@ export async function reviewPaymentSubmission(formData: FormData) {
     redirect(withResult(returnTo, "error=already_verified"));
   }
 
-  let effectivePaymentType = currentSubmission.payment_type;
+  let effectiveTenancyId = currentSubmission.tenancy_id;
+  if (
+    decision === "verified" &&
+    !effectiveTenancyId &&
+    currentSubmission.tenant_id &&
+    currentSubmission.property_id &&
+    currentSubmission.room_id
+  ) {
+    const { data: activeTenancy } = await supabase
+      .from("tenancies")
+      .select("id")
+      .eq("tenant_id", currentSubmission.tenant_id)
+      .eq("property_id", currentSubmission.property_id)
+      .eq("room_id", currentSubmission.room_id)
+      .eq("status", "active")
+      .is("checkout_date", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    effectiveTenancyId = activeTenancy?.id ?? null;
+  }
+
+  let effectivePaymentType = normalizeStoredPaymentType(
+    currentSubmission.payment_type,
+  );
   let effectivePaymentDate = currentSubmission.payment_date;
   let effectiveBillMonth = currentSubmission.bill_month;
   let effectiveRentBillId = currentSubmission.rent_bill_id;
@@ -127,7 +155,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const purposeWasCorrected =
     decision === "verified" &&
     paymentPurposeOverride &&
-    paymentPurposeOverride !== currentSubmission.payment_type;
+    paymentPurposeOverride !== effectivePaymentType;
   const paymentDateWasCorrected =
     decision === "verified" &&
     paymentDateOverride &&
@@ -153,7 +181,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     recurringRentRequested
     && (
       role !== "super_admin"
-      || !currentSubmission.tenancy_id
+      || !effectiveTenancyId
       || !Number.isFinite(recurringMonthlyRent)
       || recurringMonthlyRent <= 0
       || !recurringRentReason
@@ -210,39 +238,43 @@ export async function reviewPaymentSubmission(formData: FormData) {
   }
 
   if (billMonthWasCorrected) {
-    if (!currentSubmission.tenancy_id) {
+    if (!effectiveTenancyId && !currentSubmission.tenant_application_id) {
       redirect(withResult(returnTo, "error=correction_bill_missing"));
     }
 
-    const { data: targetBill } = await supabase
-      .from("rent_bills")
-      .select("id, bill_month, status")
-      .eq("tenancy_id", currentSubmission.tenancy_id)
-      .eq("bill_month", normalizedBillMonth)
-      .maybeSingle();
+    const { data: targetBill } = effectiveTenancyId
+      ? await supabase
+          .from("rent_bills")
+          .select("id, bill_month, status")
+          .eq("tenancy_id", effectiveTenancyId)
+          .eq("bill_month", normalizedBillMonth)
+          .maybeSingle()
+      : { data: null };
 
-    if (!targetBill) {
+    if (effectiveTenancyId && !targetBill) {
       redirect(withResult(returnTo, "error=correction_bill_missing"));
     }
-    if (targetBill.status === "paid") {
+    if (targetBill?.status === "paid") {
       redirect(withResult(returnTo, "error=correction_bill_paid"));
     }
 
-    const { data: existingPending } = await supabase
-      .from("payment_submissions")
-      .select("id")
-      .eq("rent_bill_id", targetBill.id)
-      .eq("verification_status", "pending_verification")
-      .neq("id", submissionId)
-      .limit(1)
-      .maybeSingle();
+    const { data: existingPending } = targetBill
+      ? await supabase
+          .from("payment_submissions")
+          .select("id")
+          .eq("rent_bill_id", targetBill.id)
+          .eq("verification_status", "pending_verification")
+          .neq("id", submissionId)
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
 
     if (existingPending) {
       redirect(withResult(returnTo, "error=correction_bill_pending"));
     }
 
-    effectiveRentBillId = targetBill.id;
-    effectiveBillMonth = targetBill.bill_month;
+    effectiveRentBillId = targetBill?.id ?? null;
+    effectiveBillMonth = targetBill?.bill_month ?? normalizedBillMonth;
   }
 
   let verifiedExtraCharge: {
@@ -276,11 +308,11 @@ export async function reviewPaymentSubmission(formData: FormData) {
         .from("rental_invoice_line_items")
         .select("amount")
         .eq("rent_bill_id", effectiveRentBillId),
-      currentSubmission.tenancy_id
+      effectiveTenancyId
         ? supabase
             .from("tenancies")
             .select("deposit")
-            .eq("id", currentSubmission.tenancy_id)
+            .eq("id", effectiveTenancyId)
             .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
@@ -297,13 +329,13 @@ export async function reviewPaymentSubmission(formData: FormData) {
       );
       const depositMaps = await getVerifiedDepositPaymentMaps(
         supabase,
-        currentSubmission.tenancy_id ? [currentSubmission.tenancy_id] : [],
+        effectiveTenancyId ? [effectiveTenancyId] : [],
         currentSubmission.tenant_record_id
           ? [currentSubmission.tenant_record_id]
           : [],
       );
       verifiedDepositPaidBefore = verifiedDepositPaid(depositMaps, {
-        tenancyId: currentSubmission.tenancy_id,
+        tenancyId: effectiveTenancyId,
         tenantRecordId: currentSubmission.tenant_record_id,
         depositAmount: verifiedDepositRequired,
       });
@@ -409,6 +441,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     .update({
       payment_type: effectivePaymentType,
       payment_date: effectivePaymentDate,
+      tenancy_id: effectiveTenancyId,
       bill_month: effectiveBillMonth,
       rent_bill_id: effectiveRentBillId,
       amount: effectiveAmount,
@@ -519,18 +552,16 @@ export async function reviewPaymentSubmission(formData: FormData) {
       redirect(withResult(returnTo, "error=review"));
     }
 
-    if (
-      !rentBillId &&
-      submission.payment_type === "first_month_rental"
-    ) {
+    if (!rentBillId && submission.bill_type === "check_in") {
       const { data: firstBill } = await supabase
         .from("rent_bills")
-        .select("id")
+        .select("id, bill_month")
         .eq("tenancy_id", tenancy.id)
         .order("bill_month", { ascending: true })
         .limit(1)
         .maybeSingle();
       rentBillId = firstBill?.id ?? null;
+      effectiveBillMonth = firstBill?.bill_month ?? effectiveBillMonth;
     }
 
     await supabase
@@ -538,6 +569,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       .update({
         tenancy_id: tenancy.id,
         rent_bill_id: rentBillId,
+        bill_month: effectiveBillMonth,
         property_id: tenancy.property_id,
         unit_id: tenancy.unit_id,
         room_id: tenancy.room_id,

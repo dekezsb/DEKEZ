@@ -226,7 +226,7 @@ export async function POST(request: Request) {
           unit_id: application.unit_id,
           room_id: application.room_id,
           bill_type: "check_in",
-          payment_type: "first_month_rental",
+          payment_type: "monthly_rent",
           amount: Number(application.monthly_rent ?? 0),
           payment_date: new Date().toISOString().slice(0, 10),
           payment_method: "online_payment",

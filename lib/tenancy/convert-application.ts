@@ -303,6 +303,50 @@ export async function convertTenantApplication(
     tenancyId: tenancy.id,
     includeTenantRecords: false,
   });
+  const { data: firstBill } = await supabase
+    .from("rent_bills")
+    .select("id, bill_month")
+    .eq("tenancy_id", tenancy.id)
+    .order("bill_month", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (firstBill) {
+    const { error: paymentLinkError } = await supabase
+      .from("payment_submissions")
+      .update({
+        tenancy_id: tenancy.id,
+        tenant_record_id: tenantRecordId,
+        rent_bill_id: firstBill.id,
+        property_id: property.id,
+        unit_id: room.unit_id,
+        room_id: room.id,
+        bill_month: firstBill.bill_month,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_application_id", application.id)
+      .eq("verification_status", "pending_verification")
+      .or("tenancy_id.is.null,rent_bill_id.is.null,bill_month.is.null");
+
+    if (paymentLinkError) {
+      console.error("Converted application payment could not be linked to its first invoice.", {
+        applicationId: application.id,
+        tenancyId: tenancy.id,
+        rentBillId: firstBill.id,
+        error: paymentLinkError,
+      });
+    }
+
+    await supabase
+      .from("payment_submissions")
+      .update({
+        payment_type: "monthly_rent",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_application_id", application.id)
+      .eq("payment_type", "first_month_rental")
+      .eq("verification_status", "pending_verification");
+  }
   await createAgreementForTenancy(supabase, tenancy.id, actorId, {
     monthlyRent: Number(application.monthly_rent ?? 0),
   });

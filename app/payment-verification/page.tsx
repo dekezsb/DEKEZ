@@ -493,7 +493,10 @@ function buildRow(
     amountDue: money(invoiceOutstanding),
     amountSubmitted: money(submission.amount),
     amountSubmittedValue: Number(submission.amount ?? 0),
-    paymentPurpose: submission.payment_type,
+    paymentPurpose:
+      submission.payment_type === "first_month_rental"
+        ? "monthly_rent"
+        : submission.payment_type,
     invoiceOutstanding,
     rentOutstanding,
     depositOutstanding,
