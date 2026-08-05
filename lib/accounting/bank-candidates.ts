@@ -83,9 +83,22 @@ export async function getBankCandidates(
 
   const candidates: BankCandidate[] = [];
   const paidBills = paidBillsResult.data ?? [];
-  const propertyIds = Array.from(new Set(paidBills.map((bill) => bill.property_id).filter(Boolean)));
-  const roomIds = Array.from(new Set(paidBills.map((bill) => bill.room_id).filter(Boolean)));
-  const tenantRecordIds = Array.from(new Set(paidBills.map((bill) => bill.tenant_record_id).filter(Boolean)));
+  const paymentBillIds = Array.from(new Set(
+    (paymentsResult.data ?? []).map((payment) => payment.rent_bill_id).filter(Boolean),
+  ));
+  const { data: paymentBills } = paymentBillIds.length
+    ? await supabase
+        .from("rent_bills")
+        .select("id, due_date, bill_month, amount, paid_amount, invoice_number, property_id, room_id, tenant_record_id")
+        .in("id", paymentBillIds)
+    : { data: [] };
+  const billMap = new Map(
+    [...paidBills, ...(paymentBills ?? [])].map((bill) => [bill.id, bill]),
+  );
+  const contextualBills = Array.from(billMap.values());
+  const propertyIds = Array.from(new Set(contextualBills.map((bill) => bill.property_id).filter(Boolean)));
+  const roomIds = Array.from(new Set(contextualBills.map((bill) => bill.room_id).filter(Boolean)));
+  const tenantRecordIds = Array.from(new Set(contextualBills.map((bill) => bill.tenant_record_id).filter(Boolean)));
   const [propertiesResult, roomsResult, tenantsResult] = await Promise.all([
     propertyIds.length ? supabase.from("properties").select("id, name").in("id", propertyIds) : Promise.resolve({ data: [] }),
     roomIds.length ? supabase.from("rooms").select("id, name, room_number").in("id", roomIds) : Promise.resolve({ data: [] }),
@@ -94,24 +107,30 @@ export async function getBankCandidates(
   const propertyNames = new Map((propertiesResult.data ?? []).map((item) => [item.id, item.name]));
   const rooms = new Map((roomsResult.data ?? []).map((item) => [item.id, item]));
   const tenantNames = new Map((tenantsResult.data ?? []).map((item) => [item.id, item.full_name]));
-  const paymentBillIds = new Set(
-    (paymentsResult.data ?? []).map((payment) => payment.rent_bill_id).filter(Boolean),
-  );
+  const paymentBillIdSet = new Set(paymentBillIds);
 
   for (const payment of paymentsResult.data ?? []) {
+    const bill = payment.rent_bill_id ? billMap.get(payment.rent_bill_id) : null;
+    const room = bill ? rooms.get(bill.room_id) : null;
+    const propertyName = bill ? propertyNames.get(bill.property_id) ?? "Property" : null;
+    const propertyCode = propertyName?.trim().toUpperCase().match(/^[A-Z]{3}/)?.[0] ?? propertyName;
+    const roomName = room?.name || (room?.room_number ? `Room ${room.room_number}` : null);
+    const invoiceContext = bill
+      ? `${propertyCode ?? "Property"} ${roomName ?? "Room"} · ${tenantNames.get(bill.tenant_record_id) ?? "Tenant"} · ${bill.invoice_number ?? bill.bill_month}`
+      : "Unallocated receipt";
     candidates.push({
       sourceType: "payment",
       sourceId: payment.id,
       date: payment.payment_date,
       amount: numberValue(payment.amount),
-      description: `${String(payment.category ?? "Tenant payment").replaceAll("_", " ")} · ${payment.rent_bill_id ? "Invoice payment" : "Unallocated receipt"}`,
+      description: `${String(payment.category ?? "Tenant payment").replaceAll("_", " ")} · ${invoiceContext}`,
       referenceNumber: payment.reference_number,
       propertyId: payment.property_id,
     });
   }
 
   for (const bill of paidBills) {
-    if (paymentBillIds.has(bill.id)) continue;
+    if (paymentBillIdSet.has(bill.id)) continue;
     const paidAmount = numberValue(bill.paid_amount) || numberValue(bill.amount);
     if (paidAmount <= 0) continue;
     const room = rooms.get(bill.room_id);

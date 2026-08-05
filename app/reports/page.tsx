@@ -109,6 +109,18 @@ function roomCode(value: string) {
   return value.toUpperCase().replace(/^ROOM\s*/i, "").replace(/^0+/, "") || "0";
 }
 
+const bankMatchStopWords = new Set([
+  "monthly", "rent", "rental", "deposit", "other", "invoice", "payment", "paid",
+  "room", "property", "tenant", "fund", "duitnow", "transfer", "cr", "dr", "atm", "eft",
+  "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+]);
+
+function bankTextMatchScore(bankText: string, candidateText: string) {
+  const bankTokens = new Set(bankText.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const candidateTokens = Array.from(new Set(candidateText.toLowerCase().match(/[a-z0-9]+/g) ?? []));
+  return candidateTokens.filter((token) => token.length >= 2 && !bankMatchStopWords.has(token) && bankTokens.has(token)).length;
+}
+
 const errorMessages: Record<string, string> = {
   accounting_context: "Your accounting company could not be loaded.",
   bank_account_details: "Enter the bank account name, bank name and full account number (6 to 30 digits).",
@@ -463,17 +475,40 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     const invoiceChoices = suggestedInvoice
                       ? [suggestedInvoice, ...invoiceOptions.filter((bill) => bill.id !== suggestedInvoice.id)]
                       : invoiceOptions;
-                    const availableCandidates = candidates.filter((candidate) => {
+                    const candidatePool = candidates.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
                       const available = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
                       return Math.sign(candidate.amount) === Math.sign(remaining) && available > 0.005;
-                    }).sort((left, right) => {
+                    });
+                    const exactAmountCandidates = candidatePool.filter((candidate) => {
+                      const key = `${candidate.sourceType}:${candidate.sourceId}`;
+                      const available = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
+                      return Math.abs(available - Math.abs(remaining)) < 0.005;
+                    });
+                    const amountScopedCandidates = exactAmountCandidates.length ? exactAmountCandidates : candidatePool;
+                    const locationCandidates = locationHint
+                      ? amountScopedCandidates.filter((candidate) => {
+                          const hint = bankRoomHint(candidate.description);
+                          return hint?.propertyCode === locationHint.propertyCode && hint.roomCode === locationHint.roomCode;
+                        })
+                      : [];
+                    const availableCandidates = (locationCandidates.length ? locationCandidates : amountScopedCandidates).sort((left, right) => {
                       const leftHint = bankRoomHint(left.description);
                       const rightHint = bankRoomHint(right.description);
                       const leftScore = locationHint && leftHint?.propertyCode === locationHint.propertyCode && leftHint.roomCode === locationHint.roomCode ? 1 : 0;
                       const rightScore = locationHint && rightHint?.propertyCode === locationHint.propertyCode && rightHint.roomCode === locationHint.roomCode ? 1 : 0;
                       return rightScore - leftScore;
-                    }).slice(0, 150);
+                    }).slice(0, 50);
+                    const rankedCandidates = availableCandidates
+                      .map((candidate) => ({ candidate, score: bankTextMatchScore(line.description, candidate.description) }))
+                      .sort((left, right) => right.score - left.score);
+                    const recommendedCandidate = locationCandidates.length === 1
+                      ? locationCandidates[0]
+                      : availableCandidates.length === 1
+                        ? availableCandidates[0]
+                        : rankedCandidates[0]?.score >= 2 && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
+                          ? rankedCandidates[0].candidate
+                          : null;
                     const isLineOpen = params.line === line.id;
                     return (
                       <div className="rounded-lg border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
@@ -485,7 +520,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         </div>
                         {isLineOpen ? <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
-                          {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="grid gap-4 xl:grid-cols-3">
+                          {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="space-y-4">
+                            {recommendedCandidate ? <form action={matchBankLine} className="flex flex-col gap-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                              <input name="lineId" type="hidden" value={line.id} />
+                              <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
+                              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">DEKEZ recommended match</p><p className="mt-1 font-semibold text-gray-950">{recommendedCandidate.description}</p><p className="text-sm text-gray-600">{dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p></div>
+                              <Button className="shrink-0" type="submit"><BadgeCheck className="h-4 w-4" />Confirm match</Button>
+                            </form> : <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><strong>No safe recommendation yet.</strong> Choose the correct record under Other options. Nothing will be posted until you confirm.</div>}
+                            <details open={!recommendedCandidate} className="rounded-lg border border-[#d7dde5] bg-white">
+                              <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-[#7a5618]">{recommendedCandidate ? "Wrong match? Open other options" : "Open matching options"}</summary>
+                              <div className="grid gap-4 border-t border-[#d7dde5] p-4 xl:grid-cols-3">
                             <form action={matchBankLine} className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
                               <div><p className="font-semibold">Match existing transaction</p><p className="text-xs text-gray-500">Split or merge is automatic when amounts differ.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
@@ -507,6 +551,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <form action={createBankAdjustment} className="space-y-3"><div><p className="font-semibold">Record a missing accounting entry</p><p className="text-xs text-gray-500">Includes property rent/COGS, salary, AP/AR, fixed assets, loans, capital, transfers, bank fees, tax and other categories.</p></div><input name="lineId" type="hidden" value={line.id} /><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="accountId" required><option disabled value="">Choose accounting category</option>{adjustmentAccountGroups.map((group) => <optgroup key={group.type} label={group.type.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase())}>{group.accounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</optgroup>)}</select><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={locationHint ? properties.find((property) => propertyCode(property.name) === locationHint.propertyCode)?.id ?? "" : ""} name="propertyId"><option value="">General company / no property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="description" placeholder="What was this transaction for?" required /><Button className="w-full" type="submit" variant="outline">Record &amp; match</Button></form>
                               <form action={ignoreBankLine} className="space-y-2 border-t border-[#d7dde5] pt-3"><input name="lineId" type="hidden" value={line.id} /><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="reason" placeholder="Audit reason to ignore" required /><Button className="w-full" type="submit" variant="ghost">Ignore with reason</Button></form>
                             </div>
+                              </div>
+                            </details>
                           </div> : null}
                         </div> : null}
                       </div>
