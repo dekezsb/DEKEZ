@@ -358,9 +358,10 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
               )}
               meterNumber={tenancy.electricityMeter?.meterNumber}
               propertyName={tenancy.propertyName}
-              remainingCredit={tenancy.electricityMeter?.remainingCredit}
+              remainingUnits={tenancy.electricityMeter?.remainingUnits}
               roomName={tenancy.roomName}
               tenancyId={tenancy.id}
+              unitLabel={tenancy.electricityMeter?.unitLabel}
             />
           ))}
         </div>

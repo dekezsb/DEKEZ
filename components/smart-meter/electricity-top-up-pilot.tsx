@@ -33,7 +33,8 @@ type ElectricityTopUpPilotProps = {
   roomName: string;
   tenancyId?: string | null;
   meterNumber?: string | null;
-  remainingCredit?: number | null;
+  remainingUnits?: number | null;
+  unitLabel?: string | null;
   latestRequest?: {
     amount: number;
     status: string;
@@ -47,7 +48,8 @@ export function ElectricityTopUpPilot({
   roomName,
   tenancyId,
   meterNumber,
-  remainingCredit,
+  remainingUnits,
+  unitLabel,
   latestRequest,
   adminPreview = false,
 }: ElectricityTopUpPilotProps) {
@@ -93,11 +95,11 @@ export function ElectricityTopUpPilot({
             </div>
           </div>
           <div className="rounded-lg border border-amber-200 bg-white px-4 py-3 sm:text-right">
-            <p className="text-xs font-medium text-gray-500">Available credit</p>
+            <p className="text-xs font-medium text-gray-500">Meter remaining</p>
             <p className="mt-1 text-xl font-bold text-gray-950">
-              {remainingCredit === null || remainingCredit === undefined
+              {remainingUnits === null || remainingUnits === undefined
                 ? "Not connected"
-                : money.format(remainingCredit)}
+                : `${remainingUnits.toFixed(2)} ${unitLabel ?? "kWh"}`}
             </p>
           </div>
         </div>

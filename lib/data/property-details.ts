@@ -417,7 +417,7 @@ export async function getRoomDetails(
       .order("created_at", { ascending: false }),
     supabase
       .from("smart_meters")
-      .select("id, meter_number, meter_type, rate, remaining_credit, status")
+      .select("id, meter_number, meter_type, rate, remaining_credit, remaining_units, unit_label, connection_status, power_state, last_reported_at, last_synced_at, last_sync_error, provider, provider_meter_id, status")
       .eq("room_id", roomId)
       .order("meter_type", { ascending: true }),
   ]);
