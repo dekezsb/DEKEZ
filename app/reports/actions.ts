@@ -47,11 +47,12 @@ export async function createBankAccount(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const name = textValue(formData, "name");
   const bankName = textValue(formData, "bankName");
-  const last4 = textValue(formData, "last4").replace(/\D/g, "").slice(-4);
+  const accountNumber = textValue(formData, "accountNumber").replace(/\D/g, "");
+  const last4 = accountNumber.slice(-4);
   const openingBalance = numberValue(formData, "openingBalance");
   const openingBalanceDate = textValue(formData, "openingBalanceDate") || null;
 
-  if (!name || !bankName || (last4 && last4.length !== 4)) {
+  if (!name || !bankName || accountNumber.length < 6 || accountNumber.length > 30) {
     redirect(reportPath({ error: "bank_account_details" }));
   }
 
@@ -89,7 +90,8 @@ export async function createBankAccount(formData: FormData) {
     accounting_account_id: ledgerAccount.id,
     name,
     bank_name: bankName,
-    account_number_last4: last4 || null,
+    account_number: accountNumber,
+    account_number_last4: last4,
     opening_balance: openingBalance,
     opening_balance_date: openingBalanceDate,
     created_by: user.id,
