@@ -324,15 +324,33 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       {tab === "bank" ? (
         <div className="space-y-5">
           <Card>
-            <CardHeader><CardTitle>How to reconcile the bank</CardTitle><CardDescription>Reconciliation proves that every statement line agrees with a DEKEZ accounting record. Knock-off is only one part of the process.</CardDescription></CardHeader>
-            <CardContent className="grid gap-3 text-sm md:grid-cols-5">
-              {[
-                ["1", "Add account", "Enter the full bank account number and the balance immediately before your first statement period."],
-                ["2", "Import statement", "Upload the bank CSV with the exact opening balance, closing balance and statement dates."],
-                ["3", "Match records", "Run Auto match, then match each bank line to payments, expenses, payouts or other records already in DEKEZ."],
-                ["4", "Handle exceptions", "If a tenant paid but forgot the slip, record and knock off that invoice. Use an adjustment only for fees, interest or genuine missing entries."],
-                ["5", "Finalise", "Finalise only when every line is matched, adjusted or explained and the statement difference is RM 0.00."],
-              ].map(([step, title, detail]) => <div className="rounded-lg border border-[#d7dde5] bg-gray-50 p-3" key={step}><div className="mb-2 flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#b8892c] text-xs font-semibold text-white">{step}</span><p className="font-semibold text-gray-950">{title}</p></div><p className="text-xs leading-5 text-gray-600">{detail}</p></div>)}
+            <CardHeader><CardTitle>Bank reconciliation — simple guide</CardTitle><CardDescription>The goal is simple: the DEKEZ bank records and your real bank statement must agree exactly.</CardDescription></CardHeader>
+            <CardContent className="space-y-5 text-sm">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4"><p className="font-semibold text-blue-950">Knock off</p><p className="mt-1 text-xs leading-5 text-blue-800">Reduce the amount owing on a tenant invoice after a real payment is received.</p></div>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><p className="font-semibold text-emerald-950">Match</p><p className="mt-1 text-xs leading-5 text-emerald-800">Link one bank-statement line to its payment, expense, payout or adjustment in DEKEZ.</p></div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="font-semibold text-amber-950">Reconcile</p><p className="mt-1 text-xs leading-5 text-amber-800">Finish the whole statement only when every line is explained and the difference is RM 0.00.</p></div>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                {[
+                  ["1", "SET UP ONCE", "Add the full bank account number. Enter the actual bank balance and its exact date before importing your first statement."],
+                  ["2", "DO EVERY MONTH", "Import the bank CSV, press Auto match, then open and handle every unmatched money-in and money-out line."],
+                  ["3", "FINISH THE MONTH", "Check that unmatched lines are zero and Difference is RM 0.00. Then press Finalise to lock the reconciliation."],
+                ].map(([step, title, detail]) => <div className="rounded-lg border border-[#d7dde5] p-4" key={step}><div className="mb-2 flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#b8892c] text-xs font-bold text-white">{step}</span><p className="text-xs font-bold tracking-wide text-gray-950">{title}</p></div><p className="text-xs leading-5 text-gray-600">{detail}</p></div>)}
+              </div>
+              <div className="overflow-hidden rounded-lg border border-[#d7dde5]">
+                <div className="bg-gray-100 px-4 py-3"><p className="font-semibold text-gray-950">Which action should I use for an unmatched bank line?</p></div>
+                <div className="grid gap-px bg-[#d7dde5] sm:grid-cols-[1.2fr_1fr_1.5fr]">
+                  {[
+                    ["What happened?", "Press this action", "Result"],
+                    ["The payment or expense is already in DEKEZ", "Match existing transaction", "Links the bank line only. It does not create a duplicate record."],
+                    ["Tenant paid, but did not upload a slip", "Record payment, knock off & match", "Creates one verified payment, reduces the invoice and matches the bank receipt."],
+                    ["Bank fee, interest or genuine missing accounting entry", "Create bank adjustment", "Creates the missing income or expense and matches it."],
+                    ["Duplicate, transfer between own accounts or not a company transaction", "Ignore with audit reason", "Explains why the line is excluded. A reason is permanently retained."],
+                  ].map((row, rowIndex) => row.map((cell, columnIndex) => <div className={`px-4 py-3 text-xs leading-5 ${rowIndex === 0 ? "bg-gray-50 font-semibold text-gray-700" : columnIndex === 1 ? "bg-[#fffaf0] font-semibold text-[#7a5618]" : "bg-white text-gray-700"}`} key={`${rowIndex}-${columnIndex}`}>{cell}</div>))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-800">Important: if the payment already exists in DEKEZ, use Match existing transaction. Do not record and knock off again, or you will duplicate the payment.</div>
             </CardContent>
           </Card>
           <div className="grid gap-5 xl:grid-cols-2">
@@ -341,8 +359,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 <label className="text-sm">Account name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="name" placeholder="Public Bank Current" required /></label>
                 <label className="text-sm">Bank name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="bankName" placeholder="Public Bank" required /></label>
                 <label className="text-sm">Full bank account number<input autoComplete="off" className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" inputMode="numeric" maxLength={30} minLength={6} name="accountNumber" pattern="[0-9 -]{6,30}" placeholder="Enter complete account number" required /></label>
-                <label className="text-sm">Opening balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /></label>
-                <label className="text-sm">Opening balance date<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalanceDate" type="date" /></label>
+                <label className="text-sm">Starting bank balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Actual bank balance on the date below.</span></label>
+                <label className="text-sm">Balance date<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalanceDate" type="date" /><span className="mt-1 block text-xs text-gray-500">Use the day before your first statement starts.</span></label>
                 <Button className="self-end" type="submit"><PlusCircle className="h-4 w-4" />Add bank</Button>
               </form>
             </CardContent></Card>
@@ -351,8 +369,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 <label className="text-sm sm:col-span-2">Bank account<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" name="bankAccountId" required>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.name}{account.account_number ? ` · ${account.account_number}` : account.account_number_last4 ? ` · ending ${account.account_number_last4}` : ""}</option>)}</select></label>
                 <label className="text-sm">Period start<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" defaultValue={startDate} name="periodStart" required type="date" /></label>
                 <label className="text-sm">Period end<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" defaultValue={endDate} name="periodEnd" required type="date" /></label>
-                <label className="text-sm">Opening balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" required step="0.01" type="number" /></label>
-                <label className="text-sm">Closing balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="closingBalance" required step="0.01" type="number" /></label>
+                <label className="text-sm">Statement opening balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" required step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Copy the opening balance printed on this statement.</span></label>
+                <label className="text-sm">Statement closing balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="closingBalance" required step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Copy the final balance printed on this statement.</span></label>
                 <input name="statementDate" type="hidden" value={endDate} />
                 <label className="text-sm sm:col-span-2">CSV statement<input accept=".csv,text/csv" className="mt-1 block w-full rounded-md border border-[#d7dde5] bg-white p-2 text-sm" name="statement" required type="file" /></label>
                 <Button className="sm:col-span-2" type="submit"><Upload className="h-4 w-4" />Import statement</Button>
