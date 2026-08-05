@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,9 @@ type AdminPaymentSlipUploadProps = {
   paymentDateDefault: string;
   selectedMonth: string;
   selectedProperty: string;
+  hideTrigger?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function AdminPaymentSlipUpload({
@@ -40,8 +43,12 @@ export function AdminPaymentSlipUpload({
   paymentDateDefault,
   selectedMonth,
   selectedProperty,
+  hideTrigger = false,
+  open: controlledOpen,
+  onOpenChange,
 }: AdminPaymentSlipUploadProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const defaultPurpose: PaymentPurpose =
     rentOutstanding > 0.005 && depositOutstanding > 0.005
       ? "rent_and_deposit"
@@ -73,28 +80,39 @@ export function AdminPaymentSlipUpload({
   );
   const remainingAmount = Math.max(selectedOutstanding - submittedAmount, 0);
 
+  const setOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    setPaymentPurpose(defaultPurpose);
+    setAmount(
+      paymentPurposeTotal(
+        defaultPurpose,
+        rentOutstanding,
+        depositOutstanding,
+      ).toFixed(2),
+    );
+  }, [billId, defaultPurpose, depositOutstanding, open, rentOutstanding]);
+
   return (
     <>
-      <Button
-        className="whitespace-nowrap border-[#d9bf84] text-[#8a641d] hover:bg-[#fff8e8]"
-        onClick={() => {
-          setPaymentPurpose(defaultPurpose);
-          setAmount(
-            paymentPurposeTotal(
-              defaultPurpose,
-              rentOutstanding,
-              depositOutstanding,
-            ).toFixed(2),
-          );
-          setOpen(true);
-        }}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        <Paperclip aria-hidden="true" className="size-4" />
-        Upload Slip
-      </Button>
+      {!hideTrigger ? (
+        <Button
+          className="whitespace-nowrap border-[#d9bf84] text-[#8a641d] hover:bg-[#fff8e8]"
+          onClick={() => setOpen(true)}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <Paperclip aria-hidden="true" className="size-4" />
+          Upload Slip
+        </Button>
+      ) : null}
 
       {open ? (
         <div
