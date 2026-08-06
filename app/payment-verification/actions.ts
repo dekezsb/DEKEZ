@@ -123,6 +123,20 @@ export async function reviewPaymentSubmission(formData: FormData) {
     redirect(withResult(returnTo, "error=already_verified"));
   }
 
+  if (decision === "verified" && currentSubmission.tenant_application_id) {
+    const { data: applicationReadiness } = await supabase
+      .from("tenant_applications")
+      .select("rental_model, verification_status")
+      .eq("id", currentSubmission.tenant_application_id)
+      .maybeSingle();
+    if (
+      applicationReadiness?.rental_model === "monthly_stay" &&
+      applicationReadiness.verification_status !== "verified"
+    ) {
+      redirect(withResult(returnTo, "error=identity_first"));
+    }
+  }
+
   let effectiveTenancyId = currentSubmission.tenancy_id;
   if (
     decision === "verified" &&
@@ -491,6 +505,12 @@ export async function reviewPaymentSubmission(formData: FormData) {
     let rentBillId = submission.rent_bill_id;
 
     if (submission.tenant_application_id) {
+      const { data: applicationBeforeConversion } = await supabase
+        .from("tenant_applications")
+        .select("tenant_id, rental_model, verification_status")
+        .eq("id", submission.tenant_application_id)
+        .maybeSingle();
+
       await supabase
         .from("tenant_applications")
         .update({
@@ -527,6 +547,35 @@ export async function reviewPaymentSubmission(formData: FormData) {
         redirect(withResult(returnTo, "error=review"));
       }
       tenancyId = conversion.tenancyId;
+
+      if (applicationBeforeConversion?.tenant_id) {
+        const { data: authUser } = await supabase.auth.admin.getUserById(
+          applicationBeforeConversion.tenant_id,
+        );
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .update({
+              role: "tenant",
+              global_role: "tenant",
+              registration_status: "approved",
+              registration_reviewed_by: user.id,
+              registration_reviewed_at: new Date().toISOString(),
+              registration_rejection_reason: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", applicationBeforeConversion.tenant_id),
+          supabase.auth.admin.updateUserById(
+            applicationBeforeConversion.tenant_id,
+            {
+              app_metadata: {
+                ...(authUser.user?.app_metadata ?? {}),
+                role: "tenant",
+              },
+            },
+          ),
+        ]);
+      }
     }
 
     const { data: tenancy } = tenancyId
@@ -744,7 +793,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     ) {
       const { data: tenancyForRent } = await supabase
         .from("tenancies")
-        .select("id, room_id, monthly_rent, monthly_rental")
+        .select("id, room_id, monthly_rent, monthly_rental, rental_model")
         .eq("id", submission.tenancy_id)
         .single();
       const oldMonthlyRent = Number(
@@ -806,15 +855,17 @@ export async function reviewPaymentSubmission(formData: FormData) {
           .eq("id", futureBill.id);
       }
 
-      const rentChangeAgreement = await createRentChangeAgreement(
-        supabase,
-        submission.tenancy_id,
-        user.id,
-        {
-          effectiveStartDate: effectiveMonth,
-          monthlyRent: recurringMonthlyRent,
-        },
-      );
+      const rentChangeAgreement = tenancyForRent?.rental_model === "monthly_stay"
+        ? null
+        : await createRentChangeAgreement(
+            supabase,
+            submission.tenancy_id,
+            user.id,
+            {
+              effectiveStartDate: effectiveMonth,
+              monthlyRent: recurringMonthlyRent,
+            },
+          );
       let agreementSyncStatus:
         | "updated_unsigned"
         | "created_amendment"

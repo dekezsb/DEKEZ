@@ -33,7 +33,7 @@ export async function convertTenantApplication(
   const { data: application } = await supabase
     .from("tenant_applications")
     .select(
-      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
+      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, rental_model, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
     )
     .eq("id", applicationId)
     .maybeSingle();
@@ -41,7 +41,8 @@ export async function convertTenantApplication(
   if (
     !application ||
     application.verification_status !== "verified" ||
-    (requireVerifiedPayment && application.payment_status !== "verified")
+    ((requireVerifiedPayment || application.rental_model === "monthly_stay") &&
+      application.payment_status !== "verified")
   ) {
     return { ok: false, reason: "application_not_ready" };
   }
@@ -60,7 +61,7 @@ export async function convertTenantApplication(
   const [{ data: property }, { data: room }] = await Promise.all([
     supabase
       .from("properties")
-      .select("id, company_id")
+      .select("id, company_id, rental_model")
       .eq("id", application.property_id)
       .maybeSingle(),
     supabase
@@ -74,6 +75,13 @@ export async function convertTenantApplication(
   if (!property) {
     return { ok: false, reason: "property_missing" };
   }
+
+  const rentalModel =
+    application.rental_model === "monthly_stay" ||
+    property.rental_model === "monthly_stay"
+      ? "monthly_stay"
+      : "tenancy";
+  const isMonthlyStay = rentalModel === "monthly_stay";
 
   if (!room || !["vacant", "reserved"].includes(room.status)) {
     return { ok: false, reason: "room_unavailable" };
@@ -196,21 +204,25 @@ export async function convertTenantApplication(
     .insert({
       company_id: property.company_id,
       tenant_id: tenant.id,
+      tenant_application_id: application.id,
       room_id: room.id,
       monthly_rent: application.monthly_rent,
-      deposit: application.deposit,
+      deposit: isMonthlyStay ? 0 : application.deposit,
       start_date: application.proposed_start_date,
-      end_date: application.proposed_end_date,
+      end_date: isMonthlyStay ? null : application.proposed_end_date,
       due_day: dueDay,
       status: "active",
       property_id: property.id,
       unit_id: room.unit_id,
       monthly_rental: application.monthly_rent,
       contract_start: application.proposed_start_date,
-      contract_end: application.proposed_end_date,
+      contract_end: isMonthlyStay ? null : application.proposed_end_date,
       tenancy_start_date: application.proposed_start_date,
-      tenancy_end_date: application.proposed_end_date,
-      contract_duration_months: application.contract_duration_months,
+      tenancy_end_date: isMonthlyStay ? null : application.proposed_end_date,
+      contract_duration_months: isMonthlyStay
+        ? null
+        : application.contract_duration_months,
+      rental_model: rentalModel,
       rent_due_day: dueDay,
       check_in_date: application.proposed_start_date,
       billing_status: "active",
@@ -239,9 +251,9 @@ export async function convertTenantApplication(
     phone: application.whatsapp_number,
     identification_number: application.ic_passport_number,
     monthly_rent: application.monthly_rent,
-    deposit: application.deposit,
+    deposit: isMonthlyStay ? 0 : application.deposit,
     contract_start: application.proposed_start_date,
-    contract_end: application.proposed_end_date,
+    contract_end: isMonthlyStay ? null : application.proposed_end_date,
     due_day: dueDay,
     status: "active",
     created_by: actorId,
@@ -347,9 +359,11 @@ export async function convertTenantApplication(
       .eq("payment_type", "first_month_rental")
       .eq("verification_status", "pending_verification");
   }
-  await createAgreementForTenancy(supabase, tenancy.id, actorId, {
-    monthlyRent: Number(application.monthly_rent ?? 0),
-  });
+  if (!isMonthlyStay) {
+    await createAgreementForTenancy(supabase, tenancy.id, actorId, {
+      monthlyRent: Number(application.monthly_rent ?? 0),
+    });
+  }
   await reconcileSmartLockAccessForTenancy(tenancy.id).catch((error) => {
     console.error("Converted tenancy smart-lock access could not be provisioned.", {
       tenancyId: tenancy.id,

@@ -21,6 +21,7 @@ type RegistrationProperty = {
   id: string;
   isCommercial: boolean;
   label: string;
+  rentalModel: "tenancy" | "monthly_stay";
 };
 
 type RegistrationRoom = {
@@ -278,7 +279,9 @@ export function RegistrationForm({
         </h2>
         <p className="mt-1 text-sm leading-6 text-[#60708a]">
           {accountType === "tenant"
-            ? "Choose a vacant room and submit your details. An Admin will verify the registration before preparing your tenancy agreement."
+            ? selectedProperty?.rentalModel === "monthly_stay"
+              ? "Sulaman uses a rolling monthly stay. Register, pay the first month immediately and upload the slip. Your room starts only after Admin verifies both your identity and payment. No deposit or tenancy agreement is required."
+              : "Choose a vacant room and submit your details. An Admin will verify the registration before preparing your tenancy agreement."
             : "Submit your identity details. An Admin will verify them and assign the properties you may view."}
         </p>
       </div>
@@ -449,26 +452,35 @@ export function RegistrationForm({
                 type="date"
               />
             </label>
-            <label>
-              <span className="text-sm font-medium text-[#17223b]">
-                Rental period
-              </span>
-              <select
-                className={inputClass}
-                defaultValue=""
-                name="rentalPeriod"
-                required
-              >
-                <option value="">Select rental period</option>
-                {(selectedProperty?.contractDurations ?? [6, 12]).map(
-                  (months) => (
-                    <option key={months} value={months}>
-                      {months} months
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
+            {selectedProperty?.rentalModel === "monthly_stay" ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                <strong>Monthly stay:</strong> no deposit and no fixed contract.
+                The first month is due on check-in and each following month is
+                due on the same calendar day until checkout.
+                <input name="rentalPeriod" type="hidden" value="1" />
+              </div>
+            ) : (
+              <label>
+                <span className="text-sm font-medium text-[#17223b]">
+                  Rental period
+                </span>
+                <select
+                  className={inputClass}
+                  defaultValue=""
+                  name="rentalPeriod"
+                  required
+                >
+                  <option value="">Select rental period</option>
+                  {(selectedProperty?.contractDurations ?? [6, 12]).map(
+                    (months) => (
+                      <option key={months} value={months}>
+                        {months} months
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+            )}
           </>
         ) : (
           <>
@@ -559,8 +571,9 @@ export function RegistrationForm({
               required
             />
             <p className="mt-3 text-xs leading-5 text-[#7b879c]">
-              Upload the receipt or transfer screenshot. It remains pending
-              until an Admin verifies it.
+              {selectedProperty?.rentalModel === "monthly_stay"
+                ? "First-month payment is required now. Upload the online transfer receipt; check-in activates only after Admin verification."
+                : "Upload the receipt or transfer screenshot. It remains pending until an Admin verifies it."}
             </p>
           </fieldset>
         </>

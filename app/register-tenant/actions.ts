@@ -87,6 +87,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
     formData,
     "commercialSupportingDocument",
   );
+  const paymentSlip = formFile(formData, "paymentSlip");
+  const paymentMethod = textValue(formData, "paymentMethod") || "online_payment";
 
   if (
     !user ||
@@ -115,7 +117,13 @@ export async function submitAdminTenantApplication(formData: FormData) {
   }
 
   if (
-    ![icFront, icBack, passportPhoto, commercialSupportingDocument].every(
+    ![
+      icFront,
+      icBack,
+      passportPhoto,
+      commercialSupportingDocument,
+      paymentSlip,
+    ].every(
       isValidTenantDocument,
     )
   ) {
@@ -127,6 +135,10 @@ export async function submitAdminTenantApplication(formData: FormData) {
   );
   if (!property) {
     fail("property");
+  }
+  const isMonthlyStay = property.rental_model === "monthly_stay";
+  if (isMonthlyStay && !paymentSlip) {
+    fail("payment", propertyId, roomId);
   }
   if (property.is_commercial && !commercialSupportingDocument) {
     fail("commercial_document", propertyId, roomId);
@@ -232,12 +244,14 @@ export async function submitAdminTenantApplication(formData: FormData) {
       emergency_contact_name: emergencyContactName,
       emergency_contact_number: emergencyContactNumber,
       proposed_start_date: contractStart,
-      proposed_end_date: contractEnd,
+      proposed_end_date: isMonthlyStay ? null : contractEnd,
       monthly_rent: monthlyRent,
-      deposit,
+      deposit: isMonthlyStay ? 0 : deposit,
+      contract_duration_months: isMonthlyStay ? 1 : undefined,
+      rental_model: property.rental_model,
       status: "submitted",
       verification_status: "pending_verification",
-      payment_status: "unpaid",
+      payment_status: isMonthlyStay ? "pending_verification" : "unpaid",
     })
     .select("id")
     .single();
@@ -274,6 +288,82 @@ export async function submitAdminTenantApplication(formData: FormData) {
       supabase.from("tenant_applications").delete().eq("id", application.id),
     ]);
     fail("upload", propertyId, roomId);
+  }
+
+  if (isMonthlyStay && paymentSlip) {
+    const extension = paymentSlip.name.split(".").pop()?.toLowerCase() || "jpg";
+    const receiptPath = `${user.id}/admin-registration/${application.id}/first-month-${crypto.randomUUID()}.${extension}`;
+    const { error: receiptUploadError } = await supabase.storage
+      .from("payment-receipts")
+      .upload(receiptPath, Buffer.from(await paymentSlip.arrayBuffer()), {
+        contentType: paymentSlip.type,
+        upsert: false,
+      });
+
+    if (receiptUploadError) {
+      await Promise.all([
+        supabase.storage
+          .from("tenant-documents")
+          .remove(uploadedDocuments.map((document) => document.file_path)),
+        supabase.from("tenant_documents").delete().eq("tenant_application_id", application.id),
+        supabase.from("tenant_applications").delete().eq("id", application.id),
+      ]);
+      fail("payment", propertyId, roomId);
+    }
+
+    const { data: payment, error: paymentError } = await supabase
+      .from("payment_submissions")
+      .insert({
+        tenant_id: null,
+        tenant_application_id: application.id,
+        property_id: property.id,
+        unit_id: room.unit_id,
+        room_id: room.id,
+        bill_type: "check_in",
+        payment_type: "monthly_rent",
+        amount: monthlyRent,
+        payment_date: new Date().toISOString().slice(0, 10),
+        payment_method: paymentMethod,
+        receipt_url: receiptPath,
+        verification_status: "pending_verification",
+      })
+      .select("id")
+      .single();
+
+    if (paymentError || !payment) {
+      await Promise.all([
+        supabase.storage.from("payment-receipts").remove([receiptPath]),
+        supabase.storage
+          .from("tenant-documents")
+          .remove(uploadedDocuments.map((document) => document.file_path)),
+        supabase.from("tenant_documents").delete().eq("tenant_application_id", application.id),
+        supabase.from("tenant_applications").delete().eq("id", application.id),
+      ]);
+      fail("payment", propertyId, roomId);
+    }
+
+    const { error: attachmentError } = await supabase
+      .from("payment_attachments")
+      .insert({
+        payment_submission_id: payment.id,
+        tenant_id: null,
+        file_path: receiptPath,
+        file_name: paymentSlip.name,
+        content_type: paymentSlip.type,
+      });
+
+    if (attachmentError) {
+      await Promise.all([
+        supabase.from("payment_submissions").delete().eq("id", payment.id),
+        supabase.storage.from("payment-receipts").remove([receiptPath]),
+        supabase.storage
+          .from("tenant-documents")
+          .remove(uploadedDocuments.map((document) => document.file_path)),
+        supabase.from("tenant_documents").delete().eq("tenant_application_id", application.id),
+        supabase.from("tenant_applications").delete().eq("id", application.id),
+      ]);
+      fail("payment", propertyId, roomId);
+    }
   }
 
   revalidatePath("/register-tenant");

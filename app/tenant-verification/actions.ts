@@ -60,7 +60,7 @@ export async function reviewTenantApplication(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", applicationId)
-    .select("tenant_id, room_id, submission_source")
+    .select("tenant_id, room_id, submission_source, rental_model, payment_status")
     .single();
 
   if (error || !application) {
@@ -84,7 +84,9 @@ export async function reviewTenantApplication(formData: FormData) {
     decision === "verified" &&
     ["admin_assisted", "self_registration"].includes(
       application.submission_source,
-    )
+    ) &&
+    (application.rental_model !== "monthly_stay" ||
+      application.payment_status === "verified")
   ) {
     const conversion = await convertTenantApplication(supabase, {
       actorId: user.id,

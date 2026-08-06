@@ -152,6 +152,7 @@ export async function getTenantPortalData() {
     checkout_date: string | null;
     status: string;
     billing_status: string | null;
+    rental_model: "tenancy" | "monthly_stay";
     created_at: string;
     properties: Relation<{
       name: string;
@@ -169,7 +170,7 @@ export async function getTenantPortalData() {
     const { data } = await dataClient
       .from("tenancies")
       .select(
-        "id, tenant_id, property_id, room_id, monthly_rent, monthly_rental, deposit, due_day, rent_due_day, start_date, end_date, contract_start, contract_end, check_in_date, checkout_date, status, billing_status, created_at",
+        "id, tenant_id, property_id, room_id, monthly_rent, monthly_rental, deposit, due_day, rent_due_day, start_date, end_date, contract_start, contract_end, check_in_date, checkout_date, status, billing_status, rental_model, created_at",
       )
       .in("tenant_id", tenantIds)
       .order("created_at", { ascending: false });
@@ -499,6 +500,7 @@ export async function getTenantPortalData() {
             tenancy.end_date ??
             tenancy.checkout_date,
           status: tenancy.status,
+          rentalModel: tenancy.rental_model,
           outstandingAmount: tenancyOutstanding,
           paymentQrUrl:
             tenancyQrUrl ?? tenancyProperty?.payment_qr_url ?? null,

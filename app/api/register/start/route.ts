@@ -182,6 +182,7 @@ export async function POST(request: NextRequest) {
         contract_duration_options: number[];
         id: string;
         is_commercial: boolean;
+        rental_model: "tenancy" | "monthly_stay";
       }
     | null = null;
   let room:
@@ -213,7 +214,7 @@ export async function POST(request: NextRequest) {
       admin
         .from("properties")
         .select(
-          "id, company_id, is_commercial, contract_duration_options",
+          "id, company_id, is_commercial, rental_model, contract_duration_options",
         )
         .eq("id", propertyId)
         .eq("status", "active")
@@ -248,6 +249,7 @@ export async function POST(request: NextRequest) {
       );
     }
     if (
+      property.rental_model !== "monthly_stay" &&
       !property.contract_duration_options.includes(duration) &&
       ![6, 12].includes(duration)
     ) {
@@ -355,12 +357,17 @@ export async function POST(request: NextRequest) {
           whatsapp_number: phone.e164,
           emergency_contact_name: emergencyContactName,
           emergency_contact_number: emergencyContactNumber,
-          contract_duration_months: duration,
+          contract_duration_months:
+            property.rental_model === "monthly_stay" ? 1 : duration,
           proposed_start_date: proposedStartDate,
-          proposed_end_date: addMonths(proposedStartDate, duration),
+          proposed_end_date:
+            property.rental_model === "monthly_stay"
+              ? null
+              : addMonths(proposedStartDate, duration),
           monthly_rent: Number(room.monthly_rent ?? 0),
           deposit: 0,
           utility_deposit: 0,
+          rental_model: property.rental_model,
           status: "draft",
           verification_status: "incomplete",
           payment_status: "unpaid",

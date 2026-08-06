@@ -8,6 +8,7 @@ type RegistrationProperty = {
   id: string;
   label: string;
   isCommercial: boolean;
+  rentalModel: "tenancy" | "monthly_stay";
 };
 
 type RegistrationRoom = {
@@ -96,6 +97,7 @@ export function RegistrationForm({
   const selectedProperty = properties.find(
     (property) => property.id === propertyId,
   );
+  const isMonthlyStay = selectedProperty?.rentalModel === "monthly_stay";
 
   function selectProperty(nextPropertyId: string) {
     setPropertyId(nextPropertyId);
@@ -362,21 +364,30 @@ export function RegistrationForm({
         />
       </label>
 
-      <label>
-        <span className="text-sm font-medium text-[#17223b]">Deposit RM</span>
-        <input
-          className={fieldClass()}
-          defaultValue="0"
-          min="0"
-          name="deposit"
-          step="0.01"
-          type="number"
-        />
-      </label>
+      {isMonthlyStay ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <strong>Sulaman monthly stay</strong><br />
+          No deposit and no tenancy agreement. The first month must be paid
+          now; future months are due on this same check-in day until checkout.
+          <input name="deposit" type="hidden" value="0" />
+        </div>
+      ) : (
+        <label>
+          <span className="text-sm font-medium text-[#17223b]">Deposit RM</span>
+          <input
+            className={fieldClass()}
+            defaultValue="0"
+            min="0"
+            name="deposit"
+            step="0.01"
+            type="number"
+          />
+        </label>
+      )}
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
-          Contract start
+          {isMonthlyStay ? "Check-in date" : "Contract start"}
         </span>
         <input
           className={fieldClass()}
@@ -386,12 +397,16 @@ export function RegistrationForm({
         />
       </label>
 
-      <label>
-        <span className="text-sm font-medium text-[#17223b]">
-          Contract end
-        </span>
-        <input className={fieldClass()} name="contractEnd" type="date" />
-      </label>
+      {isMonthlyStay ? (
+        <input name="contractEnd" type="hidden" value="" />
+      ) : (
+        <label>
+          <span className="text-sm font-medium text-[#17223b]">
+            Contract end
+          </span>
+          <input className={fieldClass()} name="contractEnd" type="date" />
+        </label>
+      )}
 
       <fieldset className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
         <legend className="px-1 text-sm font-semibold text-[#07142f]">
@@ -428,10 +443,25 @@ export function RegistrationForm({
         </div>
       ) : null}
 
+      {isMonthlyStay ? (
+        <fieldset className="rounded-md border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
+          <legend className="px-1 text-sm font-semibold text-amber-950">
+            First-month online payment
+          </legend>
+          <FileField label="Bank / DuitNow payment slip" name="paymentSlip" required />
+          <input name="paymentMethod" type="hidden" value="online_payment" />
+          <p className="mt-2 text-xs leading-5 text-amber-900">
+            The room remains reserved until both the tenant registration and
+            this payment are verified. Cash is not accepted.
+          </p>
+        </fieldset>
+      ) : null}
+
       <div className="flex flex-col gap-2 border-t border-[#e3e8ef] pt-5 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="max-w-md text-xs leading-5 text-[#60708a]">
-          The room remains vacant until an authorized Admin approves this
-          application in Verification.
+          {isMonthlyStay
+            ? "Sulaman check-in activates only after identity and first-month payment verification."
+            : "The room remains vacant until an authorized Admin approves this application in Verification."}
         </p>
         <SubmitButton disabled={!propertyId || !roomId} />
       </div>

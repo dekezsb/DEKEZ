@@ -73,6 +73,8 @@ type SubmissionRecord = {
 };
 
 const errorMessages: Record<string, string> = {
+  identity_first:
+    "Verify the Sulaman tenant registration first. Then verify this first-month payment to activate check-in.",
   missing: "Choose a payment and action.",
   reason: "Please enter a rejection or reversal reason.",
   review: "Payment could not be updated.",

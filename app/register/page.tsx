@@ -10,6 +10,7 @@ export default async function RegisterPage() {
     id: string;
     isCommercial: boolean;
     label: string;
+    rentalModel: "tenancy" | "monthly_stay";
   }[] = [];
   let rooms: { id: string; propertyId: string; roomNumber: string }[] = [];
 
@@ -19,7 +20,7 @@ export default async function RegisterPage() {
       admin
         .from("properties")
         .select(
-          "id, name, property_code, is_commercial, contract_duration_options",
+          "id, name, property_code, is_commercial, rental_model, contract_duration_options",
         )
         .eq("status", "active")
         .order("name"),
@@ -37,6 +38,8 @@ export default async function RegisterPage() {
           : [6, 12],
       id: property.id,
       isCommercial: Boolean(property.is_commercial),
+      rentalModel:
+        property.rental_model === "monthly_stay" ? "monthly_stay" : "tenancy",
       label:
         property.property_code &&
         !property.name.toUpperCase().startsWith(property.property_code.toUpperCase())

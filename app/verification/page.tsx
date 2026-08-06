@@ -105,6 +105,8 @@ const views: {
 ];
 
 const errorMessages: Record<string, string> = {
+  identity_first:
+    "Verify the Sulaman tenant registration first. Then verify the first-month payment to activate check-in.",
   user_missing:
     "Choose a user permission and select properties when approving an Owner.",
   property_missing: "One of the selected properties could not be found.",

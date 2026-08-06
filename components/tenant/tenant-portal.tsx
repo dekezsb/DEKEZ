@@ -799,6 +799,12 @@ export function TenantBills({
                 </Button>
               </article>
             ))
+          ) : data.tenancy?.rentalModel === "monthly_stay" ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+              Sulaman is a rolling monthly stay. No tenancy agreement or
+              deposit is required. Your next month continues after the online
+              rental payment is verified.
+            </div>
           ) : (
             <p className="text-sm text-gray-500">
               Your tenancy agreement has not been issued yet.

@@ -29,6 +29,7 @@ const errorMessages: Record<string, string> = {
   occupied: "That room is no longer vacant. Choose another room.",
   pending: "That room already has a tenant application awaiting review.",
   submit: "The tenant application could not be submitted.",
+  payment: "Sulaman monthly stays require the first-month online payment slip before submission.",
 };
 
 async function getAdmin() {
@@ -120,6 +121,7 @@ export default async function RegisterTenantPage({ searchParams }: PageProps) {
                 id: property.id,
                 label: property.name,
                 isCommercial: property.is_commercial,
+                rentalModel: property.rental_model,
               }))}
               rooms={availableRooms.map((room) => ({
                 id: room.id,

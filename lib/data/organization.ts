@@ -20,6 +20,7 @@ export type PropertySummary = {
   property_code: string | null;
   area: string | null;
   is_commercial: boolean;
+  rental_model: "tenancy" | "monthly_stay";
   payment_qr_url: string | null;
   notes: string | null;
 };
@@ -282,7 +283,7 @@ export const getProperties = cache(async () => {
   const supabase = await getDataClient();
   let query = supabase
     .from("properties")
-    .select("id, company_id, name, address, property_code, area, is_commercial, payment_qr_url, notes")
+    .select("id, company_id, name, address, property_code, area, is_commercial, rental_model, payment_qr_url, notes")
     .order("created_at", { ascending: true });
 
   if (propertyIds !== null) {

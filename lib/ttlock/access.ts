@@ -33,6 +33,7 @@ type TenancyAccessRow = {
   checkout_date: string | null;
   status: string;
   billing_status: string | null;
+  rental_model: "tenancy" | "monthly_stay";
   tenants: Relation<{
     profile_id: string | null;
     full_name: string;
@@ -93,7 +94,7 @@ async function loadTenancy(tenancyId: string) {
   const { data, error } = await admin
     .from("tenancies")
     .select(
-      "id,company_id,property_id,room_id,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,checkout_date,status,billing_status,tenants(profile_id,full_name)",
+      "id,company_id,property_id,room_id,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,checkout_date,status,billing_status,rental_model,tenants(profile_id,full_name)",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -324,13 +325,15 @@ export async function reconcileSmartLockAccessForTenancy(
     tenancy.start_date;
   const endDate =
     tenancy.tenancy_end_date ?? tenancy.contract_end ?? tenancy.end_date;
-  if (!startDate || !endDate) {
+  if (!startDate || (!endDate && tenancy.rental_model !== "monthly_stay")) {
     result.errors.push("The tenancy start or end date is missing.");
     return result;
   }
 
   const now = new Date();
-  const validUntil = malaysiaEnd(endDate);
+  const validUntil = endDate
+    ? malaysiaEnd(endDate)
+    : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   if (validUntil.getTime() <= now.getTime()) {
     result.skipped += 1;
     return result;

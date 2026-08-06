@@ -81,7 +81,7 @@ export async function getAgreementRenewalReminders(): Promise<AgreementRenewalSu
   const { data: tenancyRows } = await supabase
     .from("tenancies")
     .select(
-      "id, monthly_rental, tenancy_end_date, contract_end, checkout_date, status, billing_status, tenants(full_name, phone), properties(name, is_commercial), rooms!tenancies_room_id_fkey(name, room_number)",
+      "id, monthly_rental, rental_model, tenancy_end_date, contract_end, checkout_date, status, billing_status, tenants(full_name, phone), properties(name, is_commercial), rooms!tenancies_room_id_fkey(name, room_number)",
     )
     .eq("status", "active")
     .is("checkout_date", null);
@@ -89,6 +89,7 @@ export async function getAgreementRenewalReminders(): Promise<AgreementRenewalSu
   const dueTenancies = (tenancyRows ?? []).filter((tenancy) => {
     const contractEndDate = tenancy.tenancy_end_date ?? tenancy.contract_end;
     return Boolean(
+      tenancy.rental_model !== "monthly_stay" &&
       contractEndDate &&
         contractEndDate <= reminderCutoff &&
         !["terminated", "completed"].includes(tenancy.billing_status ?? ""),

@@ -25,6 +25,7 @@ type TenancyRow = {
   room_id: string;
   status: string;
   billing_status: string | null;
+  rental_model: "tenancy" | "monthly_stay";
   checkout_date: string | null;
   check_in_date: string | null;
   tenancy_start_date: string | null;
@@ -157,7 +158,7 @@ async function loadTenancy(tenancyId: string) {
   const { data, error } = await admin
     .from("tenancies")
     .select(
-      "id,company_id,property_id,room_id,status,billing_status,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms(name,room_number)",
+      "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms(name,room_number)",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -309,7 +310,10 @@ export async function prepareFingerprintEnrollment(
   if (!tenancy || !eligibleTenant(tenancy)) {
     throw new Error("This tenancy is not eligible for smart-lock access.");
   }
-  if (!(await hasVerifiedAgreement(tenancyId))) {
+  if (
+    tenancy.rental_model !== "monthly_stay" &&
+    !(await hasVerifiedAgreement(tenancyId))
+  ) {
     throw new Error("The tenancy agreement must be signed and Admin-verified first.");
   }
   const tenant = one(tenancy.tenants);
@@ -380,7 +384,9 @@ export async function prepareFingerprintEnrollment(
   const roomLabel = room?.room_number ?? room?.name ?? "your room";
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://dekez.vercel.app").replace(/\/$/, "");
   const text = [
-    `Hello ${tenant.full_name}, your tenancy agreement has been signed and verified.`,
+    tenancy.rental_model === "monthly_stay"
+      ? `Hello ${tenant.full_name}, your Sulaman registration and first monthly payment have been verified.`
+      : `Hello ${tenant.full_name}, your tenancy agreement has been signed and verified.`,
     `Fingerprint setup is ready for ${property?.name ?? "your property"} ${roomLabel}. Reference: ${enrollmentCode}.`,
     "Your finger must be registered physically at both the main entrance lock and your room lock. WhatsApp and the website do not collect or store your fingerprint image.",
     "Please contact the management team while you are at the locks. Ask them to name each TTLock fingerprint with the reference above, then DEKEZ will match it automatically.",
@@ -683,7 +689,7 @@ export async function suspendOverdueFingerprintAccess() {
     admin
       .from("tenancies")
       .select(
-        "id,company_id,property_id,room_id,status,billing_status,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms(name,room_number),tenancy_agreements(signed_at,admin_verified_at,admin_rejected_at)",
+        "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms(name,room_number),tenancy_agreements(signed_at,admin_verified_at,admin_rejected_at)",
       )
       .in("id", tenancyIds),
     admin
@@ -732,7 +738,7 @@ export async function suspendOverdueFingerprintAccess() {
       : tenancy?.tenancy_agreements
         ? [tenancy.tenancy_agreements]
         : [];
-    const agreementVerified = agreements.some(
+    const agreementVerified = tenancy?.rental_model === "monthly_stay" || agreements.some(
       (agreement) =>
         agreement.signed_at
         && agreement.admin_verified_at
