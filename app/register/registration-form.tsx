@@ -120,9 +120,11 @@ function FilePicker({
 }
 
 export function RegistrationForm({
+  initialReferralCode = "",
   properties,
   rooms,
 }: {
+  initialReferralCode?: string;
   properties: RegistrationProperty[];
   rooms: RegistrationRoom[];
 }) {
@@ -197,6 +199,7 @@ export function RegistrationForm({
           phone: formData.get("phone"),
           preferredMoveInDate: formData.get("preferredMoveInDate"),
           propertyId,
+          referralCode: formData.get("referralCode"),
           rentalPeriod: formData.get("rentalPeriod"),
           roomId,
           uploads,
@@ -334,6 +337,22 @@ export function RegistrationForm({
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="sm:col-span-2">
+              <span className="text-sm font-medium text-[#17223b]">
+                Referral code or referrer&apos;s phone number (optional)
+              </span>
+              <input
+                className={inputClass}
+                defaultValue={initialReferralCode}
+                name="referralCode"
+                placeholder="Example: DEKEZ-8A72B or 012-345 6789"
+              />
+              <span className="mt-1 block text-xs leading-5 text-[#7b879c]">
+                The RM50 rental credit is approved for your referrer only after
+                your six-month tenancy, verification, payment, signing and
+                check-in are complete.
+              </span>
             </label>
           </>
         ) : null}

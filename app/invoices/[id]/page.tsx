@@ -153,11 +153,22 @@ export default async function RentalInvoicePage({ params }: PageProps) {
             <span className="pr-4 font-medium">{description}</span>
             <span className="text-center">1</span>
             <span className="text-center">UNIT</span>
-            <span className="text-right">{money.format(invoice.amount)}</span>
+            <span className="text-right">{money.format(invoice.grossRentAmount)}</span>
           </div>
+          {invoice.referralCreditAmount > 0 ? (
+            <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm text-emerald-700">
+              <span>2</span>
+              <span className="pr-4 font-semibold">REFERRAL RENTAL CREDIT</span>
+              <span className="text-center">1</span>
+              <span className="text-center">CREDIT</span>
+              <span className="text-right font-semibold">
+                -{money.format(invoice.referralCreditAmount)}
+              </span>
+            </div>
+          ) : null}
           {invoice.depositAmount > 0 ? (
             <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm">
-              <span>2</span>
+              <span>{invoice.referralCreditAmount > 0 ? 3 : 2}</span>
               <span className="pr-4 font-medium">
                 SECURITY DEPOSIT - FIRST TENANCY INVOICE
               </span>
@@ -173,7 +184,12 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm"
               key={item.id}
             >
-              <span>{index + (invoice.depositAmount > 0 ? 3 : 2)}</span>
+              <span>
+                {index +
+                  2 +
+                  (invoice.depositAmount > 0 ? 1 : 0) +
+                  (invoice.referralCreditAmount > 0 ? 1 : 0)}
+              </span>
               <span className="pr-4 font-medium">
                 {item.description.toUpperCase()}
               </span>
@@ -195,7 +211,7 @@ export default async function RentalInvoicePage({ params }: PageProps) {
             </p>
           </div>
           <dl className="grid grid-cols-[1fr_auto] gap-x-5 gap-y-2 text-sm">
-            <dt>Subtotal</dt>
+            <dt>Amount Payable</dt>
             <dd>{money.format(invoice.invoiceTotal)}</dd>
             <dt>Paid</dt>
             <dd>{money.format(invoice.invoicePaidAmount)}</dd>

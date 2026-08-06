@@ -219,6 +219,7 @@ export function moduleForPath(pathname: string): AccessModule | null {
     ["/payment-verification", "verification"],
     ["/tenant-verification", "verification"],
     ["/verification", "verification"],
+    ["/referrals", "verification"],
     ["/rent-due-tracker", "rent_due_tracker"],
     ["/payments", "payments"],
     ["/e-tenancy", "tenancy_agreements"],

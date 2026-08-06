@@ -134,7 +134,7 @@ async function prepareRentalInvoice(
   const { data: bill, error } = await supabase
     .from("rent_bills")
     .select(
-      "id, invoice_number, invoice_date, bill_month, due_date, amount, deposit_amount, paid_amount, status, tenancy_id, tenant_record_id, property_id, room_id, notes",
+      "id, invoice_number, invoice_date, bill_month, due_date, amount, gross_rent_amount, referral_credit_amount, deposit_amount, paid_amount, status, tenancy_id, tenant_record_id, property_id, room_id, notes",
     )
     .eq("id", sourceId)
     .maybeSingle();
@@ -230,6 +230,9 @@ async function prepareRentalInvoice(
   }
 
   const rentAmount = numberValue(bill.amount);
+  const referralCreditAmount = numberValue(bill.referral_credit_amount);
+  const grossRentAmount =
+    numberValue(bill.gross_rent_amount) || rentAmount + referralCreditAmount;
   const depositAmount = numberValue(bill.deposit_amount);
   const { data: extraChargeRows, error: extraChargeError } = await supabase
     .from("rental_invoice_line_items")
@@ -285,7 +288,10 @@ async function prepareRentalInvoice(
     {
       heading: "Amounts",
       rows: [
-        [`Rental - ${monthLabel(bill.bill_month)}`, money(rentAmount)],
+        [`Rental - ${monthLabel(bill.bill_month)}`, money(grossRentAmount)],
+        ...(referralCreditAmount > 0
+          ? [["Referral Rental Credit", `-${money(referralCreditAmount)}`] as [string, string]]
+          : []),
         ["Deposit", money(depositAmount)],
         ...(extraChargeRows ?? []).map((item) => [
           item.description,

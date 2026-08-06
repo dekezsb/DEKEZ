@@ -634,7 +634,7 @@ export async function updateRoomField(formData: FormData) {
 
     let billQuery = supabase
       .from("rent_bills")
-      .select("id, paid_amount")
+      .select("id, paid_amount, referral_credit_amount")
       .eq("room_id", roomId)
       .gte("bill_month", `${today().slice(0, 7)}-01`)
       .in("status", ["draft", "unpaid", "partial", "submitted", "pending_verification", "rejected", "overdue"]);
@@ -648,7 +648,11 @@ export async function updateRoomField(formData: FormData) {
       await supabase
         .from("rent_bills")
         .update({
-          amount: Math.max(monthlyRent, Number(bill.paid_amount ?? 0)),
+          gross_rent_amount: monthlyRent,
+          amount: Math.max(
+            monthlyRent - Number(bill.referral_credit_amount ?? 0),
+            Number(bill.paid_amount ?? 0),
+          ),
         })
         .eq("id", bill.id);
     }

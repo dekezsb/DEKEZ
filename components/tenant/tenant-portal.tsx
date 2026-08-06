@@ -40,6 +40,7 @@ import type { TenantPortalData } from "@/lib/data/tenant-portal";
 import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { PaymentAmountFields } from "./payment-amount-fields";
 import { PaymentSubmitButton } from "./payment-submit-button";
+import { ReferralProgramme } from "./referral-programme";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -297,6 +298,10 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
           </Card>
         ))}
       </div>
+
+      {data.referralProgramme ? (
+        <ReferralProgramme programme={data.referralProgramme} />
+      ) : null}
 
       {data.lockAccess.length ? (
         <Card className="border-[#d8c28c]">

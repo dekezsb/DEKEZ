@@ -4,7 +4,12 @@ import { RegistrationForm } from "./registration-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string }>;
+}) {
+  const query = await searchParams;
   let properties: {
     contractDurations: number[];
     id: string;
@@ -73,7 +78,11 @@ export default async function RegisterPage() {
             international number with country code; your initial PIN is the
             last 4 digits of that number.
           </p>
-          <RegistrationForm properties={properties} rooms={rooms} />
+          <RegistrationForm
+            initialReferralCode={query.ref?.trim() ?? ""}
+            properties={properties}
+            rooms={rooms}
+          />
         </section>
       </div>
     </main>

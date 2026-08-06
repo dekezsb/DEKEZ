@@ -20,6 +20,8 @@ type BillRow = {
   bill_month: string;
   due_date: string;
   amount: number | string;
+  gross_rent_amount: number | string;
+  referral_credit_amount: number | string;
   deposit_amount: number | string;
   paid_amount: number | string;
   status: string;
@@ -90,6 +92,8 @@ export type RentalInvoiceView = {
   billMonth: string;
   dueDate: string;
   amount: number;
+  grossRentAmount: number;
+  referralCreditAmount: number;
   depositAmount: number;
   extraChargeAmount: number;
   lineItems: RentalInvoiceLineItem[];
@@ -144,6 +148,8 @@ function billSelect() {
     "bill_month",
     "due_date",
     "amount",
+    "gross_rent_amount",
+    "referral_credit_amount",
     "deposit_amount",
     "paid_amount",
     "status",
@@ -423,6 +429,9 @@ async function hydrateInvoices(
       : undefined;
     const tenant = canonicalTenant ?? importedTenant;
     const amount = numberValue(bill.amount);
+    const referralCreditAmount = numberValue(bill.referral_credit_amount);
+    const grossRentAmount =
+      numberValue(bill.gross_rent_amount) || amount + referralCreditAmount;
     const paidAmount = numberValue(bill.paid_amount);
     const depositAmount = numberValue(bill.deposit_amount);
     const depositPaidAmount = verifiedDepositPaid(depositPaymentMaps, {
@@ -460,6 +469,8 @@ async function hydrateInvoices(
       billMonth: bill.bill_month,
       dueDate: bill.due_date,
       amount,
+      grossRentAmount,
+      referralCreditAmount,
       depositAmount,
       extraChargeAmount,
       lineItems,

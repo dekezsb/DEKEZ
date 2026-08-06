@@ -61,6 +61,22 @@ async function signedUrl(
 
 export type TenantPortalData = Awaited<ReturnType<typeof getTenantPortalData>>;
 
+export type TenantReferralProgramme = {
+  promotionName: string;
+  promotionEnds: string;
+  referralCode: string;
+  pendingReferrals: number;
+  successfulReferrals: number;
+  rewardEarned: number;
+  rewardUsed: number;
+  availableCredit: number;
+  referrals: Array<{
+    id: string;
+    newTenantName: string;
+    status: string;
+  }>;
+};
+
 export async function getTenantPortalData() {
   const supabase = await createClient();
   const {
@@ -541,6 +557,105 @@ export async function getTenantPortalData() {
       0,
     );
 
+  let referralProgramme: TenantReferralProgramme | null = null;
+  if (currentTenant && currentPortalTenancy) {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kuala_Lumpur",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const [codeResult, referralsResult, creditsResult, promotionResult] =
+      await Promise.all([
+        dataClient
+          .from("tenant_referral_codes")
+          .select("referral_code")
+          .eq("tenant_id", currentTenant.id)
+          .maybeSingle(),
+        dataClient
+          .from("tenant_referrals")
+          .select("id, referred_application_id, status, reward_amount, registration_date")
+          .eq("referrer_tenant_id", currentTenant.id)
+          .order("registration_date", { ascending: false }),
+        dataClient
+          .from("rental_credits")
+          .select("id, original_amount, remaining_amount, status")
+          .eq("tenant_id", currentTenant.id),
+        dataClient
+          .from("referral_promotions")
+          .select("promotion_name, end_date")
+          .eq("company_id", currentTenant.company_id)
+          .eq("enabled", true)
+          .lte("start_date", today)
+          .gte("end_date", today)
+          .order("start_date", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+    const referralRows = referralsResult.data ?? [];
+    const applicationIds = referralRows.map(
+      (referral) => referral.referred_application_id,
+    );
+    const { data: referredApplications } = applicationIds.length
+      ? await dataClient
+          .from("tenant_applications")
+          .select("id, full_name")
+          .in("id", applicationIds)
+      : { data: [] };
+    const applicationNames = new Map(
+      (referredApplications ?? []).map((application) => [
+        application.id,
+        application.full_name,
+      ]),
+    );
+    const creditRows = creditsResult.data ?? [];
+    const creditIds = creditRows.map((credit) => credit.id);
+    const { data: creditApplications } = creditIds.length
+      ? await dataClient
+          .from("rental_credit_applications")
+          .select("credit_id, amount")
+          .in("credit_id", creditIds)
+      : { data: [] };
+
+    if (codeResult.data?.referral_code && promotionResult.data) {
+      referralProgramme = {
+        promotionName: promotionResult.data.promotion_name,
+        promotionEnds: promotionResult.data.end_date,
+        referralCode: codeResult.data.referral_code,
+        pendingReferrals: referralRows.filter(
+          (referral) => referral.status === "pending",
+        ).length,
+        successfulReferrals: referralRows.filter((referral) =>
+          ["approved", "reward_applied"].includes(referral.status),
+        ).length,
+        rewardEarned: referralRows
+          .filter((referral) =>
+            ["approved", "reward_applied"].includes(referral.status),
+          )
+          .reduce(
+            (total, referral) => total + numberValue(referral.reward_amount),
+            0,
+          ),
+        rewardUsed: (creditApplications ?? []).reduce(
+          (total, application) => total + numberValue(application.amount),
+          0,
+        ),
+        availableCredit: creditRows.reduce(
+          (total, credit) => total + numberValue(credit.remaining_amount),
+          0,
+        ),
+        referrals: referralRows.map((referral) => ({
+          id: referral.id,
+          newTenantName:
+            applicationNames.get(referral.referred_application_id) ??
+            "New tenant",
+          status: referral.status,
+        })),
+      };
+    }
+  }
+
   return {
     userId: user.id,
     profile: {
@@ -611,5 +726,6 @@ export async function getTenantPortalData() {
     tickets,
     documents,
     agreements,
+    referralProgramme,
   };
 }

@@ -8,6 +8,10 @@ import {
 } from "@/lib/auth/registration";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSupabaseUrl } from "@/lib/supabase/config";
+import {
+  validateReferralRegistration,
+  type ValidatedReferral,
+} from "@/lib/referrals/registration";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -128,6 +132,7 @@ export async function POST(request: NextRequest) {
   const emergencyContactNumber = cleanText(body?.emergencyContactNumber);
   const identityNumber = cleanText(body?.identityNumber);
   const phone = normalizeInternationalPhone(cleanText(body?.phone));
+  const referralInput = cleanText(body?.referralCode);
   const rawUploads: unknown[] = Array.isArray(body?.uploads)
     ? body.uploads
     : [];
@@ -196,6 +201,7 @@ export async function POST(request: NextRequest) {
     | null = null;
   let proposedStartDate = "";
   let duration = 12;
+  let validatedReferral: ValidatedReferral | null = null;
 
   if (accountType === "tenant") {
     const propertyId = cleanText(body?.propertyId);
@@ -257,6 +263,30 @@ export async function POST(request: NextRequest) {
         { error: "Choose a valid rental period." },
         { status: 400 },
       );
+    }
+
+    if (referralInput) {
+      try {
+        validatedReferral = await validateReferralRegistration({
+          companyId: property.company_id,
+          contractDurationMonths:
+            property.rental_model === "monthly_stay" ? 1 : duration,
+          identityNumber,
+          newTenantPhone: phone.e164,
+          referralInput,
+          rentalModel: property.rental_model,
+        });
+      } catch (referralError) {
+        return NextResponse.json(
+          {
+            error:
+              referralError instanceof Error
+                ? referralError.message
+                : "The referral could not be validated.",
+          },
+          { status: 400 },
+        );
+      }
     }
   }
 
@@ -379,6 +409,24 @@ export async function POST(request: NextRequest) {
         throw applicationError ?? new Error("Application could not be created.");
       }
       applicationId = application.id;
+
+      if (validatedReferral) {
+        const { error: referralError } = await admin
+          .from("tenant_referrals")
+          .insert({
+            company_id: property.company_id,
+            promotion_id: validatedReferral.promotionId,
+            referrer_tenant_id: validatedReferral.referrerTenantId,
+            referred_application_id: application.id,
+            property_id: property.id,
+            room_id: room.id,
+            referral_input: validatedReferral.referralCode,
+            reward_amount: validatedReferral.rewardAmount,
+            status: "pending",
+          });
+
+        if (referralError) throw referralError;
+      }
     }
 
     const registrationId = applicationId ?? userId;
