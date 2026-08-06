@@ -178,12 +178,16 @@ export function RegistrationForm({
 
     setIsLoading(true);
     try {
-      const uploads = Object.entries(files).map(([key, file]) => ({
-        key,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      }));
+      const uploads = Object.entries(files)
+        .filter(
+          (entry): entry is [UploadKey, File] => entry[1] !== undefined,
+        )
+        .map(([key, file]) => ({
+          key,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+        }));
       const startResponse = await fetch("/api/register/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -378,12 +382,13 @@ export function RegistrationForm({
                 key={type}
                 onClick={() => {
                   setIdentityType(type);
-                  setFiles((current) => ({
-                    ...current,
-                    icBack: undefined,
-                    icFront: undefined,
-                    passportPhoto: undefined,
-                  }));
+                  setFiles((current) => {
+                    const next = { ...current };
+                    delete next.icBack;
+                    delete next.icFront;
+                    delete next.passportPhoto;
+                    return next;
+                  });
                 }}
                 type="button"
               >
