@@ -580,7 +580,7 @@ export default async function UserProfilePage({
               <div className="py-3 first:pt-0">
                 <dt className="text-gray-500">Login phone</dt>
                 <dd className="mt-1 font-medium text-gray-950">
-                  {authUser.phone ?? profile.phone ?? "-"}
+                  {authUser.phone || profile.phone || "-"}
                 </dd>
               </div>
               <div className="py-3">
@@ -615,7 +615,7 @@ export default async function UserProfilePage({
               </div>
             </dl>
             <CredentialControls
-              phone={authUser.phone ?? profile.phone ?? null}
+              phone={authUser.phone || profile.phone || null}
               profileId={profile.id}
             />
           </CardContent>
