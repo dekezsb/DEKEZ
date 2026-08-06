@@ -78,7 +78,7 @@ export async function validateReferralRegistration(
   } else {
     const referralPhone = normalizeInternationalPhone(referralText);
     if (!referralPhone) {
-      throw new Error("Enter a valid referral code or referrer's phone number.");
+      throw new Error("Enter a valid referrer's phone number.");
     }
 
     const { data: referrerProfile } = await admin
@@ -158,7 +158,7 @@ export async function validateReferralRegistration(
 
   return {
     promotionId: promotion.id,
-    referralCode,
+    referralCode: referrer.phone?.trim() || referralCode,
     referrerTenantId,
     rewardAmount: Number(promotion.reward_amount),
   };

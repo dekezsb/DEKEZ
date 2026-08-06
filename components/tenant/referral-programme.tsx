@@ -55,7 +55,8 @@ export function ReferralProgramme({
             <CardTitle>{programme.promotionName}</CardTitle>
             <CardDescription>
               Share your code. A successful six-month tenant earns you a
-              one-time RM50 credit on a future rental invoice.
+              one-time {money.format(programme.rewardAmount)} credit on a future
+              rental invoice.
             </CardDescription>
           </div>
           <Gift className="h-7 w-7 shrink-0 text-[#b8892c]" />
@@ -65,7 +66,7 @@ export function ReferralProgramme({
         <div className="flex flex-col gap-3 rounded-lg border border-[#eadcb9] bg-[#fffdf8] p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              My Referral Code
+              My Referral Code (Phone Number)
             </p>
             <p className="mt-1 text-2xl font-bold tracking-wide text-gray-950">
               {programme.referralCode}

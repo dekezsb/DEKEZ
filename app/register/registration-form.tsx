@@ -340,19 +340,14 @@ export function RegistrationForm({
             </label>
             <label className="sm:col-span-2">
               <span className="text-sm font-medium text-[#17223b]">
-                Referral code or referrer&apos;s phone number (optional)
+                Referrer&apos;s phone number (optional)
               </span>
               <input
                 className={inputClass}
                 defaultValue={initialReferralCode}
                 name="referralCode"
-                placeholder="Example: DEKEZ-8A72B or 012-345 6789"
+                placeholder="Example: 012-345 6789"
               />
-              <span className="mt-1 block text-xs leading-5 text-[#7b879c]">
-                The RM50 rental credit is approved for your referrer only after
-                your six-month tenancy, verification, payment, signing and
-                check-in are complete.
-              </span>
             </label>
           </>
         ) : null}

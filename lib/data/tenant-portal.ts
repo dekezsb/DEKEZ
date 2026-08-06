@@ -65,6 +65,7 @@ export type TenantReferralProgramme = {
   promotionName: string;
   promotionEnds: string;
   referralCode: string;
+  rewardAmount: number;
   pendingReferrals: number;
   successfulReferrals: number;
   rewardEarned: number;
@@ -565,13 +566,8 @@ export async function getTenantPortalData() {
       month: "2-digit",
       day: "2-digit",
     }).format(new Date());
-    const [codeResult, referralsResult, creditsResult, promotionResult] =
+    const [referralsResult, creditsResult, promotionResult] =
       await Promise.all([
-        dataClient
-          .from("tenant_referral_codes")
-          .select("referral_code")
-          .eq("tenant_id", currentTenant.id)
-          .maybeSingle(),
         dataClient
           .from("tenant_referrals")
           .select("id, referred_application_id, status, reward_amount, registration_date")
@@ -583,7 +579,7 @@ export async function getTenantPortalData() {
           .eq("tenant_id", currentTenant.id),
         dataClient
           .from("referral_promotions")
-          .select("promotion_name, end_date")
+          .select("promotion_name, reward_amount, end_date")
           .eq("company_id", currentTenant.company_id)
           .eq("enabled", true)
           .lte("start_date", today)
@@ -618,11 +614,13 @@ export async function getTenantPortalData() {
           .in("credit_id", creditIds)
       : { data: [] };
 
-    if (codeResult.data?.referral_code && promotionResult.data) {
+    const referralPhone = (currentTenant.phone ?? profile?.phone ?? "").trim();
+    if (referralPhone && promotionResult.data) {
       referralProgramme = {
         promotionName: promotionResult.data.promotion_name,
         promotionEnds: promotionResult.data.end_date,
-        referralCode: codeResult.data.referral_code,
+        referralCode: referralPhone,
+        rewardAmount: numberValue(promotionResult.data.reward_amount),
         pendingReferrals: referralRows.filter(
           (referral) => referral.status === "pending",
         ).length,

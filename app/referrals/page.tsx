@@ -112,7 +112,9 @@ export default async function ReferralManagementPage({ searchParams }: PageProps
         <h1 className="mt-2 text-3xl font-semibold">Referral Management</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
           Track every referral from registration to check-in, then keep the
-          RM50 rental credit and invoice application fully auditable.
+          {" "}
+          {money.format(Number(promotion?.reward_amount ?? 30))} rental credit and
+          invoice application fully auditable.
         </p>
       </div>
 
@@ -149,9 +151,9 @@ export default async function ReferralManagementPage({ searchParams }: PageProps
               <input name="promotionId" type="hidden" value={promotion?.id ?? ""} />
               <label className="md:col-span-2 xl:col-span-2">
                 <span className="text-sm font-medium">Promotion name</span>
-                <input className="mt-2 h-11 w-full rounded-md border px-3" defaultValue={promotion?.promotion_name ?? "Invite a Friend & Earn RM50"} name="promotionName" required />
+                <input className="mt-2 h-11 w-full rounded-md border px-3" defaultValue={promotion?.promotion_name ?? "Invite a Friend & Earn RM30"} name="promotionName" required />
               </label>
-              <Field defaultValue={promotion?.reward_amount ?? 50} label="Reward amount (RM)" name="rewardAmount" step="0.01" type="number" />
+              <Field defaultValue={promotion?.reward_amount ?? 30} label="Reward amount (RM)" name="rewardAmount" step="0.01" type="number" />
               <Field defaultValue={promotion?.minimum_contract_months ?? 6} label="Minimum contract" name="minimumContractMonths" step="1" type="number" />
               <Field defaultValue={promotion?.start_date ?? "2026-08-01"} label="Start date" name="startDate" type="date" />
               <Field defaultValue={promotion?.end_date ?? "2026-08-31"} label="End date" name="endDate" type="date" />
