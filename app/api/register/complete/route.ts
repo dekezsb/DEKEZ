@@ -115,11 +115,21 @@ export async function POST(request: Request) {
   const existence = await Promise.all(
     uploads.map((upload) => objectExists(admin, upload)),
   );
-  if (existence.some((exists) => !exists)) {
+  if (accountType === "owner" && existence.some((exists) => !exists)) {
     return NextResponse.json(
       { error: "One or more files did not finish uploading." },
       { status: 400 },
     );
+  }
+  const confirmedUploads = uploads.filter((_, index) => existence[index]);
+  if (confirmedUploads.length !== uploads.length) {
+    console.info("[register/complete] missing uploads left for Admin review", {
+      accountType,
+      missingKeys: uploads
+        .filter((_, index) => !existence[index])
+        .map((upload) => upload.key),
+      userId: user.id,
+    });
   }
 
   if (accountType === "tenant") {
@@ -139,11 +149,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const tenantDocuments = uploads.filter(
+    const tenantDocuments = confirmedUploads.filter(
       (upload) => upload.bucket === "tenant-documents",
     );
     for (const upload of tenantDocuments) {
-      const type = documentTypes[upload.key];
+      const type =
+        upload.key === "companyDocument"
+          ? "commercial_supporting_document"
+          : documentTypes[upload.key];
       if (!type) continue;
       const { data: existing } = await admin
         .from("tenant_documents")
@@ -161,69 +174,88 @@ export async function POST(request: Request) {
           uploaded_by: user.id,
         });
         if (error) {
-          return NextResponse.json(
-            { error: "Identity documents could not be saved." },
-            { status: 500 },
-          );
+          console.error("[register/complete] document left for Admin review", {
+            applicationId: application.id,
+            documentType: type,
+            error: error.message,
+            filePath: upload.path,
+          });
         }
       }
     }
 
-    const paymentSlip = uploads.find(
+    const paymentSlip = confirmedUploads.find(
       (upload) => upload.key === "paymentSlip",
     );
+    let paymentRecorded = false;
 
     if (paymentSlip) {
-    let { data: paymentSubmission } = await admin
-      .from("payment_submissions")
-      .select("id")
-      .eq("tenant_application_id", application.id)
-      .eq("receipt_url", paymentSlip.path)
-      .maybeSingle();
-
-    if (!paymentSubmission) {
-      const result = await admin
+      let { data: paymentSubmission } = await admin
         .from("payment_submissions")
-        .insert({
-          tenant_id: user.id,
-          tenant_application_id: application.id,
-          property_id: application.property_id,
-          unit_id: application.unit_id,
-          room_id: application.room_id,
-          bill_type: "check_in",
-          payment_type: "monthly_rent",
-          amount: Number(application.monthly_rent ?? 0),
-          payment_date: new Date().toISOString().slice(0, 10),
-          payment_method: "online_payment",
-          receipt_url: paymentSlip.path,
-          verification_status: "pending_verification",
-        })
         .select("id")
-        .single();
-      paymentSubmission = result.data;
-      if (result.error || !paymentSubmission) {
-        return NextResponse.json(
-          { error: "Payment proof could not be saved." },
-          { status: 500 },
-        );
-      }
-    }
+        .eq("tenant_application_id", application.id)
+        .eq("receipt_url", paymentSlip.path)
+        .maybeSingle();
 
-    const { data: existingAttachment } = await admin
-      .from("payment_attachments")
-      .select("id")
-      .eq("payment_submission_id", paymentSubmission.id)
-      .eq("file_path", paymentSlip.path)
-      .maybeSingle();
-    if (!existingAttachment) {
-      await admin.from("payment_attachments").insert({
-        payment_submission_id: paymentSubmission.id,
-        tenant_id: user.id,
-        file_path: paymentSlip.path,
-        file_name: paymentSlip.fileName,
-        content_type: paymentSlip.contentType,
-      });
-    }
+      if (!paymentSubmission) {
+        const result = await admin
+          .from("payment_submissions")
+          .insert({
+            tenant_id: user.id,
+            tenant_application_id: application.id,
+            property_id: application.property_id,
+            unit_id: application.unit_id,
+            room_id: application.room_id,
+            bill_type: "check_in",
+            payment_type: "monthly_rent",
+            amount: Number(application.monthly_rent ?? 0),
+            payment_date: new Date().toISOString().slice(0, 10),
+            payment_method: "online_payment",
+            receipt_url: paymentSlip.path,
+            verification_status: "pending_verification",
+          })
+          .select("id")
+          .single();
+        paymentSubmission = result.data;
+        if (result.error || !paymentSubmission) {
+          console.error("[register/complete] payment left for Admin review", {
+            applicationId: application.id,
+            error: result.error?.message ?? "Payment row was not returned.",
+            filePath: paymentSlip.path,
+          });
+        }
+      }
+
+      if (paymentSubmission) {
+        paymentRecorded = true;
+        const { data: existingAttachment } = await admin
+          .from("payment_attachments")
+          .select("id")
+          .eq("payment_submission_id", paymentSubmission.id)
+          .eq("file_path", paymentSlip.path)
+          .maybeSingle();
+        if (!existingAttachment) {
+          const { error: attachmentError } = await admin
+            .from("payment_attachments")
+            .insert({
+              payment_submission_id: paymentSubmission.id,
+              tenant_id: user.id,
+              file_path: paymentSlip.path,
+              file_name: paymentSlip.fileName,
+              content_type: paymentSlip.contentType,
+            });
+          if (attachmentError) {
+            console.error(
+              "[register/complete] payment attachment left for Admin review",
+              {
+                applicationId: application.id,
+                error: attachmentError.message,
+                filePath: paymentSlip.path,
+              },
+            );
+          }
+        }
+      }
     }
 
     const { error: applicationError } = await admin
@@ -231,7 +263,7 @@ export async function POST(request: Request) {
       .update({
         status: "submitted",
         verification_status: "pending_verification",
-        payment_status: paymentSlip ? "pending_verification" : "unpaid",
+        payment_status: paymentRecorded ? "pending_verification" : "unpaid",
         submitted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -278,10 +310,10 @@ export async function POST(request: Request) {
     .eq("id", user.id);
 
   if (profileError) {
-    return NextResponse.json(
-      { error: "Registration could not be completed." },
-      { status: 500 },
-    );
+    console.error("[register/complete] profile completion needs Admin review", {
+      error: profileError.message,
+      userId: user.id,
+    });
   }
 
   return NextResponse.json({ redirectTo: "/registration-status" });
