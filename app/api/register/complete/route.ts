@@ -71,7 +71,6 @@ export async function POST(request: Request) {
 
   if (
     !["owner", "tenant"].includes(accountType) ||
-    !uploads.length ||
     uploads.some(
       (upload) =>
         !upload ||
@@ -112,19 +111,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const required =
-    profile.identity_type === "ic"
-      ? ["icFront", "icBack"]
-      : ["passportPhoto"];
-  if (
-    required.some((key) => !uniqueKeys.has(key as UploadKey)) ||
-    (accountType === "tenant" && !uniqueKeys.has("paymentSlip"))
-  ) {
-    return NextResponse.json(
-      { error: "Required identity or payment files are missing." },
-      { status: 400 },
-    );
-  }
 
   const existence = await Promise.all(
     uploads.map((upload) => objectExists(admin, upload)),
@@ -140,7 +126,7 @@ export async function POST(request: Request) {
     const { data: application } = await admin
       .from("tenant_applications")
       .select(
-        "id, tenant_id, property_id, unit_id, room_id, monthly_rent, status, properties(is_commercial)",
+        "id, tenant_id, property_id, unit_id, room_id, monthly_rent, status",
       )
       .eq("id", applicationId)
       .eq("tenant_id", user.id)
@@ -150,22 +136,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "The tenant registration record could not be found." },
         { status: 404 },
-      );
-    }
-
-    const property = Array.isArray(application.properties)
-      ? application.properties[0]
-      : application.properties;
-    if (
-      property?.is_commercial &&
-      !uniqueKeys.has("commercialSupportingDocument")
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "This commercial property requires a supporting business document.",
-        },
-        { status: 400 },
       );
     }
 
@@ -202,13 +172,8 @@ export async function POST(request: Request) {
     const paymentSlip = uploads.find(
       (upload) => upload.key === "paymentSlip",
     );
-    if (!paymentSlip) {
-      return NextResponse.json(
-        { error: "Payment slip is required." },
-        { status: 400 },
-      );
-    }
 
+    if (paymentSlip) {
     let { data: paymentSubmission } = await admin
       .from("payment_submissions")
       .select("id")
@@ -259,13 +224,14 @@ export async function POST(request: Request) {
         content_type: paymentSlip.contentType,
       });
     }
+    }
 
     const { error: applicationError } = await admin
       .from("tenant_applications")
       .update({
         status: "submitted",
         verification_status: "pending_verification",
-        payment_status: "pending_verification",
+        payment_status: paymentSlip ? "pending_verification" : "unpaid",
         submitted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

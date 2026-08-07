@@ -84,22 +84,6 @@ function extension(upload: UploadMetadata) {
   return "jpg";
 }
 
-function requiredUploads(
-  accountType: AccountType,
-  identityType: IdentityType,
-  isCommercial: boolean,
-) {
-  const keys: UploadKey[] =
-    identityType === "ic" ? ["icFront", "icBack"] : ["passportPhoto"];
-
-  if (accountType === "tenant") {
-    keys.push("paymentSlip");
-    if (isCommercial) keys.push("commercialSupportingDocument");
-  }
-
-  return keys;
-}
-
 function documentType(key: UploadKey) {
   const values: Record<UploadKey, string> = {
     companyDocument: "company_document",
@@ -142,10 +126,8 @@ export async function POST(request: NextRequest) {
     !["owner", "tenant"].includes(accountType) ||
     !["ic", "passport"].includes(identityType) ||
     !fullName ||
-    !identityNumber ||
     !phone ||
-    (accountType === "tenant" &&
-      (!emergencyContactName || !emergencyContactNumber))
+    (accountType === "owner" && !identityNumber)
   ) {
     return NextResponse.json(
       { error: "Complete all required registration details." },
@@ -209,9 +191,9 @@ export async function POST(request: NextRequest) {
     proposedStartDate = cleanText(body?.preferredMoveInDate);
     duration = Number(body?.rentalPeriod);
 
-    if (!propertyId || !roomId || !proposedStartDate) {
+    if (!propertyId || !roomId) {
       return NextResponse.json(
-        { error: "Choose a property, room, move-in date and rental period." },
+        { error: "Choose a property and room." },
         { status: 400 },
       );
     }
@@ -254,15 +236,21 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
+    if (!proposedStartDate) {
+      proposedStartDate = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kuala_Lumpur",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+    }
     if (
       property.rental_model !== "monthly_stay" &&
       !property.contract_duration_options.includes(duration) &&
       ![6, 12].includes(duration)
     ) {
-      return NextResponse.json(
-        { error: "Choose a valid rental period." },
-        { status: 400 },
-      );
+      duration =
+        property.contract_duration_options.find((months) => months >= 1) ?? 6;
     }
 
     // Monthly-stay properties do not use tenancy agreements and are not
@@ -279,35 +267,18 @@ export async function POST(request: NextRequest) {
           rentalModel: property.rental_model,
         });
       } catch (referralError) {
-        return NextResponse.json(
+        console.info(
+          "[register/start] referral ignored for Admin review",
           {
-            error:
+            reason:
               referralError instanceof Error
                 ? referralError.message
-                : "The referral could not be validated.",
+                : String(referralError),
           },
-          { status: 400 },
         );
+        validatedReferral = null;
       }
     }
-  }
-
-  const required = requiredUploads(
-    accountType,
-    identityType,
-    Boolean(property?.is_commercial),
-  );
-  const uploadKeys = new Set(uploads.map((upload) => upload.key));
-  if (required.some((key) => !uploadKeys.has(key))) {
-    return NextResponse.json(
-      {
-        error:
-          identityType === "ic"
-            ? "Upload the required IC photos and payment/supporting documents."
-            : "Upload the required passport and payment/supporting documents.",
-      },
-      { status: 400 },
-    );
   }
 
   const password = derivePinPassword(phone);
@@ -348,6 +319,8 @@ export async function POST(request: NextRequest) {
   const userId = created.user.id;
   let applicationId: string | null = null;
 
+  const storedIdentityNumber =
+    identityNumber || "PENDING-ADMIN-REVIEW-" + phone.lookupDigits.slice(-4);
   try {
     const { error: profileError } = await admin
       .from("profiles")
@@ -358,7 +331,7 @@ export async function POST(request: NextRequest) {
         global_role: "tenant",
         requested_role: accountType,
         identity_type: identityType,
-        identity_number: identityNumber,
+        identity_number: storedIdentityNumber,
         company_name:
           accountType === "owner" ? cleanText(body?.companyName) || null : null,
         company_details:
@@ -385,7 +358,7 @@ export async function POST(request: NextRequest) {
           unit_id: room.unit_id,
           room_id: room.id,
           full_name: fullName,
-          ic_passport_number: identityNumber,
+          ic_passport_number: storedIdentityNumber,
           whatsapp_number: phone.e164,
           emergency_contact_name: emergencyContactName,
           emergency_contact_number: emergencyContactNumber,
@@ -491,7 +464,16 @@ export async function POST(request: NextRequest) {
       },
       cookiesToSet,
     );
-  } catch {
+  } catch (registrationError) {
+    console.error("[register/start] registration preparation failed", {
+      accountType,
+      error:
+        registrationError instanceof Error
+          ? registrationError.message
+          : String(registrationError),
+      hasApplication: Boolean(applicationId),
+      propertyModel: property?.rental_model ?? null,
+    });
     await admin.auth.admin.deleteUser(userId);
     return NextResponse.json(
       { error: "Registration could not be prepared. Please try again." },

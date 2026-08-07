@@ -161,21 +161,6 @@ export function RegistrationForm({
     setError(null);
 
     const formData = new FormData(event.currentTarget);
-    const requiredFileKeys: UploadKey[] =
-      identityType === "ic" ? ["icFront", "icBack"] : ["passportPhoto"];
-
-    if (accountType === "tenant") {
-      requiredFileKeys.push("paymentSlip");
-      if (selectedProperty?.isCommercial) {
-        requiredFileKeys.push("commercialSupportingDocument");
-      }
-    }
-
-    if (requiredFileKeys.some((key) => !files[key])) {
-      setError("Please add every required photo or document.");
-      return;
-    }
-
     setIsLoading(true);
     try {
       const uploads = Object.entries(files)
@@ -260,7 +245,7 @@ export function RegistrationForm({
   }
 
   return (
-    <form className="mt-7 space-y-6" onSubmit={handleSubmit}>
+    <form className="mt-7 space-y-6" noValidate onSubmit={handleSubmit}>
       <div className="grid grid-cols-2 rounded-md border border-[#d7dde5] bg-[#f6f7f9] p-1">
         {(["tenant", "owner"] as const).map((type) => (
           <button
@@ -412,7 +397,7 @@ export function RegistrationForm({
                 ? "e.g. 990101-01-1234"
                 : "Passport number"
             }
-            required
+            required={selectedProperty?.rentalModel !== "monthly_stay"}
           />
         </label>
 
@@ -445,7 +430,7 @@ export function RegistrationForm({
                 className={inputClass}
                 name="emergencyContactName"
                 placeholder="Person to contact in an emergency"
-                required
+                required={selectedProperty?.rentalModel !== "monthly_stay"}
               />
             </label>
             <label>
@@ -458,7 +443,7 @@ export function RegistrationForm({
                 inputMode="tel"
                 name="emergencyContactNumber"
                 placeholder="012-345 6789 or +country code"
-                required
+                required={selectedProperty?.rentalModel !== "monthly_stay"}
                 type="tel"
               />
             </label>
@@ -469,7 +454,7 @@ export function RegistrationForm({
               <input
                 className={inputClass}
                 name="preferredMoveInDate"
-                required
+                required={selectedProperty?.rentalModel !== "monthly_stay"}
                 type="date"
               />
             </label>
