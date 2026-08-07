@@ -342,17 +342,19 @@ export function RegistrationForm({
                 ))}
               </select>
             </label>
-            <label className="sm:col-span-2">
-              <span className="text-sm font-medium text-[#17223b]">
-                Referrer&apos;s phone number (optional)
-              </span>
-              <input
-                className={inputClass}
-                defaultValue={initialReferralCode}
-                name="referralCode"
-                placeholder="Example: 012-345 6789"
-              />
-            </label>
+            {selectedProperty?.rentalModel !== "monthly_stay" ? (
+              <label className="sm:col-span-2">
+                <span className="text-sm font-medium text-[#17223b]">
+                  Referrer&apos;s phone number (optional)
+                </span>
+                <input
+                  className={inputClass}
+                  defaultValue={initialReferralCode}
+                  name="referralCode"
+                  placeholder="Example: 012-345 6789"
+                />
+              </label>
+            ) : null}
           </>
         ) : null}
 

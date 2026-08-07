@@ -265,12 +265,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (referralInput) {
+    // Monthly-stay properties do not use tenancy agreements and are not
+    // eligible for contract-based referral rewards. Ignore any referral value
+    // instead of blocking the tenant's check-in registration.
+    if (referralInput && property.rental_model === "tenancy") {
       try {
         validatedReferral = await validateReferralRegistration({
           companyId: property.company_id,
-          contractDurationMonths:
-            property.rental_model === "monthly_stay" ? 1 : duration,
+          contractDurationMonths: duration,
           identityNumber,
           newTenantPhone: phone.e164,
           referralInput,
