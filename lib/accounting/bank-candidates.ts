@@ -49,7 +49,7 @@ export async function getBankCandidates(
       .from("expense_payment_batches")
       .select("id, paid_on, total_amount, reference_number, payment_method")
       .eq("company_id", companyId)
-      .in("payment_method", ["company_bank", "cheque"]),
+      .in("payment_method", ["company_bank", "company_card", "cheque"]),
     supabase
       .from("staff_reimbursement_payouts")
       .select("id, paid_on, total_amount, reference_number, payment_source")
@@ -80,6 +80,59 @@ export async function getBankCandidates(
         .in("expense_id", expenseIds)
     : { data: [] };
   const allocatedExpenseIds = new Set((allocatedExpenses ?? []).map((item) => item.expense_id));
+  const batchIds = (batchesResult.data ?? []).map((batch) => batch.id);
+  const payoutIds = (payoutsResult.data ?? []).map((payout) => payout.id);
+  const [{ data: batchAllocations }, { data: payoutLiabilities }] = await Promise.all([
+    batchIds.length
+      ? supabase
+          .from("expense_payment_allocations")
+          .select("batch_id, amount, expenses(supplier, description)")
+          .in("batch_id", batchIds)
+      : Promise.resolve({ data: [] }),
+    payoutIds.length
+      ? supabase
+          .from("staff_reimbursement_liabilities")
+          .select("payout_id, staff_id, amount, expenses(supplier, description)")
+          .in("payout_id", payoutIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const payoutStaffIds = Array.from(
+    new Set((payoutLiabilities ?? []).map((item) => item.staff_id).filter(Boolean)),
+  );
+  const { data: payoutStaffProfiles } = payoutStaffIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", payoutStaffIds)
+    : { data: [] };
+  const payoutStaffNames = new Map(
+    (payoutStaffProfiles ?? []).map((profile) => [profile.id, profile.full_name ?? "Staff member"]),
+  );
+  const batchItems = new Map<string, string[]>();
+  for (const allocation of batchAllocations ?? []) {
+    const expense = Array.isArray(allocation.expenses)
+      ? allocation.expenses[0]
+      : allocation.expenses;
+    const values = batchItems.get(allocation.batch_id) ?? [];
+    values.push(
+      `${expense?.supplier || expense?.description || "Expense receipt"} ${numberValue(allocation.amount).toFixed(2)}`,
+    );
+    batchItems.set(allocation.batch_id, values);
+  }
+  const payoutItems = new Map<string, string[]>();
+  const payoutPayee = new Map<string, string>();
+  for (const liability of payoutLiabilities ?? []) {
+    if (!liability.payout_id) continue;
+    const expense = Array.isArray(liability.expenses)
+      ? liability.expenses[0]
+      : liability.expenses;
+    const values = payoutItems.get(liability.payout_id) ?? [];
+    values.push(
+      `${expense?.supplier || expense?.description || "Claim receipt"} ${numberValue(liability.amount).toFixed(2)}`,
+    );
+    payoutItems.set(liability.payout_id, values);
+    payoutPayee.set(
+      liability.payout_id,
+      payoutStaffNames.get(liability.staff_id) ?? "Staff member",
+    );
+  }
 
   const candidates: BankCandidate[] = [];
   const paidBills = paidBillsResult.data ?? [];
@@ -149,24 +202,27 @@ export async function getBankCandidates(
   }
 
   for (const batch of batchesResult.data ?? []) {
+    const items = batchItems.get(batch.id) ?? [];
+    const method = batch.payment_method === "company_card" ? "Company card" : "Company bank";
     candidates.push({
       sourceType: "expense_payment_batch",
       sourceId: batch.id,
       date: batch.paid_on,
       amount: -Math.abs(numberValue(batch.total_amount)),
-      description: "Supplier expense payment batch",
+      description: `${method} · ${items.length} receipt${items.length === 1 ? "" : "s"}${items.length ? ` · ${items.slice(0, 3).join(" + ")}${items.length > 3 ? " + more" : ""}` : ""}`,
       referenceNumber: batch.reference_number,
       propertyId: null,
     });
   }
 
   for (const payout of payoutsResult.data ?? []) {
+    const items = payoutItems.get(payout.id) ?? [];
     candidates.push({
       sourceType: "staff_reimbursement_payout",
       sourceId: payout.id,
       date: payout.paid_on,
       amount: -Math.abs(numberValue(payout.total_amount)),
-      description: "Staff reimbursement payout",
+      description: `Staff reimbursement · ${payoutPayee.get(payout.id) ?? "Staff member"} · ${items.length} claim${items.length === 1 ? "" : "s"}${items.length ? ` · ${items.slice(0, 3).join(" + ")}${items.length > 3 ? " + more" : ""}` : ""}`,
       referenceNumber: payout.reference_number,
       propertyId: null,
     });

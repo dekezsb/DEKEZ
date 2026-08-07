@@ -57,23 +57,32 @@ export async function createBankAccount(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const name = textValue(formData, "name");
   const bankName = textValue(formData, "bankName");
+  const accountKind = textValue(formData, "accountKind") || "bank";
   const accountNumber = textValue(formData, "accountNumber").replace(/\D/g, "");
   const last4 = accountNumber.slice(-4);
   const openingBalance = numberValue(formData, "openingBalance");
   const openingBalanceDate = textValue(formData, "openingBalanceDate") || null;
 
-  if (!name || !bankName || accountNumber.length < 6 || accountNumber.length > 30) {
+  if (
+    !name ||
+    !bankName ||
+    !["bank", "company_card"].includes(accountKind) ||
+    accountNumber.length < 6 ||
+    accountNumber.length > 30
+  ) {
     redirect(reportPath({ error: "bank_account_details" }));
   }
 
+  const codeFloor = accountKind === "company_card" ? 2400 : 1010;
+  const codeCeiling = accountKind === "company_card" ? 2499 : 1099;
   const { data: existingAccounts } = await supabase
     .from("accounting_accounts")
     .select("code")
     .eq("company_id", company.id)
-    .gte("code", "1010")
-    .lte("code", "1099");
+    .gte("code", String(codeFloor))
+    .lte("code", String(codeCeiling));
   const nextCode = String(
-    Math.max(1010, ...(existingAccounts ?? []).map((account) => Number(account.code) || 1010)) + 1,
+    Math.max(codeFloor, ...(existingAccounts ?? []).map((account) => Number(account.code) || codeFloor)) + 1,
   );
   const { data: ledgerAccount, error: ledgerError } = await supabase
     .from("accounting_accounts")
@@ -81,10 +90,10 @@ export async function createBankAccount(formData: FormData) {
       company_id: company.id,
       code: nextCode,
       name,
-      account_type: "asset",
-      report_group: "current_asset",
-      normal_balance: "debit",
-      description: `${bankName} bank account`,
+      account_type: accountKind === "company_card" ? "liability" : "asset",
+      report_group: accountKind === "company_card" ? "current_liability" : "current_asset",
+      normal_balance: accountKind === "company_card" ? "credit" : "debit",
+      description: `${bankName} ${accountKind === "company_card" ? "company credit card" : "bank account"}`,
       is_system: false,
       sort_order: Number(nextCode),
     })
@@ -267,6 +276,496 @@ async function refreshLineStatus(
     .from("bank_statement_lines")
     .update({ status: complete ? (adjusted ? "adjusted" : "matched") : "unmatched", updated_at: new Date().toISOString() })
     .eq("id", lineId);
+}
+
+function uniqueFormIds(formData: FormData, key: string) {
+  return [
+    ...new Set(
+      formData
+        .getAll(key)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && Boolean(value),
+        ),
+    ),
+  ];
+}
+
+function singleRelation<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+async function retainedStatementManifest({
+  bucket,
+  companyId,
+  line,
+  path,
+  selectedIds,
+  sourceType,
+  statement,
+  supabase,
+}: {
+  bucket: "expense-payment-proofs" | "reimbursement-proofs";
+  companyId: string;
+  line: {
+    id: string;
+    transaction_date: string;
+    amount: number | string;
+    description: string;
+    reference_number: string | null;
+  };
+  path: string;
+  selectedIds: string[];
+  sourceType: "company_expense_batch" | "staff_reimbursement_payout";
+  statement: {
+    id: string;
+    original_bucket_name: string;
+    original_file_path: string | null;
+    original_file_name: string | null;
+  };
+  supabase: ReturnType<typeof createAdminClient>;
+}) {
+  const manifest = Buffer.from(
+    JSON.stringify(
+      {
+        audit_type: sourceType,
+        company_id: companyId,
+        statement_import_id: statement.id,
+        statement_source: {
+          bucket: statement.original_bucket_name,
+          path: statement.original_file_path,
+          file_name: statement.original_file_name,
+        },
+        statement_line: {
+          id: line.id,
+          date: line.transaction_date,
+          amount: Number(line.amount),
+          description: line.description,
+          reference: line.reference_number,
+        },
+        selected_record_ids: selectedIds,
+        retained_at: new Date().toISOString(),
+        note: "The original imported statement and every selected receipt remain retained in DEKEZ.",
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  return supabase.storage.from(bucket).upload(path, manifest, {
+    contentType: "application/json",
+    upsert: false,
+  });
+}
+
+async function loadOpenBankLine(
+  supabase: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  lineId: string,
+) {
+  const [{ data: line }, { data: matches }] = await Promise.all([
+    supabase
+      .from("bank_statement_lines")
+      .select(
+        "id, statement_import_id, transaction_date, amount, description, reference_number, status, bank_statement_imports!inner(id, company_id, status, original_bucket_name, original_file_path, original_file_name)",
+      )
+      .eq("id", lineId)
+      .maybeSingle(),
+    supabase
+      .from("bank_reconciliation_matches")
+      .select("matched_amount")
+      .eq("statement_line_id", lineId),
+  ]);
+  const statement = singleRelation(line?.bank_statement_imports);
+  const matched = (matches ?? []).reduce(
+    (total, match) => total + Number(match.matched_amount ?? 0),
+    0,
+  );
+  const remaining = Number(line?.amount ?? 0) - matched;
+  if (
+    !line ||
+    !statement ||
+    statement.company_id !== companyId ||
+    statement.status !== "in_progress" ||
+    line.status === "ignored" ||
+    remaining >= -0.005
+  ) {
+    return null;
+  }
+  return { line, statement, remaining };
+}
+
+export async function reconcileCompanyExpenseBatchFromBankLine(
+  formData: FormData,
+) {
+  const { user, company, supabase } = await accountingContext();
+  const lineId = textValue(formData, "lineId");
+  const paymentMethod = textValue(formData, "paymentMethod");
+  const expenseIds = uniqueFormIds(formData, "expenseIds");
+  if (
+    !lineId ||
+    !expenseIds.length ||
+    !["company_bank", "company_card"].includes(paymentMethod)
+  ) {
+    redirect(reportPath({ error: "expense_batch_details" }));
+  }
+
+  const context = await loadOpenBankLine(supabase, company.id, lineId);
+  if (!context) redirect(reportPath({ error: "expense_batch_line" }));
+  const { line, statement, remaining } = context;
+  const { data: expenses } = await supabase
+    .from("expenses")
+    .select("id, amount")
+    .in("id", expenseIds)
+    .eq("company_id", company.id)
+    .eq("status", "verified")
+    .eq("payment_status", "unpaid")
+    .in("funding_source", ["company_cash", "company_bank"]);
+  const selectedTotal = (expenses ?? []).reduce(
+    (total, expense) => total + Number(expense.amount ?? 0),
+    0,
+  );
+  if (
+    (expenses ?? []).length !== expenseIds.length ||
+    Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
+  ) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "expense_batch_total",
+      }),
+    );
+  }
+
+  const proofPath = `${company.id}/bank-reconciliation/${line.id}/${Date.now()}-expense-batch.json`;
+  const { error: proofError } = await retainedStatementManifest({
+    bucket: "expense-payment-proofs",
+    companyId: company.id,
+    line,
+    path: proofPath,
+    selectedIds: expenseIds,
+    sourceType: "company_expense_batch",
+    statement,
+    supabase,
+  });
+  if (proofError) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "expense_batch_proof",
+      }),
+    );
+  }
+
+  const { data: batchId, error: batchError } = await supabase.rpc(
+    "record_expense_payment_batch",
+    {
+      target_expense_ids: expenseIds,
+      batch_payment_method: paymentMethod,
+      batch_paid_on: line.transaction_date,
+      batch_reference: line.reference_number || `BANK-${line.id.slice(0, 8)}`,
+      batch_notes: `Created from bank reconciliation. Statement line: ${line.description}`,
+      batch_proof_bucket: "expense-payment-proofs",
+      batch_proof_path: proofPath,
+      batch_proof_file_name: `statement-line-${line.id}.json`,
+      batch_proof_content_type: "application/json",
+      batch_recorded_by: user.id,
+    },
+  );
+  if (batchError || !batchId) {
+    await supabase.storage.from("expense-payment-proofs").remove([proofPath]);
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "expense_batch_create",
+      }),
+    );
+  }
+
+  const { error: matchError } = await supabase
+    .from("bank_reconciliation_matches")
+    .insert({
+      statement_line_id: line.id,
+      source_type: "expense_payment_batch",
+      source_id: batchId,
+      matched_amount: remaining,
+      match_method: expenseIds.length > 1 ? "merge" : "manual",
+      created_by: user.id,
+    });
+  if (matchError) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "expense_batch_match",
+      }),
+    );
+  }
+  await supabase.from("accounting_audit_logs").insert({
+    company_id: company.id,
+    entity_type: "bank_statement_line",
+    entity_id: line.id,
+    action: "reconcile_multiple_expense_receipts",
+    after_data: {
+      expense_payment_batch_id: batchId,
+      expense_ids: expenseIds,
+      payment_method: paymentMethod,
+      amount: Math.abs(remaining),
+    },
+    reason: "One bank/card statement payment settled multiple retained expense receipts.",
+    performed_by: user.id,
+  });
+  await refreshLineStatus(supabase, line.id);
+  revalidatePath("/reports");
+  revalidatePath("/expenses");
+  revalidatePath("/dashboard");
+  redirect(
+    reportPath({
+      statement: line.statement_import_id,
+      expense_batch_reconciled: String(expenseIds.length),
+    }),
+  );
+}
+
+export async function reconcilePaidCompanyExpensesFromBankLine(
+  formData: FormData,
+) {
+  const { user, company, supabase } = await accountingContext();
+  const lineId = textValue(formData, "lineId");
+  const expenseIds = uniqueFormIds(formData, "expenseIds");
+  if (!lineId || !expenseIds.length) {
+    redirect(reportPath({ error: "paid_receipts_details" }));
+  }
+
+  const context = await loadOpenBankLine(supabase, company.id, lineId);
+  if (!context) redirect(reportPath({ error: "paid_receipts_line" }));
+  const { line, remaining } = context;
+  const [{ data: expenses }, { data: existingMatches }, { data: allocations }] =
+    await Promise.all([
+      supabase
+        .from("expenses")
+        .select("id, amount")
+        .in("id", expenseIds)
+        .eq("company_id", company.id)
+        .eq("funding_source", "company_bank")
+        .eq("payment_status", "paid")
+        .in("status", ["verified", "reimbursed"]),
+      supabase
+        .from("bank_reconciliation_matches")
+        .select("source_id, matched_amount")
+        .eq("source_type", "expense")
+        .in("source_id", expenseIds),
+      supabase
+        .from("expense_payment_allocations")
+        .select("expense_id")
+        .in("expense_id", expenseIds),
+    ]);
+  const alreadyMatched = new Map<string, number>();
+  for (const match of existingMatches ?? []) {
+    alreadyMatched.set(
+      match.source_id,
+      (alreadyMatched.get(match.source_id) ?? 0) +
+        Math.abs(Number(match.matched_amount ?? 0)),
+    );
+  }
+  const allocatedIds = new Set((allocations ?? []).map((item) => item.expense_id));
+  const selectedTotal = (expenses ?? []).reduce(
+    (total, expense) => total + Number(expense.amount ?? 0),
+    0,
+  );
+  const hasPreviouslyUsedReceipt = (expenses ?? []).some(
+    (expense) =>
+      allocatedIds.has(expense.id) ||
+      (alreadyMatched.get(expense.id) ?? 0) > 0.005,
+  );
+  if (
+    (expenses ?? []).length !== expenseIds.length ||
+    hasPreviouslyUsedReceipt ||
+    Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
+  ) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "paid_receipts_total",
+      }),
+    );
+  }
+
+  const { error: matchError } = await supabase
+    .from("bank_reconciliation_matches")
+    .insert(
+      (expenses ?? []).map((expense) => ({
+        statement_line_id: line.id,
+        source_type: "expense",
+        source_id: expense.id,
+        matched_amount: -Math.abs(Number(expense.amount ?? 0)),
+        match_method: expenseIds.length > 1 ? "merge" : "manual",
+        created_by: user.id,
+      })),
+    );
+  if (matchError) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "paid_receipts_match",
+      }),
+    );
+  }
+  await supabase.from("accounting_audit_logs").insert({
+    company_id: company.id,
+    entity_type: "bank_statement_line",
+    entity_id: line.id,
+    action: "match_multiple_paid_company_receipts",
+    after_data: {
+      expense_ids: expenseIds,
+      amount: Math.abs(remaining),
+    },
+    reason:
+      "One bank/company-card statement charge was matched to several existing expense receipts without reposting the expense.",
+    performed_by: user.id,
+  });
+  await refreshLineStatus(supabase, line.id);
+  revalidatePath("/reports");
+  revalidatePath("/expenses");
+  redirect(
+    reportPath({
+      statement: line.statement_import_id,
+      paid_receipts_reconciled: String(expenseIds.length),
+    }),
+  );
+}
+
+export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const lineId = textValue(formData, "lineId");
+  const staffId = textValue(formData, "staffId");
+  const liabilityIds = uniqueFormIds(formData, "liabilityIds");
+  if (!lineId || !staffId || !liabilityIds.length) {
+    redirect(reportPath({ error: "staff_batch_details" }));
+  }
+
+  const context = await loadOpenBankLine(supabase, company.id, lineId);
+  if (!context) redirect(reportPath({ error: "staff_batch_line" }));
+  const { line, statement, remaining } = context;
+  const { data: liabilities } = await supabase
+    .from("staff_reimbursement_liabilities")
+    .select("id, expense_id, amount")
+    .in("id", liabilityIds)
+    .eq("staff_id", staffId)
+    .eq("status", "owed")
+    .is("payout_id", null);
+  const expenseIds = (liabilities ?? []).map((item) => item.expense_id);
+  const { data: companyExpenses } = expenseIds.length
+    ? await supabase
+        .from("expenses")
+        .select("id")
+        .in("id", expenseIds)
+        .eq("company_id", company.id)
+    : { data: [] };
+  const selectedTotal = (liabilities ?? []).reduce(
+    (total, liability) => total + Number(liability.amount ?? 0),
+    0,
+  );
+  if (
+    (liabilities ?? []).length !== liabilityIds.length ||
+    (companyExpenses ?? []).length !== liabilityIds.length ||
+    Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
+  ) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "staff_batch_total",
+      }),
+    );
+  }
+
+  const proofPath = `${staffId}/bank-reconciliation/${line.id}/${Date.now()}-staff-payout.json`;
+  const { error: proofError } = await retainedStatementManifest({
+    bucket: "reimbursement-proofs",
+    companyId: company.id,
+    line,
+    path: proofPath,
+    selectedIds: liabilityIds,
+    sourceType: "staff_reimbursement_payout",
+    statement,
+    supabase,
+  });
+  if (proofError) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "staff_batch_proof",
+      }),
+    );
+  }
+
+  const { data: payoutId, error: payoutError } = await supabase.rpc(
+    "record_staff_reimbursement_payout",
+    {
+      target_staff_id: staffId,
+      liability_ids: liabilityIds,
+      payout_source: "company_bank",
+      payout_date: line.transaction_date,
+      payout_reference: line.reference_number || `BANK-${line.id.slice(0, 8)}`,
+      payout_notes: `Created from bank reconciliation. Statement line: ${line.description}`,
+      payout_proof_bucket: "reimbursement-proofs",
+      payout_proof_path: proofPath,
+      payout_proof_content_type: "application/json",
+      payout_recorded_by: user.id,
+    },
+  );
+  if (payoutError || !payoutId) {
+    await supabase.storage.from("reimbursement-proofs").remove([proofPath]);
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "staff_batch_create",
+      }),
+    );
+  }
+
+  const { error: matchError } = await supabase
+    .from("bank_reconciliation_matches")
+    .insert({
+      statement_line_id: line.id,
+      source_type: "staff_reimbursement_payout",
+      source_id: payoutId,
+      matched_amount: remaining,
+      match_method: liabilityIds.length > 1 ? "merge" : "manual",
+      created_by: user.id,
+    });
+  if (matchError) {
+    redirect(
+      reportPath({
+        statement: line.statement_import_id,
+        error: "staff_batch_match",
+      }),
+    );
+  }
+  await supabase.from("accounting_audit_logs").insert({
+    company_id: company.id,
+    entity_type: "bank_statement_line",
+    entity_id: line.id,
+    action: "reconcile_multiple_staff_claims",
+    after_data: {
+      staff_reimbursement_payout_id: payoutId,
+      staff_id: staffId,
+      liability_ids: liabilityIds,
+      amount: Math.abs(remaining),
+    },
+    reason: "One bank transfer reimbursed multiple retained staff claim receipts.",
+    performed_by: user.id,
+  });
+  await refreshLineStatus(supabase, line.id);
+  revalidatePath("/reports");
+  revalidatePath("/expenses");
+  revalidatePath("/claims");
+  revalidatePath("/dashboard");
+  redirect(
+    reportPath({
+      statement: line.statement_import_id,
+      staff_batch_reconciled: String(liabilityIds.length),
+    }),
+  );
 }
 
 export async function autoMatchStatement(formData: FormData) {

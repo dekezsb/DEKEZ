@@ -20,6 +20,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  BankReceiptBatchForm,
+  type ReconciliationExpense,
+  type ReconciliationStaffGroup,
+} from "@/components/accounting/bank-receipt-batch-form";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
 import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
 import { requireRole } from "@/lib/auth/session";
@@ -77,6 +82,10 @@ function dateLabel(value: string | null | undefined) {
   return value ? dateFormatter.format(new Date(`${value}T00:00:00Z`)) : "-";
 }
 
+function singleRelation<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
 function tabHref(tab: string, month: string, propertyId: string, statementId?: string) {
   const search = new URLSearchParams({ tab, month });
   if (propertyId) search.set("property", propertyId);
@@ -89,6 +98,24 @@ function bankReviewPageHref(month: string, propertyId: string, statementId: stri
   if (propertyId) search.set("property", propertyId);
   if (reviewPage > 1) search.set("reviewPage", String(reviewPage));
   return `/reports?${search.toString()}#bank-transactions`;
+}
+
+function bankBatchLineHref(
+  month: string,
+  propertyId: string,
+  statementId: string,
+  reviewPage: number,
+  lineId: string,
+) {
+  const search = new URLSearchParams({
+    tab: "bank",
+    month,
+    statement: statementId,
+    batchLine: lineId,
+  });
+  if (propertyId) search.set("property", propertyId);
+  if (reviewPage > 1) search.set("reviewPage", String(reviewPage));
+  return `/reports?${search.toString()}#bank-line-${lineId}`;
 }
 
 function differenceClass(value: number) {
@@ -123,7 +150,7 @@ function bankTextMatchScore(bankText: string, candidateText: string) {
 
 const errorMessages: Record<string, string> = {
   accounting_context: "Your accounting company could not be loaded.",
-  bank_account_details: "Enter the bank account name, bank name and full account number (6 to 30 digits).",
+  bank_account_details: "Choose bank or company card, then enter the account name, institution and full account/card number (6 to 30 digits).",
   bank_account_create: "The bank account could not be created.",
   statement_details: "Choose a bank account, period and CSV statement.",
   statement_csv: "Upload a CSV bank statement of 10 MB or less.",
@@ -144,6 +171,22 @@ const errorMessages: Record<string, string> = {
   ignore_matched: "Remove existing matches before ignoring this statement line.",
   statement_unmatched: "Match, adjust or explain every bank line before finalising.",
   statement_balance: "Opening balance plus statement movements does not equal the closing balance.",
+  expense_batch_details: "Choose the company receipts covered by this payment.",
+  expense_batch_line: "This bank/card line is no longer available for batch reconciliation.",
+  expense_batch_total: "The selected company receipts must equal the remaining statement amount exactly.",
+  expense_batch_proof: "The retained statement link for this expense batch could not be saved.",
+  expense_batch_create: "The combined company receipt payment could not be recorded.",
+  expense_batch_match: "The receipt batch was saved, but its bank match needs review. It remains available under recorded payments.",
+  paid_receipts_details: "Choose the paid company/card receipts covered by this statement charge.",
+  paid_receipts_line: "This bank/card line is no longer available for receipt matching.",
+  paid_receipts_total: "The selected paid receipts must be unused and equal the remaining statement amount exactly.",
+  paid_receipts_match: "The paid receipt group could not be matched to this statement line.",
+  staff_batch_details: "Choose one staff member and the claim receipts covered by this transfer.",
+  staff_batch_line: "This bank line is no longer available for staff reimbursement.",
+  staff_batch_total: "The selected claims must belong to one staff member and equal the remaining bank amount exactly.",
+  staff_batch_proof: "The retained statement link for this staff payout could not be saved.",
+  staff_batch_create: "The combined staff reimbursement could not be recorded.",
+  staff_batch_match: "The staff payout was saved, but its bank match needs review. It remains available under recorded payments.",
 };
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
@@ -169,7 +212,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(24),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
-    supabase.from("staff_reimbursement_liabilities").select("amount, status, expense_id").eq("status", "outstanding"),
+    supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
@@ -183,6 +226,133 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const staffPayable = (liabilitiesResult.data ?? [])
     .filter((item) => item.expense_id && companyExpenseIds.has(item.expense_id))
     .reduce((total, item) => total + Number(item.amount ?? 0), 0);
+
+  const reconciliationExpenseSelect =
+    "id, amount, expense_date, supplier, description, category_id, property_id, room_id, expense_categories(name), properties(name), rooms(name, room_number)";
+  const [companyBatchExpensesResult, paidCompanyExpensesResult] = await Promise.all([
+    supabase
+      .from("expenses")
+      .select(reconciliationExpenseSelect)
+      .eq("company_id", company.id)
+      .eq("status", "verified")
+      .eq("payment_status", "unpaid")
+      .in("funding_source", ["company_cash", "company_bank"])
+      .order("expense_date", { ascending: true }),
+    supabase
+      .from("expenses")
+      .select(reconciliationExpenseSelect)
+      .eq("company_id", company.id)
+      .eq("funding_source", "company_bank")
+      .eq("payment_status", "paid")
+      .in("status", ["verified", "reimbursed"])
+      .order("expense_date", { ascending: true }),
+  ]);
+  const companyBatchRows = companyBatchExpensesResult.data ?? [];
+  const paidCompanyRows = paidCompanyExpensesResult.data ?? [];
+  const companyLiabilities = (liabilitiesResult.data ?? []).filter(
+    (item) => item.expense_id && companyExpenseIds.has(item.expense_id),
+  );
+  const liabilityExpenseIds = companyLiabilities.map((item) => item.expense_id);
+  const staffIds = Array.from(new Set(companyLiabilities.map((item) => item.staff_id).filter(Boolean)));
+  const receiptExpenseIds = Array.from(new Set([
+    ...companyBatchRows.map((item) => item.id),
+    ...paidCompanyRows.map((item) => item.id),
+    ...liabilityExpenseIds,
+  ]));
+  const paidCompanyExpenseIds = paidCompanyRows.map((item) => item.id);
+  const [
+    liabilityExpensesResult,
+    staffProfilesResult,
+    receiptAttachmentsResult,
+    paidAllocationsResult,
+    paidMatchesResult,
+  ] = await Promise.all([
+    liabilityExpenseIds.length
+      ? supabase
+          .from("expenses")
+          .select("id, amount, expense_date, supplier, description, category_id, property_id, room_id, expense_categories(name), properties(name), rooms(name, room_number)")
+          .in("id", liabilityExpenseIds)
+      : Promise.resolve({ data: [] }),
+    staffIds.length
+      ? supabase.from("profiles").select("id, full_name").in("id", staffIds)
+      : Promise.resolve({ data: [] }),
+    receiptExpenseIds.length
+      ? supabase.from("expense_attachments").select("expense_id").in("expense_id", receiptExpenseIds)
+      : Promise.resolve({ data: [] }),
+    paidCompanyExpenseIds.length
+      ? supabase
+          .from("expense_payment_allocations")
+          .select("expense_id")
+          .in("expense_id", paidCompanyExpenseIds)
+      : Promise.resolve({ data: [] }),
+    paidCompanyExpenseIds.length
+      ? supabase
+          .from("bank_reconciliation_matches")
+          .select("source_id, matched_amount")
+          .eq("source_type", "expense")
+          .in("source_id", paidCompanyExpenseIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const receiptCounts = new Map<string, number>();
+  for (const attachment of receiptAttachmentsResult.data ?? []) {
+    receiptCounts.set(attachment.expense_id, (receiptCounts.get(attachment.expense_id) ?? 0) + 1);
+  }
+  const toReconciliationExpense = (expense: any): ReconciliationExpense => {
+    const room = singleRelation(expense.rooms) as { name?: string | null; room_number?: string | null } | null;
+    return {
+      id: expense.id,
+      amount: Number(expense.amount ?? 0),
+      expenseDate: expense.expense_date,
+      label: expense.supplier || expense.description || "Expense receipt",
+      categoryName: (singleRelation(expense.expense_categories) as { name?: string | null } | null)?.name ?? "Other expense",
+      propertyName: (singleRelation(expense.properties) as { name?: string | null } | null)?.name ?? "General company",
+      roomName: room?.name || (room?.room_number ? `Room ${room.room_number}` : null),
+      receiptCount: receiptCounts.get(expense.id) ?? 0,
+    };
+  };
+  const reconciliationUnpaidCompanyExpenses = companyBatchRows.map(toReconciliationExpense);
+  const allocatedPaidExpenseIds = new Set(
+    (paidAllocationsResult.data ?? []).map((item) => item.expense_id),
+  );
+  const matchedPaidExpenseIds = new Set(
+    (paidMatchesResult.data ?? [])
+      .filter((item) => Math.abs(Number(item.matched_amount ?? 0)) > 0.005)
+      .map((item) => item.source_id),
+  );
+  const reconciliationPaidCompanyExpenses = paidCompanyRows
+    .filter(
+      (item) =>
+        !allocatedPaidExpenseIds.has(item.id) &&
+        !matchedPaidExpenseIds.has(item.id),
+    )
+    .map(toReconciliationExpense);
+  const liabilityExpenses = new Map(
+    (liabilityExpensesResult.data ?? []).map((expense) => [expense.id, expense]),
+  );
+  const staffNames = new Map(
+    (staffProfilesResult.data ?? []).map((profile) => [profile.id, profile.full_name ?? "Staff member"]),
+  );
+  const staffGroupMap = new Map<string, ReconciliationStaffGroup>();
+  for (const liability of companyLiabilities) {
+    const expense = liabilityExpenses.get(liability.expense_id);
+    if (!expense) continue;
+    const group: ReconciliationStaffGroup = staffGroupMap.get(liability.staff_id) ?? {
+      staffId: liability.staff_id,
+      staffName: staffNames.get(liability.staff_id) ?? "Staff member",
+      total: 0,
+      items: [],
+    };
+    group.total += Number(liability.amount ?? 0);
+    group.items.push({
+      ...toReconciliationExpense(expense),
+      amount: Number(liability.amount ?? 0),
+      liabilityId: liability.id,
+    });
+    staffGroupMap.set(liability.staff_id, group);
+  }
+  const reconciliationStaffGroups = Array.from(staffGroupMap.values()).sort((left, right) =>
+    left.staffName.localeCompare(right.staffName),
+  );
 
   let openBills: Array<Record<string, any>> = [];
   if (propertyIds.length) {
@@ -396,6 +566,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                   {[
                     ["What happened?", "Press this action", "Result"],
                     ["The payment or expense is already in DEKEZ", "Match existing transaction", "Links the bank line only. It does not create a duplicate record."],
+                    ["One transfer/card charge covers many receipts", "Open several receipts / company-card bills", "Ticks many claim receipts, verifies the total, and creates one audited settlement link."],
                     ["Tenant paid, but did not upload a slip", "Record payment, knock off & match", "Creates one verified payment, reduces the invoice and matches the bank receipt."],
                     ["Bank fee, interest or genuine missing accounting entry", "Create bank adjustment", "Creates the missing income or expense and matches it."],
                     ["Duplicate, transfer between own accounts or not a company transaction", "Ignore with audit reason", "Explains why the line is excluded. A reason is permanently retained."],
@@ -411,12 +582,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               <details open={!bankAccounts.length}>
                 <summary className="mb-3 cursor-pointer text-sm font-semibold text-[#7a5618]">{bankAccounts.length ? "+ Add another bank account" : "+ Add first bank account"}</summary>
               <form action={createBankAccount} className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm">Account type<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" defaultValue="bank" name="accountKind"><option value="bank">Bank account</option><option value="company_card">Company credit card</option></select></label>
                 <label className="text-sm">Account name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="name" placeholder="Public Bank Current" required /></label>
-                <label className="text-sm">Bank name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="bankName" placeholder="Public Bank" required /></label>
-                <label className="text-sm">Full bank account number<input autoComplete="off" className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" inputMode="numeric" maxLength={30} minLength={6} name="accountNumber" pattern="[0-9 -]{6,30}" placeholder="Enter complete account number" required /></label>
-                <label className="text-sm">Starting bank balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Actual bank balance on the date below.</span></label>
+                <label className="text-sm">Bank / card issuer<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="bankName" placeholder="Public Bank" required /></label>
+                <label className="text-sm">Full account / card number<input autoComplete="off" className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" inputMode="numeric" maxLength={30} minLength={6} name="accountNumber" pattern="[0-9 -]{6,30}" placeholder="Enter complete number" required /></label>
+                <label className="text-sm">Starting statement balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Actual bank balance or card amount owing on the date below.</span></label>
                 <label className="text-sm">Balance date<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalanceDate" type="date" /><span className="mt-1 block text-xs text-gray-500">Use the day before your first statement starts.</span></label>
-                <Button className="self-end" type="submit"><PlusCircle className="h-4 w-4" />Add bank</Button>
+                <Button className="self-end" type="submit"><PlusCircle className="h-4 w-4" />Add account</Button>
               </form>
               </details>
             </CardContent></Card>
@@ -465,6 +637,21 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                   ) : (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                       No additional exact matches were safe to link. Press <strong>Open</strong> on a transaction and choose its recorded payment, paid invoice or accounting category.
+                    </div>
+                  ) : null}
+                  {params.expense_batch_reconciled ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                      Reconciled one payment against {params.expense_batch_reconciled} company receipt{params.expense_batch_reconciled === "1" ? "" : "s"}. The expense was not posted twice.
+                    </div>
+                  ) : null}
+                  {params.paid_receipts_reconciled ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                      Matched {params.paid_receipts_reconciled} existing company/card receipt{params.paid_receipts_reconciled === "1" ? "" : "s"} to one statement charge. No expense was posted twice.
+                    </div>
+                  ) : null}
+                  {params.staff_batch_reconciled ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                      Reconciled one staff transfer against {params.staff_batch_reconciled} approved claim{params.staff_batch_reconciled === "1" ? "" : "s"}. The staff payable is now cleared.
                     </div>
                   ) : null}
                   {reviewLines.map((line) => {
@@ -526,6 +713,32 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
                           {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="space-y-4">
+                            {remaining < -0.005 && params.batchLine !== line.id ? (
+                              <Button asChild className="w-full justify-start" variant="outline">
+                                <Link href={bankBatchLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage, line.id)} prefetch={false}>
+                                  <ReceiptText className="h-4 w-4" /> One payment covers several receipts / company-card bills
+                                </Link>
+                              </Button>
+                            ) : null}
+                            {remaining < -0.005 && params.batchLine === line.id ? (
+                              <details className="rounded-lg border-2 border-[#b8892c] bg-[#fffaf0]" open>
+                                <summary className="cursor-pointer list-none px-4 py-4 font-semibold text-[#7a5618]">
+                                  This payment covers several claim receipts or company-card bills
+                                  <span className="mt-1 block text-xs font-normal text-gray-600">
+                                    Tick the receipts below. Their combined total must equal {money(Math.abs(remaining))}.
+                                  </span>
+                                </summary>
+                                <div className="border-t border-amber-200 p-4">
+                                  <BankReceiptBatchForm
+                                    lineAmount={remaining}
+                                    lineId={line.id}
+                                    paidCompanyExpenses={reconciliationPaidCompanyExpenses}
+                                    staffGroups={reconciliationStaffGroups}
+                                    unpaidCompanyExpenses={reconciliationUnpaidCompanyExpenses}
+                                  />
+                                </div>
+                              </details>
+                            ) : null}
                             {recommendedCandidate ? <form action={matchBankLine} className="flex flex-col gap-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                               <input name="lineId" type="hidden" value={line.id} />
                               <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
