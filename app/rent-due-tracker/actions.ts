@@ -138,17 +138,24 @@ async function logWhatsAppMessage(
 }
 
 async function getBillContext(supabase: Awaited<ReturnType<typeof getAdmin>>, billId: string) {
-  const { data: bill } = await supabase
+  const { data: bill, error: billError } = await supabase
     .from("rent_bills")
     .select("id, tenant_id, tenancy_id, tenant_record_id, property_id, unit_id, room_id, bill_month, due_date, amount, deposit_amount, paid_amount, status, properties(name), units(name), rooms(name, room_number)")
     .eq("id", billId)
     .single();
 
   if (!bill) {
+    console.error("[rent-bill] context lookup failed", {
+      billId,
+      code: billError?.code,
+      message: billError?.message,
+    });
     return null;
   }
 
   let tenant: { id: string | null; full_name: string | null; phone: string | null } | null = null;
+  let tenantRecordId = bill.tenant_record_id;
+  let tenantEntityId: string | null = null;
 
   if (bill.tenant_id) {
     const { data } = await supabase
@@ -167,16 +174,69 @@ async function getBillContext(supabase: Awaited<ReturnType<typeof getAdmin>>, bi
       .maybeSingle();
 
     if (data) {
+      tenantEntityId = data.tenant_id ?? null;
       tenant = {
-        id: data.tenant_id ?? null,
+        id: null,
         full_name: data.full_name,
         phone: data.phone,
       };
     }
   }
 
+  // Older imported invoices can be linked to a valid tenancy while both
+  // tenant_id and tenant_record_id on the invoice are empty. Resolve the
+  // active record through the tenancy so Admin can still submit proof without
+  // weakening the invoice, room or tenant association used for audit.
+  if (bill.tenancy_id && (!tenant || !tenantRecordId)) {
+    const [{ data: tenancy }, { data: tenantRecord }] = await Promise.all([
+      supabase
+        .from("tenancies")
+        .select("tenant_id")
+        .eq("id", bill.tenancy_id)
+        .maybeSingle(),
+      supabase
+        .from("tenant_records")
+        .select("id, tenant_id, full_name, phone")
+        .eq("tenancy_id", bill.tenancy_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    tenantRecordId = tenantRecordId ?? tenantRecord?.id ?? null;
+    tenantEntityId = tenantEntityId
+      ?? tenantRecord?.tenant_id
+      ?? tenancy?.tenant_id
+      ?? null;
+
+    if (!tenant && tenantRecord) {
+      tenant = {
+        id: null,
+        full_name: tenantRecord.full_name,
+        phone: tenantRecord.phone,
+      };
+    }
+  }
+
+  if (tenantEntityId) {
+    const { data: tenantEntity } = await supabase
+      .from("tenants")
+      .select("profile_id, full_name, phone")
+      .eq("id", tenantEntityId)
+      .maybeSingle();
+
+    if (tenantEntity) {
+      tenant = {
+        id: tenantEntity.profile_id ?? tenant?.id ?? null,
+        full_name: tenant?.full_name ?? tenantEntity.full_name,
+        phone: tenant?.phone ?? tenantEntity.phone,
+      };
+    }
+  }
+
   return {
     ...bill,
+    tenant_record_id: tenantRecordId,
     tenant,
   };
 }
@@ -437,6 +497,12 @@ export async function uploadRentPaymentSlip(formData: FormData) {
 
   const submissionTenantId = bill?.tenant_id ?? bill?.tenant?.id ?? null;
   if (!bill || (!submissionTenantId && !bill.tenant_record_id) || ["cancelled", "waived"].includes(String(bill.status))) {
+    console.warn("[payment-slip] bill is not eligible for submission", {
+      billId,
+      billStatus: bill?.status,
+      hasTenantId: Boolean(submissionTenantId),
+      hasTenantRecordId: Boolean(bill?.tenant_record_id),
+    });
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
@@ -449,6 +515,12 @@ export async function uploadRentPaymentSlip(formData: FormData) {
       balances.depositOutstanding > 0.005) ||
     paymentPurpose === "other";
   if (!purposeAvailable) {
+    console.warn("[payment-slip] selected purpose has no outstanding balance", {
+      billId,
+      paymentPurpose,
+      rentOutstanding: balances.rentOutstanding,
+      depositOutstanding: balances.depositOutstanding,
+    });
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
@@ -461,6 +533,10 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     .maybeSingle();
 
   if (pendingSubmission) {
+    console.info("[payment-slip] pending submission already exists", {
+      billId,
+      submissionId: pendingSubmission.id,
+    });
     redirect(rentTrackerPath(formData, "error", "proof_pending"));
   }
 
