@@ -149,15 +149,16 @@ export async function createBankAccount(formData: FormData) {
   if (
     !name ||
     !bankName ||
-    !["bank", "company_card"].includes(accountKind) ||
+    !["bank", "prepaid_card", "company_card"].includes(accountKind) ||
     accountNumber.length < 6 ||
     accountNumber.length > 30
   ) {
     redirect(reportPath({ error: "bank_account_details" }));
   }
 
-  const codeFloor = accountKind === "company_card" ? 2400 : 1010;
-  const codeCeiling = accountKind === "company_card" ? 2499 : 1099;
+  const isLiabilityCard = accountKind === "company_card";
+  const codeFloor = isLiabilityCard ? 2400 : 1010;
+  const codeCeiling = isLiabilityCard ? 2499 : 1099;
   const { data: existingAccounts } = await supabase
     .from("accounting_accounts")
     .select("code")
@@ -173,10 +174,10 @@ export async function createBankAccount(formData: FormData) {
       company_id: company.id,
       code: nextCode,
       name,
-      account_type: accountKind === "company_card" ? "liability" : "asset",
-      report_group: accountKind === "company_card" ? "current_liability" : "current_asset",
-      normal_balance: accountKind === "company_card" ? "credit" : "debit",
-      description: `${bankName} ${accountKind === "company_card" ? "company credit card" : "bank account"}`,
+      account_type: isLiabilityCard ? "liability" : "asset",
+      report_group: isLiabilityCard ? "current_liability" : "current_asset",
+      normal_balance: isLiabilityCard ? "credit" : "debit",
+      description: `${bankName} ${accountKind === "company_card" ? "company credit card payable" : accountKind === "prepaid_card" ? "prepaid top-up card asset" : "bank account"}`,
       is_system: false,
       sort_order: Number(nextCode),
     })
@@ -944,6 +945,13 @@ export async function matchBankLine(formData: FormData) {
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("statement_line_id", lineId),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("source_type", sourceType).eq("source_id", sourceId),
   ]);
+  const lineMatched = (lineMatches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
+  const lineRemaining = Number(line?.amount ?? 0) - lineMatched;
+  if (line && Math.abs(lineRemaining) < 0.005) {
+    await refreshLineStatus(supabase, line.id);
+    revalidatePath("/reports");
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, already_reconciled: "1" }));
+  }
   const candidate = candidates.find((item) => item.sourceType === sourceType && item.sourceId === sourceId);
   if (!line || !candidate || line.status === "ignored") redirect(bankActionPath(formData, { error: "match_missing" }));
   const statement = singleRelation(line.bank_statement_imports);
@@ -956,9 +964,7 @@ export async function matchBankLine(formData: FormData) {
   ) {
     redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_rental_month" }));
   }
-  const lineMatched = (lineMatches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
   const sourceMatched = (sourceMatches ?? []).reduce((total, match) => total + Math.abs(Number(match.matched_amount ?? 0)), 0);
-  const lineRemaining = Number(line.amount) - lineMatched;
   const sourceRemaining = Math.abs(candidate.amount) - sourceMatched;
   if (Math.sign(lineRemaining) !== Math.sign(candidate.amount) || sourceRemaining <= 0.005) {
     redirect(bankActionPath(formData, { error: "match_direction" }));
@@ -972,21 +978,92 @@ export async function matchBankLine(formData: FormData) {
     match_method: Math.abs(matchedAmount - lineRemaining) < 0.005 ? "manual" : "split",
     created_by: user.id,
   });
-  if (error) redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_create" }));
+  if (error) {
+    console.error("[accounting] bank line match failed", {
+      code: error.code,
+      message: error.message,
+      lineId: line.id,
+      sourceType,
+      sourceId,
+    });
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_create" }));
+  }
   await refreshLineStatus(supabase, line.id);
   revalidatePath("/reports");
   redirect(bankActionPath(formData, { statement: line.statement_import_id, matched: "1" }));
 }
 
+export async function matchOwnAccountTransfer(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const lineId = textValue(formData, "lineId");
+  const counterpartLineId = textValue(formData, "counterpartLineId");
+  if (!lineId || !counterpartLineId || lineId === counterpartLineId) {
+    redirect(bankActionPath(formData, { error: "bank_transfer_details" }));
+  }
+
+  const { data: transferId, error } = await supabase.rpc("match_bank_account_transfer", {
+    target_company_id: company.id,
+    target_line_id: lineId,
+    target_counterpart_line_id: counterpartLineId,
+    target_created_by: user.id,
+  });
+  if (error || !transferId) {
+    const { data: currentLine } = await supabase
+      .from("bank_statement_lines")
+      .select("id, statement_import_id, status")
+      .eq("id", lineId)
+      .maybeSingle();
+    if (currentLine && currentLine.status !== "unmatched") {
+      revalidatePath("/reports");
+      redirect(bankActionPath(formData, { statement: currentLine.statement_import_id, already_reconciled: "1" }));
+    }
+    console.error("[accounting] own-account transfer match failed", {
+      code: error?.code,
+      message: error?.message,
+    });
+    redirect(bankActionPath(formData, { error: "bank_transfer_match" }));
+  }
+
+  revalidatePath("/reports");
+  redirect(bankActionPath(formData, { transfer_matched: "1" }));
+}
+
 export async function unmatchBankLine(formData: FormData) {
-  const { supabase } = await accountingContext();
+  const { user, company, supabase } = await accountingContext();
   const matchId = textValue(formData, "matchId");
   const { data: match } = await supabase
     .from("bank_reconciliation_matches")
-    .select("id, statement_line_id, bank_statement_lines(statement_import_id)")
+    .select("id, statement_line_id, source_type, source_id, bank_statement_lines(statement_import_id)")
     .eq("id", matchId)
     .maybeSingle();
   if (!match) redirect(bankActionPath(formData, { error: "unmatch_missing" }));
+  if (match.source_type === "bank_account_transfer") {
+    const { data: linkedMatches } = await supabase
+      .from("bank_reconciliation_matches")
+      .select("id, statement_line_id")
+      .eq("source_type", "bank_account_transfer")
+      .eq("source_id", match.source_id);
+    const linkedLineIds = (linkedMatches ?? []).map((item) => item.statement_line_id);
+    const { error: linkedDeleteError } = await supabase
+      .from("bank_reconciliation_matches")
+      .delete()
+      .eq("source_type", "bank_account_transfer")
+      .eq("source_id", match.source_id);
+    if (linkedDeleteError) redirect(bankActionPath(formData, { error: "unmatch_failed" }));
+    for (const linkedLineId of linkedLineIds) await refreshLineStatus(supabase, linkedLineId);
+    await supabase.from("bank_account_transfers").delete().eq("id", match.source_id).eq("company_id", company.id);
+    await supabase.from("accounting_audit_logs").insert({
+      company_id: company.id,
+      entity_type: "bank_account_transfer",
+      entity_id: match.source_id,
+      action: "unmatch_own_account_transfer",
+      before_data: { statement_line_ids: linkedLineIds },
+      reason: "Admin unlinked both sides of an own-account transfer for correction.",
+      performed_by: user.id,
+    });
+    revalidatePath("/reports");
+    redirect(bankActionPath(formData, { transfer_unmatched: "1" }));
+  }
   const { error } = await supabase.from("bank_reconciliation_matches").delete().eq("id", match.id);
   if (error) redirect(bankActionPath(formData, { error: "unmatch_failed" }));
   await refreshLineStatus(supabase, match.statement_line_id);
@@ -1019,7 +1096,11 @@ export async function createBankAdjustment(formData: FormData) {
   }
   const matched = (matches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
   const remaining = Number(line.amount) - matched;
-  if (Math.abs(remaining) < 0.005) redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "line_complete" }));
+  if (Math.abs(remaining) < 0.005) {
+    await refreshLineStatus(supabase, line.id);
+    revalidatePath("/reports");
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, already_reconciled: "1" }));
+  }
   const { data: transaction, error: transactionError } = await supabase
     .from("bank_manual_transactions")
     .insert({
@@ -1035,7 +1116,15 @@ export async function createBankAdjustment(formData: FormData) {
     })
     .select("id")
     .single();
-  if (transactionError || !transaction) redirect(bankActionPath(formData, { error: "adjustment_create" }));
+  if (transactionError || !transaction) {
+    console.error("[accounting] bank adjustment create failed", {
+      code: transactionError?.code,
+      message: transactionError?.message,
+      lineId: line.id,
+      accountId: account.id,
+    });
+    redirect(bankActionPath(formData, { error: "adjustment_create" }));
+  }
   const { error } = await supabase.from("bank_reconciliation_matches").insert({
     statement_line_id: line.id,
     source_type: "manual_bank_transaction",
@@ -1044,7 +1133,15 @@ export async function createBankAdjustment(formData: FormData) {
     match_method: "adjustment",
     created_by: user.id,
   });
-  if (error) redirect(bankActionPath(formData, { error: "adjustment_match" }));
+  if (error) {
+    console.error("[accounting] bank adjustment match failed", {
+      code: error.code,
+      message: error.message,
+      lineId: line.id,
+      transactionId: transaction.id,
+    });
+    redirect(bankActionPath(formData, { error: "adjustment_match" }));
+  }
   const ruleKey = bankDescriptionKey(line.description);
   if (rememberRule && ruleKey) {
     await supabase.from("bank_reconciliation_rules").upsert({

@@ -27,6 +27,7 @@ import {
 } from "@/components/accounting/bank-receipt-batch-form";
 import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
+import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
 import { bankDescriptionKey } from "@/lib/accounting/bank-description";
 import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
@@ -42,6 +43,7 @@ import {
   ignoreBankLine,
   importBankStatement,
   matchBankLine,
+  matchOwnAccountTransfer,
   unmatchBankLine,
 } from "./actions";
 
@@ -194,11 +196,15 @@ const errorMessages: Record<string, string> = {
   match_details: "Choose a valid accounting transaction to match.",
   match_direction: "Money-in must match a receipt and money-out must match a payment.",
   match_rental_month: "Rental payments and paid invoices can only be matched to the same rental month as this bank statement.",
+  match_missing: "That accounting record is no longer available. Refresh the line and choose another record.",
   match_create: "This bank match could not be saved.",
+  line_complete: "This bank line is already fully reconciled. No second entry was created.",
   tenant_payment_match: "The direct tenant knock-off failed. Rent, deposit and other must equal the unmatched bank amount.",
   tenant_payment_month: "Choose the tenant invoice for the same rental month as this bank statement. Older balances cannot be carried into this match.",
   adjustment_details: "Choose an accounting category and enter a description.",
   adjustment_property: "Choose the property for a Property Rental Cost entry.",
+  adjustment_create: "The accounting entry could not be created.",
+  adjustment_match: "The accounting entry was created but could not be linked to this bank line. Please review it before trying again.",
   ignore_details: "Enter an audit reason before ignoring a statement line.",
   ignore_matched: "Remove existing matches before ignoring this statement line.",
   statement_unmatched: "Match, adjust or explain every bank line before finalising.",
@@ -219,6 +225,8 @@ const errorMessages: Record<string, string> = {
   staff_batch_proof: "The retained statement link for this staff payout could not be saved.",
   staff_batch_create: "The combined staff reimbursement could not be recorded.",
   staff_batch_match: "The staff payout was saved, but its bank match needs review. It remains available under recorded payments.",
+  bank_transfer_details: "Choose the matching line from the other DEKEZ bank or prepaid-card statement.",
+  bank_transfer_match: "The two statement lines could not be linked. Check that they are equal, opposite, from different DEKEZ accounts and both still unmatched.",
   journal_details: "Enter a journal date, description and at least two valid lines.",
   journal_lines: "The journal lines could not be read. Please review them and try again.",
   journal_balance: "Total debit and total credit must be equal, and every line must use only one side.",
@@ -576,6 +584,20 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const statementLines = selectedStatementId
     ? (await supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date").order("id")).data ?? []
     : [];
+  const otherBankAccountIds = bankAccounts
+    .filter((account) => account.id !== selectedStatement?.bank_account_id)
+    .map((account) => account.id);
+  const transferCounterpartLines = selectedStatementId && otherBankAccountIds.length
+    ? (await supabase
+        .from("bank_statement_lines")
+        .select("id, bank_account_id, statement_import_id, transaction_date, description, reference_number, amount, status, bank_statement_imports!inner(period_start, period_end, status, company_id)")
+        .in("bank_account_id", otherBankAccountIds)
+        .eq("status", "unmatched")
+        .eq("bank_statement_imports.company_id", company.id)
+        .eq("bank_statement_imports.status", "in_progress")
+        .order("transaction_date", { ascending: false })
+        .limit(1000)).data ?? []
+    : [];
   const lineIds = statementLines.map((line) => line.id);
   const matches = lineIds.length
     ? (await supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds)).data ?? []
@@ -858,7 +880,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     ["One transfer/card charge covers many receipts", "Open several receipts / company-card bills", "Ticks many claim receipts, verifies the total, and creates one audited settlement link."],
                     ["Tenant paid, but did not upload a slip", "Record payment, knock off & match", "Creates one verified payment, reduces the invoice and matches the bank receipt."],
                     ["Bank fee, interest or genuine missing accounting entry", "Create bank adjustment", "Creates the missing income or expense and matches it."],
-                    ["Duplicate, transfer between own accounts or not a company transaction", "Ignore with audit reason", "Explains why the line is excluded. A reason is permanently retained."],
+                    ["Transfer between your own bank and prepaid-card accounts", "Match own-account transfer", "Links both statement sides without creating income or expense."],
+                    ["Duplicate or not a company transaction", "Ignore with audit reason", "Explains why the line is excluded. A reason is permanently retained."],
                   ].map((row, rowIndex) => row.map((cell, columnIndex) => <div className={`px-4 py-3 text-xs leading-5 ${rowIndex === 0 ? "bg-gray-50 font-semibold text-gray-700" : columnIndex === 1 ? "bg-[#fffaf0] font-semibold text-[#7a5618]" : "bg-white text-gray-700"}`} key={`${rowIndex}-${columnIndex}`}>{cell}</div>))}
                 </div>
               </div>
@@ -871,11 +894,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               <details open={!bankAccounts.length}>
                 <summary className="mb-3 cursor-pointer text-sm font-semibold text-[#7a5618]">{bankAccounts.length ? "+ Add another bank account" : "+ Add first bank account"}</summary>
               <form action={createBankAccount} className="grid gap-3 sm:grid-cols-2">
-                <label className="text-sm">Account type<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" defaultValue="bank" name="accountKind"><option value="bank">Bank account</option><option value="company_card">Company credit card</option></select></label>
+                <label className="text-sm">Account type<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" defaultValue="bank" name="accountKind"><option value="bank">Bank account (asset)</option><option value="prepaid_card">Prepaid / top-up card (asset)</option><option value="company_card">Credit card amount owing (liability)</option></select></label>
                 <label className="text-sm">Account name<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="name" placeholder="Public Bank Current" required /></label>
                 <label className="text-sm">Bank / card issuer<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="bankName" placeholder="Public Bank" required /></label>
                 <label className="text-sm">Full account / card number<input autoComplete="off" className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" inputMode="numeric" maxLength={30} minLength={6} name="accountNumber" pattern="[0-9 -]{6,30}" placeholder="Enter complete number" required /></label>
-                <label className="text-sm">Starting statement balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Actual bank balance or card amount owing on the date below.</span></label>
+                <label className="text-sm">Starting statement balance<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalance" step="0.01" type="number" /><span className="mt-1 block text-xs text-gray-500">Use the actual bank/prepaid-card balance. For a true credit card, enter the amount owing.</span></label>
                 <label className="text-sm">Balance date<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3" name="openingBalanceDate" type="date" /><span className="mt-1 block text-xs text-gray-500">Use the day before your first statement starts.</span></label>
                 <Button className="self-end" type="submit"><PlusCircle className="h-4 w-4" />Add account</Button>
               </form>
@@ -959,6 +982,21 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                   {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe {bankFlow === "credit" ? "credits" : "debits"}</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {params.already_reconciled ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                      This bank line was already fully reconciled. DEKEZ ignored the repeated click, so no duplicate accounting entry was created.
+                    </div>
+                  ) : null}
+                  {params.transfer_matched ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                      Both sides of the own-account transfer were linked. No income or expense was created.
+                    </div>
+                  ) : null}
+                  {params.transfer_unmatched ? (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-900">
+                      Both sides of the own-account transfer were unlinked and are ready for correction.
+                    </div>
+                  ) : null}
                   {params.auto_matched !== undefined ? Number(params.auto_matched) > 0 ? (
                     <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                       Linked {Number(params.auto_matched)} exact bank {Number(params.auto_matched) === 1 ? "transaction" : "transactions"}. Existing payments and paid invoices were linked only; no duplicate payment was created.
@@ -1041,6 +1079,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     const hintedPropertyId = locationHint
                       ? properties.find((property) => propertyCode(property.name) === locationHint.propertyCode)?.id ?? ""
                       : "";
+                    const transferCandidates = transferCounterpartLines.filter((candidate) =>
+                      Math.sign(Number(candidate.amount)) === -Math.sign(remaining)
+                      && Math.abs(Math.abs(Number(candidate.amount)) - Math.abs(remaining)) < 0.005,
+                    );
                     return (
                       <div className="rounded-lg border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
                         <div className="grid gap-3 p-4 sm:grid-cols-[110px_1fr_150px_150px] sm:items-center">
@@ -1052,6 +1094,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
                           {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="space-y-4">
+                            {transferCandidates.length ? <form action={matchOwnAccountTransfer} className="space-y-3 rounded-lg border-2 border-blue-300 bg-blue-50 p-4">
+                              <div><p className="font-semibold text-blue-950">Transfer between your own accounts</p><p className="text-xs text-blue-900">Use this when one DEKEZ bank/card account paid another. It links the debit and credit without recording income or expense.</p></div>
+                              <input name="lineId" type="hidden" value={line.id} />
+                              <input name="bankFlow" type="hidden" value={bankFlow} />
+                              <label className="block text-xs font-medium text-blue-950">Matching opposite statement line<select className="mt-1 h-10 w-full rounded-md border border-blue-300 bg-white px-3 text-sm" name="counterpartLineId" required><option value="">Choose the other account line</option>{transferCandidates.map((candidate) => { const account = bankAccounts.find((item) => item.id === candidate.bank_account_id); const statement = singleRelation(candidate.bank_statement_imports); return <option key={candidate.id} value={candidate.id}>{account?.name ?? account?.bank_name ?? "Other DEKEZ account"} · {dateLabel(candidate.transaction_date)} · {money(Math.abs(Number(candidate.amount)))} · statement ending {dateLabel(statement?.period_end)} · {candidate.description}</option>; })}</select></label>
+                              <ReconciliationSubmitButton className="w-full" pendingLabel="Linking both accounts..."><Link2 className="h-4 w-4" />Match own-account transfer</ReconciliationSubmitButton>
+                            </form> : null}
                             {remaining < -0.005 && params.batchLine !== line.id ? (
                               <Button asChild className="w-full justify-start" variant="outline">
                                 <Link href={bankBatchLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage, line.id)} prefetch={false}>
@@ -1083,7 +1132,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <input name="bankFlow" type="hidden" value={bankFlow} />
                               <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
                               <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">DEKEZ same-month suggestion</p><p className="mt-1 font-semibold text-gray-950">{recommendedCandidate.description}</p><p className="text-sm text-gray-600">{dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p>{recommendedCandidate.invoiceMonth ? <p className="mt-2 inline-flex rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800">Rental invoice month: {rentalMonthLabel(recommendedCandidate.invoiceMonth)}</p> : null}</div>
-                              <Button className="shrink-0" type="submit"><BadgeCheck className="h-4 w-4" />Match this record</Button>
+                              <ReconciliationSubmitButton className="shrink-0" pendingLabel="Matching..."><BadgeCheck className="h-4 w-4" />Match this record</ReconciliationSubmitButton>
                             </form> : <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><strong>No safe recommendation yet.</strong> Choose the correct record under Other options. Nothing will be posted until you confirm.</div>}
                             <details open={!recommendedCandidate} className="rounded-lg border border-[#d7dde5] bg-white">
                               <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-[#7a5618]">{recommendedCandidate ? "Wrong match? Open other options" : "Open matching options"}</summary>
@@ -1093,7 +1142,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <input name="lineId" type="hidden" value={line.id} />
                               <input name="bankFlow" type="hidden" value={bankFlow} />
                               <select className="h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue="" name="sourceToken" required><option disabled value="">Choose transaction</option>{availableCandidates.map((candidate) => <option key={`${candidate.sourceType}:${candidate.sourceId}`} value={`${candidate.sourceType}:${candidate.sourceId}`}>{candidate.invoiceMonth ? `${rentalMonthLabel(candidate.invoiceMonth)} invoice · ` : ""}{dateLabel(candidate.date)} · {money(candidate.amount)} · {candidate.description}</option>)}</select>
-                              <Button className="w-full" type="submit" variant="outline"><Link2 className="h-4 w-4" />Match</Button>
+                              <ReconciliationSubmitButton className="w-full" pendingLabel="Matching..." variant="outline"><Link2 className="h-4 w-4" />Match</ReconciliationSubmitButton>
                             </form>
                             {remaining > 0.005 ? <form action={createTenantPaymentFromBankLine} className="space-y-3 rounded-lg border-2 border-[#b8892c] bg-[#fffaf0] p-4">
                               <div><p className="font-semibold">Tenant paid but did not upload a slip</p><p className="text-xs text-gray-600">Use only for a real unmatched bank receipt. DEKEZ records the payment, knocks off the invoice and retains the statement as proof.</p></div>
@@ -1106,7 +1155,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>
                               <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="other" name="otherCategory"><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>
                               <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="otherDescription" placeholder="Required only when Other amount is used" />
-                              <Button className="w-full" type="submit"><Banknote className="h-4 w-4" />Record payment, knock off &amp; match</Button>
+                              <ReconciliationSubmitButton className="w-full" pendingLabel="Recording and matching..."><Banknote className="h-4 w-4" />Record payment, knock off &amp; match</ReconciliationSubmitButton>
                             </form> : null}
                             <div className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
                               <form action={createBankAdjustment} className="space-y-3">
@@ -1118,7 +1167,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                                 <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={rememberedRule?.property_id ?? hintedPropertyId} name="propertyId"><option value="">General company / no property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select>
                                 <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" defaultValue={rememberedRule?.default_description ?? ""} name="description" placeholder="What was this transaction for?" required />
                                 <label className="flex items-start gap-2 rounded-md border border-[#d7dde5] bg-gray-50 px-3 py-2 text-xs text-gray-700"><input className="mt-0.5" defaultChecked name="rememberRule" type="checkbox" value="1" /><span>Remember this bank description for next month. DEKEZ will prefill the same category, property and description, but will still wait for your confirmation.</span></label>
-                                <Button className="w-full" type="submit" variant="outline">Record &amp; match</Button>
+                                <ReconciliationSubmitButton className="w-full" pendingLabel="Recording and matching..." variant="outline">Record &amp; match</ReconciliationSubmitButton>
                               </form>
                               <form action={ignoreBankLine} className="space-y-2 border-t border-[#d7dde5] pt-3"><input name="lineId" type="hidden" value={line.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="reason" placeholder="Audit reason to ignore" required /><Button className="w-full" type="submit" variant="ghost">Ignore with reason</Button></form>
                             </div>
