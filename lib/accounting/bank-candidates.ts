@@ -20,6 +20,12 @@ export type BankCandidate = {
   description: string;
   referenceNumber: string | null;
   propertyId: string | null;
+  isRental?: boolean;
+  invoiceMonth?: string | null;
+  invoiceNumber?: string | null;
+  tenantName?: string | null;
+  propertyName?: string | null;
+  roomName?: string | null;
 };
 
 function numberValue(value: unknown) {
@@ -168,8 +174,9 @@ export async function getBankCandidates(
     const propertyName = bill ? propertyNames.get(bill.property_id) ?? "Property" : null;
     const propertyCode = propertyName?.trim().toUpperCase().match(/^[A-Z]{3}/)?.[0] ?? propertyName;
     const roomName = room?.name || (room?.room_number ? `Room ${room.room_number}` : null);
+    const tenantName = bill ? tenantNames.get(bill.tenant_record_id) ?? "Tenant" : null;
     const invoiceContext = bill
-      ? `${propertyCode ?? "Property"} ${roomName ?? "Room"} · ${tenantNames.get(bill.tenant_record_id) ?? "Tenant"} · ${bill.invoice_number ?? bill.bill_month}`
+      ? `${propertyCode ?? "Property"} ${roomName ?? "Room"} · ${tenantName} · ${bill.invoice_number ?? bill.bill_month}`
       : "Unallocated receipt";
     candidates.push({
       sourceType: "payment",
@@ -179,6 +186,12 @@ export async function getBankCandidates(
       description: `${String(payment.category ?? "Tenant payment").replaceAll("_", " ")} · ${invoiceContext}`,
       referenceNumber: payment.reference_number,
       propertyId: payment.property_id,
+      isRental: Boolean(bill) || payment.category === "monthly_rent",
+      invoiceMonth: bill?.bill_month ?? null,
+      invoiceNumber: bill?.invoice_number ?? null,
+      tenantName,
+      propertyName,
+      roomName,
     });
   }
 
@@ -198,6 +211,12 @@ export async function getBankCandidates(
       description: `Paid invoice · ${propertyCode} ${roomName} · ${tenantNames.get(bill.tenant_record_id) ?? "Tenant"} · ${bill.invoice_number ?? bill.bill_month}`,
       referenceNumber: null,
       propertyId: bill.property_id,
+      isRental: true,
+      invoiceMonth: bill.bill_month,
+      invoiceNumber: bill.invoice_number,
+      tenantName: tenantNames.get(bill.tenant_record_id) ?? "Tenant",
+      propertyName,
+      roomName,
     });
   }
 

@@ -63,6 +63,11 @@ const dateFormatter = new Intl.DateTimeFormat("en-MY", {
   month: "short",
   year: "numeric",
 });
+const monthFormatter = new Intl.DateTimeFormat("en-MY", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 function money(value: unknown) {
   const amount = Number(value ?? 0);
@@ -80,6 +85,11 @@ function monthEnd(month: string) {
 
 function dateLabel(value: string | null | undefined) {
   return value ? dateFormatter.format(new Date(`${value}T00:00:00Z`)) : "-";
+}
+
+function rentalMonthLabel(value: string | null | undefined) {
+  if (!value || !/^\d{4}-\d{2}/.test(value)) return "No invoice month";
+  return monthFormatter.format(new Date(`${value.slice(0, 7)}-01T00:00:00Z`));
 }
 
 function singleRelation<T>(value: T | T[] | null | undefined) {
@@ -163,8 +173,10 @@ const errorMessages: Record<string, string> = {
   statement_closed: "This statement is already reconciled and locked.",
   match_details: "Choose a valid accounting transaction to match.",
   match_direction: "Money-in must match a receipt and money-out must match a payment.",
+  match_rental_month: "Rental payments and paid invoices can only be matched to the same rental month as this bank statement.",
   match_create: "This bank match could not be saved.",
   tenant_payment_match: "The direct tenant knock-off failed. Rent, deposit and other must equal the unmatched bank amount.",
+  tenant_payment_month: "Choose the tenant invoice for the same rental month as this bank statement. Older balances cannot be carried into this match.",
   adjustment_details: "Choose an accounting category and enter a description.",
   adjustment_property: "Choose the property for a Property Rental Cost entry.",
   ignore_details: "Enter an audit reason before ignoring a statement line.",
@@ -220,6 +232,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const accounts = accountsResult.data ?? [];
   const selectedStatementId = statementImports.some((item) => item.id === params.statement) ? params.statement ?? "" : statementImports[0]?.id ?? "";
   const selectedStatement = statementImports.find((item) => item.id === selectedStatementId) ?? null;
+  const statementRentalMonth = selectedStatement?.period_start?.slice(0, 7) ?? selectedMonth;
 
   const { data: companyExpenses } = await supabase.from("expenses").select("id").eq("company_id", company.id);
   const companyExpenseIds = new Set((companyExpenses ?? []).map((item) => item.id));
@@ -399,6 +412,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       outstanding: rentOutstanding + depositOutstanding,
     };
   }).filter((bill) => bill.outstanding > 0.005);
+  const statementInvoiceOptions = invoiceOptions.filter(
+    (bill) => bill.billMonth.slice(0, 7) === statementRentalMonth,
+  );
   const tenantOutstanding = invoiceOptions.reduce((total, item) => total + item.outstanding, 0);
 
   const statementLines = selectedStatementId
@@ -626,7 +642,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
               <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div><CardTitle>Unmatched bank transactions</CardTitle><CardDescription>{unmatchedCount} still need attention. Suggestions and confirmation are shown directly below each transaction.</CardDescription></div>
+                  <div><CardTitle>Unmatched bank transactions</CardTitle><CardDescription>{unmatchedCount} still need attention. Rental suggestions are limited to the {rentalMonthLabel(statementRentalMonth)} invoice month and wait for your confirmation.</CardDescription></div>
                   {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe matches</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -663,15 +679,19 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     const transactionLabel = descriptionParts[0] || "Bank transaction";
                     const transactionDetails = descriptionParts.slice(1).join(" · ");
                     const suggestedInvoice = locationHint
-                      ? invoiceOptions.find((bill) => bill.propertyCode === locationHint.propertyCode && bill.roomCode === locationHint.roomCode)
+                      ? statementInvoiceOptions.find((bill) => bill.propertyCode === locationHint.propertyCode && bill.roomCode === locationHint.roomCode)
                       : null;
                     const invoiceChoices = suggestedInvoice
-                      ? [suggestedInvoice, ...invoiceOptions.filter((bill) => bill.id !== suggestedInvoice.id)]
-                      : invoiceOptions;
+                      ? [suggestedInvoice, ...statementInvoiceOptions.filter((bill) => bill.id !== suggestedInvoice.id)]
+                      : statementInvoiceOptions;
                     const candidatePool = candidates.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
                       const available = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
-                      return Math.sign(candidate.amount) === Math.sign(remaining) && available > 0.005;
+                      const correctRentalMonth = !candidate.isRental
+                        || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth;
+                      return Math.sign(candidate.amount) === Math.sign(remaining)
+                        && available > 0.005
+                        && correctRentalMonth;
                     });
                     const exactAmountCandidates = candidatePool.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
@@ -742,8 +762,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             {recommendedCandidate ? <form action={matchBankLine} className="flex flex-col gap-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                               <input name="lineId" type="hidden" value={line.id} />
                               <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
-                              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">DEKEZ recommended match</p><p className="mt-1 font-semibold text-gray-950">{recommendedCandidate.description}</p><p className="text-sm text-gray-600">{dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p></div>
-                              <Button className="shrink-0" type="submit"><BadgeCheck className="h-4 w-4" />Confirm match</Button>
+                              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">DEKEZ same-month suggestion</p><p className="mt-1 font-semibold text-gray-950">{recommendedCandidate.description}</p><p className="text-sm text-gray-600">{dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p>{recommendedCandidate.invoiceMonth ? <p className="mt-2 inline-flex rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800">Rental invoice month: {rentalMonthLabel(recommendedCandidate.invoiceMonth)}</p> : null}</div>
+                              <Button className="shrink-0" type="submit"><BadgeCheck className="h-4 w-4" />Match this record</Button>
                             </form> : <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><strong>No safe recommendation yet.</strong> Choose the correct record under Other options. Nothing will be posted until you confirm.</div>}
                             <details open={!recommendedCandidate} className="rounded-lg border border-[#d7dde5] bg-white">
                               <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-[#7a5618]">{recommendedCandidate ? "Wrong match? Open other options" : "Open matching options"}</summary>
@@ -751,14 +771,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             <form action={matchBankLine} className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
                               <div><p className="font-semibold">Match existing transaction</p><p className="text-xs text-gray-500">Split or merge is automatic when amounts differ.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
-                              <select className="h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue="" name="sourceToken" required><option disabled value="">Choose transaction</option>{availableCandidates.map((candidate) => <option key={`${candidate.sourceType}:${candidate.sourceId}`} value={`${candidate.sourceType}:${candidate.sourceId}`}>{dateLabel(candidate.date)} · {money(candidate.amount)} · {candidate.description}</option>)}</select>
+                              <select className="h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue="" name="sourceToken" required><option disabled value="">Choose transaction</option>{availableCandidates.map((candidate) => <option key={`${candidate.sourceType}:${candidate.sourceId}`} value={`${candidate.sourceType}:${candidate.sourceId}`}>{candidate.invoiceMonth ? `${rentalMonthLabel(candidate.invoiceMonth)} invoice · ` : ""}{dateLabel(candidate.date)} · {money(candidate.amount)} · {candidate.description}</option>)}</select>
                               <Button className="w-full" type="submit" variant="outline"><Link2 className="h-4 w-4" />Match</Button>
                             </form>
                             {remaining > 0.005 ? <form action={createTenantPaymentFromBankLine} className="space-y-3 rounded-lg border-2 border-[#b8892c] bg-[#fffaf0] p-4">
                               <div><p className="font-semibold">Tenant paid but did not upload a slip</p><p className="text-xs text-gray-600">Use only for a real unmatched bank receipt. DEKEZ records the payment, knocks off the invoice and retains the statement as proof.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
-                              {suggestedInvoice ? <p className="rounded-md bg-blue-50 px-3 py-2 text-xs font-medium text-blue-800">Suggested from QR code: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName}</p> : null}
-                              <label className="block text-xs font-medium">Tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.billMonth} · owing {money(bill.outstanding)}</option>)}</select></label>
+                              <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">Only {rentalMonthLabel(statementRentalMonth)} rental invoices are allowed for this statement. Older outstanding invoices are not carried forward here.</p>
+                              {suggestedInvoice ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">QR room found: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName} · rental invoice month {rentalMonthLabel(suggestedInvoice.billMonth)}</p> : locationHint ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">No open {rentalMonthLabel(statementRentalMonth)} invoice was found for {locationHint.propertyCode} Room {locationHint.roomCode}. Do not choose another month.</p> : null}
+                              <label className="block text-xs font-medium">{rentalMonthLabel(statementRentalMonth)} tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose {rentalMonthLabel(statementRentalMonth)} invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{rentalMonthLabel(bill.billMonth)} · {bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.id.slice(0, 8)} · owing {money(bill.outstanding)}</option>)}</select></label>
                               <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={suggestedInvoice ? Math.min(Number(remaining), suggestedInvoice.rentOutstanding).toFixed(2) : undefined} min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={suggestedInvoice ? Math.min(Math.max(Number(remaining) - suggestedInvoice.rentOutstanding, 0), suggestedInvoice.depositOutstanding).toFixed(2) : undefined} min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="otherAmount" step="0.01" type="number" /></label></div>
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>
                               <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="other" name="otherCategory"><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>

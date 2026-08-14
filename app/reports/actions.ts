@@ -772,7 +772,7 @@ export async function autoMatchStatement(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const statementId = textValue(formData, "statementId");
   const [{ data: statementImport }, { data: lines }, { data: allMatches }, candidates] = await Promise.all([
-    supabase.from("bank_statement_imports").select("id, status").eq("id", statementId).eq("company_id", company.id).maybeSingle(),
+    supabase.from("bank_statement_imports").select("id, period_start, period_end, status").eq("id", statementId).eq("company_id", company.id).maybeSingle(),
     supabase.from("bank_statement_lines").select("id, transaction_date, amount, description, reference_number, status").eq("statement_import_id", statementId).eq("status", "unmatched"),
     supabase.from("bank_reconciliation_matches").select("statement_line_id, source_type, source_id, matched_amount"),
     getBankCandidates(supabase, company.id),
@@ -787,6 +787,7 @@ export async function autoMatchStatement(formData: FormData) {
     consumed.set(key, (consumed.get(key) ?? 0) + Math.abs(Number(match.matched_amount ?? 0)));
   }
   let matchedCount = 0;
+  const statementRentalMonth = statementImport.period_start.slice(0, 7);
 
   for (const line of lines ?? []) {
     const amount = Number(line.amount);
@@ -797,9 +798,12 @@ export async function autoMatchStatement(formData: FormData) {
         && line.transaction_date.slice(0, 7) === candidate.date.slice(0, 7)
         && bankLocationToken(line.description) !== null
         && bankLocationToken(line.description) === bankLocationToken(candidate.description);
+      const correctRentalMonth = !candidate.isRental
+        || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth;
       return (
         Math.sign(candidate.amount) === Math.sign(amount) &&
         Math.abs(remaining - Math.abs(amount)) < 0.005 &&
+        correctRentalMonth &&
         (dateDistance(candidate.date, line.transaction_date) <= 3 || sameHistoricalRoom)
       );
     });
@@ -849,13 +853,23 @@ export async function matchBankLine(formData: FormData) {
   }
 
   const [{ data: line }, candidates, { data: lineMatches }, { data: sourceMatches }] = await Promise.all([
-    supabase.from("bank_statement_lines").select("id, statement_import_id, amount, status").eq("id", lineId).single(),
+    supabase.from("bank_statement_lines").select("id, statement_import_id, amount, status, bank_statement_imports!inner(company_id, period_start, status)").eq("id", lineId).single(),
     getBankCandidates(supabase, company.id),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("statement_line_id", lineId),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("source_type", sourceType).eq("source_id", sourceId),
   ]);
   const candidate = candidates.find((item) => item.sourceType === sourceType && item.sourceId === sourceId);
   if (!line || !candidate || line.status === "ignored") redirect(reportPath({ error: "match_missing" }));
+  const statement = singleRelation(line.bank_statement_imports);
+  const statementRentalMonth = statement?.period_start?.slice(0, 7);
+  if (
+    !statement ||
+    statement.company_id !== company.id ||
+    statement.status !== "in_progress" ||
+    (candidate.isRental && candidate.invoiceMonth?.slice(0, 7) !== statementRentalMonth)
+  ) {
+    redirect(reportPath({ statement: line.statement_import_id, error: "match_rental_month" }));
+  }
   const lineMatched = (lineMatches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
   const sourceMatched = (sourceMatches ?? []).reduce((total, match) => total + Math.abs(Number(match.matched_amount ?? 0)), 0);
   const lineRemaining = Number(line.amount) - lineMatched;
@@ -998,9 +1012,35 @@ export async function ignoreBankLine(formData: FormData) {
 }
 
 export async function createTenantPaymentFromBankLine(formData: FormData) {
-  const { user, supabase } = await accountingContext();
+  const { user, company, supabase } = await accountingContext();
   const lineId = textValue(formData, "lineId");
   const rentBillId = textValue(formData, "rentBillId");
+  const [{ data: line }, { data: rentBill }] = await Promise.all([
+    supabase
+      .from("bank_statement_lines")
+      .select("id, statement_import_id, bank_statement_imports!inner(company_id, period_start, status)")
+      .eq("id", lineId)
+      .maybeSingle(),
+    supabase
+      .from("rent_bills")
+      .select("id, bill_month, property_id, properties!inner(company_id)")
+      .eq("id", rentBillId)
+      .maybeSingle(),
+  ]);
+  const statement = singleRelation(line?.bank_statement_imports);
+  const property = singleRelation(rentBill?.properties);
+  if (
+    !line ||
+    !rentBill ||
+    !statement ||
+    !property ||
+    statement.company_id !== company.id ||
+    property.company_id !== company.id ||
+    statement.status !== "in_progress" ||
+    rentBill.bill_month.slice(0, 7) !== statement.period_start.slice(0, 7)
+  ) {
+    redirect(reportPath({ statement: line?.statement_import_id ?? "", error: "tenant_payment_month" }));
+  }
   const { error } = await supabase.rpc("record_bank_tenant_payment_and_match", {
     target_statement_line_id: lineId,
     target_rent_bill_id: rentBillId,
