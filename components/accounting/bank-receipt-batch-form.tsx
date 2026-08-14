@@ -180,6 +180,11 @@ export function BankReceiptBatchForm({
       : mode === "unpaid"
         ? selectedUnpaidExpenseIds.length
         : selectedLiabilityIds.length;
+  const selectedItems = mode === "paid"
+    ? paidCompanyExpenses.filter((item) => selectedPaidExpenses.has(item.id))
+    : mode === "unpaid"
+      ? unpaidCompanyExpenses.filter((item) => selectedUnpaidExpenses.has(item.id))
+      : (activeStaff?.items ?? []).filter((item) => selectedLiabilities.has(item.liabilityId));
 
   return (
     <div className="space-y-4">
@@ -246,6 +251,7 @@ export function BankReceiptBatchForm({
       {mode === "paid" ? (
         <form action={reconcilePaidCompanyExpensesFromBankLine} className="space-y-4">
           <input name="lineId" type="hidden" value={lineId} />
+          <input name="bankFlow" type="hidden" value="debit" />
           <input
             className="h-10 w-full rounded-md border border-[#d7dde5] px-3 text-sm"
             onChange={(event) => setQuery(event.target.value)}
@@ -281,6 +287,7 @@ export function BankReceiptBatchForm({
             selectedTotal={selectedTotal}
             target={target}
           />
+          <CategoryLineSummary items={selectedItems} />
           <SubmitBatch
             disabled={!selectedCount || !exact}
             label={`Link ${selectedCount} paid receipt${selectedCount === 1 ? "" : "s"} & reconcile`}
@@ -289,6 +296,7 @@ export function BankReceiptBatchForm({
       ) : mode === "unpaid" ? (
         <form action={reconcileCompanyExpenseBatchFromBankLine} className="space-y-4">
           <input name="lineId" type="hidden" value={lineId} />
+          <input name="bankFlow" type="hidden" value="debit" />
           <div className="grid gap-3 sm:grid-cols-[1fr_220px]">
             <input
               className="h-10 rounded-md border border-[#d7dde5] px-3 text-sm"
@@ -334,6 +342,7 @@ export function BankReceiptBatchForm({
             selectedTotal={selectedTotal}
             target={target}
           />
+          <CategoryLineSummary items={selectedItems} />
           <SubmitBatch
             disabled={!selectedCount || !exact}
             label={`Create receipt batch & reconcile ${selectedCount} bill${selectedCount === 1 ? "" : "s"}`}
@@ -342,6 +351,7 @@ export function BankReceiptBatchForm({
       ) : (
         <form action={reconcileStaffPayoutFromBankLine} className="space-y-4">
           <input name="lineId" type="hidden" value={lineId} />
+          <input name="bankFlow" type="hidden" value="debit" />
           <label className="block text-sm font-medium text-gray-700">
             Payee — all selected claims must belong to this person
             <select
@@ -397,6 +407,7 @@ export function BankReceiptBatchForm({
             selectedTotal={selectedTotal}
             target={target}
           />
+          <CategoryLineSummary items={selectedItems} />
           <SubmitBatch
             disabled={!staffId || !selectedCount || !exact}
             label={`Pay staff, clear ${selectedCount} claim${selectedCount === 1 ? "" : "s"} & reconcile`}
@@ -408,6 +419,35 @@ export function BankReceiptBatchForm({
         <Building2 className="mt-0.5 h-4 w-4 shrink-0" />
         Accounting rule: the receipts record the expense; this bank/card line records settlement. DEKEZ links them without posting the expense twice.
       </p>
+    </div>
+  );
+}
+
+function CategoryLineSummary({ items }: { items: ReconciliationExpense[] }) {
+  if (!items.length) return null;
+  const categoryTotals = new Map<string, number>();
+  for (const item of items) {
+    categoryTotals.set(
+      item.categoryName,
+      (categoryTotals.get(item.categoryName) ?? 0) + item.amount,
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-lg border border-blue-200 bg-blue-50">
+      <div className="border-b border-blue-200 px-4 py-3">
+        <p className="font-semibold text-blue-950">Accounting category lines</p>
+        <p className="mt-1 text-xs text-blue-800">One bank debit can clear many bills. DEKEZ groups the selected receipts into these expense lines without duplicating them.</p>
+      </div>
+      <div className="divide-y divide-blue-200">
+        {Array.from(categoryTotals.entries())
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([category, amount]) => (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm" key={category}>
+              <span className="font-medium text-blue-950">{category}</span>
+              <strong className="text-blue-950">{currency.format(amount)}</strong>
+            </div>
+          ))}
+      </div>
     </div>
   );
 }

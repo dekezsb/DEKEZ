@@ -25,7 +25,10 @@ import {
   type ReconciliationExpense,
   type ReconciliationStaffGroup,
 } from "@/components/accounting/bank-receipt-batch-form";
+import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
+import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
+import { bankDescriptionKey } from "@/lib/accounting/bank-description";
 import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
 import { requireRole } from "@/lib/auth/session";
 import { getFirstCompany, getProperties } from "@/lib/data/organization";
@@ -103,10 +106,26 @@ function tabHref(tab: string, month: string, propertyId: string, statementId?: s
   return `/reports?${search.toString()}`;
 }
 
-function bankReviewPageHref(month: string, propertyId: string, statementId: string, reviewPage: number) {
-  const search = new URLSearchParams({ tab: "bank", month, statement: statementId });
+function bankReviewPageHref(month: string, propertyId: string, statementId: string, reviewPage: number, bankFlow: "credit" | "debit") {
+  const search = new URLSearchParams({ tab: "bank", month, statement: statementId, bankFlow });
   if (propertyId) search.set("property", propertyId);
   if (reviewPage > 1) search.set("reviewPage", String(reviewPage));
+  return `/reports?${search.toString()}#bank-transactions`;
+}
+
+function bankFlowHref(
+  month: string,
+  propertyId: string,
+  statementId: string,
+  bankFlow: "credit" | "debit",
+) {
+  const search = new URLSearchParams({
+    tab: "bank",
+    month,
+    statement: statementId,
+    bankFlow,
+  });
+  if (propertyId) search.set("property", propertyId);
   return `/reports?${search.toString()}#bank-transactions`;
 }
 
@@ -121,6 +140,7 @@ function bankBatchLineHref(
     tab: "bank",
     month,
     statement: statementId,
+    bankFlow: "debit",
     batchLine: lineId,
   });
   if (propertyId) search.set("property", propertyId);
@@ -199,6 +219,11 @@ const errorMessages: Record<string, string> = {
   staff_batch_proof: "The retained statement link for this staff payout could not be saved.",
   staff_batch_create: "The combined staff reimbursement could not be recorded.",
   staff_batch_match: "The staff payout was saved, but its bank match needs review. It remains available under recorded payments.",
+  journal_details: "Enter a journal date, description and at least two valid lines.",
+  journal_lines: "The journal lines could not be read. Please review them and try again.",
+  journal_balance: "Total debit and total credit must be equal, and every line must use only one side.",
+  journal_period: "This accounting period is locked. Use an open period or ask the Super Admin to reopen it.",
+  journal_post: "The journal could not be posted. No partial entry was saved.",
 };
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
@@ -211,25 +236,40 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const selectedMonth = validMonth(params.month) ?? new Date().toISOString().slice(0, 7);
   const startDate = `${selectedMonth}-01`;
   const endDate = monthEnd(selectedMonth);
+  const yearStartDate = `${selectedMonth.slice(0, 4)}-01-01`;
   const priorDates = previousPeriod(startDate, endDate);
   const properties = (await getProperties()).filter((property) => property.company_id === company.id);
   const propertyIds = properties.map((property) => property.id);
   const selectedPropertyId = properties.some((property) => property.id === params.property) ? params.property ?? "" : "";
-  const tab = ["overview", "profit-loss", "bank", "ledger"].includes(params.tab ?? "") ? params.tab ?? "overview" : "overview";
+  const tab = ["overview", "profit-loss", "balance-sheet", "trial-balance", "bank", "journal", "ledger"].includes(params.tab ?? "") ? params.tab ?? "overview" : "overview";
+  const bankFlow: "credit" | "debit" = params.bankFlow === "debit" ? "debit" : "credit";
 
-  const [currentReport, priorReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult] = await Promise.all([
+  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate, endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: priorDates.startDate, endDate: priorDates.endDate, propertyId: selectedPropertyId || null }),
+    getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
-    supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(24),
+    supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(240),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
     supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
+    supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
+    supabase.from("payments").select("id, amount, payment_date").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate),
+    supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
   const statementImports = statementsResult.data ?? [];
   const accounts = accountsResult.data ?? [];
+  const journalEntries = journalEntriesResult.data ?? [];
+  const journalEntryIds = journalEntries.map((entry) => entry.id);
+  const journalLines = journalEntryIds.length
+    ? (await supabase.from("accounting_journal_lines").select("id, journal_entry_id, account_id, property_id, description, debit, credit").in("journal_entry_id", journalEntryIds)).data ?? []
+    : [];
+  const reconciliationRuleMap = new Map((reconciliationRulesResult.data ?? []).map((rule) => [
+    `${rule.bank_account_id ?? ""}:${rule.direction}:${rule.bank_description_key}`,
+    rule,
+  ]));
   const selectedStatementId = statementImports.some((item) => item.id === params.statement) ? params.statement ?? "" : statementImports[0]?.id ?? "";
   const selectedStatement = statementImports.find((item) => item.id === selectedStatementId) ?? null;
   const statementRentalMonth = selectedStatement?.period_start?.slice(0, 7) ?? selectedMonth;
@@ -402,6 +442,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       id: String(bill.id),
       invoiceNumber: bill.invoice_number as string | null,
       billMonth: String(bill.bill_month),
+      dueDate: String(bill.due_date),
       tenantName: tenantNames.get(bill.tenant_record_id) || `Tenant ${String(bill.tenant_id ?? "").slice(0, 8)}`,
       propertyName: propertyNames.get(bill.property_id) ?? "Property",
       roomName: roomNames.get(bill.room_id) ?? "Room",
@@ -417,8 +458,123 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   );
   const tenantOutstanding = invoiceOptions.reduce((total, item) => total + item.outstanding, 0);
 
+  const journalEntryById = new Map(journalEntries.map((entry) => [entry.id, entry]));
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const manualNetDebitByAccount = new Map<string, number>();
+  for (const line of journalLines) {
+    if (selectedPropertyId && line.property_id !== selectedPropertyId) continue;
+    manualNetDebitByAccount.set(
+      line.account_id,
+      (manualNetDebitByAccount.get(line.account_id) ?? 0) + Number(line.debit ?? 0) - Number(line.credit ?? 0),
+    );
+  }
+  const manualNormalBalance = (systemKey: string) => {
+    const account = accounts.find((item) => item.system_key === systemKey);
+    if (!account) return 0;
+    const netDebit = manualNetDebitByAccount.get(account.id) ?? 0;
+    return account.normal_balance === "credit" ? -netDebit : netDebit;
+  };
+  const receivableInvoices = invoiceOptions.filter((bill) => bill.dueDate <= endDate);
+  const rentalReceivable = receivableInvoices.reduce((total, bill) => total + bill.rentOutstanding, 0) + manualNormalBalance("rental_receivable");
+  const depositReceivable = receivableInvoices.reduce((total, bill) => total + bill.depositOutstanding, 0) + manualNormalBalance("deposit_receivable");
+  const tenantDepositsHeld = (depositPaymentsResult.data ?? []).reduce((total, payment) => total + Number(payment.amount ?? 0), 0) + manualNormalBalance("tenant_security_deposits");
+  const companyPayable = companyBatchRows
+    .filter((expense) => expense.expense_date <= endDate)
+    .reduce((total, expense) => total + Number(expense.amount ?? 0), 0) + manualNormalBalance("accounts_payable");
+  const staffPayableAsOf = companyLiabilities.reduce((total, liability) => {
+    const expense = liabilityExpenses.get(liability.expense_id);
+    return expense?.expense_date && expense.expense_date <= endDate
+      ? total + Number(liability.amount ?? 0)
+      : total;
+  }, 0) + manualNormalBalance("staff_reimbursement_payable");
+  const bankAccountLedgerIds = new Set(bankAccounts.map((account) => account.accounting_account_id).filter(Boolean));
+  const latestStatementByBank = new Map<string, (typeof statementImports)[number]>();
+  for (const statement of statementImports) {
+    if (statement.period_end > endDate || latestStatementByBank.has(statement.bank_account_id)) continue;
+    latestStatementByBank.set(statement.bank_account_id, statement);
+  }
+  let bankAssets = 0;
+  let companyCardPayable = 0;
+  for (const bankAccount of bankAccounts) {
+    const ledgerAccount = accountById.get(bankAccount.accounting_account_id);
+    const statement = latestStatementByBank.get(bankAccount.id);
+    const balance = statement
+      ? Number(statement.closing_balance ?? 0)
+      : bankAccount.opening_balance_date && bankAccount.opening_balance_date <= endDate
+        ? Number(bankAccount.opening_balance ?? 0)
+        : 0;
+    if (ledgerAccount?.account_type === "liability") companyCardPayable += Math.abs(balance);
+    else bankAssets += balance;
+  }
+  bankAssets += manualNormalBalance("cash_on_hand");
+
+  const operationalSystemKeys = new Set([
+    "cash_on_hand", "company_bank", "bank_transfer_clearing", "rental_receivable",
+    "deposit_receivable", "other_receivable", "accounts_payable",
+    "staff_reimbursement_payable", "tenant_security_deposits", "tenant_credits",
+  ]);
+  const otherBalanceRows = accounts.flatMap((account) => {
+    if (!["asset", "liability", "equity"].includes(account.account_type)) return [];
+    if (operationalSystemKeys.has(account.system_key ?? "") || bankAccountLedgerIds.has(account.id)) return [];
+    const netDebit = manualNetDebitByAccount.get(account.id) ?? 0;
+    const amount = account.normal_balance === "credit" ? -netDebit : netDebit;
+    return Math.abs(amount) > 0.005 ? [{ key: account.id, code: account.code, label: account.name, amount, source: "Posted journals" }] : [];
+  });
+  const otherCurrentAssets = otherBalanceRows.filter((row) => accountById.get(row.key)?.report_group === "current_asset");
+  const otherNonCurrentAssets = otherBalanceRows.filter((row) => accountById.get(row.key)?.report_group === "non_current_asset");
+  const otherCurrentLiabilities = otherBalanceRows.filter((row) => accountById.get(row.key)?.report_group === "current_liability");
+  const otherNonCurrentLiabilities = otherBalanceRows.filter((row) => accountById.get(row.key)?.report_group === "non_current_liability");
+  const manualEquityRows = otherBalanceRows.filter((row) => accountById.get(row.key)?.account_type === "equity");
+  const balanceAssets = [
+    { key: "bank", code: "1000-1099", label: "Bank and cash", amount: bankAssets, source: "Latest imported statement / cash journals" },
+    { key: "rent-ar", code: "1100", label: "Rental receivables (tenant owing)", amount: rentalReceivable, source: `${receivableInvoices.length} open invoices due by ${dateLabel(endDate)}` },
+    { key: "deposit-ar", code: "1110", label: "Deposit receivables", amount: depositReceivable, source: "Unpaid tenant deposits" },
+    ...otherCurrentAssets,
+    ...otherNonCurrentAssets,
+  ].filter((row) => Math.abs(row.amount) > 0.005);
+  const balanceLiabilities = [
+    { key: "company-ap", code: "2000", label: "Accounts payable (company bills)", amount: companyPayable, source: "Verified bills not yet paid" },
+    { key: "staff-ap", code: "2100", label: "Staff reimbursement payable", amount: staffPayableAsOf, source: "Approved claims not yet reimbursed" },
+    { key: "tenant-deposits", code: "2200", label: "Tenant security deposits held", amount: tenantDepositsHeld, source: "Confirmed deposit receipts" },
+    { key: "company-cards", code: "2401+", label: "Company card payable", amount: companyCardPayable, source: "Latest imported card statement" },
+    ...otherCurrentLiabilities,
+    ...otherNonCurrentLiabilities,
+  ].filter((row) => Math.abs(row.amount) > 0.005);
+  const balanceEquity = [
+    ...manualEquityRows,
+    { key: "current-earnings", code: "YTD", label: "Current-year profit / (loss)", amount: yearToDateReport.netProfit, source: `${dateLabel(yearStartDate)} to ${dateLabel(endDate)}` },
+  ].filter((row) => Math.abs(row.amount) > 0.005);
+  const totalAssets = balanceAssets.reduce((total, row) => total + row.amount, 0);
+  const totalLiabilities = balanceLiabilities.reduce((total, row) => total + row.amount, 0);
+  const totalEquity = balanceEquity.reduce((total, row) => total + row.amount, 0);
+  const balanceSheetDifference = totalAssets - totalLiabilities - totalEquity;
+
+  const trialRows = [
+    ...balanceAssets.map((row) => ({ code: row.code, label: row.label, debit: Math.max(row.amount, 0), credit: Math.max(-row.amount, 0), source: row.source })),
+    ...balanceLiabilities.map((row) => ({ code: row.code, label: row.label, debit: Math.max(-row.amount, 0), credit: Math.max(row.amount, 0), source: row.source })),
+    ...manualEquityRows.map((row) => ({ code: row.code, label: row.label, debit: Math.max(-row.amount, 0), credit: Math.max(row.amount, 0), source: row.source })),
+    ...yearToDateReport.revenue.map((row) => ({ code: "4xxx", label: row.label, debit: Math.max(-row.amount, 0), credit: Math.max(row.amount, 0), source: "Invoices / posted journals" })),
+    ...yearToDateReport.costsOfSales.map((row) => ({ code: "5xxx", label: row.label, debit: Math.max(row.amount, 0), credit: Math.max(-row.amount, 0), source: "Verified bills / posted journals" })),
+    ...yearToDateReport.expenses.map((row) => ({ code: "5xxx", label: row.label, debit: Math.max(row.amount, 0), credit: Math.max(-row.amount, 0), source: "Verified bills / posted journals" })),
+  ];
+  const trialDebitBeforeConversion = trialRows.reduce((total, row) => total + row.debit, 0);
+  const trialCreditBeforeConversion = trialRows.reduce((total, row) => total + row.credit, 0);
+  const conversionDifference = trialDebitBeforeConversion - trialCreditBeforeConversion;
+  const conversionRow = Math.abs(conversionDifference) > 0.005
+    ? { code: "OPENING", label: "Opening / conversion balance still to post", debit: Math.max(-conversionDifference, 0), credit: Math.max(conversionDifference, 0), source: "Post a journal after checking prior-year/opening records" }
+    : null;
+  const balancedTrialRows = conversionRow ? [...trialRows, conversionRow] : trialRows;
+  const trialDebit = balancedTrialRows.reduce((total, row) => total + row.debit, 0);
+  const trialCredit = balancedTrialRows.reduce((total, row) => total + row.credit, 0);
+  const journalLinesByEntry = new Map<string, typeof journalLines>();
+  for (const line of journalLines) {
+    const entryLines = journalLinesByEntry.get(line.journal_entry_id) ?? [];
+    entryLines.push(line);
+    journalLinesByEntry.set(line.journal_entry_id, entryLines);
+  }
+
   const statementLines = selectedStatementId
-    ? (await supabase.from("bank_statement_lines").select("id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date").order("id")).data ?? []
+    ? (await supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date").order("id")).data ?? []
     : [];
   const lineIds = statementLines.map((line) => line.id);
   const matches = lineIds.length
@@ -440,11 +596,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const statementDifference = selectedStatement ? Number(selectedStatement.opening_balance ?? 0) + statementMovement - Number(selectedStatement.closing_balance ?? 0) : 0;
   const unmatchedLines = statementLines.filter((line) => line.status === "unmatched");
   const unmatchedCount = unmatchedLines.length;
+  const creditLines = unmatchedLines.filter((line) => Number(line.amount) > 0);
+  const debitLines = unmatchedLines.filter((line) => Number(line.amount) < 0);
+  const selectedFlowLines = bankFlow === "credit" ? creditLines : debitLines;
   const reviewPageSize = 20;
-  const reviewPageCount = Math.max(1, Math.ceil(unmatchedCount / reviewPageSize));
+  const reviewPageCount = Math.max(1, Math.ceil(selectedFlowLines.length / reviewPageSize));
   const requestedReviewPage = Number(params.reviewPage ?? "1");
   const reviewPage = Number.isInteger(requestedReviewPage) ? Math.min(Math.max(requestedReviewPage, 1), reviewPageCount) : 1;
-  const reviewLines = unmatchedLines.slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize);
+  const reviewLines = selectedFlowLines.slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize);
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
   const unreconciledTotal = statementImports.filter((item) => item.status === "in_progress").length;
   const adjustmentAccounts = accounts.filter((account) => account.id !== statementAccount?.accounting_account_id);
@@ -463,7 +622,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const tabs = [
     { key: "overview", label: "Accounting Overview", icon: FileBarChart },
     { key: "profit-loss", label: "Profit & Loss", icon: Scale },
+    { key: "balance-sheet", label: "Balance Sheet", icon: WalletCards },
+    { key: "trial-balance", label: "Trial Balance", icon: ReceiptText },
     { key: "bank", label: "Bank Reconciliation", icon: Landmark },
+    { key: "journal", label: "Journal Entries", icon: BookOpen },
     { key: "ledger", label: "Chart of Accounts", icon: BookOpen },
   ];
   const statusClasses: Record<string, string> = {
@@ -539,7 +701,24 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
       {tab === "profit-loss" ? (
         <Card>
-          <CardHeader><CardTitle>Profit &amp; Loss Statement</CardTitle><CardDescription>{dateLabel(startDate)} to {dateLabel(endDate)} · accrual basis · deposits excluded from income</CardDescription></CardHeader>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><CardTitle>Profit &amp; Loss Statement</CardTitle><CardDescription>{dateLabel(startDate)} to {dateLabel(endDate)} · accrual basis · deposits excluded from income</CardDescription></div>
+            <CsvDownloadButton
+              fileName={`DEKEZ-profit-and-loss-${startDate}-to-${endDate}.csv`}
+              label="Download P&L CSV"
+              rows={[
+                ["DEKEZ Profit & Loss", `${startDate} to ${endDate}`, "Accrual basis"],
+                ["Section", "Account", "Current RM", "Previous RM", "Difference RM"],
+                ...currentReport.revenue.map((row) => { const previous = priorReport.revenue.find((item) => item.key === row.key)?.amount ?? 0; return ["Revenue", row.label, row.amount.toFixed(2), previous.toFixed(2), (row.amount - previous).toFixed(2)]; }),
+                ["Revenue", "Total revenue", currentReport.totalRevenue.toFixed(2), priorReport.totalRevenue.toFixed(2), (currentReport.totalRevenue - priorReport.totalRevenue).toFixed(2)],
+                ...currentReport.costsOfSales.map((row) => { const previous = priorReport.costsOfSales.find((item) => item.key === row.key)?.amount ?? 0; return ["Cost of sales", row.label, row.amount.toFixed(2), previous.toFixed(2), (row.amount - previous).toFixed(2)]; }),
+                ["Cost of sales", "Gross profit", currentReport.grossProfit.toFixed(2), priorReport.grossProfit.toFixed(2), (currentReport.grossProfit - priorReport.grossProfit).toFixed(2)],
+                ...currentReport.expenses.map((row) => { const previous = priorReport.expenses.find((item) => item.key === row.key)?.amount ?? 0; return ["Operating expenses", row.label, row.amount.toFixed(2), previous.toFixed(2), (row.amount - previous).toFixed(2)]; }),
+                ["Operating expenses", "Total expenses", currentReport.totalExpenses.toFixed(2), priorReport.totalExpenses.toFixed(2), (currentReport.totalExpenses - priorReport.totalExpenses).toFixed(2)],
+                ["Result", "Net profit / (loss)", currentReport.netProfit.toFixed(2), priorReport.netProfit.toFixed(2), (currentReport.netProfit - priorReport.netProfit).toFixed(2)],
+              ]}
+            />
+          </CardHeader>
           <CardContent>
             <Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Current period</TableHead><TableHead className="text-right">Previous period</TableHead><TableHead className="text-right">Difference</TableHead></TableRow></TableHeader><TableBody>
               <TableRow className="bg-emerald-50"><TableCell className="font-semibold text-emerald-900" colSpan={4}>Revenue</TableCell></TableRow>
@@ -555,6 +734,100 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </TableBody></Table>
           </CardContent>
         </Card>
+      ) : null}
+
+      {tab === "balance-sheet" ? (
+        <div className="space-y-5">
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div><CardTitle>Balance Sheet</CardTitle><CardDescription>As at {dateLabel(endDate)} · accrual basis · shows who owes DEKEZ and what DEKEZ still owes.</CardDescription></div>
+              <CsvDownloadButton
+                fileName={`DEKEZ-balance-sheet-${endDate}.csv`}
+                label="Download balance sheet CSV"
+                rows={[
+                  ["DEKEZ Balance Sheet", `As at ${endDate}`],
+                  ["Section", "Code", "Account", "Amount RM", "Source"],
+                  ...balanceAssets.map((row) => ["Assets", row.code, row.label, row.amount.toFixed(2), row.source]),
+                  ["Assets", "", "Total Assets", totalAssets.toFixed(2), ""],
+                  ...balanceLiabilities.map((row) => ["Liabilities", row.code, row.label, row.amount.toFixed(2), row.source]),
+                  ["Liabilities", "", "Total Liabilities", totalLiabilities.toFixed(2), ""],
+                  ...balanceEquity.map((row) => ["Equity", row.code, row.label, row.amount.toFixed(2), row.source]),
+                  ["Equity", "", "Total Equity", totalEquity.toFixed(2), ""],
+                  ["Control", "", "Unbalanced / opening data still to post", balanceSheetDifference.toFixed(2), "Must be RM0.00 before audit finalisation"],
+                ]}
+              />
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {selectedPropertyId ? <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">The property filter is active. Tenant and journal balances are filtered, but bank accounts remain company-level because one bank account serves several properties.</div> : null}
+              <div className="grid gap-5 xl:grid-cols-3">
+                <BalanceSection rows={balanceAssets} title="Assets" total={totalAssets} tone="emerald" />
+                <BalanceSection rows={balanceLiabilities} title="Liabilities" total={totalLiabilities} tone="red" />
+                <BalanceSection rows={balanceEquity} title="Equity" total={totalEquity} tone="blue" />
+              </div>
+              <div className={`rounded-lg border px-4 py-4 ${Math.abs(balanceSheetDifference) < 0.005 ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><strong>{Math.abs(balanceSheetDifference) < 0.005 ? "Balance sheet balances" : "Opening / conversion balance still needs a journal"}</strong><span className="text-lg font-bold">Difference {money(balanceSheetDifference)}</span></div>
+                <p className="mt-2 text-xs">Before year-end audit finalisation this difference must be RM0.00. Use a balanced journal only after checking opening bank, loan, fixed-asset, AP and AR records.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {tab === "trial-balance" ? (
+        <Card>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><CardTitle>Trial Balance</CardTitle><CardDescription>{dateLabel(yearStartDate)} to {dateLabel(endDate)} · audit control report showing debit and credit separately.</CardDescription></div>
+            <CsvDownloadButton
+              fileName={`DEKEZ-trial-balance-${endDate}.csv`}
+              label="Download trial balance CSV"
+              rows={[
+                ["DEKEZ Trial Balance", `${yearStartDate} to ${endDate}`],
+                ["Code", "Account", "Debit RM", "Credit RM", "Source"],
+                ...balancedTrialRows.map((row) => [row.code, row.label, row.debit.toFixed(2), row.credit.toFixed(2), row.source]),
+                ["", "TOTAL", trialDebit.toFixed(2), trialCredit.toFixed(2), ""],
+              ]}
+            />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {conversionRow ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Conversion balance detected: {money(Math.abs(conversionDifference))}.</strong> The table shows it separately so the totals balance, but it is not hidden. Check prior opening balances and post the correct journal before giving the final report to your auditor.</div> : <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Debit equals credit. The trial balance control is clear.</div>}
+            <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account</TableHead><TableHead>Source</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>
+              {balancedTrialRows.map((row) => <TableRow className={row.code === "OPENING" ? "bg-red-50 text-red-800" : ""} key={`${row.code}-${row.label}`}><TableCell className="font-mono font-semibold">{row.code}</TableCell><TableCell>{row.label}</TableCell><TableCell className="text-xs text-gray-500">{row.source}</TableCell><TableCell className="text-right">{row.debit ? money(row.debit) : "-"}</TableCell><TableCell className="text-right">{row.credit ? money(row.credit) : "-"}</TableCell></TableRow>)}
+              <TableRow className="border-t-2 border-gray-900 bg-gray-50 text-base font-bold"><TableCell colSpan={3}>TOTAL</TableCell><TableCell className="text-right">{money(trialDebit)}</TableCell><TableCell className="text-right">{money(trialCredit)}</TableCell></TableRow>
+            </TableBody></Table>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {tab === "journal" ? (
+        <div className="space-y-5">
+          {params.journal_posted ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Balanced journal posted successfully. It is included in the reports and permanent audit trail.</div> : null}
+          <Card><CardHeader><CardTitle>Post Manual Journal Entry</CardTitle><CardDescription>Use for salary accruals, loans, fixed assets, AP/AR corrections, depreciation, capital and year-end adjustments. Debit must equal credit.</CardDescription></CardHeader><CardContent><ManualJournalForm accounts={accounts.map((account) => ({ id: account.id, code: account.code, name: account.name, accountType: account.account_type }))} defaultEntryDate={endDate} properties={properties.map((property) => ({ id: property.id, name: property.name }))} /></CardContent></Card>
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div><CardTitle>Posted Journal Register</CardTitle><CardDescription>Posted entries cannot silently change. Corrections should be made with a separate reversing journal.</CardDescription></div>
+              <CsvDownloadButton
+                fileName={`DEKEZ-journal-register-to-${endDate}.csv`}
+                label="Download journal CSV"
+                rows={[
+                  ["Entry Date", "Entry No", "Reference", "Entry Description", "Account Code", "Account", "Property", "Line Description", "Debit RM", "Credit RM", "Status"],
+                  ...journalLines.map((line) => {
+                    const entry = journalEntryById.get(line.journal_entry_id);
+                    const account = accountById.get(line.account_id);
+                    return [entry?.entry_date ?? "", entry?.entry_number ?? "", entry?.reference_number ?? "", entry?.description ?? "", account?.code ?? "", account?.name ?? "", propertyNames.get(line.property_id ?? "") ?? "General company", line.description ?? "", Number(line.debit ?? 0).toFixed(2), Number(line.credit ?? 0).toFixed(2), entry?.status ?? ""];
+                  }),
+                ]}
+              />
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {journalEntries.slice(0, 100).map((entry) => {
+                const entryLines = journalLinesByEntry.get(entry.id) ?? [];
+                const total = entryLines.reduce((sum, line) => sum + Number(line.debit ?? 0), 0);
+                return <details className="rounded-lg border border-[#d7dde5] bg-white" key={entry.id}><summary className="cursor-pointer list-none px-4 py-4"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><span className="font-mono text-xs font-semibold text-[#7a5618]">{entry.entry_number}</span><p className="mt-1 font-semibold text-gray-950">{entry.description}</p><p className="mt-1 text-xs text-gray-500">{dateLabel(entry.entry_date)} · {entry.reference_number || "No reference"} · {entry.source_type.replaceAll("_", " ")}</p></div><div className="flex items-center gap-2"><Badge className="bg-emerald-100 text-emerald-800">posted</Badge><strong>{money(total)}</strong></div></div></summary><div className="border-t border-[#d7dde5] px-4 py-3"><Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead>Property</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead></TableRow></TableHeader><TableBody>{entryLines.map((line) => { const account = accountById.get(line.account_id); return <TableRow key={line.id}><TableCell><span className="font-mono text-xs">{account?.code}</span> · {account?.name ?? "Account"}</TableCell><TableCell>{propertyNames.get(line.property_id ?? "") ?? "General company"}</TableCell><TableCell>{line.description || "-"}</TableCell><TableCell className="text-right">{Number(line.debit) ? money(line.debit) : "-"}</TableCell><TableCell className="text-right">{Number(line.credit) ? money(line.credit) : "-"}</TableCell></TableRow>; })}</TableBody></Table></div></details>;
+              })}
+              {!journalEntries.length ? <p className="rounded-md bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">No posted manual journals yet.</p> : null}
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
 
       {tab === "bank" ? (
@@ -640,10 +913,50 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 ].map((summary) => { const Icon = summary.icon; return <Card key={summary.label}><CardHeader className="pb-3"><CardDescription>{summary.label}</CardDescription><CardTitle className={`text-lg ${summary.warn ? "text-red-600" : ""}`}>{summary.value}</CardTitle><Icon className="mt-2 h-4 w-4 text-[#9a6b19]" /></CardHeader></Card>; })}
               </div>
 
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Link
+                  className={`rounded-xl border-2 p-5 transition ${
+                    bankFlow === "credit"
+                      ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                      : "border-[#d7dde5] bg-white hover:border-emerald-300"
+                  }`}
+                  href={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "credit")}
+                  prefetch={false}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="flex items-center gap-2 text-lg font-semibold text-emerald-900"><ArrowDownLeft className="h-5 w-5" />Credit / Money In</p>
+                      <p className="mt-2 text-sm text-emerald-800">Tenant rent, deposits and other money received. Match these only to receipts and paid invoices.</p>
+                    </div>
+                    <Badge className="bg-emerald-700 text-white">{creditLines.length} to match</Badge>
+                  </div>
+                </Link>
+                <Link
+                  className={`rounded-xl border-2 p-5 transition ${
+                    bankFlow === "debit"
+                      ? "border-red-400 bg-red-50 shadow-sm"
+                      : "border-[#d7dde5] bg-white hover:border-red-300"
+                  }`}
+                  href={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "debit")}
+                  prefetch={false}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="flex items-center gap-2 text-lg font-semibold text-red-900"><ArrowUpRight className="h-5 w-5" />Debit / Money Out</p>
+                      <p className="mt-2 text-sm text-red-800">Expenses, company-card charges and staff payments. One debit can clear several bills or claim receipts.</p>
+                    </div>
+                    <Badge className="bg-red-700 text-white">{debitLines.length} to allocate</Badge>
+                  </div>
+                </Link>
+              </div>
+
               <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div><CardTitle>Unmatched bank transactions</CardTitle><CardDescription>{unmatchedCount} still need attention. Rental suggestions are limited to the {rentalMonthLabel(statementRentalMonth)} invoice month and wait for your confirmation.</CardDescription></div>
-                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe matches</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
+                  <div>
+                    <CardTitle className={bankFlow === "credit" ? "text-emerald-900" : "text-red-900"}>{bankFlow === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>
+                    <CardDescription>{bankFlow === "credit" ? `${creditLines.length} incoming receipts need attention. Rental suggestions are limited to the ${rentalMonthLabel(statementRentalMonth)} invoice month.` : `${debitLines.length} outgoing payments need attention. Allocate each debit to one recorded payment, several bills/claims, or an accounting category.`}</CardDescription>
+                  </div>
+                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe {bankFlow === "credit" ? "credits" : "debits"}</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {params.auto_matched !== undefined ? Number(params.auto_matched) > 0 ? (
@@ -722,28 +1035,34 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         : rankedCandidates[0]?.score >= 2 && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
                           ? rankedCandidates[0].candidate
                           : null;
+                    const rememberedRule = reconciliationRuleMap.get(
+                      `${line.bank_account_id ?? ""}:${Number(line.amount) > 0 ? "credit" : "debit"}:${bankDescriptionKey(line.description)}`,
+                    );
+                    const hintedPropertyId = locationHint
+                      ? properties.find((property) => propertyCode(property.name) === locationHint.propertyCode)?.id ?? ""
+                      : "";
                     return (
                       <div className="rounded-lg border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
                         <div className="grid gap-3 p-4 sm:grid-cols-[110px_1fr_150px_150px] sm:items-center">
                           <div className="text-sm"><p className="font-medium">{dateLabel(line.transaction_date)}</p><p className="text-xs text-gray-500">{line.reference_number || "No reference"}</p></div>
-                          <div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-gray-950">{transactionLabel}</p>{locationHint ? <Badge className="bg-blue-100 text-blue-800">{locationHint.propertyCode} Room {locationHint.roomCode}</Badge> : null}</div><p className="mt-1 line-clamp-2 text-xs text-gray-600">{transactionDetails || "No additional bank description"}</p></div>
+                          <div><div className="flex flex-wrap items-center gap-2"><Badge className={Number(line.amount) > 0 ? "bg-emerald-700 text-white" : "bg-red-700 text-white"}>{Number(line.amount) > 0 ? "CREDIT" : "DEBIT"}</Badge><p className="font-semibold text-gray-950">{transactionLabel}</p>{locationHint ? <Badge className="bg-blue-100 text-blue-800">{locationHint.propertyCode} Room {locationHint.roomCode}</Badge> : null}</div><p className="mt-1 line-clamp-2 text-xs text-gray-600">{transactionDetails || "No additional bank description"}</p></div>
                           <div className="text-right"><p className={`font-semibold ${Number(line.amount) >= 0 ? "text-emerald-700" : "text-red-600"}`}>{Number(line.amount) >= 0 ? "+" : "-"}{money(Math.abs(Number(line.amount)))}</p><p className="text-xs text-gray-500">{Number(line.amount) >= 0 ? "Money received" : "Money paid out"}</p></div>
                           <div className="flex flex-col items-stretch gap-2 sm:items-end"><Badge className={statusClasses[line.status] ?? ""}>Needs review</Badge></div>
                         </div>
                         <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
-                          {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
+                          {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
                           {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="space-y-4">
                             {remaining < -0.005 && params.batchLine !== line.id ? (
                               <Button asChild className="w-full justify-start" variant="outline">
                                 <Link href={bankBatchLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage, line.id)} prefetch={false}>
-                                  <ReceiptText className="h-4 w-4" /> One payment covers several receipts / company-card bills
+                                  <ReceiptText className="h-4 w-4" /> Allocate this debit to several bills / claim receipts
                                 </Link>
                               </Button>
                             ) : null}
                             {remaining < -0.005 && params.batchLine === line.id ? (
                               <details className="rounded-lg border-2 border-[#b8892c] bg-[#fffaf0]" open>
                                 <summary className="cursor-pointer list-none px-4 py-4 font-semibold text-[#7a5618]">
-                                  This payment covers several claim receipts or company-card bills
+                                  Allocate this debit across several bills or claim receipts
                                   <span className="mt-1 block text-xs font-normal text-gray-600">
                                     Tick the receipts below. Their combined total must equal {money(Math.abs(remaining))}.
                                   </span>
@@ -761,6 +1080,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             ) : null}
                             {recommendedCandidate ? <form action={matchBankLine} className="flex flex-col gap-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                               <input name="lineId" type="hidden" value={line.id} />
+                              <input name="bankFlow" type="hidden" value={bankFlow} />
                               <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
                               <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">DEKEZ same-month suggestion</p><p className="mt-1 font-semibold text-gray-950">{recommendedCandidate.description}</p><p className="text-sm text-gray-600">{dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p>{recommendedCandidate.invoiceMonth ? <p className="mt-2 inline-flex rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800">Rental invoice month: {rentalMonthLabel(recommendedCandidate.invoiceMonth)}</p> : null}</div>
                               <Button className="shrink-0" type="submit"><BadgeCheck className="h-4 w-4" />Match this record</Button>
@@ -771,12 +1091,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             <form action={matchBankLine} className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
                               <div><p className="font-semibold">Match existing transaction</p><p className="text-xs text-gray-500">Split or merge is automatic when amounts differ.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
+                              <input name="bankFlow" type="hidden" value={bankFlow} />
                               <select className="h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue="" name="sourceToken" required><option disabled value="">Choose transaction</option>{availableCandidates.map((candidate) => <option key={`${candidate.sourceType}:${candidate.sourceId}`} value={`${candidate.sourceType}:${candidate.sourceId}`}>{candidate.invoiceMonth ? `${rentalMonthLabel(candidate.invoiceMonth)} invoice · ` : ""}{dateLabel(candidate.date)} · {money(candidate.amount)} · {candidate.description}</option>)}</select>
                               <Button className="w-full" type="submit" variant="outline"><Link2 className="h-4 w-4" />Match</Button>
                             </form>
                             {remaining > 0.005 ? <form action={createTenantPaymentFromBankLine} className="space-y-3 rounded-lg border-2 border-[#b8892c] bg-[#fffaf0] p-4">
                               <div><p className="font-semibold">Tenant paid but did not upload a slip</p><p className="text-xs text-gray-600">Use only for a real unmatched bank receipt. DEKEZ records the payment, knocks off the invoice and retains the statement as proof.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
+                              <input name="bankFlow" type="hidden" value="credit" />
                               <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">Only {rentalMonthLabel(statementRentalMonth)} rental invoices are allowed for this statement. Older outstanding invoices are not carried forward here.</p>
                               {suggestedInvoice ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">QR room found: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName} · rental invoice month {rentalMonthLabel(suggestedInvoice.billMonth)}</p> : locationHint ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">No open {rentalMonthLabel(statementRentalMonth)} invoice was found for {locationHint.propertyCode} Room {locationHint.roomCode}. Do not choose another month.</p> : null}
                               <label className="block text-xs font-medium">{rentalMonthLabel(statementRentalMonth)} tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose {rentalMonthLabel(statementRentalMonth)} invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{rentalMonthLabel(bill.billMonth)} · {bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.id.slice(0, 8)} · owing {money(bill.outstanding)}</option>)}</select></label>
@@ -787,8 +1109,18 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <Button className="w-full" type="submit"><Banknote className="h-4 w-4" />Record payment, knock off &amp; match</Button>
                             </form> : null}
                             <div className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
-                              <form action={createBankAdjustment} className="space-y-3"><div><p className="font-semibold">Record a missing accounting entry</p><p className="text-xs text-gray-500">Includes property rent/COGS, salary, AP/AR, fixed assets, loans, capital, transfers, bank fees, tax and other categories.</p></div><input name="lineId" type="hidden" value={line.id} /><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="" name="accountId" required><option disabled value="">Choose accounting category</option>{adjustmentAccountGroups.map((group) => <optgroup key={group.type} label={group.type.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase())}>{group.accounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</optgroup>)}</select><select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={locationHint ? properties.find((property) => propertyCode(property.name) === locationHint.propertyCode)?.id ?? "" : ""} name="propertyId"><option value="">General company / no property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="description" placeholder="What was this transaction for?" required /><Button className="w-full" type="submit" variant="outline">Record &amp; match</Button></form>
-                              <form action={ignoreBankLine} className="space-y-2 border-t border-[#d7dde5] pt-3"><input name="lineId" type="hidden" value={line.id} /><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="reason" placeholder="Audit reason to ignore" required /><Button className="w-full" type="submit" variant="ghost">Ignore with reason</Button></form>
+                              <form action={createBankAdjustment} className="space-y-3">
+                                <div><p className="font-semibold">{bankFlow === "debit" ? "Categorise this debit" : "Record a missing accounting entry"}</p><p className="text-xs text-gray-500">{bankFlow === "debit" ? "Use for bank fees, salary, property rent/COGS, fixed assets, tax or another outgoing category that has no existing bill." : "Use for interest, owner capital, transfers or another incoming accounting category."}</p></div>
+                                {rememberedRule ? <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900"><strong>Remembered from an earlier month.</strong> Check the filled category, property and description, then confirm.</div> : null}
+                                <input name="lineId" type="hidden" value={line.id} />
+                                <input name="bankFlow" type="hidden" value={bankFlow} />
+                                <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={rememberedRule?.accounting_account_id ?? ""} name="accountId" required><option disabled value="">Choose accounting category</option>{adjustmentAccountGroups.map((group) => <optgroup key={group.type} label={group.type.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase())}>{group.accounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</optgroup>)}</select>
+                                <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={rememberedRule?.property_id ?? hintedPropertyId} name="propertyId"><option value="">General company / no property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select>
+                                <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" defaultValue={rememberedRule?.default_description ?? ""} name="description" placeholder="What was this transaction for?" required />
+                                <label className="flex items-start gap-2 rounded-md border border-[#d7dde5] bg-gray-50 px-3 py-2 text-xs text-gray-700"><input className="mt-0.5" defaultChecked name="rememberRule" type="checkbox" value="1" /><span>Remember this bank description for next month. DEKEZ will prefill the same category, property and description, but will still wait for your confirmation.</span></label>
+                                <Button className="w-full" type="submit" variant="outline">Record &amp; match</Button>
+                              </form>
+                              <form action={ignoreBankLine} className="space-y-2 border-t border-[#d7dde5] pt-3"><input name="lineId" type="hidden" value={line.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="reason" placeholder="Audit reason to ignore" required /><Button className="w-full" type="submit" variant="ghost">Ignore with reason</Button></form>
                             </div>
                               </div>
                             </details>
@@ -797,8 +1129,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       </div>
                     );
                   })}
-                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All bank transactions have been matched or explained.</div> : null}
-                  {reviewPageCount > 1 ? <div className="flex items-center justify-between gap-3 border-t border-[#d7dde5] pt-4 text-sm"><span>Page {reviewPage} of {reviewPageCount} · showing up to {reviewPageSize} unmatched transactions</span><div className="flex gap-2">{reviewPage > 1 ? <Button asChild size="sm" variant="outline"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage - 1)} prefetch={false}>Previous</Link></Button> : null}{reviewPage < reviewPageCount ? <Button asChild size="sm"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage + 1)} prefetch={false}>Next</Link></Button> : null}</div></div> : null}
+                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All {bankFlow === "credit" ? "credits" : "debits"} have been matched or explained.</div> : null}
+                  {reviewPageCount > 1 ? <div className="flex items-center justify-between gap-3 border-t border-[#d7dde5] pt-4 text-sm"><span>Page {reviewPage} of {reviewPageCount} · showing up to {reviewPageSize} unmatched {bankFlow === "credit" ? "credits" : "debits"}</span><div className="flex gap-2">{reviewPage > 1 ? <Button asChild size="sm" variant="outline"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage - 1, bankFlow)} prefetch={false}>Previous</Link></Button> : null}{reviewPage < reviewPageCount ? <Button asChild size="sm"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage + 1, bankFlow)} prefetch={false}>Next</Link></Button> : null}</div></div> : null}
                 </CardContent>
               </Card>
             </>
@@ -811,5 +1143,32 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         {!accounts.length ? <p className="py-4 text-sm text-gray-500">No accounts have been created yet.</p> : null}
       </CardContent></Card> : null}
     </section>
+  );
+}
+
+function BalanceSection({
+  rows,
+  title,
+  tone,
+  total,
+}: {
+  rows: Array<{ key: string; code: string; label: string; amount: number; source: string }>;
+  title: string;
+  tone: "emerald" | "red" | "blue";
+  total: number;
+}) {
+  const classes = tone === "emerald"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+    : tone === "red"
+      ? "border-red-200 bg-red-50 text-red-950"
+      : "border-blue-200 bg-blue-50 text-blue-950";
+  return (
+    <div className={`overflow-hidden rounded-lg border ${classes}`}>
+      <div className="flex items-center justify-between border-b border-current/10 px-4 py-3"><h3 className="font-semibold">{title}</h3><strong>{money(total)}</strong></div>
+      <div className="divide-y divide-current/10 bg-white/70">
+        {rows.map((row) => <div className="px-4 py-3" key={row.key}><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{row.code} · {row.label}</p><p className="mt-1 text-xs opacity-70">{row.source}</p></div><strong className="shrink-0">{money(row.amount)}</strong></div></div>)}
+        {!rows.length ? <p className="px-4 py-5 text-sm opacity-70">No balance recorded.</p> : null}
+      </div>
+    </div>
   );
 }

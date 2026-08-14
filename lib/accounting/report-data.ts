@@ -160,6 +160,40 @@ export async function getProfitLossReport(
     }
   }
 
+  const { data: journalEntries } = await supabase
+    .from("accounting_journal_entries")
+    .select("id")
+    .eq("company_id", input.companyId)
+    .eq("status", "posted")
+    .gte("entry_date", input.startDate)
+    .lte("entry_date", input.endDate);
+  const journalEntryIds = (journalEntries ?? []).map((entry) => entry.id);
+  let journalLinesQuery = journalEntryIds.length
+    ? supabase
+        .from("accounting_journal_lines")
+        .select("debit, credit, property_id, accounting_accounts!inner(id, name, account_type, report_group)")
+        .in("journal_entry_id", journalEntryIds)
+    : null;
+  if (journalLinesQuery && input.propertyId) {
+    journalLinesQuery = journalLinesQuery.eq("property_id", input.propertyId);
+  }
+  const { data: journalLines } = journalLinesQuery
+    ? await journalLinesQuery
+    : { data: [] };
+
+  for (const line of journalLines ?? []) {
+    const relation = line.accounting_accounts;
+    const account = Array.isArray(relation) ? relation[0] : relation;
+    const debit = numberValue(line.debit);
+    const credit = numberValue(line.credit);
+    if (account?.account_type === "income") {
+      addRow(revenue, `journal_account_${account.id}`, account.name, credit - debit);
+    } else if (account?.account_type === "expense") {
+      const target = account.report_group === "cost_of_sales" ? costOfSalesRows : expenseRows;
+      addRow(target, `journal_account_${account.id}`, account.name, debit - credit);
+    }
+  }
+
   const revenueRows = Array.from(revenue.values()).sort((left, right) => left.label.localeCompare(right.label));
   const directCostRows = Array.from(costOfSalesRows.values()).sort((left, right) => left.label.localeCompare(right.label));
   const operatingExpenseRows = Array.from(expenseRows.values()).sort((left, right) => left.label.localeCompare(right.label));

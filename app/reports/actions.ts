@@ -11,6 +11,7 @@ import {
   type BankSourceType,
 } from "@/lib/accounting/bank-candidates";
 import { parseBankStatementCsv } from "@/lib/accounting/bank-statement";
+import { bankDescriptionKey } from "@/lib/accounting/bank-description";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -34,6 +35,24 @@ function reportPath(params: Record<string, string>) {
   return `/reports?${search.toString()}`;
 }
 
+function accountingTabPath(tab: string, params: Record<string, string> = {}) {
+  const search = new URLSearchParams({ tab, ...params });
+  return `/reports?${search.toString()}`;
+}
+
+function bankFlowValue(formData: FormData, fallback: "credit" | "debit" = "credit") {
+  const value = textValue(formData, "bankFlow");
+  return value === "credit" || value === "debit" ? value : fallback;
+}
+
+function bankActionPath(
+  formData: FormData,
+  params: Record<string, string>,
+  fallback: "credit" | "debit" = "credit",
+) {
+  return reportPath({ bankFlow: bankFlowValue(formData, fallback), ...params });
+}
+
 function statementImportPath(params: Record<string, string>) {
   return `${reportPath(params)}#bank-import`;
 }
@@ -51,6 +70,70 @@ async function accountingContext() {
   const [user, company] = await Promise.all([getCurrentUser(), getFirstCompany()]);
   if (!user || !company) redirect(reportPath({ error: "accounting_context" }));
   return { user, company, supabase: createAdminClient() };
+}
+
+export async function postManualJournalEntry(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const entryDate = textValue(formData, "entryDate");
+  const referenceNumber = textValue(formData, "referenceNumber");
+  const description = textValue(formData, "description");
+  const linesJson = textValue(formData, "linesJson");
+  let lines: Array<{
+    account_id?: string;
+    property_id?: string | null;
+    description?: string | null;
+    debit?: number;
+    credit?: number;
+  }> = [];
+  try {
+    const parsed = JSON.parse(linesJson);
+    if (Array.isArray(parsed)) lines = parsed;
+  } catch {
+    redirect(accountingTabPath("journal", { error: "journal_lines" }));
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !description || lines.length < 2 || lines.length > 100) {
+    redirect(accountingTabPath("journal", { error: "journal_details" }));
+  }
+  const normalizedLines = lines.map((line) => ({
+    account_id: String(line.account_id ?? ""),
+    property_id: line.property_id ? String(line.property_id) : null,
+    description: line.description ? String(line.description).slice(0, 300) : null,
+    debit: Math.max(Number(line.debit) || 0, 0),
+    credit: Math.max(Number(line.credit) || 0, 0),
+  }));
+  const validLines = normalizedLines.every((line) =>
+    line.account_id && ((line.debit > 0 && line.credit === 0) || (line.credit > 0 && line.debit === 0)),
+  );
+  const debitTotal = normalizedLines.reduce((total, line) => total + line.debit, 0);
+  const creditTotal = normalizedLines.reduce((total, line) => total + line.credit, 0);
+  if (!validLines || debitTotal <= 0 || Math.abs(debitTotal - creditTotal) > 0.005) {
+    redirect(accountingTabPath("journal", { error: "journal_balance" }));
+  }
+
+  const { data: entryId, error } = await supabase.rpc("post_manual_journal_entry", {
+    target_company_id: company.id,
+    target_entry_date: entryDate,
+    target_reference_number: referenceNumber || null,
+    target_description: description,
+    target_lines: normalizedLines,
+    target_created_by: user.id,
+  });
+  if (error || !entryId) {
+    console.error("[accounting] manual journal post failed", {
+      code: error?.code,
+      message: error?.message,
+    });
+    const errorCode = error?.message?.includes("journal_period_locked")
+      ? "journal_period"
+      : error?.message?.includes("journal_not_balanced")
+        ? "journal_balance"
+        : "journal_post";
+    redirect(accountingTabPath("journal", { error: errorCode }));
+  }
+
+  revalidatePath("/reports");
+  redirect(accountingTabPath("journal", { journal_posted: String(entryId) }));
 }
 
 export async function createBankAccount(formData: FormData) {
@@ -407,11 +490,11 @@ export async function reconcileCompanyExpenseBatchFromBankLine(
     !expenseIds.length ||
     !["company_bank", "company_card"].includes(paymentMethod)
   ) {
-    redirect(reportPath({ error: "expense_batch_details" }));
+    redirect(bankActionPath(formData, { error: "expense_batch_details" }, "debit"));
   }
 
   const context = await loadOpenBankLine(supabase, company.id, lineId);
-  if (!context) redirect(reportPath({ error: "expense_batch_line" }));
+  if (!context) redirect(bankActionPath(formData, { error: "expense_batch_line" }, "debit"));
   const { line, statement, remaining } = context;
   const { data: expenses } = await supabase
     .from("expenses")
@@ -430,7 +513,7 @@ export async function reconcileCompanyExpenseBatchFromBankLine(
     Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
   ) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "expense_batch_total",
       }),
@@ -450,7 +533,7 @@ export async function reconcileCompanyExpenseBatchFromBankLine(
   });
   if (proofError) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "expense_batch_proof",
       }),
@@ -475,7 +558,7 @@ export async function reconcileCompanyExpenseBatchFromBankLine(
   if (batchError || !batchId) {
     await supabase.storage.from("expense-payment-proofs").remove([proofPath]);
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "expense_batch_create",
       }),
@@ -494,7 +577,7 @@ export async function reconcileCompanyExpenseBatchFromBankLine(
     });
   if (matchError) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "expense_batch_match",
       }),
@@ -519,7 +602,7 @@ export async function reconcileCompanyExpenseBatchFromBankLine(
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
   redirect(
-    reportPath({
+    bankActionPath(formData, {
       statement: line.statement_import_id,
       expense_batch_reconciled: String(expenseIds.length),
     }),
@@ -533,11 +616,11 @@ export async function reconcilePaidCompanyExpensesFromBankLine(
   const lineId = textValue(formData, "lineId");
   const expenseIds = uniqueFormIds(formData, "expenseIds");
   if (!lineId || !expenseIds.length) {
-    redirect(reportPath({ error: "paid_receipts_details" }));
+    redirect(bankActionPath(formData, { error: "paid_receipts_details" }, "debit"));
   }
 
   const context = await loadOpenBankLine(supabase, company.id, lineId);
-  if (!context) redirect(reportPath({ error: "paid_receipts_line" }));
+  if (!context) redirect(bankActionPath(formData, { error: "paid_receipts_line" }, "debit"));
   const { line, remaining } = context;
   const [{ data: expenses }, { data: existingMatches }, { data: allocations }] =
     await Promise.all([
@@ -583,7 +666,7 @@ export async function reconcilePaidCompanyExpensesFromBankLine(
     Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
   ) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "paid_receipts_total",
       }),
@@ -604,7 +687,7 @@ export async function reconcilePaidCompanyExpensesFromBankLine(
     );
   if (matchError) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "paid_receipts_match",
       }),
@@ -627,7 +710,7 @@ export async function reconcilePaidCompanyExpensesFromBankLine(
   revalidatePath("/reports");
   revalidatePath("/expenses");
   redirect(
-    reportPath({
+    bankActionPath(formData, {
       statement: line.statement_import_id,
       paid_receipts_reconciled: String(expenseIds.length),
     }),
@@ -640,11 +723,11 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
   const staffId = textValue(formData, "staffId");
   const liabilityIds = uniqueFormIds(formData, "liabilityIds");
   if (!lineId || !staffId || !liabilityIds.length) {
-    redirect(reportPath({ error: "staff_batch_details" }));
+    redirect(bankActionPath(formData, { error: "staff_batch_details" }, "debit"));
   }
 
   const context = await loadOpenBankLine(supabase, company.id, lineId);
-  if (!context) redirect(reportPath({ error: "staff_batch_line" }));
+  if (!context) redirect(bankActionPath(formData, { error: "staff_batch_line" }, "debit"));
   const { line, statement, remaining } = context;
   const { data: liabilities } = await supabase
     .from("staff_reimbursement_liabilities")
@@ -671,7 +754,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
     Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
   ) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "staff_batch_total",
       }),
@@ -691,7 +774,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
   });
   if (proofError) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "staff_batch_proof",
       }),
@@ -716,7 +799,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
   if (payoutError || !payoutId) {
     await supabase.storage.from("reimbursement-proofs").remove([proofPath]);
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "staff_batch_create",
       }),
@@ -735,7 +818,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
     });
   if (matchError) {
     redirect(
-      reportPath({
+      bankActionPath(formData, {
         statement: line.statement_import_id,
         error: "staff_batch_match",
       }),
@@ -761,7 +844,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
   revalidatePath("/claims");
   revalidatePath("/dashboard");
   redirect(
-    reportPath({
+    bankActionPath(formData, {
       statement: line.statement_import_id,
       staff_batch_reconciled: String(liabilityIds.length),
     }),
@@ -771,6 +854,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
 export async function autoMatchStatement(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const statementId = textValue(formData, "statementId");
+  const bankFlow = bankFlowValue(formData);
   const [{ data: statementImport }, { data: lines }, { data: allMatches }, candidates] = await Promise.all([
     supabase.from("bank_statement_imports").select("id, period_start, period_end, status").eq("id", statementId).eq("company_id", company.id).maybeSingle(),
     supabase.from("bank_statement_lines").select("id, transaction_date, amount, description, reference_number, status").eq("statement_import_id", statementId).eq("status", "unmatched"),
@@ -778,7 +862,7 @@ export async function autoMatchStatement(formData: FormData) {
     getBankCandidates(supabase, company.id),
   ]);
   if (!statementImport || statementImport.status !== "in_progress") {
-    redirect(reportPath({ error: "statement_closed" }));
+    redirect(bankActionPath(formData, { error: "statement_closed" }));
   }
 
   const consumed = new Map<string, number>();
@@ -789,7 +873,9 @@ export async function autoMatchStatement(formData: FormData) {
   let matchedCount = 0;
   const statementRentalMonth = statementImport.period_start.slice(0, 7);
 
-  for (const line of lines ?? []) {
+  for (const line of (lines ?? []).filter((item) =>
+    bankFlow === "credit" ? Number(item.amount) > 0 : Number(item.amount) < 0,
+  )) {
     const amount = Number(line.amount);
     const available = candidates.filter((candidate) => {
       const key = `${candidate.sourceType}:${candidate.sourceId}`;
@@ -836,7 +922,7 @@ export async function autoMatchStatement(formData: FormData) {
   }
 
   revalidatePath("/reports");
-  redirect(reportPath({ statement: statementId, auto_matched: String(matchedCount) }));
+  redirect(bankActionPath(formData, { statement: statementId, auto_matched: String(matchedCount) }));
 }
 
 export async function matchBankLine(formData: FormData) {
@@ -849,7 +935,7 @@ export async function matchBankLine(formData: FormData) {
     !sourceId ||
     !bankSourceTypes.includes(sourceType as BankSourceType)
   ) {
-    redirect(reportPath({ error: "match_details" }));
+    redirect(bankActionPath(formData, { error: "match_details" }));
   }
 
   const [{ data: line }, candidates, { data: lineMatches }, { data: sourceMatches }] = await Promise.all([
@@ -859,7 +945,7 @@ export async function matchBankLine(formData: FormData) {
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("source_type", sourceType).eq("source_id", sourceId),
   ]);
   const candidate = candidates.find((item) => item.sourceType === sourceType && item.sourceId === sourceId);
-  if (!line || !candidate || line.status === "ignored") redirect(reportPath({ error: "match_missing" }));
+  if (!line || !candidate || line.status === "ignored") redirect(bankActionPath(formData, { error: "match_missing" }));
   const statement = singleRelation(line.bank_statement_imports);
   const statementRentalMonth = statement?.period_start?.slice(0, 7);
   if (
@@ -868,14 +954,14 @@ export async function matchBankLine(formData: FormData) {
     statement.status !== "in_progress" ||
     (candidate.isRental && candidate.invoiceMonth?.slice(0, 7) !== statementRentalMonth)
   ) {
-    redirect(reportPath({ statement: line.statement_import_id, error: "match_rental_month" }));
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_rental_month" }));
   }
   const lineMatched = (lineMatches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
   const sourceMatched = (sourceMatches ?? []).reduce((total, match) => total + Math.abs(Number(match.matched_amount ?? 0)), 0);
   const lineRemaining = Number(line.amount) - lineMatched;
   const sourceRemaining = Math.abs(candidate.amount) - sourceMatched;
   if (Math.sign(lineRemaining) !== Math.sign(candidate.amount) || sourceRemaining <= 0.005) {
-    redirect(reportPath({ error: "match_direction" }));
+    redirect(bankActionPath(formData, { error: "match_direction" }));
   }
   const matchedAmount = Math.sign(lineRemaining) * Math.min(Math.abs(lineRemaining), sourceRemaining);
   const { error } = await supabase.from("bank_reconciliation_matches").insert({
@@ -886,10 +972,10 @@ export async function matchBankLine(formData: FormData) {
     match_method: Math.abs(matchedAmount - lineRemaining) < 0.005 ? "manual" : "split",
     created_by: user.id,
   });
-  if (error) redirect(reportPath({ statement: line.statement_import_id, error: "match_create" }));
+  if (error) redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_create" }));
   await refreshLineStatus(supabase, line.id);
   revalidatePath("/reports");
-  redirect(reportPath({ statement: line.statement_import_id, matched: "1" }));
+  redirect(bankActionPath(formData, { statement: line.statement_import_id, matched: "1" }));
 }
 
 export async function unmatchBankLine(formData: FormData) {
@@ -900,14 +986,14 @@ export async function unmatchBankLine(formData: FormData) {
     .select("id, statement_line_id, bank_statement_lines(statement_import_id)")
     .eq("id", matchId)
     .maybeSingle();
-  if (!match) redirect(reportPath({ error: "unmatch_missing" }));
+  if (!match) redirect(bankActionPath(formData, { error: "unmatch_missing" }));
   const { error } = await supabase.from("bank_reconciliation_matches").delete().eq("id", match.id);
-  if (error) redirect(reportPath({ error: "unmatch_failed" }));
+  if (error) redirect(bankActionPath(formData, { error: "unmatch_failed" }));
   await refreshLineStatus(supabase, match.statement_line_id);
   const relation = match.bank_statement_lines;
   const line = Array.isArray(relation) ? relation[0] : relation;
   revalidatePath("/reports");
-  redirect(reportPath({ statement: line?.statement_import_id ?? "", unmatched: "1" }));
+  redirect(bankActionPath(formData, { statement: line?.statement_import_id ?? "", unmatched: "1" }));
 }
 
 export async function createBankAdjustment(formData: FormData) {
@@ -916,8 +1002,9 @@ export async function createBankAdjustment(formData: FormData) {
   const accountId = textValue(formData, "accountId");
   const propertyId = textValue(formData, "propertyId") || null;
   const description = textValue(formData, "description");
+  const rememberRule = textValue(formData, "rememberRule") === "1";
   const [{ data: line }, { data: matches }, { data: account }, { data: property }] = await Promise.all([
-    supabase.from("bank_statement_lines").select("id, bank_account_id, statement_import_id, transaction_date, reference_number, amount, status").eq("id", lineId).single(),
+    supabase.from("bank_statement_lines").select("id, bank_account_id, statement_import_id, transaction_date, description, reference_number, amount, status").eq("id", lineId).single(),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("statement_line_id", lineId),
     supabase.from("accounting_accounts").select("id, account_type, system_key").eq("id", accountId).eq("company_id", company.id).maybeSingle(),
     propertyId
@@ -925,14 +1012,14 @@ export async function createBankAdjustment(formData: FormData) {
       : Promise.resolve({ data: null }),
   ]);
   if (!line || !account || !description || (propertyId && !property)) {
-    redirect(reportPath({ error: "adjustment_details" }));
+    redirect(bankActionPath(formData, { error: "adjustment_details" }));
   }
   if (account.system_key === "property_rental_cost" && !propertyId) {
-    redirect(reportPath({ statement: line.statement_import_id, error: "adjustment_property" }));
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "adjustment_property" }));
   }
   const matched = (matches ?? []).reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
   const remaining = Number(line.amount) - matched;
-  if (Math.abs(remaining) < 0.005) redirect(reportPath({ statement: line.statement_import_id, error: "line_complete" }));
+  if (Math.abs(remaining) < 0.005) redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "line_complete" }));
   const { data: transaction, error: transactionError } = await supabase
     .from("bank_manual_transactions")
     .insert({
@@ -948,7 +1035,7 @@ export async function createBankAdjustment(formData: FormData) {
     })
     .select("id")
     .single();
-  if (transactionError || !transaction) redirect(reportPath({ error: "adjustment_create" }));
+  if (transactionError || !transaction) redirect(bankActionPath(formData, { error: "adjustment_create" }));
   const { error } = await supabase.from("bank_reconciliation_matches").insert({
     statement_line_id: line.id,
     source_type: "manual_bank_transaction",
@@ -957,10 +1044,25 @@ export async function createBankAdjustment(formData: FormData) {
     match_method: "adjustment",
     created_by: user.id,
   });
-  if (error) redirect(reportPath({ error: "adjustment_match" }));
+  if (error) redirect(bankActionPath(formData, { error: "adjustment_match" }));
+  const ruleKey = bankDescriptionKey(line.description);
+  if (rememberRule && ruleKey) {
+    await supabase.from("bank_reconciliation_rules").upsert({
+      company_id: company.id,
+      bank_account_id: line.bank_account_id,
+      direction: remaining > 0 ? "credit" : "debit",
+      bank_description_key: ruleKey,
+      accounting_account_id: account.id,
+      property_id: propertyId,
+      default_description: description,
+      last_used_at: new Date().toISOString(),
+      created_by: user.id,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "company_id,bank_account_id,direction,bank_description_key" });
+  }
   await refreshLineStatus(supabase, line.id);
   revalidatePath("/reports");
-  redirect(reportPath({ statement: line.statement_import_id, adjusted: "1" }));
+  redirect(bankActionPath(formData, { statement: line.statement_import_id, adjusted: "1" }));
 }
 
 export async function ignoreBankLine(formData: FormData) {
@@ -982,14 +1084,14 @@ export async function ignoreBankLine(formData: FormData) {
     statement?.status !== "in_progress" ||
     !reason
   ) {
-    redirect(reportPath({ error: "ignore_details" }));
+    redirect(bankActionPath(formData, { error: "ignore_details" }));
   }
   const { count } = await supabase
     .from("bank_reconciliation_matches")
     .select("id", { count: "exact", head: true })
     .eq("statement_line_id", line.id);
   if (count) {
-    redirect(reportPath({ statement: line.statement_import_id, error: "ignore_matched" }));
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "ignore_matched" }));
   }
   const { error } = await supabase
     .from("bank_statement_lines")
@@ -997,7 +1099,7 @@ export async function ignoreBankLine(formData: FormData) {
     .eq("id", line.id)
     .eq("status", "unmatched");
   if (error) {
-    redirect(reportPath({ statement: line.statement_import_id, error: "ignore_failed" }));
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "ignore_failed" }));
   }
   await supabase.from("accounting_audit_logs").insert({
     company_id: company.id,
@@ -1008,7 +1110,7 @@ export async function ignoreBankLine(formData: FormData) {
     performed_by: user.id,
   });
   revalidatePath("/reports");
-  redirect(reportPath({ statement: line.statement_import_id, ignored: "1" }));
+  redirect(bankActionPath(formData, { statement: line.statement_import_id, ignored: "1" }));
 }
 
 export async function createTenantPaymentFromBankLine(formData: FormData) {
