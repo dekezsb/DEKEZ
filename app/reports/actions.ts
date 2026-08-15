@@ -72,6 +72,116 @@ async function accountingContext() {
   return { user, company, supabase: createAdminClient() };
 }
 
+const accountingReportGroups = {
+  asset: ["current_asset", "non_current_asset"],
+  liability: ["current_liability", "non_current_liability"],
+  equity: ["equity"],
+  income: ["revenue", "other_income"],
+  expense: ["cost_of_sales", "operating_expense", "other_expense"],
+} as const;
+
+function normalBalanceForAccountType(accountType: string) {
+  return accountType === "asset" || accountType === "expense" ? "debit" : "credit";
+}
+
+export async function createAccountingAccount(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const code = textValue(formData, "code");
+  const name = textValue(formData, "name");
+  const [accountTypeValue, reportGroup = ""] = textValue(formData, "classification").split(":");
+  const accountType = accountTypeValue as keyof typeof accountingReportGroups;
+  const description = textValue(formData, "description");
+  const allowedGroups = accountingReportGroups[accountType] as readonly string[] | undefined;
+
+  if (
+    !/^\d{4,6}$/.test(code) ||
+    name.length < 2 ||
+    name.length > 100 ||
+    description.length > 500 ||
+    !allowedGroups?.includes(reportGroup)
+  ) {
+    redirect(accountingTabPath("ledger", { error: "account_details" }));
+  }
+
+  const { data: account, error } = await supabase
+    .from("accounting_accounts")
+    .insert({
+      company_id: company.id,
+      code,
+      name,
+      account_type: accountType,
+      report_group: reportGroup,
+      normal_balance: normalBalanceForAccountType(accountType),
+      description: description || null,
+      is_system: false,
+      sort_order: Number(code),
+    })
+    .select("id, code, name, account_type, report_group, normal_balance, description, is_system")
+    .single();
+
+  if (error || !account) {
+    const errorCode = error?.code === "23505" ? "account_duplicate" : "account_create";
+    redirect(accountingTabPath("ledger", { error: errorCode }));
+  }
+
+  await supabase.from("accounting_audit_logs").insert({
+    company_id: company.id,
+    entity_type: "accounting_account",
+    entity_id: account.id,
+    action: "created",
+    after_data: account,
+    reason: "Created from Chart of Accounts",
+    performed_by: user.id,
+  });
+
+  revalidatePath("/reports");
+  redirect(accountingTabPath("ledger", { account_created: account.id }));
+}
+
+export async function updateAccountingAccountWording(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const accountId = textValue(formData, "accountId");
+  const name = textValue(formData, "name");
+  const description = textValue(formData, "description");
+
+  if (!accountId || name.length < 2 || name.length > 100 || description.length > 500) {
+    redirect(accountingTabPath("ledger", { error: "account_wording" }));
+  }
+
+  const { data: beforeAccount } = await supabase
+    .from("accounting_accounts")
+    .select("id, code, name, account_type, report_group, normal_balance, description, is_system")
+    .eq("id", accountId)
+    .eq("company_id", company.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!beforeAccount) redirect(accountingTabPath("ledger", { error: "account_missing" }));
+
+  const { data: account, error } = await supabase
+    .from("accounting_accounts")
+    .update({ name, description: description || null, updated_at: new Date().toISOString() })
+    .eq("id", beforeAccount.id)
+    .eq("company_id", company.id)
+    .select("id, code, name, account_type, report_group, normal_balance, description, is_system")
+    .single();
+
+  if (error || !account) redirect(accountingTabPath("ledger", { error: "account_update" }));
+
+  await supabase.from("accounting_audit_logs").insert({
+    company_id: company.id,
+    entity_type: "accounting_account",
+    entity_id: account.id,
+    action: "wording_updated",
+    before_data: beforeAccount,
+    after_data: account,
+    reason: "Updated from Chart of Accounts",
+    performed_by: user.id,
+  });
+
+  revalidatePath("/reports");
+  redirect(accountingTabPath("ledger", { account_updated: account.id }));
+}
+
 export async function postManualJournalEntry(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const entryDate = textValue(formData, "entryDate");

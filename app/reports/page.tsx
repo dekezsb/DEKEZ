@@ -26,6 +26,7 @@ import {
   type ReconciliationStaffGroup,
 } from "@/components/accounting/bank-receipt-batch-form";
 import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
+import { ChartOfAccountsManager } from "@/components/accounting/chart-of-accounts-manager";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
@@ -232,6 +233,12 @@ const errorMessages: Record<string, string> = {
   journal_balance: "Total debit and total credit must be equal, and every line must use only one side.",
   journal_period: "This accounting period is locked. Use an open period or ask the Super Admin to reopen it.",
   journal_post: "The journal could not be posted. No partial entry was saved.",
+  account_details: "Enter a unique 4 to 6 digit code, account name and valid accounting category.",
+  account_duplicate: "That account code already exists. Use another code.",
+  account_create: "The new account could not be created.",
+  account_wording: "Enter an account name between 2 and 100 characters.",
+  account_missing: "That account is no longer available. Refresh the page and try again.",
+  account_update: "The account wording could not be updated.",
 };
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
@@ -258,7 +265,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
     supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(240),
-    supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
+    supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, description, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
     supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
     supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
@@ -676,6 +683,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       </div>
 
       {params.error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessages[params.error] ?? "The accounting action could not be completed."}</div> : null}
+      {params.account_created ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">New chart account added. It is now available in journals and bank reconciliation.</div> : null}
+      {params.account_updated ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Account wording updated. Existing transactions stayed linked to the same account.</div> : null}
 
       <nav className="flex gap-2 overflow-x-auto border-b border-[#d7dde5] pb-3">
         {tabs.map((item) => {
@@ -1187,10 +1196,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </div>
       ) : null}
 
-      {tab === "ledger" ? <Card><CardHeader><CardTitle>Chart of Accounts</CardTitle><CardDescription>System accounts are mapped to existing DEKEZ invoices, deposits, payments and expenses.</CardDescription></CardHeader><CardContent>
-        <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Account</TableHead><TableHead>Type</TableHead><TableHead>Report group</TableHead><TableHead>Normal balance</TableHead><TableHead>Source</TableHead></TableRow></TableHeader><TableBody>{accounts.map((account) => <TableRow key={account.id}><TableCell className="font-mono font-semibold">{account.code}</TableCell><TableCell>{account.name}</TableCell><TableCell className="capitalize">{account.account_type}</TableCell><TableCell className="capitalize">{String(account.report_group).replaceAll("_", " ")}</TableCell><TableCell className="capitalize">{account.normal_balance}</TableCell><TableCell>{account.is_system ? <Badge>DEKEZ mapped</Badge> : "Manual"}</TableCell></TableRow>)}</TableBody></Table>
-        {!accounts.length ? <p className="py-4 text-sm text-gray-500">No accounts have been created yet.</p> : null}
-      </CardContent></Card> : null}
+      {tab === "ledger" ? <ChartOfAccountsManager accounts={accounts} /> : null}
     </section>
   );
 }
