@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
+import { hasTenantElectricityTopUpAccess } from "@/lib/smart-meter/top-up-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const allowedSlipTypes = new Set([
@@ -64,6 +65,20 @@ export async function submitSmartMeterTopUp(formData: FormData) {
     ["completed", "terminated"].includes(String(tenancy.billing_status))
   ) {
     redirect(topUpResult("topup_error=tenancy"));
+  }
+
+  const { data: property } = await supabase
+    .from("properties")
+    .select("property_code, name")
+    .eq("id", tenancy.property_id)
+    .maybeSingle();
+  if (
+    !hasTenantElectricityTopUpAccess(
+      property?.property_code,
+      property?.name,
+    )
+  ) {
+    redirect(topUpResult("topup_error=access"));
   }
 
   const [{ data: tenant }, { data: existingRequest }] =

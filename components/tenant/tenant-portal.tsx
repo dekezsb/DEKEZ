@@ -37,6 +37,7 @@ import {
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
+import { hasTenantElectricityTopUpAccess } from "@/lib/smart-meter/top-up-access";
 import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { PaymentAmountFields } from "./payment-amount-fields";
 import { PaymentSubmitButton } from "./payment-submit-button";
@@ -353,22 +354,34 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
         </Card>
       ) : null}
 
-      {data.tenancies.length ? (
+      {data.tenancies.some((tenancy) =>
+        hasTenantElectricityTopUpAccess(
+          tenancy.propertyCode,
+          tenancy.propertyName,
+        ),
+      ) ? (
         <div className="space-y-4">
-          {data.tenancies.map((tenancy) => (
-            <ElectricityTopUpPilot
-              key={tenancy.id}
-              latestRequest={data.topUpRequests.find(
-                (request) => request.tenancy_id === tenancy.id,
-              )}
-              meterNumber={tenancy.electricityMeter?.meterNumber}
-              propertyName={tenancy.propertyName}
-              remainingUnits={tenancy.electricityMeter?.remainingUnits}
-              roomName={tenancy.roomName}
-              tenancyId={tenancy.id}
-              unitLabel={tenancy.electricityMeter?.unitLabel}
-            />
-          ))}
+          {data.tenancies
+            .filter((tenancy) =>
+              hasTenantElectricityTopUpAccess(
+                tenancy.propertyCode,
+                tenancy.propertyName,
+              ),
+            )
+            .map((tenancy) => (
+              <ElectricityTopUpPilot
+                key={tenancy.id}
+                latestRequest={data.topUpRequests.find(
+                  (request) => request.tenancy_id === tenancy.id,
+                )}
+                meterNumber={tenancy.electricityMeter?.meterNumber}
+                propertyName={tenancy.propertyName}
+                remainingUnits={tenancy.electricityMeter?.remainingUnits}
+                roomName={tenancy.roomName}
+                tenancyId={tenancy.id}
+                unitLabel={tenancy.electricityMeter?.unitLabel}
+              />
+            ))}
         </div>
       ) : null}
 
