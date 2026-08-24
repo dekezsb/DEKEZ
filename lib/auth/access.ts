@@ -15,6 +15,7 @@ export const accessModules = [
   "expenses",
   "maintenance",
   "claims",
+  "tenant_checkout",
   "reports",
   "settings",
   "onboarding",
@@ -82,6 +83,12 @@ export const accessModuleDetails: Array<{
     key: "claims",
     label: "Claims",
     description: "Repair and operating expense claims.",
+  },
+  {
+    key: "tenant_checkout",
+    label: "Tenant Check Out",
+    description:
+      "Check an active tenant out, vacate the room and record the checkout date.",
   },
   {
     key: "reports",
@@ -169,6 +176,11 @@ export function resolveUserAccess(
 ): UserAccess {
   const access = getRoleDefaultAccess(role);
   const maximumAccess = getRoleDefaultAccess(role);
+  // Tenant checkout is intentionally opt-in for Admin accounts. This lets the
+  // Super Admin grant the operational action without exposing Properties.
+  if (role === "admin") {
+    maximumAccess.tenant_checkout = "manage";
+  }
   const rank: Record<AccessLevel, number> = {
     none: 0,
     view: 1,

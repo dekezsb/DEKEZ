@@ -20,6 +20,8 @@ import { AgreementRenewalReminders } from "@/components/dashboard/agreement-rene
 import { CompanyCashInHand } from "@/components/dashboard/company-cash-in-hand";
 import { CompactRentDueTracker } from "@/components/dashboard/compact-rent-due-tracker";
 import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
+import { TenantCheckoutHistory } from "@/components/dashboard/tenant-checkout-history";
+import { TenantCheckoutPanel } from "@/components/dashboard/tenant-checkout-panel";
 import { TenantHome } from "@/components/tenant/tenant-portal";
 import { hasModuleAccess } from "@/lib/auth/access";
 import { getCurrentUserAccess, requireRole } from "@/lib/auth/session";
@@ -30,6 +32,10 @@ import { getDashboardSummary } from "@/lib/data/organization";
 import { getOwnerPortalSummary, getStaffPortalSummary } from "@/lib/data/portal";
 import { getRentDueSummary } from "@/lib/data/rent-due";
 import { getTenantPortalData } from "@/lib/data/tenant-portal";
+import {
+  getTenantCheckoutCandidates,
+  getTenantCheckoutHistory,
+} from "@/lib/data/tenant-checkouts";
 import { getUserLocale } from "@/lib/i18n-server";
 import { portalText } from "@/lib/i18n-portal";
 import type { AppLocale } from "@/lib/i18n";
@@ -121,6 +127,9 @@ export default async function DashboardPage({
     uploaded?: string;
     topup_submitted?: string;
     topup_error?: string;
+    checkout_error?: string;
+    checkout_saved?: string;
+    checkoutMonth?: string;
   }>;
 }) {
   const query = await searchParams;
@@ -168,6 +177,11 @@ export default async function DashboardPage({
       <>
         <AccessNotice show={query.error === "access_denied"} />
         <ManagementDashboard
+          canCheckoutTenants={hasModuleAccess(
+            access,
+            "tenant_checkout",
+            "manage",
+          )}
           canFollowRenewals={hasModuleAccess(
             access,
             "tenancy_agreements",
@@ -198,10 +212,12 @@ function AccessNotice({ show }: { show: boolean }) {
 }
 
 async function ManagementDashboard({
+  canCheckoutTenants,
   canFollowRenewals,
   locale,
   query,
 }: {
+  canCheckoutTenants: boolean;
   canFollowRenewals: boolean;
   locale: AppLocale;
   query: {
@@ -210,14 +226,24 @@ async function ManagementDashboard({
     renewalBucket?: string;
     renewalResult?: string;
     uploaded?: string;
+    checkout_error?: string;
+    checkout_saved?: string;
   };
 }) {
-  const [rentDueSummary, depositSummary, agreementReminders] = await Promise.all([
+  const [
+    rentDueSummary,
+    depositSummary,
+    agreementReminders,
+    checkoutCandidates,
+  ] = await Promise.all([
     getRentDueSummary(),
     getDepositOutstandingSummary(),
     canFollowRenewals
       ? getAgreementRenewalReminders()
       : Promise.resolve(null),
+    canCheckoutTenants
+      ? getTenantCheckoutCandidates()
+      : Promise.resolve([]),
   ]);
 
   return (
@@ -267,6 +293,14 @@ async function ManagementDashboard({
           title={portalText(locale, "Claim Bills")}
         />
       </div>
+
+      {canCheckoutTenants ? (
+        <TenantCheckoutPanel
+          candidates={checkoutCandidates}
+          error={query.checkout_error}
+          saved={query.checkout_saved === "1"}
+        />
+      ) : null}
 
       {agreementReminders ? (
         <AgreementRenewalReminders
@@ -392,6 +426,7 @@ async function AdminDashboard({
     rentBucket?: string;
     renewalBucket?: string;
     renewalResult?: string;
+    checkoutMonth?: string;
   };
 }) {
   const [
@@ -400,12 +435,14 @@ async function AdminDashboard({
     depositSummary,
     cashSummary,
     agreementReminders,
+    checkoutHistory,
   ] = await Promise.all([
     getDashboardSummary(),
     getRentDueSummary(),
     getDepositOutstandingSummary(),
     getCashManagementSummary(),
     getAgreementRenewalReminders(),
+    getTenantCheckoutHistory(query.checkoutMonth),
   ]);
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
@@ -505,6 +542,11 @@ async function AdminDashboard({
         result={query.renewalResult}
         selectedBucket={query.renewalBucket}
         summary={agreementReminders}
+      />
+
+      <TenantCheckoutHistory
+        items={checkoutHistory.items}
+        month={checkoutHistory.month}
       />
 
       <CompactRentDueTracker

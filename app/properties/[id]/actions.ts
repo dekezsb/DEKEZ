@@ -13,9 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   reconcileSmartLockAccessForTenancy,
-  revokeSmartLockAccessForTenancy,
 } from "@/lib/ttlock/access";
-import { revokeFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
 import {
   formFile,
   isValidTenantDocument,
@@ -29,6 +27,7 @@ import {
   OPTIONAL_CLAUSES,
   PROPERTY_TYPES,
 } from "@/lib/tenancy/property-settings";
+import { executeTenantCheckout } from "@/lib/tenancy/checkout";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -1346,124 +1345,31 @@ export async function checkoutRoom(formData: FormData) {
     redirect("/properties");
   }
   const supabase = await getAdmin();
-  const { data: room, error: roomError } = await supabase
+  const { data: room } = await supabase
     .from("rooms")
-    .select("current_tenancy_id, status")
+    .select("current_tenancy_id")
     .eq("id", roomId)
     .eq("property_id", property.id)
     .maybeSingle();
   const tenancyId = requestedTenancyId || room?.current_tenancy_id || "";
+  const result = await executeTenantCheckout({
+    actorProfileId: user.id,
+    checkoutDate,
+    expectedPropertyId: property.id,
+    expectedRoomId: roomId,
+    source: "admin_portal",
+    tenancyId,
+  });
 
-  if (
-    roomError ||
-    !room ||
-    room.status !== "occupied" ||
-    !tenancyId ||
-    room.current_tenancy_id !== tenancyId
-  ) {
+  if (!result.ok) {
+    const verificationError = result.reason === "lock" ? "lock" : "stale";
+    const propertyError =
+      result.reason === "lock" ? "lock_access" : "checkout_failed";
     redirect(
       returnTo === "/verification?view=tenancy"
-        ? "/verification?view=tenancy&checkout=stale"
-        : propertyPath(property.id, "?error=checkout_stale"),
+        ? `/verification?view=tenancy&checkout=${verificationError}`
+        : propertyPath(property.id, `?error=${propertyError}`),
     );
-  }
-
-  const { data: activeTenancy, error: tenancyLookupError } = await supabase
-    .from("tenancies")
-    .select("id, tenant_id")
-    .eq("id", tenancyId)
-    .eq("property_id", property.id)
-    .eq("room_id", roomId)
-    .eq("status", "active")
-    .is("checkout_date", null)
-    .maybeSingle();
-
-  if (tenancyLookupError || !activeTenancy) {
-    redirect(
-      returnTo === "/verification?view=tenancy"
-        ? "/verification?view=tenancy&checkout=stale"
-        : propertyPath(property.id, "?error=checkout_stale"),
-    );
-  }
-
-  try {
-    await Promise.all([
-      revokeSmartLockAccessForTenancy(tenancyId),
-      revokeFingerprintAccessForTenancy(tenancyId, user.id),
-    ]);
-  } catch (error) {
-    console.error("Checkout stopped because TTLock access was not revoked.", {
-      roomId,
-      tenancyId,
-      error,
-    });
-    redirect(
-      returnTo === "/verification?view=tenancy"
-        ? "/verification?view=tenancy&checkout=lock"
-        : propertyPath(property.id, "?error=lock_access"),
-    );
-  }
-
-  const { data: checkedOutTenancy, error: checkoutError } = await supabase
-    .from("tenancies")
-    .update({
-      status: "ended",
-      checkout_date: checkoutDate,
-      billing_status: "completed",
-      end_date: checkoutDate,
-      contract_end: checkoutDate,
-      tenancy_end_date: checkoutDate,
-      renewal_status: "not_renewing",
-    })
-    .eq("id", tenancyId)
-    .eq("property_id", property.id)
-    .eq("room_id", roomId)
-    .eq("status", "active")
-    .select("id")
-    .maybeSingle();
-
-  if (checkoutError || !checkedOutTenancy) {
-    console.error("Checkout tenancy update failed.", {
-      checkoutError,
-      roomId,
-      tenancyId,
-    });
-    redirect(propertyPath(property.id, "?error=checkout_failed"));
-  }
-
-  const tenantRecordFilter = [
-    `tenancy_id.eq.${tenancyId}`,
-    activeTenancy.tenant_id ? `tenant_id.eq.${activeTenancy.tenant_id}` : "",
-  ]
-    .filter(Boolean)
-    .join(",");
-  const tenantRecordUpdate = supabase
-    .from("tenant_records")
-    .update({ status: "moved_out", contract_end: checkoutDate })
-    .eq("property_id", property.id)
-    .eq("room_id", roomId)
-    .eq("status", "active");
-  const { error: tenantRecordError } = tenantRecordFilter
-    ? await tenantRecordUpdate.or(tenantRecordFilter)
-    : await tenantRecordUpdate.eq("tenancy_id", tenancyId);
-
-  const { data: vacatedRoom, error: roomUpdateError } = await supabase
-    .from("rooms")
-    .update({ status: "vacant", current_tenancy_id: null })
-    .eq("id", roomId)
-    .eq("property_id", property.id)
-    .eq("current_tenancy_id", tenancyId)
-    .select("id")
-    .maybeSingle();
-
-  if (tenantRecordError || roomUpdateError || !vacatedRoom) {
-    console.error("Checkout room cleanup failed.", {
-      tenantRecordError,
-      roomUpdateError,
-      roomId,
-      tenancyId,
-    });
-    redirect(propertyPath(property.id, "?error=checkout_failed"));
   }
 
   revalidatePath(propertyPath(property.id));
