@@ -21,7 +21,8 @@ import { CompanyCashInHand } from "@/components/dashboard/company-cash-in-hand";
 import { CompactRentDueTracker } from "@/components/dashboard/compact-rent-due-tracker";
 import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
 import { TenantHome } from "@/components/tenant/tenant-portal";
-import { requireRole } from "@/lib/auth/session";
+import { hasModuleAccess } from "@/lib/auth/access";
+import { getCurrentUserAccess, requireRole } from "@/lib/auth/session";
 import { getAgreementRenewalReminders } from "@/lib/data/agreement-renewals";
 import { getCashManagementSummary } from "@/lib/data/cash-management";
 import { getDepositOutstandingSummary } from "@/lib/data/deposit-outstanding";
@@ -132,6 +133,7 @@ export default async function DashboardPage({
     "cleaning_staff",
     "tenant",
   ]);
+  const { access } = await getCurrentUserAccess();
   const locale = await getUserLocale(role);
 
   if (role === "tenant") {
@@ -165,7 +167,15 @@ export default async function DashboardPage({
     return (
       <>
         <AccessNotice show={query.error === "access_denied"} />
-        <ManagementDashboard locale={locale} query={query} />
+        <ManagementDashboard
+          canFollowRenewals={hasModuleAccess(
+            access,
+            "tenancy_agreements",
+            "view",
+          )}
+          locale={locale}
+          query={query}
+        />
       </>
     );
   }
@@ -188,9 +198,11 @@ function AccessNotice({ show }: { show: boolean }) {
 }
 
 async function ManagementDashboard({
+  canFollowRenewals,
   locale,
   query,
 }: {
+  canFollowRenewals: boolean;
   locale: AppLocale;
   query: {
     error?: string;
@@ -200,9 +212,12 @@ async function ManagementDashboard({
     uploaded?: string;
   };
 }) {
-  const [rentDueSummary, depositSummary] = await Promise.all([
+  const [rentDueSummary, depositSummary, agreementReminders] = await Promise.all([
     getRentDueSummary(),
     getDepositOutstandingSummary(),
+    canFollowRenewals
+      ? getAgreementRenewalReminders()
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -252,6 +267,15 @@ async function ManagementDashboard({
           title={portalText(locale, "Claim Bills")}
         />
       </div>
+
+      {agreementReminders ? (
+        <AgreementRenewalReminders
+          followUpOnly
+          result={query.renewalResult}
+          selectedBucket={query.renewalBucket}
+          summary={agreementReminders}
+        />
+      ) : null}
 
       <CompactRentDueTracker
         currentMonthOverdueOnly

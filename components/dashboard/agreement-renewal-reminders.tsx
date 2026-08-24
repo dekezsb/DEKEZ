@@ -116,6 +116,42 @@ function decisionLabel(item: RenewalTrackerItem) {
   return "Renewal question not sent";
 }
 
+function whatsappPhone(value: string | null) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.startsWith("0") ? `60${digits.slice(1)}` : digits;
+}
+
+function whatsappHref(phone: string | null, message: string) {
+  const number = whatsappPhone(phone);
+  return number
+    ? `https://wa.me/${number}?text=${encodeURIComponent(message)}`
+    : null;
+}
+
+function renewalQuestionHref(item: RenewalTrackerItem) {
+  return whatsappHref(
+    item.phone,
+    [
+      `Hello ${item.tenantName},`,
+      `Your tenancy for ${item.propertyName} - ${item.roomName} ends on ${formatMalaysiaDate(item.contractEndDate)}.`,
+      "Please reply YES if you want to renew, or NO if you will not renew.",
+      "A renewal tenancy agreement will be prepared after your confirmation.",
+    ].join("\n"),
+  );
+}
+
+function renewalSigningHref(item: RenewalTrackerItem) {
+  if (!item.agreementId) return null;
+  return whatsappHref(
+    item.phone,
+    [
+      `Hello ${item.tenantName},`,
+      "Reminder: your DEKEZ renewal tenancy agreement is waiting for your signature.",
+      `Open and sign here: https://dekez.vercel.app/e-tenancy/${item.agreementId}`,
+    ].join("\n"),
+  );
+}
+
 const resultMessages: Record<string, string> = {
   request_sent: "The 60-day renewal question was sent by WhatsApp and recorded.",
   send_failed:
@@ -139,10 +175,12 @@ const resultMessages: Record<string, string> = {
 };
 
 export function AgreementRenewalReminders({
+  followUpOnly = false,
   selectedBucket,
   result,
   summary,
 }: {
+  followUpOnly?: boolean;
   selectedBucket?: string;
   result?: string;
   summary: AgreementRenewalSummary;
@@ -179,9 +217,11 @@ export function AgreementRenewalReminders({
               TA only after the tenant confirms Yes.
             </p>
           </div>
-          <Button asChild size="sm" variant="outline">
-            <Link href="/tenancy-agreements">Open all TA records</Link>
-          </Button>
+          {!followUpOnly ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href="/tenancy-agreements">Open all TA records</Link>
+            </Button>
+          ) : null}
         </div>
 
         {result && resultMessages[result] ? (
@@ -339,22 +379,43 @@ export function AgreementRenewalReminders({
 
                     <div className="flex flex-wrap items-end gap-2">
                       {["pending", "requested"].includes(item.decisionStatus) ? (
-                        <form action={sendRenewalDecisionRequest}>
-                          <input name="tenancyId" type="hidden" value={item.tenancyId} />
-                          <RenewalSubmitButton
-                            disabled={!item.phone}
-                            label={
-                              item.decisionStatus === "requested"
-                                ? "Send question again"
-                                : "Send renewal question"
-                            }
-                            pendingLabel="Sending..."
-                            size="sm"
-                            variant="outline"
-                          >
-                            <MessageCircle className="h-4 w-4" />
-                          </RenewalSubmitButton>
-                        </form>
+                        followUpOnly ? (
+                          renewalQuestionHref(item) ? (
+                            <Button asChild size="sm" variant="outline">
+                              <a
+                                href={renewalQuestionHref(item) ?? undefined}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                <MessageCircle className="h-4 w-4" />
+                                {item.decisionStatus === "requested"
+                                  ? "Open WhatsApp again"
+                                  : "Open WhatsApp reminder"}
+                              </a>
+                            </Button>
+                          ) : (
+                            <Button disabled size="sm" variant="outline">
+                              No WhatsApp number
+                            </Button>
+                          )
+                        ) : (
+                          <form action={sendRenewalDecisionRequest}>
+                            <input name="tenancyId" type="hidden" value={item.tenancyId} />
+                            <RenewalSubmitButton
+                              disabled={!item.phone}
+                              label={
+                                item.decisionStatus === "requested"
+                                  ? "Send question again"
+                                  : "Send renewal question"
+                              }
+                              pendingLabel="Sending..."
+                              size="sm"
+                              variant="outline"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </RenewalSubmitButton>
+                          </form>
+                        )
                       ) : null}
 
                       {["pending", "requested", "not_renew"].includes(
@@ -387,7 +448,8 @@ export function AgreementRenewalReminders({
 
                       {item.decisionStatus === "renew" &&
                       !item.agreementId &&
-                      !item.nextTermAlreadyExpired ? (
+                      !item.nextTermAlreadyExpired &&
+                      !followUpOnly ? (
                         <form
                           action={prepareConfirmedRenewal}
                           className="flex flex-wrap items-end gap-2"
@@ -418,18 +480,37 @@ export function AgreementRenewalReminders({
                       !agreementSigned &&
                       agreementSignable &&
                       !item.nextTermAlreadyExpired ? (
-                        <form action={resendConfirmedRenewalAgreement}>
-                          <input
-                            name="agreementId"
-                            type="hidden"
-                            value={item.agreementId}
-                          />
-                          <RenewalSubmitButton
-                            label="Send TA signing reminder"
-                            pendingLabel="Sending..."
-                            size="sm"
-                          />
-                        </form>
+                        followUpOnly ? (
+                          renewalSigningHref(item) ? (
+                            <Button asChild size="sm">
+                              <a
+                                href={renewalSigningHref(item) ?? undefined}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                <MessageCircle className="h-4 w-4" />
+                                Open TA signing reminder
+                              </a>
+                            </Button>
+                          ) : (
+                            <Button disabled size="sm">
+                              No WhatsApp number
+                            </Button>
+                          )
+                        ) : (
+                          <form action={resendConfirmedRenewalAgreement}>
+                            <input
+                              name="agreementId"
+                              type="hidden"
+                              value={item.agreementId}
+                            />
+                            <RenewalSubmitButton
+                              label="Send TA signing reminder"
+                              pendingLabel="Sending..."
+                              size="sm"
+                            />
+                          </form>
+                        )
                       ) : null}
                     </div>
                   </div>

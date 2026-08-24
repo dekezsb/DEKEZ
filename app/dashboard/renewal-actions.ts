@@ -44,6 +44,16 @@ async function requireRenewalAdmin() {
   return user;
 }
 
+async function requireRenewalFollowUp() {
+  await requireRole(["super_admin", "admin"], {
+    module: "tenancy_agreements",
+    level: "view",
+  });
+  const user = await getCurrentUser();
+  if (!user) redirect("/");
+  return user;
+}
+
 async function loadRenewalContext(
   supabase: SupabaseClient,
   tenancyId: string,
@@ -233,7 +243,7 @@ export async function sendRenewalDecisionRequest(formData: FormData) {
 }
 
 export async function recordRenewalDecision(formData: FormData) {
-  const user = await requireRenewalAdmin();
+  const user = await requireRenewalFollowUp();
   const tenancyId = textValue(formData, "tenancyId");
   const decision = textValue(formData, "decision");
   const note = textValue(formData, "note");

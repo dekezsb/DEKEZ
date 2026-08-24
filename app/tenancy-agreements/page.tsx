@@ -1,7 +1,8 @@
 import { FileSignature } from "lucide-react";
 import { AgreementArchive } from "@/components/verification/agreement-archive";
 import { Badge } from "@/components/ui/badge";
-import { requireRole } from "@/lib/auth/session";
+import { hasModuleAccess } from "@/lib/auth/access";
+import { getCurrentUserAccess, requireRole } from "@/lib/auth/session";
 import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -27,6 +28,12 @@ export default async function TenancyAgreementsPage({
   const role = await requireRole(["super_admin", "admin", "owner"], {
     module: "tenancy_agreements",
   });
+  const { access } = await getCurrentUserAccess();
+  const canManage = hasModuleAccess(
+    access,
+    "tenancy_agreements",
+    "manage",
+  );
   const params = await searchParams;
   const supabase =
     role === "owner" ? await createClient() : createAdminClient();
@@ -52,7 +59,7 @@ export default async function TenancyAgreementsPage({
           <Badge className="w-fit bg-[#f6edd9] text-[#7a5618]">
             {archive.agreements.length} agreement terms
           </Badge>
-          {role !== "owner" ? <RegenerateMasterButton /> : null}
+          {canManage ? <RegenerateMasterButton /> : null}
         </div>
       </div>
 
@@ -116,7 +123,7 @@ export default async function TenancyAgreementsPage({
         agreements={archive.agreements}
         occupancy={params.occupancy ?? "all"}
         searchQuery={params.q ?? ""}
-        canManage={role !== "owner"}
+        canManage={canManage}
       />
     </section>
   );
