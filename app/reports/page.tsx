@@ -30,7 +30,10 @@ import { ChartOfAccountsManager } from "@/components/accounting/chart-of-account
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
-import { bankDescriptionKey } from "@/lib/accounting/bank-description";
+import {
+  bankDescriptionKey,
+  bankTenantNameMatchScore,
+} from "@/lib/accounting/bank-description";
 import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
 import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
 import { requireRole } from "@/lib/auth/session";
@@ -1053,11 +1056,31 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     const descriptionParts = line.description.split(" · ").filter(Boolean);
                     const transactionLabel = descriptionParts[0] || "Bank transaction";
                     const transactionDetails = descriptionParts.slice(1).join(" · ");
-                    const suggestedInvoice = locationHint
-                      ? statementInvoiceOptions.find((bill) => bill.propertyCode === locationHint.propertyCode && bill.roomCode === locationHint.roomCode)
-                      : null;
-                    const invoiceChoices = suggestedInvoice
-                      ? [suggestedInvoice, ...statementInvoiceOptions.filter((bill) => bill.id !== suggestedInvoice.id)]
+                    const exactRoomInvoices = locationHint
+                      ? statementInvoiceOptions.filter(
+                          (bill) => bill.propertyCode === locationHint.propertyCode
+                            && bill.roomCode === locationHint.roomCode,
+                        )
+                      : [];
+                    const rankedRoomInvoices = exactRoomInvoices
+                      .map((bill) => ({
+                        bill,
+                        nameScore: bankTenantNameMatchScore(line.description, bill.tenantName),
+                      }))
+                      .sort((left, right) => right.nameScore - left.nameScore);
+                    const nameMatchedRoomInvoices = rankedRoomInvoices
+                      .filter((item) => item.nameScore > 0)
+                      .map((item) => item.bill);
+                    const suggestedInvoice = rankedRoomInvoices[0]?.nameScore > 0
+                      && rankedRoomInvoices[0].nameScore > (rankedRoomInvoices[1]?.nameScore ?? 0)
+                        ? rankedRoomInvoices[0].bill
+                        : exactRoomInvoices.length === 1 && !exactRoomInvoices[0].tenantName
+                          ? exactRoomInvoices[0]
+                          : null;
+                    const invoiceChoices = locationHint
+                      ? nameMatchedRoomInvoices.length
+                        ? nameMatchedRoomInvoices
+                        : exactRoomInvoices
                       : statementInvoiceOptions;
                     const candidatePool = candidates.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
@@ -1091,7 +1114,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                           return hint?.propertyCode === locationHint.propertyCode && hint.roomCode === locationHint.roomCode;
                         })
                       : [];
-                    const availableCandidates = (locationHint ? locationCandidates : amountScopedCandidates).sort((left, right) => {
+                    const nameMatchedLocationCandidates = locationCandidates.filter(
+                      (candidate) => candidate.isRental
+                        && bankTenantNameMatchScore(line.description, candidate.tenantName) > 0,
+                    );
+                    const availableCandidates = (locationHint
+                      ? nameMatchedLocationCandidates.length
+                        ? nameMatchedLocationCandidates
+                        : locationCandidates
+                      : amountScopedCandidates).sort((left, right) => {
                       const leftHint = bankRoomHint(left.description);
                       const rightHint = bankRoomHint(right.description);
                       const leftScore = locationHint && leftHint?.propertyCode === locationHint.propertyCode && leftHint.roomCode === locationHint.roomCode ? 1 : 0;
@@ -1099,11 +1130,21 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       return rightScore - leftScore;
                     }).slice(0, 50);
                     const rankedCandidates = availableCandidates
-                      .map((candidate) => ({ candidate, score: bankTextMatchScore(line.description, candidate.description) }))
+                      .map((candidate) => ({
+                        candidate,
+                        score: bankTextMatchScore(line.description, candidate.description),
+                        tenantNameScore: candidate.isRental
+                          ? bankTenantNameMatchScore(line.description, candidate.tenantName)
+                          : 0,
+                      }))
                       .sort((left, right) => right.score - left.score);
-                    const recommendedCandidate = availableCandidates.length === 1
-                        ? availableCandidates[0]
-                        : rankedCandidates[0]?.score >= 2 && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
+                    const recommendedCandidate = locationHint
+                      ? rankedCandidates[0]?.tenantNameScore > 0
+                        && rankedCandidates[0].tenantNameScore > (rankedCandidates[1]?.tenantNameScore ?? 0)
+                          ? rankedCandidates[0].candidate
+                          : null
+                      : rankedCandidates[0]?.score >= 2
+                        && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
                           ? rankedCandidates[0].candidate
                           : null;
                     const isRecurringRecommendation = recommendedCandidate?.sourceType === "manual_bank_transaction"
@@ -1188,7 +1229,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <input name="bankFlow" type="hidden" value="credit" />
                               <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">Only {rentalMonthLabel(statementRentalMonth)} rental invoices are allowed for this statement. Older outstanding invoices are not carried forward here.</p>
                               {isSmallExtraCredit ? <p className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">RM{Number(remaining).toFixed(0)} detected for {locationHint?.propertyCode} Room {locationHint?.roomCode}. It is prepared as a same-month extra/electricity item, not rental. Choose its exact purpose before confirming.</p> : null}
-                              {suggestedInvoice ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">QR room found: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName} · rental invoice month {rentalMonthLabel(suggestedInvoice.billMonth)}</p> : locationHint ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">No open {rentalMonthLabel(statementRentalMonth)} invoice was found for {locationHint.propertyCode} Room {locationHint.roomCode}. Do not choose another month.</p> : null}
+                              {suggestedInvoice ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">QR name and room matched: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName} · rental invoice month {rentalMonthLabel(suggestedInvoice.billMonth)}</p> : exactRoomInvoices.length ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">The QR room is {locationHint?.propertyCode} Room {locationHint?.roomCode}, but the QR name did not safely match the invoice tenant. Only this exact room is shown below—check the name before confirming.</p> : locationHint ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">No {rentalMonthLabel(statementRentalMonth)} invoice was found for {locationHint.propertyCode} Room {locationHint.roomCode}. DEKEZ will not show another room.</p> : null}
                               <label className="block text-xs font-medium">{rentalMonthLabel(statementRentalMonth)} tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose {rentalMonthLabel(statementRentalMonth)} invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{rentalMonthLabel(bill.billMonth)} · {bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.id.slice(0, 8)} · owing {money(bill.outstanding)}</option>)}</select></label>
                               <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? "0.00" : suggestedInvoice ? Math.min(Number(remaining), suggestedInvoice.rentOutstanding).toFixed(2) : undefined} min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? "0.00" : suggestedInvoice ? Math.min(Math.max(Number(remaining) - suggestedInvoice.rentOutstanding, 0), suggestedInvoice.depositOutstanding).toFixed(2) : undefined} min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other / top-up<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? Number(remaining).toFixed(2) : undefined} min="0" name="otherAmount" step="0.01" type="number" /></label></div>
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>

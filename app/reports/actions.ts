@@ -11,7 +11,10 @@ import {
   type BankSourceType,
 } from "@/lib/accounting/bank-candidates";
 import { parseBankStatementCsv } from "@/lib/accounting/bank-statement";
-import { bankDescriptionKey } from "@/lib/accounting/bank-description";
+import {
+  bankDescriptionKey,
+  bankTenantNameMatchScore,
+} from "@/lib/accounting/bank-description";
 import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -1003,12 +1006,16 @@ export async function autoMatchStatement(formData: FormData) {
       const correctRentalLocation = !candidate.isRental
         || !lineLocation
         || candidateLocation === lineLocation;
+      const correctRentalTenant = !candidate.isRental
+        || !lineLocation
+        || bankTenantNameMatchScore(line.description, candidate.tenantName) > 0;
       return (
         Math.sign(candidate.amount) === Math.sign(amount) &&
         Math.abs(remaining - Math.abs(amount)) < 0.005 &&
         correctRentalMonth &&
         candidate.date.slice(0, 7) === statementRentalMonth &&
         correctRentalLocation &&
+        correctRentalTenant &&
         (dateDistance(candidate.date, line.transaction_date) <= 3 || sameHistoricalRoom)
       );
     });
