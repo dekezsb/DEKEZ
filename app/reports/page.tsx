@@ -641,11 +641,71 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const creditLines = unmatchedLines.filter((line) => Number(line.amount) > 0);
   const debitLines = unmatchedLines.filter((line) => Number(line.amount) < 0);
   const selectedFlowLines = bankFlow === "credit" ? creditLines : debitLines;
+  const hasSafeSuggestedMatch = (line: (typeof selectedFlowLines)[number]) => {
+    const lineMatches = matchesByLine.get(line.id) ?? [];
+    const matchedAmount = lineMatches.reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
+    const remaining = Number(line.amount) - matchedAmount;
+    const locationHint = bankRoomHint(line.description);
+    const candidatePool = candidates.filter((candidate) => {
+      const key = `${candidate.sourceType}:${candidate.sourceId}`;
+      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+        && candidate.date.slice(0, 7) !== statementRentalMonth;
+      const available = isRecurringTemplate
+        ? Math.abs(candidate.amount)
+        : Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
+      return Math.sign(candidate.amount) === Math.sign(remaining)
+        && available > 0.005
+        && (!candidate.isRental || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth)
+        && (isRecurringTemplate || candidate.date.slice(0, 7) === statementRentalMonth);
+    });
+    const exactAmountCandidates = candidatePool.filter((candidate) => {
+      const key = `${candidate.sourceType}:${candidate.sourceId}`;
+      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+        && candidate.date.slice(0, 7) !== statementRentalMonth;
+      const available = isRecurringTemplate
+        ? Math.abs(candidate.amount)
+        : Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
+      return Math.abs(available - Math.abs(remaining)) < 0.005;
+    });
+    const amountScopedCandidates = exactAmountCandidates.length ? exactAmountCandidates : candidatePool;
+    const recommendationPool = locationHint
+      ? amountScopedCandidates.filter((candidate) => {
+          const hint = bankRoomHint(candidate.description);
+          return hint?.propertyCode === locationHint.propertyCode
+            && hint.roomCode === locationHint.roomCode
+            && candidate.isRental
+            && bankTenantNameMatchScore(line.description, candidate.tenantName) > 0;
+        })
+      : amountScopedCandidates;
+    const rankedCandidates = recommendationPool
+      .map((candidate) => ({
+        candidate,
+        score: bankTextMatchScore(line.description, candidate.description),
+        tenantNameScore: candidate.isRental
+          ? bankTenantNameMatchScore(line.description, candidate.tenantName)
+          : 0,
+      }))
+      .sort((left, right) => locationHint
+        ? right.tenantNameScore - left.tenantNameScore
+        : right.score - left.score);
+    return locationHint
+      ? rankedCandidates[0]?.tenantNameScore > 0
+        && rankedCandidates[0].tenantNameScore > (rankedCandidates[1]?.tenantNameScore ?? 0)
+      : rankedCandidates[0]?.score >= 2
+        && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0);
+  };
+  const prioritizedFlowLines = selectedFlowLines
+    .map((line, originalIndex) => ({ line, originalIndex, hasSafeMatch: hasSafeSuggestedMatch(line) }))
+    .sort((left, right) => Number(right.hasSafeMatch) - Number(left.hasSafeMatch) || left.originalIndex - right.originalIndex);
+  const safeSuggestedCount = prioritizedFlowLines.filter((item) => item.hasSafeMatch).length;
+  const manualReviewCount = prioritizedFlowLines.length - safeSuggestedCount;
   const reviewPageSize = 20;
-  const reviewPageCount = Math.max(1, Math.ceil(selectedFlowLines.length / reviewPageSize));
+  const reviewPageCount = Math.max(1, Math.ceil(prioritizedFlowLines.length / reviewPageSize));
   const requestedReviewPage = Number(params.reviewPage ?? "1");
   const reviewPage = Number.isInteger(requestedReviewPage) ? Math.min(Math.max(requestedReviewPage, 1), reviewPageCount) : 1;
-  const reviewLines = selectedFlowLines.slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize);
+  const reviewLines = prioritizedFlowLines
+    .slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize)
+    .map((item) => item.line);
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
   const unreconciledTotal = statementImports.filter((item) => item.status === "in_progress").length;
   const adjustmentAccounts = accounts.filter((account) => account.id !== statementAccount?.accounting_account_id);
@@ -1046,6 +1106,12 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                   {params.staff_batch_reconciled ? (
                     <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
                       Reconciled one staff transfer against {params.staff_batch_reconciled} approved claim{params.staff_batch_reconciled === "1" ? "" : "s"}. The staff payable is now cleared.
+                    </div>
+                  ) : null}
+                  {prioritizedFlowLines.length ? (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+                      <strong>{safeSuggestedCount} safe {safeSuggestedCount === 1 ? "match is" : "matches are"} shown first.</strong>
+                      {manualReviewCount ? ` Finish those first; the remaining ${manualReviewCount} ${manualReviewCount === 1 ? "transaction stays" : "transactions stay"} afterward for manual selection.` : " Every remaining transaction has a safe suggestion."}
                     </div>
                   ) : null}
                   {reviewLines.map((line) => {
