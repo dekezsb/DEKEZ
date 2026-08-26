@@ -998,10 +998,17 @@ export async function autoMatchStatement(formData: FormData) {
         && bankLocationToken(line.description) === bankLocationToken(candidate.description);
       const correctRentalMonth = !candidate.isRental
         || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth;
+      const lineLocation = bankLocationToken(line.description);
+      const candidateLocation = bankLocationToken(candidate.description);
+      const correctRentalLocation = !candidate.isRental
+        || !lineLocation
+        || candidateLocation === lineLocation;
       return (
         Math.sign(candidate.amount) === Math.sign(amount) &&
         Math.abs(remaining - Math.abs(amount)) < 0.005 &&
         correctRentalMonth &&
+        candidate.date.slice(0, 7) === statementRentalMonth &&
+        correctRentalLocation &&
         (dateDistance(candidate.date, line.transaction_date) <= 3 || sameHistoricalRoom)
       );
     });
@@ -1084,6 +1091,11 @@ export async function matchBankLine(formData: FormData) {
     && candidate.date.slice(0, 7) !== statementRentalMonth;
   if (!recurringManualTemplate && candidate.date.slice(0, 7) !== statementRentalMonth) {
     redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_source_month" }));
+  }
+  const lineLocation = bankLocationToken(line.description);
+  const candidateLocation = bankLocationToken(candidate.description);
+  if (candidate.isRental && lineLocation && candidateLocation !== lineLocation) {
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_location" }));
   }
   if (recurringManualTemplate) {
     const { data: template } = await supabase
@@ -1435,17 +1447,22 @@ export async function createTenantPaymentFromBankLine(formData: FormData) {
   const [{ data: line }, { data: rentBill }] = await Promise.all([
     supabase
       .from("bank_statement_lines")
-      .select("id, statement_import_id, bank_statement_imports!inner(company_id, period_start, status)")
+      .select("id, statement_import_id, description, bank_statement_imports!inner(company_id, period_start, status)")
       .eq("id", lineId)
       .maybeSingle(),
     supabase
       .from("rent_bills")
-      .select("id, bill_month, property_id, properties!inner(company_id)")
+      .select("id, bill_month, property_id, room_id, properties!inner(company_id, property_code), rooms!inner(name, room_number)")
       .eq("id", rentBillId)
       .maybeSingle(),
   ]);
   const statement = singleRelation(line?.bank_statement_imports);
   const property = singleRelation(rentBill?.properties);
+  const room = singleRelation(rentBill?.rooms);
+  const lineLocation = bankLocationToken(line?.description ?? "");
+  const invoiceLocation = bankLocationToken(
+    `${property?.property_code ?? ""} ${room?.name || room?.room_number || ""}`,
+  );
   if (
     !line ||
     !rentBill ||
@@ -1454,7 +1471,8 @@ export async function createTenantPaymentFromBankLine(formData: FormData) {
     statement.company_id !== company.id ||
     property.company_id !== company.id ||
     statement.status !== "in_progress" ||
-    rentBill.bill_month.slice(0, 7) !== statement.period_start.slice(0, 7)
+    rentBill.bill_month.slice(0, 7) !== statement.period_start.slice(0, 7) ||
+    (lineLocation !== null && invoiceLocation !== lineLocation)
   ) {
     redirect(reportPath({ statement: line?.statement_import_id ?? "", error: "tenant_payment_month" }));
   }

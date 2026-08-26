@@ -199,6 +199,7 @@ const errorMessages: Record<string, string> = {
   match_direction: "Money-in must match a receipt and money-out must match a payment.",
   match_used: "That earlier accounting entry is already fully matched. Choose its recurring-month option or create this month's entry.",
   match_source_month: "Choose a receipt or payment from this statement month. An earlier manual income or expense may only be used through its recurring-month option.",
+  match_location: "The bank description and tenant invoice belong to different rooms. Choose the exact property and room shown on the bank transaction.",
   match_rental_month: "Rental payments and paid invoices can only be matched to the same rental month as this bank statement.",
   match_missing: "That accounting record is no longer available. Refresh the line and choose another record.",
   match_create: "This bank match could not be saved.",
@@ -433,7 +434,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       .from("rent_bills")
       .select("id, tenancy_id, tenant_record_id, tenant_id, property_id, room_id, bill_month, due_date, invoice_number, amount, deposit_amount, paid_amount, status")
       .in("property_id", propertyIds)
-      .in("status", ["unpaid", "partially_paid", "payment_submitted"])
+      .in("status", ["unpaid", "partially_paid", "payment_submitted", "paid"])
       .is("removed_at", null)
       .order("due_date", { ascending: true });
     openBills = result.data ?? [];
@@ -455,7 +456,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const tenantNames = new Map((tenantsResult.data ?? []).map((item) => [item.id, item.full_name]));
   const roomNames = new Map((roomsResult.data ?? []).map((item) => [item.id, item.name || `Room ${item.room_number}`]));
   const propertyNames = new Map(properties.map((item) => [item.id, item.name]));
-  const invoiceOptions = openBills.map((bill) => {
+  const allInvoiceOptions = openBills.map((bill) => {
     const rentOutstanding = Math.max(Number(bill.amount ?? 0) + (itemTotals.get(bill.id) ?? 0) - Number(bill.paid_amount ?? 0), 0);
     const depositOutstanding = Math.max(Number(bill.deposit_amount ?? 0) - (depositPaid.get(bill.tenancy_id) ?? 0), 0);
     return {
@@ -472,8 +473,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       depositOutstanding,
       outstanding: rentOutstanding + depositOutstanding,
     };
-  }).filter((bill) => bill.outstanding > 0.005);
-  const statementInvoiceOptions = invoiceOptions.filter(
+  });
+  const invoiceOptions = allInvoiceOptions.filter((bill) => bill.outstanding > 0.005);
+  const statementInvoiceOptions = allInvoiceOptions.filter(
     (bill) => bill.billMonth.slice(0, 7) === statementRentalMonth,
   );
   const tenantOutstanding = invoiceOptions.reduce((total, item) => total + item.outstanding, 0);
@@ -1089,7 +1091,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                           return hint?.propertyCode === locationHint.propertyCode && hint.roomCode === locationHint.roomCode;
                         })
                       : [];
-                    const availableCandidates = (locationCandidates.length ? locationCandidates : amountScopedCandidates).sort((left, right) => {
+                    const availableCandidates = (locationHint ? locationCandidates : amountScopedCandidates).sort((left, right) => {
                       const leftHint = bankRoomHint(left.description);
                       const rightHint = bankRoomHint(right.description);
                       const leftScore = locationHint && leftHint?.propertyCode === locationHint.propertyCode && leftHint.roomCode === locationHint.roomCode ? 1 : 0;
@@ -1099,15 +1101,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     const rankedCandidates = availableCandidates
                       .map((candidate) => ({ candidate, score: bankTextMatchScore(line.description, candidate.description) }))
                       .sort((left, right) => right.score - left.score);
-                    const recommendedCandidate = locationCandidates.length === 1
-                      ? locationCandidates[0]
-                      : availableCandidates.length === 1
+                    const recommendedCandidate = availableCandidates.length === 1
                         ? availableCandidates[0]
                         : rankedCandidates[0]?.score >= 2 && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
                           ? rankedCandidates[0].candidate
                           : null;
                     const isRecurringRecommendation = recommendedCandidate?.sourceType === "manual_bank_transaction"
                       && recommendedCandidate.date.slice(0, 7) !== statementRentalMonth;
+                    const isSmallExtraCredit = remaining > 0.005
+                      && Boolean(locationHint && suggestedInvoice)
+                      && [30, 50].some((amount) => Math.abs(Number(remaining) - amount) < 0.005);
                     const rememberedRule = reconciliationRuleMap.get(
                       `${line.bank_account_id ?? ""}:${Number(line.amount) > 0 ? "credit" : "debit"}:${bankDescriptionKey(line.description)}`,
                     );
@@ -1168,7 +1171,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
                               <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{isRecurringRecommendation ? `Recurring pattern — create ${rentalMonthLabel(statementRentalMonth)}` : "DEKEZ same-month suggestion"}</p><p className="mt-1 font-semibold text-gray-950">{isRecurringRecommendation ? recurringDescriptionForMonth(recommendedCandidate.description, statementRentalMonth) : recommendedCandidate.description}</p><p className="text-sm text-gray-600">{isRecurringRecommendation ? `Pattern from ${dateLabel(recommendedCandidate.date)}` : dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p>{recommendedCandidate.invoiceMonth ? <p className="mt-2 inline-flex rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800">Rental invoice month: {rentalMonthLabel(recommendedCandidate.invoiceMonth)}</p> : null}</div>
                               <ReconciliationSubmitButton className="shrink-0" pendingLabel={isRecurringRecommendation ? "Creating this month..." : "Matching..."}><BadgeCheck className="h-4 w-4" />{isRecurringRecommendation ? `Create ${rentalMonthLabel(statementRentalMonth)} & match` : "Match this record"}</ReconciliationSubmitButton>
-                            </form> : <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><strong>No safe recommendation yet.</strong> Choose the correct record under Other options. Nothing will be posted until you confirm.</div>}
+                            </form> : <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><strong>{locationHint ? `No recorded ${locationHint.propertyCode} Room ${locationHint.roomCode} receipt is available to match.` : "No safe recommendation yet."}</strong> {locationHint ? "DEKEZ will not offer another room. Use the exact-room invoice option below to record this receipt." : "Choose the correct record under Other options. Nothing will be posted until you confirm."}</div>}
                             <details open={!recommendedCandidate} className="rounded-lg border border-[#d7dde5] bg-white">
                               <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-[#7a5618]">{recommendedCandidate ? "Wrong match? Open other options" : "Open matching options"}</summary>
                               <div className="grid gap-4 border-t border-[#d7dde5] p-4 xl:grid-cols-3">
@@ -1184,12 +1187,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <input name="lineId" type="hidden" value={line.id} />
                               <input name="bankFlow" type="hidden" value="credit" />
                               <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">Only {rentalMonthLabel(statementRentalMonth)} rental invoices are allowed for this statement. Older outstanding invoices are not carried forward here.</p>
+                              {isSmallExtraCredit ? <p className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">RM{Number(remaining).toFixed(0)} detected for {locationHint?.propertyCode} Room {locationHint?.roomCode}. It is prepared as a same-month extra/electricity item, not rental. Choose its exact purpose before confirming.</p> : null}
                               {suggestedInvoice ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">QR room found: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName} · rental invoice month {rentalMonthLabel(suggestedInvoice.billMonth)}</p> : locationHint ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">No open {rentalMonthLabel(statementRentalMonth)} invoice was found for {locationHint.propertyCode} Room {locationHint.roomCode}. Do not choose another month.</p> : null}
                               <label className="block text-xs font-medium">{rentalMonthLabel(statementRentalMonth)} tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose {rentalMonthLabel(statementRentalMonth)} invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{rentalMonthLabel(bill.billMonth)} · {bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.id.slice(0, 8)} · owing {money(bill.outstanding)}</option>)}</select></label>
-                              <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={suggestedInvoice ? Math.min(Number(remaining), suggestedInvoice.rentOutstanding).toFixed(2) : undefined} min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={suggestedInvoice ? Math.min(Math.max(Number(remaining) - suggestedInvoice.rentOutstanding, 0), suggestedInvoice.depositOutstanding).toFixed(2) : undefined} min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" min="0" name="otherAmount" step="0.01" type="number" /></label></div>
+                              <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? "0.00" : suggestedInvoice ? Math.min(Number(remaining), suggestedInvoice.rentOutstanding).toFixed(2) : undefined} min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? "0.00" : suggestedInvoice ? Math.min(Math.max(Number(remaining) - suggestedInvoice.rentOutstanding, 0), suggestedInvoice.depositOutstanding).toFixed(2) : undefined} min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other / top-up<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? Number(remaining).toFixed(2) : undefined} min="0" name="otherAmount" step="0.01" type="number" /></label></div>
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>
-                              <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue="other" name="otherCategory"><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>
-                              <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="otherDescription" placeholder="Required only when Other amount is used" />
+                              <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={isSmallExtraCredit ? "" : "other"} name="otherCategory" required={isSmallExtraCredit}><option disabled value="">Choose this RM{Number(remaining).toFixed(0)} purpose</option><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>
+                              <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" name="otherDescription" placeholder={isSmallExtraCredit ? `What is this RM${Number(remaining).toFixed(0)} charge for?` : "Required only when Other amount is used"} required={isSmallExtraCredit} />
                               <ReconciliationSubmitButton className="w-full" pendingLabel="Recording and matching..."><Banknote className="h-4 w-4" />Record payment, knock off &amp; match</ReconciliationSubmitButton>
                             </form> : null}
                             <div className="space-y-3 rounded-lg border border-[#d7dde5] bg-white p-4">
