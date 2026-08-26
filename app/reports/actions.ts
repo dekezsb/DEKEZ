@@ -12,6 +12,7 @@ import {
 } from "@/lib/accounting/bank-candidates";
 import { parseBankStatementCsv } from "@/lib/accounting/bank-statement";
 import { bankDescriptionKey } from "@/lib/accounting/bank-description";
+import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -1050,7 +1051,7 @@ export async function matchBankLine(formData: FormData) {
   }
 
   const [{ data: line }, candidates, { data: lineMatches }, { data: sourceMatches }] = await Promise.all([
-    supabase.from("bank_statement_lines").select("id, statement_import_id, amount, status, bank_statement_imports!inner(company_id, period_start, status)").eq("id", lineId).single(),
+    supabase.from("bank_statement_lines").select("id, bank_account_id, statement_import_id, transaction_date, description, reference_number, amount, status, bank_statement_imports!inner(company_id, period_start, status)").eq("id", lineId).single(),
     getBankCandidates(supabase, company.id),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("statement_line_id", lineId),
     supabase.from("bank_reconciliation_matches").select("matched_amount").eq("source_type", sourceType).eq("source_id", sourceId),
@@ -1076,8 +1077,112 @@ export async function matchBankLine(formData: FormData) {
   }
   const sourceMatched = (sourceMatches ?? []).reduce((total, match) => total + Math.abs(Number(match.matched_amount ?? 0)), 0);
   const sourceRemaining = Math.abs(candidate.amount) - sourceMatched;
-  if (Math.sign(lineRemaining) !== Math.sign(candidate.amount) || sourceRemaining <= 0.005) {
+  if (Math.sign(lineRemaining) !== Math.sign(candidate.amount)) {
     redirect(bankActionPath(formData, { error: "match_direction" }));
+  }
+  const recurringManualTemplate = sourceType === "manual_bank_transaction"
+    && candidate.date.slice(0, 7) !== statementRentalMonth;
+  if (recurringManualTemplate) {
+    const { data: template } = await supabase
+      .from("bank_manual_transactions")
+      .select("id, company_id, bank_account_id, offset_account_id, property_id, transaction_date, amount, description")
+      .eq("id", sourceId)
+      .eq("company_id", company.id)
+      .maybeSingle();
+    const currentMonth = statement.period_start.slice(0, 7);
+    const templateMonth = template?.transaction_date?.slice(0, 7);
+    if (
+      !template ||
+      !template.offset_account_id ||
+      template.bank_account_id !== line.bank_account_id ||
+      templateMonth === currentMonth ||
+      Math.sign(Number(template.amount)) !== Math.sign(lineRemaining)
+    ) {
+      redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_used" }));
+    }
+
+    const recurringAmount = Math.sign(lineRemaining) * Math.min(Math.abs(lineRemaining), Math.abs(Number(template.amount)));
+    const recurringDescription = recurringDescriptionForMonth(template.description, currentMonth);
+    const { data: recurringTransaction, error: recurringError } = await supabase
+      .from("bank_manual_transactions")
+      .insert({
+        company_id: company.id,
+        bank_account_id: line.bank_account_id,
+        offset_account_id: template.offset_account_id,
+        property_id: template.property_id,
+        transaction_date: line.transaction_date,
+        amount: recurringAmount,
+        description: recurringDescription,
+        reference_number: line.reference_number,
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
+    if (recurringError || !recurringTransaction) {
+      console.error("[accounting] recurring bank entry create failed", {
+        code: recurringError?.code,
+        message: recurringError?.message,
+        lineId: line.id,
+        templateId: template.id,
+      });
+      redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "recurring_create" }));
+    }
+
+    const { error: recurringMatchError } = await supabase.from("bank_reconciliation_matches").insert({
+      statement_line_id: line.id,
+      source_type: "manual_bank_transaction",
+      source_id: recurringTransaction.id,
+      matched_amount: recurringAmount,
+      match_method: "adjustment",
+      created_by: user.id,
+    });
+    if (recurringMatchError) {
+      await supabase.from("bank_manual_transactions").delete().eq("id", recurringTransaction.id).eq("company_id", company.id);
+      console.error("[accounting] recurring bank entry match failed", {
+        code: recurringMatchError.code,
+        message: recurringMatchError.message,
+        lineId: line.id,
+        transactionId: recurringTransaction.id,
+      });
+      redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "recurring_match" }));
+    }
+
+    const ruleKey = bankDescriptionKey(line.description);
+    if (ruleKey) {
+      await supabase.from("bank_reconciliation_rules").upsert({
+        company_id: company.id,
+        bank_account_id: line.bank_account_id,
+        direction: recurringAmount > 0 ? "credit" : "debit",
+        bank_description_key: ruleKey,
+        accounting_account_id: template.offset_account_id,
+        property_id: template.property_id,
+        default_description: template.description,
+        last_used_at: new Date().toISOString(),
+        created_by: user.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "company_id,bank_account_id,direction,bank_description_key" });
+    }
+    await supabase.from("accounting_audit_logs").insert({
+      company_id: company.id,
+      entity_type: "bank_manual_transaction",
+      entity_id: recurringTransaction.id,
+      action: "created_from_recurring_month",
+      after_data: {
+        statement_line_id: line.id,
+        template_transaction_id: template.id,
+        accounting_month: currentMonth,
+        description: recurringDescription,
+        amount: recurringAmount,
+      },
+      reason: `Created a separate ${currentMonth} entry from the earlier recurring pattern.`,
+      performed_by: user.id,
+    });
+    await refreshLineStatus(supabase, line.id);
+    revalidatePath("/reports");
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, recurring_matched: currentMonth }));
+  }
+  if (sourceRemaining <= 0.005) {
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_used" }));
   }
   const matchedAmount = Math.sign(lineRemaining) * Math.min(Math.abs(lineRemaining), sourceRemaining);
   const { error } = await supabase.from("bank_reconciliation_matches").insert({

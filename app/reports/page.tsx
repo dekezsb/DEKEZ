@@ -31,6 +31,7 @@ import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
 import { bankDescriptionKey } from "@/lib/accounting/bank-description";
+import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
 import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
 import { requireRole } from "@/lib/auth/session";
 import { getFirstCompany, getProperties } from "@/lib/data/organization";
@@ -196,9 +197,12 @@ const errorMessages: Record<string, string> = {
   statement_closed: "This statement is already reconciled and locked.",
   match_details: "Choose a valid accounting transaction to match.",
   match_direction: "Money-in must match a receipt and money-out must match a payment.",
+  match_used: "That earlier accounting entry is already fully matched. Choose its recurring-month option or create this month's entry.",
   match_rental_month: "Rental payments and paid invoices can only be matched to the same rental month as this bank statement.",
   match_missing: "That accounting record is no longer available. Refresh the line and choose another record.",
   match_create: "This bank match could not be saved.",
+  recurring_create: "This month's recurring accounting entry could not be created.",
+  recurring_match: "This month's recurring entry could not be linked to the bank payment.",
   line_complete: "This bank line is already fully reconciled. No second entry was created.",
   tenant_payment_match: "The direct tenant knock-off failed. Rent, deposit and other must equal the unmatched bank amount.",
   tenant_payment_month: "Choose the tenant invoice for the same rental month as this bank statement. Older balances cannot be carried into this match.",
@@ -996,6 +1000,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       This bank line was already fully reconciled. DEKEZ ignored the repeated click, so no duplicate accounting entry was created.
                     </div>
                   ) : null}
+                  {params.recurring_matched ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+                      Created and matched a separate {rentalMonthLabel(params.recurring_matched)} recurring entry. No earlier month was reused.
+                    </div>
+                  ) : null}
                   {params.transfer_matched ? (
                     <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
                       Both sides of the own-account transfer were linked. No income or expense was created.
@@ -1082,6 +1091,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         : rankedCandidates[0]?.score >= 2 && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
                           ? rankedCandidates[0].candidate
                           : null;
+                    const isRecurringRecommendation = recommendedCandidate?.sourceType === "manual_bank_transaction"
+                      && recommendedCandidate.date.slice(0, 7) !== statementRentalMonth;
                     const rememberedRule = reconciliationRuleMap.get(
                       `${line.bank_account_id ?? ""}:${Number(line.amount) > 0 ? "credit" : "debit"}:${bankDescriptionKey(line.description)}`,
                     );
@@ -1140,8 +1151,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <input name="lineId" type="hidden" value={line.id} />
                               <input name="bankFlow" type="hidden" value={bankFlow} />
                               <input name="sourceToken" type="hidden" value={`${recommendedCandidate.sourceType}:${recommendedCandidate.sourceId}`} />
-                              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">DEKEZ same-month suggestion</p><p className="mt-1 font-semibold text-gray-950">{recommendedCandidate.description}</p><p className="text-sm text-gray-600">{dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p>{recommendedCandidate.invoiceMonth ? <p className="mt-2 inline-flex rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800">Rental invoice month: {rentalMonthLabel(recommendedCandidate.invoiceMonth)}</p> : null}</div>
-                              <ReconciliationSubmitButton className="shrink-0" pendingLabel="Matching..."><BadgeCheck className="h-4 w-4" />Match this record</ReconciliationSubmitButton>
+                              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{isRecurringRecommendation ? `Recurring pattern — create ${rentalMonthLabel(statementRentalMonth)}` : "DEKEZ same-month suggestion"}</p><p className="mt-1 font-semibold text-gray-950">{isRecurringRecommendation ? recurringDescriptionForMonth(recommendedCandidate.description, statementRentalMonth) : recommendedCandidate.description}</p><p className="text-sm text-gray-600">{isRecurringRecommendation ? `Pattern from ${dateLabel(recommendedCandidate.date)}` : dateLabel(recommendedCandidate.date)} · {money(recommendedCandidate.amount)}</p>{recommendedCandidate.invoiceMonth ? <p className="mt-2 inline-flex rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-800">Rental invoice month: {rentalMonthLabel(recommendedCandidate.invoiceMonth)}</p> : null}</div>
+                              <ReconciliationSubmitButton className="shrink-0" pendingLabel={isRecurringRecommendation ? "Creating this month..." : "Matching..."}><BadgeCheck className="h-4 w-4" />{isRecurringRecommendation ? `Create ${rentalMonthLabel(statementRentalMonth)} & match` : "Match this record"}</ReconciliationSubmitButton>
                             </form> : <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"><strong>No safe recommendation yet.</strong> Choose the correct record under Other options. Nothing will be posted until you confirm.</div>}
                             <details open={!recommendedCandidate} className="rounded-lg border border-[#d7dde5] bg-white">
                               <summary className="cursor-pointer list-none px-4 py-3 font-semibold text-[#7a5618]">{recommendedCandidate ? "Wrong match? Open other options" : "Open matching options"}</summary>
@@ -1174,7 +1185,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                                 <input name="bankFlow" type="hidden" value={bankFlow} />
                                 <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={rememberedRule?.accounting_account_id ?? ""} name="accountId" required><option disabled value="">Choose accounting category</option>{adjustmentAccountGroups.map((group) => <optgroup key={group.type} label={group.type.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase())}>{group.accounts.map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</optgroup>)}</select>
                                 <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={rememberedRule?.property_id ?? hintedPropertyId} name="propertyId"><option value="">General company / no property</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select>
-                                <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" defaultValue={rememberedRule?.default_description ?? ""} name="description" placeholder="What was this transaction for?" required />
+                                <input className="h-9 w-full rounded-md border border-[#d7dde5] px-2 text-sm" defaultValue={rememberedRule?.default_description ? recurringDescriptionForMonth(rememberedRule.default_description, statementRentalMonth) : ""} name="description" placeholder="What was this transaction for?" required />
                                 <label className="flex items-start gap-2 rounded-md border border-[#d7dde5] bg-gray-50 px-3 py-2 text-xs text-gray-700"><input className="mt-0.5" defaultChecked name="rememberRule" type="checkbox" value="1" /><span>Remember this bank description for next month. DEKEZ will prefill the same category, property and description, but will still wait for your confirmation.</span></label>
                                 <ReconciliationSubmitButton className="w-full" pendingLabel="Recording and matching..." variant="outline">Record &amp; match</ReconciliationSubmitButton>
                               </form>
