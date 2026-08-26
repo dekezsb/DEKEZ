@@ -198,6 +198,7 @@ const errorMessages: Record<string, string> = {
   match_details: "Choose a valid accounting transaction to match.",
   match_direction: "Money-in must match a receipt and money-out must match a payment.",
   match_used: "That earlier accounting entry is already fully matched. Choose its recurring-month option or create this month's entry.",
+  match_source_month: "Choose a receipt or payment from this statement month. An earlier manual income or expense may only be used through its recurring-month option.",
   match_rental_month: "Rental payments and paid invoices can only be matched to the same rental month as this bank statement.",
   match_missing: "That accounting record is no longer available. Refresh the line and choose another record.",
   match_create: "This bank match could not be saved.",
@@ -613,6 +614,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const matches = lineIds.length
     ? (await supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds)).data ?? []
     : [];
+  const sourceMatches = candidates.length
+    ? (await supabase.from("bank_reconciliation_matches").select("source_type, source_id, matched_amount")).data ?? []
+    : [];
   const matchesByLine = new Map<string, typeof matches>();
   for (const match of matches) {
     const values = matchesByLine.get(match.statement_line_id) ?? [];
@@ -621,7 +625,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
   const candidateMap = new Map(candidates.map((item) => [`${item.sourceType}:${item.sourceId}`, item]));
   const consumed = new Map<string, number>();
-  for (const match of matches) {
+  for (const match of sourceMatches) {
     const key = `${match.source_type}:${match.source_id}`;
     consumed.set(key, (consumed.get(key) ?? 0) + Math.abs(Number(match.matched_amount ?? 0)));
   }
@@ -1055,16 +1059,27 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       : statementInvoiceOptions;
                     const candidatePool = candidates.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
-                      const available = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
+                      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+                        && candidate.date.slice(0, 7) !== statementRentalMonth;
+                      const available = isRecurringTemplate
+                        ? Math.abs(candidate.amount)
+                        : Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
                       const correctRentalMonth = !candidate.isRental
                         || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth;
+                      const correctSourceMonth = isRecurringTemplate
+                        || candidate.date.slice(0, 7) === statementRentalMonth;
                       return Math.sign(candidate.amount) === Math.sign(remaining)
                         && available > 0.005
-                        && correctRentalMonth;
+                        && correctRentalMonth
+                        && correctSourceMonth;
                     });
                     const exactAmountCandidates = candidatePool.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
-                      const available = Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
+                      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+                        && candidate.date.slice(0, 7) !== statementRentalMonth;
+                      const available = isRecurringTemplate
+                        ? Math.abs(candidate.amount)
+                        : Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
                       return Math.abs(available - Math.abs(remaining)) < 0.005;
                     });
                     const amountScopedCandidates = exactAmountCandidates.length ? exactAmountCandidates : candidatePool;

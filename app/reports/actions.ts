@@ -1082,6 +1082,9 @@ export async function matchBankLine(formData: FormData) {
   }
   const recurringManualTemplate = sourceType === "manual_bank_transaction"
     && candidate.date.slice(0, 7) !== statementRentalMonth;
+  if (!recurringManualTemplate && candidate.date.slice(0, 7) !== statementRentalMonth) {
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_source_month" }));
+  }
   if (recurringManualTemplate) {
     const { data: template } = await supabase
       .from("bank_manual_transactions")
