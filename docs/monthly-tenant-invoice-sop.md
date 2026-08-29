@@ -10,8 +10,9 @@ Ensure every active tenant can see the correct monthly rental invoice in the ten
 2. Apply this rule every month to every active tenant across all properties.
 3. Use each tenant's individual due day. Do not use one common release date for all tenants.
 4. The invoice must be labelled for the rental month it belongs to and must not be carried forward or matched as another month's rent.
-5. Do not generate a new monthly invoice after the tenant has checked out or billing has been formally terminated.
-6. Run the automatic billing check daily at 12:05 a.m. Malaysia time so invoices become available on the correct date.
+5. Every rental invoice must show the rental property's name or code, room number, and full property address.
+6. Do not generate a new monthly invoice after the tenant has checked out or billing has been formally terminated.
+7. Run the automatic billing check daily at 12:05 a.m. Malaysia time so invoices become available on the correct date.
 
 ## Examples
 

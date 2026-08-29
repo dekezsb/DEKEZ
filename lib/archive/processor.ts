@@ -283,6 +283,7 @@ async function prepareRentalInvoice(
         ["Phone", tenant?.phone ?? "-"],
         ["Property", property?.name ?? propertyCode],
         ["Room", finalRoomLabel],
+        ["Property Full Address", property?.address ?? "-"],
       ],
     },
     {

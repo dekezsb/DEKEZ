@@ -126,11 +126,16 @@ export default async function RentalInvoicePage({ params }: PageProps) {
                 {invoice.tenantPhone}
               </p>
             ) : null}
-            <p className="mt-2 text-sm text-gray-700">
+            <p className="mt-3 text-xs font-semibold uppercase text-gray-500">
+              Rental Premises
+            </p>
+            <address className="mt-1 max-w-sm text-sm not-italic leading-5 text-gray-700">
               {propertyLabel}
               <br />
               {invoice.roomName}
-            </p>
+              <br />
+              {invoice.propertyAddress ?? "Property address not recorded"}
+            </address>
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-sm sm:justify-self-end">
             <dt className="font-semibold text-gray-600">Invoice Date</dt>
