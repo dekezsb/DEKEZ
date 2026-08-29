@@ -32,3 +32,14 @@ Before the new rental month starts, confirm:
 ## Exception handling
 
 Any waiver, rent adjustment, extra charge, electricity top-up, or manual billing change must be recorded separately with its reason and must not silently change this seven-day invoice-generation rule.
+
+## Recurring rent-change SOP
+
+When a tenant pays more or less than the existing monthly rental invoice, do not automatically classify the difference as an extra charge or electricity top-up.
+
+1. First confirm that the bank payer name, property code, and room match the tenant and invoice for the same rental month.
+2. If management confirms the payment represents a permanent revised room rental, record the new monthly rental against the room, active tenancy, and active tenant record.
+3. Apply the revised rental to unpaid future invoices from the next rental month and to all invoices generated after that. Never silently rewrite paid, partially paid, cancelled, waived, or archived invoices.
+4. Keep the original bank receipt and the rent-change reason in the audit history. Any difference already posted against a historical paid invoice remains an auditable tenant credit or separate adjustment unless management explicitly approves revising that historical invoice.
+5. A small RM20, RM30, or RM50 difference is not automatically a rent increase. Electricity, utilities, additional-occupant charges, and other top-ups must remain separately described charges unless management specifically confirms a recurring rent change.
+6. Future monthly invoices must show the revised rent as the normal rental amount, rather than carrying a monthly top-up or miscellaneous line forward.
