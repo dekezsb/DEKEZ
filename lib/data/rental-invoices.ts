@@ -4,6 +4,7 @@ import {
   getVerifiedDepositPaymentMaps,
   verifiedDepositPaid,
 } from "@/lib/invoices/deposit-payments";
+import { tenantInvoiceVisibilityCutoffDate } from "@/lib/billing/tenant-invoice-visibility";
 
 type BillRow = {
   id: string;
@@ -631,10 +632,14 @@ export async function getRentalInvoiceArchive(input: {
     .replace(/\s+/g, " ")
     .trim();
   const searchPattern = `%${searchText}%`;
+  const tenantInvoiceCutoffDate = tenantInvoiceVisibilityCutoffDate();
 
   let query = supabase
     .from("rent_bills")
     .select(billSelect(), { count: "exact" })
+    .or(
+      `invoice_source.neq.automatic,invoice_source.is.null,due_date.lte.${tenantInvoiceCutoffDate}`,
+    )
     .order("bill_month", { ascending: false })
     .order("invoice_number", { ascending: false })
     .order("due_date", { ascending: false })

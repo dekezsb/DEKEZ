@@ -222,7 +222,7 @@ export default async function RentalInvoicesPage({
             <CardTitle>Invoice Archive</CardTitle>
             <CardDescription>
               {archive.total} invoice{archive.total === 1 ? "" : "s"} retained.
-              {" "}Sorted by rental month, then invoice number.
+              {" "}Automatic invoices appear only from seven days before their due date. Sorted by rental month, then invoice number.
             </CardDescription>
           </div>
           <FileText className="h-5 w-5 text-[#b17f19]" />
