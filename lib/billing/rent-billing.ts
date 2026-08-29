@@ -1,3 +1,8 @@
+import {
+  malaysiaDateString,
+  tenantInvoiceVisibleFromDate,
+} from "@/lib/billing/tenant-invoice-visibility";
+
 type SupabaseLike = {
   from: (table: string) => any;
 };
@@ -127,13 +132,15 @@ function targetBillingMonths(input: {
     month = addMonthsToBillMonth(month, 1);
   }
 
-  const currentDueDate = dueDateForBillMonth(currentMonth, input.dueDay);
-  if (input.currentDate >= currentDueDate) {
-    const nextMonth = addMonthsToBillMonth(currentMonth, 1);
-    const nextDueDate = dueDateForBillMonth(nextMonth, input.dueDay);
-    if (!input.endDate || nextDueDate <= input.endDate) {
-      months.push(nextMonth);
-    }
+  const nextMonth = addMonthsToBillMonth(currentMonth, 1);
+  const nextDueDate = dueDateForBillMonth(nextMonth, input.dueDay);
+  const nextVisibleFrom = tenantInvoiceVisibleFromDate(nextDueDate);
+  if (
+    nextVisibleFrom &&
+    input.currentDate >= nextVisibleFrom &&
+    (!input.endDate || nextDueDate <= input.endDate)
+  ) {
+    months.push(nextMonth);
   }
 
   return months;
@@ -218,7 +225,7 @@ export async function generateRecurringRentBills(
     includeTenantRecords?: boolean;
   } = {},
 ): Promise<GeneratedBillResult> {
-  const currentDate = options.currentDate ?? new Date().toISOString().slice(0, 10);
+  const currentDate = options.currentDate ?? malaysiaDateString();
   const result: GeneratedBillResult = {
     checkedTenancies: 0,
     checkedTenantRecords: 0,
