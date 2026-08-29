@@ -404,7 +404,7 @@ export async function getRoomDetails(
       .from("rent_bills")
       .select("id, tenancy_id, tenant_record_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, paid_amount, status")
       .eq("room_id", roomId)
-      .order("bill_month", { ascending: false }),
+      .order("bill_month", { ascending: true }),
     supabase
       .from("payments")
       .select("id, tenancy_id, tenant_id, amount, payment_date, payment_method, reference_number, status, verified_at, category, notes")

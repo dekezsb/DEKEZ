@@ -220,7 +220,7 @@ export default async function RoomDetailsPage({
         <CardHeader>
           <CardTitle>Current Tenancy Bills</CardTitle>
           <CardDescription>
-            Only this room&apos;s current tenant invoices are shown here. Previous tenant invoices remain in Rental Invoices for seven years.
+            Only this room&apos;s current tenant invoices are shown here, from the earliest rental month onward. Invoice numbers follow the company-wide running sequence across all properties. Previous tenant invoices remain in Rental Invoices for seven years.
           </CardDescription>
         </CardHeader>
         <CardContent>
