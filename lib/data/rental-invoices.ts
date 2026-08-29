@@ -635,8 +635,8 @@ export async function getRentalInvoiceArchive(input: {
   let query = supabase
     .from("rent_bills")
     .select(billSelect(), { count: "exact" })
-    .order("due_date", { ascending: false })
     .order("invoice_number", { ascending: false })
+    .order("due_date", { ascending: false })
     .range(from, to);
 
   if (searchText) {
