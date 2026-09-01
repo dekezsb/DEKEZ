@@ -41,7 +41,7 @@ export async function getTenantCheckoutCandidates(): Promise<
   const { data, error } = await admin
     .from("tenancies")
     .select(
-      "id,check_in_date,start_date,rooms(id,name,room_number,status,current_tenancy_id),properties(name),tenants(full_name,phone)",
+      "id,check_in_date,start_date,rooms!tenancies_room_id_fkey(id,name,room_number,status,current_tenancy_id),properties(name),tenants(full_name,phone)",
     )
     .eq("status", "active")
     .is("checkout_date", null);
@@ -137,7 +137,7 @@ export async function getTenantCheckoutHistory(
   const { data: tenancyRows, error: tenancyError } = await admin
     .from("tenancies")
     .select(
-      "id,checkout_date,properties(name),rooms(name,room_number),tenants(full_name,phone)",
+      "id,checkout_date,properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenants(full_name,phone)",
     )
     .gte("checkout_date", startDate)
     .lt("checkout_date", nextMonth)

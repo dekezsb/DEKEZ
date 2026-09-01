@@ -62,7 +62,7 @@ export async function executeTenantCheckout({
   const { data: tenancy, error: tenancyError } = await admin
     .from("tenancies")
     .select(
-      "id,company_id,property_id,room_id,tenant_id,status,checkout_date,check_in_date,start_date,properties(name),rooms(id,name,room_number,status,current_tenancy_id),tenants(full_name,phone)",
+      "id,company_id,property_id,room_id,tenant_id,status,checkout_date,check_in_date,start_date,properties(name),rooms!tenancies_room_id_fkey(id,name,room_number,status,current_tenancy_id),tenants(full_name,phone)",
     )
     .eq("id", tenancyId)
     .eq("status", "active")

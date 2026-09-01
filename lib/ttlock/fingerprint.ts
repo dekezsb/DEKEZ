@@ -158,7 +158,7 @@ async function loadTenancy(tenancyId: string) {
   const { data, error } = await admin
     .from("tenancies")
     .select(
-      "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms(name,room_number)",
+      "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms!tenancies_room_id_fkey(name,room_number)",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -689,7 +689,7 @@ export async function suspendOverdueFingerprintAccess() {
     admin
       .from("tenancies")
       .select(
-        "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms(name,room_number),tenancy_agreements(signed_at,admin_verified_at,admin_rejected_at)",
+        "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenancy_agreements(signed_at,admin_verified_at,admin_rejected_at)",
       )
       .in("id", tenancyIds),
     admin
