@@ -182,7 +182,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
           aria-label="Management portal"
           className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d8c28c] bg-white/95 shadow-[0_-8px_24px_rgba(23,19,13,0.08)] backdrop-blur print:hidden"
         >
-          <div className="mx-auto grid max-w-3xl grid-cols-5">
+          <div className="mx-auto grid max-w-4xl grid-cols-6">
             {navigation.map((item) => {
               const Icon = item.icon;
               const isActive =

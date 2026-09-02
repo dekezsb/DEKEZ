@@ -404,19 +404,12 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           collections: property.collections.filter(
             (collection) =>
               collection.depositOutstanding > 0
-              || (
-                collection.outstanding > 0
-                && collection.dueDate < today
-              ),
+              || collection.outstanding > 0,
           ),
           rooms: property.rooms.filter(
             (room) =>
               room.depositOutstanding > 0
-              || (
-                room.outstanding > 0
-                && Boolean(room.dueDate)
-                && String(room.dueDate) < today
-              ),
+              || room.outstanding > 0,
           ),
         }))
         .filter(
@@ -476,7 +469,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           <h1 className="mt-1 text-3xl font-semibold text-[#0b1733]">Rent Due Tracker</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {managementView
-              ? `Current-month overdue rent and outstanding deposits for ${tracker.selectedMonthLabel}.`
+              ? `Current-month unpaid rent and outstanding deposits for ${tracker.selectedMonthLabel}. Upload tenant bank-in slips here for verification.`
               : `Monthly collection, verified payments and room status for ${tracker.selectedMonthLabel}.`}
           </p>
         </div>

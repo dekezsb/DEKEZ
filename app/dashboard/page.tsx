@@ -3,6 +3,7 @@ import {
   Banknote,
   BarChart3,
   Building2,
+  CalendarClock,
   ClipboardCheck,
   ClipboardList,
   DoorOpen,
@@ -273,7 +274,13 @@ async function ManagementDashboard({
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ModuleCard
+          description={portalText(locale, "Enter tenant payments and attach bank-in slips for Admin verification.")}
+          href="/rent-due-tracker"
+          icon={CalendarClock}
+          title={portalText(locale, "Rent Due Tracker")}
+        />
         <ModuleCard
           description={portalText(locale, "Open reports, update work status and submit completion photos.")}
           href="/maintenance"

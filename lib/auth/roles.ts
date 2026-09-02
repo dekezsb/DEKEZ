@@ -56,6 +56,7 @@ const adminNavigation: NavigationItem[] = [
 
 const managementNavigation: NavigationItem[] = [
   { label: "Home", href: "/dashboard", icon: House, module: "dashboard" },
+  { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
   { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
   { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
   { label: "Claims", href: "/claims", icon: ReceiptText, module: "claims" },
