@@ -451,8 +451,16 @@ export async function getRentDueMap(
         activeTenancyByTenantAndRoom.has(`${bill.tenant_id}:${bill.room_id}`),
     );
   };
-  const selectedBills = loadedSelectedBills.filter(belongsToActiveOccupancy);
-  const previousBills = loadedPreviousBills.filter(belongsToActiveOccupancy);
+  // The current tracker follows today's occupants. Historical trackers must
+  // keep the invoice occupant from that month, even after checkout or a room
+  // transfer, otherwise an old unpaid invoice disappears from the history.
+  const historicalMonth = selectedMonth < currentMonth;
+  const selectedBills = historicalMonth
+    ? loadedSelectedBills
+    : loadedSelectedBills.filter(belongsToActiveOccupancy);
+  const previousBills = historicalMonth
+    ? loadedPreviousBills
+    : loadedPreviousBills.filter(belongsToActiveOccupancy);
 
   const billIds = selectedBills.map((bill) => bill.id);
   const tenantIds = unique([

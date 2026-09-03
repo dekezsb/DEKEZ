@@ -199,7 +199,7 @@ export function OutstandingRoomMap({
                   {property.area ? <p className="mt-1 text-sm text-muted-foreground">{property.area}</p> : null}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {property.rooms.length} room{property.rooms.length === 1 ? "" : "s"} | Rent + deposit{" "}
+                  {property.rooms.length} room{property.rooms.length === 1 ? "" : "s"} | Outstanding{" "}
                   <span className="font-semibold text-red-700">
                     {money(property.rooms.reduce((total, room) => total + room.outstanding, 0))}
                   </span>

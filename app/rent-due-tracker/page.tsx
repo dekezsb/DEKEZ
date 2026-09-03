@@ -393,25 +393,57 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   const canUploadSlip = role === "super_admin" || role === "admin";
   const managementView = role === "admin";
   const params = await searchParams;
-  const tracker = await getRentDueMap(
-    managementView ? undefined : params.month,
-  );
+  const tracker = await getRentDueMap(params.month);
+  const historicalManagementView =
+    managementView && tracker.selectedMonth < tracker.currentMonth;
   const today = malaysiaToday();
   const roleProperties = managementView
     ? tracker.properties
-        .map((property) => ({
-          ...property,
-          collections: property.collections.filter(
-            (collection) =>
-              collection.depositOutstanding > 0
-              || collection.outstanding > 0,
-          ),
-          rooms: property.rooms.filter(
-            (room) =>
-              room.depositOutstanding > 0
-              || room.outstanding > 0,
-          ),
-        }))
+        .map((property) => {
+          const collections = property.collections
+            .filter((collection) =>
+              historicalManagementView
+                ? collection.outstanding > 0
+                : collection.depositOutstanding > 0
+                  || collection.outstanding > 0,
+            )
+            .map((collection) =>
+              historicalManagementView
+                ? {
+                    ...collection,
+                    depositOutstanding: 0,
+                    previousOutstanding: 0,
+                    totalOutstanding: collection.outstanding,
+                  }
+                : collection,
+            );
+          const rooms = property.rooms
+            .filter((room) =>
+              historicalManagementView
+                ? Math.max(room.outstanding - room.depositOutstanding, 0) > 0
+                : room.depositOutstanding > 0 || room.outstanding > 0,
+            )
+            .map((room) =>
+              historicalManagementView
+                ? {
+                    ...room,
+                    depositOutstanding: 0,
+                    previousOutstanding: 0,
+                    outstanding: Math.max(
+                      room.outstanding - room.depositOutstanding,
+                      0,
+                    ),
+                  }
+                : room,
+            );
+
+          return {
+            ...property,
+            collections,
+            rooms,
+            summary: summarizeRentCollections(collections),
+          };
+        })
         .filter(
           (property) =>
             property.collections.length > 0 || property.rooms.length > 0,
@@ -469,7 +501,9 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           <h1 className="mt-1 text-3xl font-semibold text-[#0b1733]">Rent Due Tracker</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {managementView
-              ? `Current-month unpaid rent and outstanding deposits for ${tracker.selectedMonthLabel}. Upload tenant bank-in slips here for verification.`
+              ? historicalManagementView
+                ? `Unpaid and partially paid rent for ${tracker.selectedMonthLabel}. Choose another month to look back at that month's tenants.`
+                : `Unpaid rent and outstanding deposits for ${tracker.selectedMonthLabel}. Upload tenant bank-in slips here for verification.`
               : `Monthly collection, verified payments and room status for ${tracker.selectedMonthLabel}.`}
           </p>
         </div>
@@ -478,23 +512,19 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:w-auto"
           action="/rent-due-tracker"
         >
-          {managementView ? (
-            <input name="month" type="hidden" value={tracker.currentMonth} />
-          ) : (
-            <div className="min-w-0 sm:w-64">
-              <label className="mb-1.5 block text-sm font-medium" htmlFor="month">
-                Billing month
-              </label>
-              <input
-                id="month"
-                name="month"
-                type="month"
-                max={tracker.currentMonth}
-                defaultValue={tracker.selectedMonth}
-                className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-              />
-            </div>
-          )}
+          <div className="min-w-0 sm:w-64">
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="month">
+              Billing month
+            </label>
+            <input
+              id="month"
+              name="month"
+              type="month"
+              max={tracker.currentMonth}
+              defaultValue={tracker.selectedMonth}
+              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+            />
+          </div>
           <div className="min-w-0 sm:w-72">
             <label className="mb-1.5 block text-sm font-medium" htmlFor="property">
               Property
@@ -575,7 +605,9 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
       </div>
 
       <p className="rounded-md border border-[#ead9af] bg-[#fffaf0] px-4 py-3 text-sm text-[#6f5317]">
-        Monthly totals do not include earlier balances. Previous outstanding amounts remain visible separately for each tenant.
+        {historicalManagementView
+          ? `This is the ${tracker.selectedMonthLabel} rent invoice balance only. Deposits and earlier-month balances are not carried into this historical view.`
+          : "Monthly totals do not include earlier balances. Previous outstanding amounts remain visible separately for each tenant."}
       </p>
 
       <OutstandingRoomMap
@@ -589,7 +621,10 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
 
       <PropertySummaryTable properties={visibleProperties} />
 
-      <details className="rounded-lg border border-[#d8dee8] bg-white p-4">
+      <details
+        className="rounded-lg border border-[#d8dee8] bg-white p-4"
+        open={historicalManagementView}
+      >
         <summary className="cursor-pointer font-semibold text-[#0b1733]">
           View detailed outstanding records
         </summary>
