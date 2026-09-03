@@ -54,7 +54,11 @@ import {
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    error?: string;
+    phone_release?: string;
+  }>;
 };
 
 const money = new Intl.NumberFormat("en-MY", {
@@ -189,7 +193,11 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
       {query.saved ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
           {query.saved === "checkout"
-            ? "Tenant checked out successfully. The room is now ready for a new tenant."
+            ? query.phone_release === "failed"
+              ? "Tenant checked out and the room is vacant, but the old phone login needs a Super Admin review before that number is registered again."
+              : query.phone_release === "kept_for_active_tenancy"
+                ? "Tenant checked out and the room is vacant. Their phone login was kept because they still have another active room."
+                : "Tenant checked out successfully. The room is ready and the old phone login was released for future registration."
             : "Changes saved successfully."}
         </div>
       ) : null}

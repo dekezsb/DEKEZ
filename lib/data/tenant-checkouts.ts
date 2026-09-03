@@ -105,6 +105,7 @@ export type TenantCheckoutHistoryItem = {
   recordedAt: string | null;
   source: string;
   note: string | null;
+  needsPhoneRelease: boolean;
 };
 
 type AuditMetadata = {
@@ -137,7 +138,7 @@ export async function getTenantCheckoutHistory(
   const { data: tenancyRows, error: tenancyError } = await admin
     .from("tenancies")
     .select(
-      "id,checkout_date,properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenants(full_name,phone)",
+      "id,checkout_date,properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenants(full_name,phone,profile_id)",
     )
     .gte("checkout_date", startDate)
     .lt("checkout_date", nextMonth)
@@ -196,6 +197,7 @@ export async function getTenantCheckoutHistory(
     const tenant = one(row.tenants as Relation<{
       full_name: string;
       phone: string | null;
+      profile_id: string | null;
     }>);
     const audit = latestAuditByTenancy.get(row.id);
     const metadata = (audit?.metadata ?? {}) as AuditMetadata;
@@ -214,6 +216,7 @@ export async function getTenantCheckoutHistory(
       recordedAt: audit?.created_at ?? null,
       source: metadata.source ?? "historical_record",
       note: metadata.note ?? null,
+      needsPhoneRelease: Boolean(tenant?.profile_id && tenant.phone),
     } satisfies TenantCheckoutHistoryItem;
   });
 

@@ -130,6 +130,9 @@ export default async function DashboardPage({
     topup_error?: string;
     checkout_error?: string;
     checkout_saved?: string;
+    phone_release?: string;
+    phone_release_error?: string;
+    phone_release_fixed?: string;
     checkoutMonth?: string;
   }>;
 }) {
@@ -229,6 +232,7 @@ async function ManagementDashboard({
     uploaded?: string;
     checkout_error?: string;
     checkout_saved?: string;
+    phone_release?: string;
   };
 }) {
   const [
@@ -305,6 +309,7 @@ async function ManagementDashboard({
         <TenantCheckoutPanel
           candidates={checkoutCandidates}
           error={query.checkout_error}
+          phoneRelease={query.phone_release}
           saved={query.checkout_saved === "1"}
         />
       ) : null}
@@ -434,6 +439,8 @@ async function AdminDashboard({
     renewalBucket?: string;
     renewalResult?: string;
     checkoutMonth?: string;
+    phone_release_error?: string;
+    phone_release_fixed?: string;
   };
 }) {
   const [
@@ -554,6 +561,8 @@ async function AdminDashboard({
       <TenantCheckoutHistory
         items={checkoutHistory.items}
         month={checkoutHistory.month}
+        phoneReleaseError={query.phone_release_error}
+        phoneReleaseFixed={query.phone_release_fixed === "1"}
       />
 
       <CompactRentDueTracker

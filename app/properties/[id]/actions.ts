@@ -1382,8 +1382,11 @@ export async function checkoutRoom(formData: FormData) {
   revalidatePath("/payments");
   redirect(
     returnTo === "/verification?view=tenancy"
-      ? "/verification?view=tenancy&checkout=1"
-      : propertyPath(property.id, "?saved=checkout"),
+      ? `/verification?view=tenancy&checkout=1&phone_release=${result.phoneLoginRelease}`
+      : propertyPath(
+          property.id,
+          `?saved=checkout&phone_release=${result.phoneLoginRelease}`,
+        ),
   );
 }
 

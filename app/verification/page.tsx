@@ -66,6 +66,7 @@ type PageProps = {
     sent?: string;
     renewal?: string;
     checkout?: string;
+    phone_release?: string;
     updated?: string;
     error?: string;
     status?: string;
@@ -459,6 +460,15 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
     return (
       <div className="rounded-md border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
         Checkout was stopped because one or more TTLock passcodes could not be revoked. Review Smart Devices and try again so the tenant is not left with door access.
+      </div>
+    );
+  }
+
+  if (params.checkout && params.phone_release === "failed") {
+    return (
+      <div className="rounded-md border border-amber-200 bg-white px-4 py-3 text-sm font-medium text-amber-800 shadow-sm">
+        Tenant checked out and the room is vacant, but the old phone login
+        needs a Super Admin review before that number is registered again.
       </div>
     );
   }

@@ -1,4 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizeInternationalPhone } from "@/lib/auth/phone";
+import {
+  releaseCheckedOutTenantPhone,
+  type TenantPhoneReleaseStatus,
+} from "@/lib/auth/release-tenant-phone";
 import { revokeSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 import { revokeFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
 
@@ -31,6 +36,7 @@ export type TenantCheckoutResult =
       propertyId: string;
       roomId: string;
       tenancyId: string;
+      phoneLoginRelease: TenantPhoneReleaseStatus;
     }
   | { ok: false; reason: TenantCheckoutFailure };
 
@@ -62,7 +68,7 @@ export async function executeTenantCheckout({
   const { data: tenancy, error: tenancyError } = await admin
     .from("tenancies")
     .select(
-      "id,company_id,property_id,room_id,tenant_id,status,checkout_date,check_in_date,start_date,properties(name),rooms!tenancies_room_id_fkey(id,name,room_number,status,current_tenancy_id),tenants(full_name,phone)",
+      "id,company_id,property_id,room_id,tenant_id,status,checkout_date,check_in_date,start_date,properties(name),rooms!tenancies_room_id_fkey(id,name,room_number,status,current_tenancy_id),tenants(full_name,phone,profile_id)",
     )
     .eq("id", tenancyId)
     .eq("status", "active")
@@ -80,6 +86,7 @@ export async function executeTenantCheckout({
   const tenant = one(tenancy?.tenants as Relation<{
     full_name: string;
     phone: string | null;
+    profile_id: string | null;
   }>);
 
   if (
@@ -174,6 +181,13 @@ export async function executeTenantCheckout({
     return { ok: false, reason: "failed" };
   }
 
+  const phoneLoginRelease = await releaseCheckedOutTenantPhone({
+    phone: normalizeInternationalPhone(tenant?.phone ?? ""),
+    profileId: tenant?.profile_id ?? null,
+    tenancyId: tenancy.id,
+    tenantId: tenancy.tenant_id,
+  });
+
   const { error: auditError } = await admin.from("audit_logs").insert({
     company_id: tenancy.company_id,
     actor_profile_id: actorProfileId,
@@ -191,6 +205,7 @@ export async function executeTenantCheckout({
       room_name: room.room_number || room.name || "Room",
       source,
       note: note?.trim() || null,
+      phone_login_release: phoneLoginRelease,
     },
   });
   if (auditError) {
@@ -205,5 +220,6 @@ export async function executeTenantCheckout({
     propertyId: tenancy.property_id,
     roomId: tenancy.room_id,
     tenancyId: tenancy.id,
+    phoneLoginRelease,
   };
 }

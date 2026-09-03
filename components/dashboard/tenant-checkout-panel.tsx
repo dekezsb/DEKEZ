@@ -27,10 +27,12 @@ function malaysiaToday() {
 export function TenantCheckoutPanel({
   candidates,
   error,
+  phoneRelease,
   saved,
 }: {
   candidates: TenantCheckoutCandidate[];
   error?: string;
+  phoneRelease?: string;
   saved: boolean;
 }) {
   return (
@@ -52,8 +54,24 @@ export function TenantCheckoutPanel({
       <CardContent className="space-y-4">
         {saved ? (
           <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-            Tenant checked out successfully. The room is vacant and the action
-            is recorded for the Super Admin.
+            {phoneRelease === "failed"
+              ? "Tenant checked out successfully and the room is vacant. The phone-login release needs a Super Admin review."
+              : phoneRelease === "kept_for_active_tenancy"
+                ? "Tenant checked out successfully and the room is vacant. The phone login was kept because the tenant still has another active room."
+                : "Tenant checked out successfully. The room is vacant, the old phone login is released for future registration, and the action is recorded for the Super Admin."}
+          </p>
+        ) : null}
+        {saved && phoneRelease === "failed" ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+            The room was checked out, but the old phone login could not be
+            released automatically. Ask the Super Admin to review it before
+            registering the same phone number again.
+          </p>
+        ) : null}
+        {saved && phoneRelease === "kept_for_active_tenancy" ? (
+          <p className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-900">
+            This phone login was kept because the tenant still has another
+            active room.
           </p>
         ) : null}
         {error ? (
@@ -131,7 +149,9 @@ export function TenantCheckoutPanel({
               <span>
                 I confirm this tenant has moved out. The active tenancy will
                 end, linked door access will be removed and the room will become
-                vacant. Signed agreements and invoices remain in history.
+                vacant. If this is the tenant's final active room, their old
+                phone login will be released for re-registration. Signed
+                agreements and invoices remain in history.
               </span>
             </label>
 
@@ -152,6 +172,11 @@ export function TenantCheckoutPanel({
             <p>2. Enter the tenant's actual checkout date.</p>
             <p>3. Add a note if keys or access were handed over.</p>
             <p>4. Submit once only; the Super Admin can see the audit record.</p>
+            <p>
+              5. The old phone login is released only when the tenant has no
+              other active room, so the same number can be used at another
+              branch.
+            </p>
             <p>
               The selected tenant's check-in date is shown in the main records;
               checkout earlier than that date is blocked.

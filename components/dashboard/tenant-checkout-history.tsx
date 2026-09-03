@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TenantCheckoutHistoryItem } from "@/lib/data/tenant-checkouts";
 import { formatMalaysiaDate, formatMalaysiaDateTime } from "@/lib/date-format";
+import { releaseHistoricalTenantPhone } from "@/app/dashboard/checkout-actions";
 
 function moveMonth(month: string, amount: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -30,9 +31,13 @@ function sourceLabel(value: string) {
 export function TenantCheckoutHistory({
   items,
   month,
+  phoneReleaseError,
+  phoneReleaseFixed,
 }: {
   items: TenantCheckoutHistoryItem[];
   month: string;
+  phoneReleaseError?: string;
+  phoneReleaseFixed: boolean;
 }) {
   return (
     <Card className="mx-auto max-w-4xl shadow-sm">
@@ -56,6 +61,19 @@ export function TenantCheckoutHistory({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {phoneReleaseFixed ? (
+          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+            The checked-out tenant's old phone login was released. That number
+            can now be used for a new registration.
+          </p>
+        ) : null}
+        {phoneReleaseError ? (
+          <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {phoneReleaseError === "kept_for_active_tenancy"
+              ? "The phone login was kept because this tenant still has another active room."
+              : "The old phone login could not be released. Review this tenant before trying again."}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-3 rounded-lg border border-[#d7dde5] bg-[#f7f9fb] p-3 sm:flex-row sm:items-end sm:justify-between">
           <Button asChild size="sm" variant="outline">
             <Link href={`/dashboard?checkoutMonth=${moveMonth(month, -1)}`}>
@@ -117,6 +135,15 @@ export function TenantCheckoutHistory({
                       <p className="font-medium text-[#07142f]">{item.tenantName}</p>
                       {item.tenantPhone ? (
                         <p className="mt-1 text-xs text-gray-500">{item.tenantPhone}</p>
+                      ) : null}
+                      {item.needsPhoneRelease ? (
+                        <form action={releaseHistoricalTenantPhone} className="mt-2">
+                          <input name="tenancyId" type="hidden" value={item.tenancyId} />
+                          <input name="checkoutMonth" type="hidden" value={month} />
+                          <Button size="sm" type="submit" variant="outline">
+                            Release phone login
+                          </Button>
+                        </form>
                       ) : null}
                     </td>
                     <td className="px-4 py-3">
