@@ -48,6 +48,7 @@ export async function checkoutTenantFromManagement(formData: FormData) {
   revalidatePath("/tenants");
   revalidatePath("/verification");
   revalidatePath("/rent-due-tracker");
+  revalidatePath("/room-availability");
   revalidatePath("/payments");
   redirect(
     `/dashboard?checkout_saved=1&phone_release=${result.phoneLoginRelease}`,

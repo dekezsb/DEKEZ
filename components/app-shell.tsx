@@ -365,6 +365,7 @@ const navigationTranslationKeys: Record<string, TranslationKey> = {
   Home: "nav.home",
   "Admin Settings": "nav.adminSettings",
   Properties: "nav.properties",
+  "Room Availability": "nav.roomAvailability",
   "Smart Devices": "nav.smartDevices",
   Verification: "nav.verification",
   "Referral Rewards": "nav.referrals",

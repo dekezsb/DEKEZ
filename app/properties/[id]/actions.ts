@@ -1340,6 +1340,7 @@ export async function checkoutRoom(formData: FormData) {
   const requestedTenancyId = textValue(formData, "tenancyId");
   const checkoutDate = textValue(formData, "checkoutDate") || today();
   const returnTo = textValue(formData, "returnTo");
+  const returnToAvailability = returnTo === "/room-availability";
   const property = await accessibleProperty(propertyId);
   if (!property || !user) {
     redirect("/properties");
@@ -1362,6 +1363,9 @@ export async function checkoutRoom(formData: FormData) {
   });
 
   if (!result.ok) {
+    if (returnToAvailability) {
+      redirect(`/room-availability?checkout_error=${result.reason}`);
+    }
     const verificationError = result.reason === "lock" ? "lock" : "stale";
     const propertyError =
       result.reason === "lock" ? "lock_access" : "checkout_failed";
@@ -1378,8 +1382,14 @@ export async function checkoutRoom(formData: FormData) {
   revalidatePath("/tenants");
   revalidatePath("/verification");
   revalidatePath("/rent-due-tracker");
+  revalidatePath("/room-availability");
   revalidatePath("/dashboard");
   revalidatePath("/payments");
+  if (returnToAvailability) {
+    redirect(
+      `/room-availability?checkout=1&phone_release=${result.phoneLoginRelease}`,
+    );
+  }
   redirect(
     returnTo === "/verification?view=tenancy"
       ? `/verification?view=tenancy&checkout=1&phone_release=${result.phoneLoginRelease}`

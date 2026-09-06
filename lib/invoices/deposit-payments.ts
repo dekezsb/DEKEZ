@@ -33,6 +33,7 @@ export async function getVerifiedDepositPaymentMaps(
             .in("tenancy_id", tenancyIds)
             .in("category", depositCategories)
             .in("status", ["confirmed", "paid"])
+            .is("reversed_at", null)
         : Promise.resolve({ data: [], error: null }),
       tenancyIds.length
         ? supabase

@@ -9,6 +9,7 @@ import { checkoutRoom } from "./actions";
 type QuickCheckoutDialogProps = {
   checkoutDate: string;
   propertyId: string;
+  returnTo?: string;
   roomId: string;
   roomNumber: string;
   tenancyId: string;
@@ -33,6 +34,7 @@ function CheckoutSubmitButton() {
 export function QuickCheckoutDialog({
   checkoutDate,
   propertyId,
+  returnTo,
   roomId,
   roomNumber,
   tenancyId,
@@ -59,6 +61,7 @@ export function QuickCheckoutDialog({
       >
         <form action={checkoutRoom} className="p-5 sm:p-6">
           <input name="propertyId" type="hidden" value={propertyId} />
+          {returnTo ? <input name="returnTo" type="hidden" value={returnTo} /> : null}
           <input name="roomId" type="hidden" value={roomId} />
           <input name="tenancyId" type="hidden" value={tenancyId} />
 
@@ -117,6 +120,10 @@ export function QuickCheckoutDialog({
               <li className="flex gap-2">
                 <CheckCircle2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                 Room and main-door smart-lock access is revoked.
+              </li>
+              <li className="flex gap-2">
+                <CheckCircle2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                If this is the tenant&apos;s final active room, the old phone login is released so the number can be registered again later.
               </li>
             </ul>
           </div>
