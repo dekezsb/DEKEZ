@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
+import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 
 type ConvertApplicationOptions = {
@@ -33,7 +34,7 @@ export async function convertTenantApplication(
   const { data: application } = await supabase
     .from("tenant_applications")
     .select(
-      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, rental_model, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
+      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, utility_deposit, rental_model, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
     )
     .eq("id", applicationId)
     .maybeSingle();
@@ -61,7 +62,7 @@ export async function convertTenantApplication(
   const [{ data: property }, { data: room }] = await Promise.all([
     supabase
       .from("properties")
-      .select("id, company_id, rental_model")
+      .select("id, company_id, is_commercial, rental_model")
       .eq("id", application.property_id)
       .maybeSingle(),
     supabase
@@ -82,6 +83,13 @@ export async function convertTenantApplication(
       ? "monthly_stay"
       : "tenancy";
   const isMonthlyStay = rentalModel === "monthly_stay";
+  const requiredDeposit = isMonthlyStay
+    ? 0
+    : requiredTenancyDeposit({
+        isCommercial: Boolean(property.is_commercial),
+        monthlyRent: application.monthly_rent,
+        statedDeposit: application.deposit,
+      });
 
   if (!room || !["vacant", "reserved"].includes(room.status)) {
     return { ok: false, reason: "room_unavailable" };
@@ -207,7 +215,7 @@ export async function convertTenantApplication(
       tenant_application_id: application.id,
       room_id: room.id,
       monthly_rent: application.monthly_rent,
-      deposit: isMonthlyStay ? 0 : application.deposit,
+      deposit: requiredDeposit,
       start_date: application.proposed_start_date,
       end_date: isMonthlyStay ? null : application.proposed_end_date,
       due_day: dueDay,
@@ -251,7 +259,7 @@ export async function convertTenantApplication(
     phone: application.whatsapp_number,
     identification_number: application.ic_passport_number,
     monthly_rent: application.monthly_rent,
-    deposit: isMonthlyStay ? 0 : application.deposit,
+    deposit: requiredDeposit,
     contract_start: application.proposed_start_date,
     contract_end: isMonthlyStay ? null : application.proposed_end_date,
     due_day: dueDay,

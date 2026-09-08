@@ -33,7 +33,7 @@ export default async function AgreementPreviewPage({
   const supabase = createAdminClient();
   const { data: tenancy } = await supabase
     .from("tenancies")
-    .select("id, tenant_id, property_id, room_id")
+    .select("id, tenant_id, property_id, room_id, monthly_rent, monthly_rental")
     .eq("id", tenancyId)
     .maybeSingle();
 
@@ -126,6 +126,7 @@ export default async function AgreementPreviewPage({
           <AgreementPreviewForm
             action={confirmAgreementGeneration}
             agreementType={agreementTypeForProperty(property.is_commercial)}
+            monthlyRent={Number(tenancy.monthly_rental ?? tenancy.monthly_rent ?? 0)}
             propertyName={property.name}
             roomName={room?.room_number ?? room?.name ?? "Room"}
             settings={settings}

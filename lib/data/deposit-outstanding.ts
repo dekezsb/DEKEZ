@@ -68,13 +68,23 @@ export async function getDepositOutstandingSummary(): Promise<DepositOutstanding
       .from("payments")
       .select("tenancy_id, room_id, amount")
       .in("property_id", propertyIds)
-      .in("category", ["deposit", "rental_deposit", "security_deposit"])
+      .in("category", [
+        "deposit",
+        "rental_deposit",
+        "security_deposit",
+        "utility_deposit",
+      ])
       .eq("status", "confirmed"),
     supabase
       .from("payment_submissions")
       .select("tenancy_id, tenant_record_id, room_id, amount")
       .in("property_id", propertyIds)
-      .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
+      .in("payment_type", [
+        "deposit",
+        "rental_deposit",
+        "security_deposit",
+        "utility_deposit",
+      ])
       .eq("verification_status", "verified"),
   ]);
 

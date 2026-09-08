@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { agreementPdfName } from "@/lib/tenancy/agreement-filename";
 import { loadAgreementAppendixDocuments } from "@/lib/tenancy/agreement-appendix";
 import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 
 function textValue(formData: FormData, key: string) {
@@ -107,7 +108,7 @@ export async function signAgreement(formData: FormData) {
         .maybeSingle(),
       supabase
         .from("properties")
-        .select("id, property_code, name")
+        .select("id, property_code, name, is_commercial")
         .eq("id", tenancy.property_id)
         .maybeSingle(),
       supabase
@@ -324,6 +325,37 @@ export async function signAgreement(formData: FormData) {
           });
         },
       );
+    }
+  }
+
+  if (property?.is_commercial) {
+    const requiredDeposit = commercialDepositSchedule(
+      agreement.monthly_rent_snapshot,
+    ).totalDeposit;
+    const [tenancyDepositResult, tenantRecordDepositResult] = await Promise.all([
+      supabase
+        .from("tenancies")
+        .update({
+          deposit: requiredDeposit,
+          updated_at: signedAt,
+        })
+        .eq("id", agreement.tenancy_id),
+      supabase
+        .from("tenant_records")
+        .update({
+          deposit: requiredDeposit,
+          updated_at: signedAt,
+        })
+        .eq("tenancy_id", agreement.tenancy_id)
+        .eq("status", "active"),
+    ]);
+    const depositSyncError =
+      tenancyDepositResult.error ?? tenantRecordDepositResult.error;
+    if (depositSyncError) {
+      console.error("Signed commercial deposit requirement was not synchronized.", {
+        agreementId,
+        error: depositSyncError.message,
+      });
     }
   }
 

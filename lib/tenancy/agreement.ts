@@ -15,6 +15,7 @@ import {
   agreementTypeVariables,
   type AgreementDocumentType,
 } from "@/lib/tenancy/agreement-types";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import {
   loadPropertyTenancySettings,
   propertyAgreementVariables,
@@ -253,6 +254,18 @@ function renderAgreement(
   propertySettings: PropertyTenancySettings,
   agreementType: AgreementDocumentType,
 ) {
+  const isCommercialOffice = agreementType === "commercial_office";
+  const commercialDeposits = commercialDepositSchedule(monthlyRent);
+  const securityDeposit = isCommercialOffice
+    ? commercialDeposits.securityDeposit
+    : Number(context.deposit ?? 0);
+  const utilityDeposit = isCommercialOffice
+    ? commercialDeposits.utilityDeposit
+    : 0;
+  const totalDeposit = isCommercialOffice
+    ? commercialDeposits.totalDeposit
+    : securityDeposit + utilityDeposit;
+
   return renderAgreementTemplate(templateContent, {
     agreement_date: formatMalaysiaDate(startDate),
     landlord_address:
@@ -267,11 +280,14 @@ function renderAgreement(
     premise_address: context.properties?.address,
     property_address: context.properties?.address,
     monthly_rent: agreementAmount(monthlyRent),
-    deposit_amount: agreementAmount(context.deposit),
-    security_deposit: agreementAmount(context.deposit),
-    utility_deposit: agreementAmount(0),
+    deposit_amount: agreementAmount(totalDeposit),
+    security_deposit: agreementAmount(securityDeposit),
+    utility_deposit: agreementAmount(utilityDeposit),
     key_deposit: agreementAmount(0),
     other_deposit: agreementAmount(0),
+    deposit_schedule_clause: isCommercialOffice
+      ? `For this commercial office tenancy, the Security Deposit is fixed at two (2) months of Monthly Rent and the Utility Deposit is fixed at one-half (0.5) month of Monthly Rent. The total commercial deposit required is RM ${agreementAmount(totalDeposit)}.`
+      : "The deposit amounts applicable to this tenancy are the amounts stated above.",
     rent_due_day: context.rent_due_day ?? new Date(`${startDate}T00:00:00Z`).getUTCDate(),
     tenancy_start_date: formatMalaysiaDate(startDate),
     tenancy_end_date: formatMalaysiaDate(endDate),

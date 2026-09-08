@@ -181,13 +181,23 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .from("payments")
         .select("room_id, amount")
         .eq("property_id", propertyId)
-        .in("category", ["deposit", "rental_deposit", "security_deposit"])
+        .in("category", [
+          "deposit",
+          "rental_deposit",
+          "security_deposit",
+          "utility_deposit",
+        ])
         .eq("status", "confirmed"),
       supabase
         .from("payment_submissions")
         .select("room_id, amount")
         .eq("property_id", propertyId)
-        .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
+        .in("payment_type", [
+          "deposit",
+          "rental_deposit",
+          "security_deposit",
+          "utility_deposit",
+        ])
         .eq("verification_status", "verified"),
       supabase
         .from("utility_bills")

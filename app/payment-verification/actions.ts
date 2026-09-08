@@ -45,7 +45,30 @@ function followingMonth(value: string) {
 }
 
 function normalizeStoredPaymentType(value: string) {
-  return value === "first_month_rental" ? "monthly_rent" : value;
+  if (value === "first_month_rental") return "monthly_rent";
+  if (
+    ["rental_deposit", "security_deposit", "utility_deposit"].includes(
+      value,
+    )
+  ) {
+    return "deposit";
+  }
+  return value;
+}
+
+function canonicalDepositCategory(
+  originalPaymentType: string,
+  purposeWasCorrected: boolean,
+) {
+  if (
+    !purposeWasCorrected &&
+    ["rental_deposit", "security_deposit", "utility_deposit"].includes(
+      originalPaymentType,
+    )
+  ) {
+    return originalPaymentType;
+  }
+  return "deposit";
 }
 
 async function getAdmin() {
@@ -582,7 +605,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       ? await supabase
           .from("tenancies")
           .select(
-            "id, company_id, organization_id, property_id, unit_id, room_id",
+            "id, company_id, organization_id, property_id, unit_id, room_id, deposit",
           )
           .eq("id", tenancyId)
           .maybeSingle()
@@ -640,6 +663,29 @@ export async function reviewPaymentSubmission(formData: FormData) {
         (total, item) => total + Number(item.amount ?? 0),
         0,
       );
+
+      if (!verifiedAllocation && isPaymentPurpose(submission.payment_type)) {
+        verifiedDepositRequired = Math.max(
+          Number(bill?.deposit_amount ?? 0),
+          Number(tenancy.deposit ?? 0),
+        );
+        verifiedDepositPaidBefore = 0;
+        const initialAllocation = allocatePaymentPurpose({
+          purpose: submission.payment_type,
+          amount: Number(submission.amount ?? 0),
+          rentOutstanding: Math.max(
+            Number(bill?.amount ?? 0) - Number(bill?.paid_amount ?? 0),
+            0,
+          ),
+          depositOutstanding: verifiedDepositRequired,
+        });
+        verifiedAllocation = {
+          rent: initialAllocation.rent,
+          deposit: initialAllocation.deposit,
+          extra: 0,
+          credit: initialAllocation.extra,
+        };
+      }
 
       if (verifiedExtraCharge) {
         const { error: extraChargeError } = await supabase
@@ -748,7 +794,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
           ...(verifiedAllocation.deposit > 0.005
             ? [{
                 ...paymentBase,
-                category: "deposit",
+                category: canonicalDepositCategory(
+                  currentSubmission.payment_type,
+                  Boolean(purposeWasCorrected),
+                ),
                 amount: verifiedAllocation.deposit,
                 notes: "Verified rental deposit payment proof",
               }]

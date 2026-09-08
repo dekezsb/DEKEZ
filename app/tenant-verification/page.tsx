@@ -75,7 +75,7 @@ export async function TenantVerificationContent({
   const [applicationsResult, documentsResult, paymentsResult] = await Promise.all([
     supabase
       .from("tenant_applications")
-      .select("id, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
+      .select("id, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, utility_deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
       .neq("status", "draft")
       .eq("verification_status", "pending_verification")
       .order("submitted_at", { ascending: false }),
@@ -168,7 +168,7 @@ export async function TenantVerificationContent({
                     <TableHead>Property</TableHead>
                     <TableHead>Room</TableHead>
                     <TableHead>Rent</TableHead>
-                    <TableHead>Deposit</TableHead>
+                    <TableHead>Deposits</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead>Payment slip</TableHead>
@@ -255,7 +255,16 @@ export async function TenantVerificationContent({
                         <TableCell>{property?.name ?? "-"}</TableCell>
                         <TableCell>{room?.room_number ?? room?.name ?? "-"}</TableCell>
                         <TableCell>{money(application.monthly_rent)}</TableCell>
-                        <TableCell>{money(application.deposit)}</TableCell>
+                        <TableCell className="min-w-40 align-top">
+                          <p>Security: {money(application.deposit)}</p>
+                          <p>Utilities: {money(application.utility_deposit)}</p>
+                          <p className="font-semibold text-gray-950">
+                            Total: {money(
+                              Number(application.deposit ?? 0) +
+                                Number(application.utility_deposit ?? 0),
+                            )}
+                          </p>
+                        </TableCell>
                         <TableCell>{application.contract_duration_months} months</TableCell>
                         <TableCell className="min-w-52">
                           <div className="grid grid-cols-2 gap-2">

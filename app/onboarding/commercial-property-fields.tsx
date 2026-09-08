@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type PropertyOption = {
   id: string;
@@ -26,8 +27,13 @@ export function CommercialPropertyFields({
   rooms: RoomOption[];
 }) {
   const [propertyId, setPropertyId] = useState("");
+  const [roomId, setRoomId] = useState("");
   const selected = properties.find((property) => property.id === propertyId);
   const availableRooms = rooms.filter((room) => room.propertyId === propertyId);
+  const selectedRoom = rooms.find((room) => room.id === roomId);
+  const commercialDeposits = commercialDepositSchedule(
+    selectedRoom?.monthlyRent,
+  );
 
   return (
     <>
@@ -36,7 +42,10 @@ export function CommercialPropertyFields({
         <select
           className={inputClass}
           name="propertyId"
-          onChange={(event) => setPropertyId(event.target.value)}
+          onChange={(event) => {
+            setPropertyId(event.target.value);
+            setRoomId("");
+          }}
           required
           value={propertyId}
         >
@@ -50,7 +59,14 @@ export function CommercialPropertyFields({
       </label>
       <label className="block">
         <span className="text-sm font-medium text-gray-700">Available room</span>
-        <select className={inputClass} name="roomId" required disabled={!propertyId}>
+        <select
+          className={inputClass}
+          disabled={!propertyId}
+          name="roomId"
+          onChange={(event) => setRoomId(event.target.value)}
+          required
+          value={roomId}
+        >
           <option value="">
             {propertyId ? "Choose room" : "Choose property first"}
           </option>
@@ -61,6 +77,22 @@ export function CommercialPropertyFields({
           ))}
         </select>
       </label>
+      {selected?.isCommercial && selectedRoom ? (
+        <div className="rounded-md border border-[#ead8ad] bg-[#fffaf0] p-3 text-sm leading-6 text-gray-700">
+          <p className="font-semibold text-gray-950">
+            Commercial office deposit is fixed automatically
+          </p>
+          <p>Security deposit — 2 months: RM {commercialDeposits.securityDeposit.toFixed(2)}</p>
+          <p>Utility deposit — 0.5 month: RM {commercialDeposits.utilityDeposit.toFixed(2)}</p>
+          <p className="font-semibold">
+            Total required: RM {commercialDeposits.totalDeposit.toFixed(2)}
+          </p>
+          <p className="mt-1 text-xs text-gray-600">
+            The selected room rate is used. Manually entered rent or deposit
+            values cannot reduce this requirement.
+          </p>
+        </div>
+      ) : null}
       {selected?.isCommercial ? (
         <label className="block rounded-md border border-[#ead8ad] bg-[#fffaf0] p-3">
           <span className="text-sm font-semibold text-gray-950">

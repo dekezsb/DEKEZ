@@ -11,10 +11,12 @@ import {
   OPTIONAL_CLAUSES,
   type PropertyTenancySettings,
 } from "@/lib/tenancy/property-settings";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type AgreementPreviewFormProps = {
   action: (formData: FormData) => void | Promise<void>;
   agreementType: AgreementDocumentType;
+  monthlyRent: number;
   propertyName: string;
   roomName: string;
   settings: PropertyTenancySettings;
@@ -41,6 +43,7 @@ function utilityLabel(
 export function AgreementPreviewForm({
   action,
   agreementType,
+  monthlyRent,
   propertyName,
   roomName,
   settings,
@@ -73,6 +76,7 @@ export function AgreementPreviewForm({
       : tenantType === "company"
         ? "Company"
         : "Sole proprietor / enterprise";
+  const commercialDeposits = commercialDepositSchedule(monthlyRent);
 
   return (
     <form action={action} className="space-y-6">
@@ -109,6 +113,38 @@ export function AgreementPreviewForm({
           </div>
         ))}
       </div>
+
+      {agreementType === "commercial_office" ? (
+        <section className="rounded-md border border-[#dbc38e] bg-[#fbf6e9] p-4">
+          <h3 className="font-semibold text-gray-950">
+            Commercial office deposit schedule
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-gray-600">
+            This fixed formula will be written clearly into the tenancy
+            agreement.
+          </p>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-gray-500">Security — 2 months</dt>
+              <dd className="mt-1 font-semibold text-gray-950">
+                RM {commercialDeposits.securityDeposit.toFixed(2)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Utilities — 0.5 month</dt>
+              <dd className="mt-1 font-semibold text-gray-950">
+                RM {commercialDeposits.utilityDeposit.toFixed(2)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Total required</dt>
+              <dd className="mt-1 font-semibold text-gray-950">
+                RM {commercialDeposits.totalDeposit.toFixed(2)}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-md border border-[#d7dde5] bg-white p-4">

@@ -28,6 +28,7 @@ import {
   PROPERTY_TYPES,
 } from "@/lib/tenancy/property-settings";
 import { executeTenantCheckout } from "@/lib/tenancy/checkout";
+import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -877,7 +878,12 @@ export async function updateRoomField(formData: FormData) {
       .from("payments")
       .select("id, amount, payment_method, reference_number, notes")
       .eq("tenancy_id", paymentTenancy.id)
-      .in("category", ["deposit", "rental_deposit", "security_deposit"])
+      .in("category", [
+        "deposit",
+        "rental_deposit",
+        "security_deposit",
+        "utility_deposit",
+      ])
       .eq("status", "confirmed");
     if (existingDepositsError) {
       return { ok: false, error: "The existing deposit records could not be checked." };
@@ -902,7 +908,12 @@ export async function updateRoomField(formData: FormData) {
         .from("payment_submissions")
         .select("amount")
         .eq("tenancy_id", paymentTenancy.id)
-        .in("payment_type", ["deposit", "rental_deposit", "security_deposit"])
+        .in("payment_type", [
+          "deposit",
+          "rental_deposit",
+          "security_deposit",
+          "utility_deposit",
+        ])
         .eq("verification_status", "verified");
     if (verifiedSubmissionsError) {
       return { ok: false, error: "Verified deposit slips could not be checked." };
@@ -1093,7 +1104,7 @@ export async function registerTenant(formData: FormData) {
   const checkInDate = textValue(formData, "checkInDate");
   const contractEnd = textValue(formData, "contractEnd") || null;
   const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
-  const deposit = Math.max(0, numberValue(formData, "deposit"));
+  const statedDeposit = Math.max(0, numberValue(formData, "deposit"));
   const icFront = formFile(formData, "icFront");
   const icBack = formFile(formData, "icBack");
   const passportPhoto = formFile(formData, "passportPhoto");
@@ -1120,6 +1131,12 @@ export async function registerTenant(formData: FormData) {
   ) {
     redirect(propertyPath(property.id, "/register-tenant?error=upload"));
   }
+
+  const deposit = requiredTenancyDeposit({
+    isCommercial: property.is_commercial,
+    monthlyRent,
+    statedDeposit,
+  });
 
   const supabase = await getAdmin();
   const { data: room } = await supabase

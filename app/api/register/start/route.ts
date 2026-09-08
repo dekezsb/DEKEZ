@@ -12,6 +12,7 @@ import {
   validateReferralRegistration,
   type ValidatedReferral,
 } from "@/lib/referrals/registration";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -347,6 +348,9 @@ export async function POST(request: NextRequest) {
     if (profileError) throw profileError;
 
     if (accountType === "tenant" && property && room) {
+      const commercialDeposits = property.is_commercial
+        ? commercialDepositSchedule(room.monthly_rent)
+        : null;
       const { data: application, error: applicationError } = await admin
         .from("tenant_applications")
         .insert({
@@ -370,8 +374,8 @@ export async function POST(request: NextRequest) {
               ? null
               : addMonths(proposedStartDate, duration),
           monthly_rent: Number(room.monthly_rent ?? 0),
-          deposit: 0,
-          utility_deposit: 0,
+          deposit: commercialDeposits?.securityDeposit ?? 0,
+          utility_deposit: commercialDeposits?.utilityDeposit ?? 0,
           rental_model: property.rental_model,
           status: "draft",
           verification_status: "incomplete",

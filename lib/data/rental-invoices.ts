@@ -46,6 +46,7 @@ type InvoiceProperty = {
   property_code: string | null;
   area: string | null;
   address: string | null;
+  is_commercial: boolean;
 };
 
 type InvoiceRoom = {
@@ -119,6 +120,7 @@ export type RentalInvoiceView = {
   propertyCode: string;
   propertyArea: string | null;
   propertyAddress: string | null;
+  propertyIsCommercial: boolean;
   roomId: string;
   roomName: string;
   tenancyId: string | null;
@@ -332,7 +334,7 @@ async function hydrateInvoices(
     await Promise.all([
       supabase
         .from("properties")
-        .select("id, name, property_code, area, address")
+        .select("id, name, property_code, area, address, is_commercial")
         .in("id", propertyIds),
       supabase
         .from("rooms")
@@ -499,6 +501,7 @@ async function hydrateInvoices(
       propertyCode: property?.property_code ?? "",
       propertyArea: property?.area ?? null,
       propertyAddress: property?.address ?? null,
+      propertyIsCommercial: Boolean(property?.is_commercial),
       roomId: bill.room_id,
       roomName: room?.room_number ?? room?.name ?? "Room",
       tenancyId: bill.tenancy_id,

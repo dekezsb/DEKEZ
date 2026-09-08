@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type RegistrationProperty = {
   id: string;
@@ -98,6 +99,7 @@ export function RegistrationForm({
     (property) => property.id === propertyId,
   );
   const isMonthlyStay = selectedProperty?.rentalModel === "monthly_stay";
+  const commercialDeposits = commercialDepositSchedule(monthlyRent);
 
   function selectProperty(nextPropertyId: string) {
     setPropertyId(nextPropertyId);
@@ -371,6 +373,36 @@ export function RegistrationForm({
           now; future months are due on this same check-in day until checkout.
           <input name="deposit" type="hidden" value="0" />
         </div>
+      ) : selectedProperty?.isCommercial ? (
+        <div className="rounded-md border border-[#dbc38e] bg-[#fbf6e9] p-4 text-sm leading-6 text-[#61470f]">
+          <strong>Commercial office deposit</strong>
+          <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
+            <dt>Security deposit — 2 months</dt>
+            <dd className="font-semibold">
+              RM {commercialDeposits.securityDeposit.toFixed(2)}
+            </dd>
+            <dt>Utility deposit — 0.5 month</dt>
+            <dd className="font-semibold">
+              RM {commercialDeposits.utilityDeposit.toFixed(2)}
+            </dd>
+            <dt className="border-t border-[#dbc38e] pt-1 font-semibold">
+              Total required
+            </dt>
+            <dd className="border-t border-[#dbc38e] pt-1 font-semibold">
+              RM {commercialDeposits.totalDeposit.toFixed(2)}
+            </dd>
+          </dl>
+          <input
+            name="deposit"
+            type="hidden"
+            value={commercialDeposits.securityDeposit.toFixed(2)}
+          />
+          <input
+            name="utilityDeposit"
+            type="hidden"
+            value={commercialDeposits.utilityDeposit.toFixed(2)}
+          />
+        </div>
       ) : (
         <label>
           <span className="text-sm font-medium text-[#17223b]">Deposit RM</span>
@@ -382,6 +414,7 @@ export function RegistrationForm({
             step="0.01"
             type="number"
           />
+          <input name="utilityDeposit" type="hidden" value="0" />
         </label>
       )}
 

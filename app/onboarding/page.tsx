@@ -123,7 +123,14 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
           </CardHeader>
           <CardContent className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2 lg:grid-cols-4">
             <p>Monthly rent: {money(latestApplication.monthly_rent)}</p>
-            <p>Deposit: {money(latestApplication.deposit)}</p>
+            <p>Security deposit: {money(latestApplication.deposit)}</p>
+            <p>Utility deposit: {money(latestApplication.utility_deposit)}</p>
+            <p>
+              Total deposits: {money(
+                Number(latestApplication.deposit ?? 0) +
+                  Number(latestApplication.utility_deposit ?? 0),
+              )}
+            </p>
             <p>Duration: {latestApplication.contract_duration_months} months</p>
             <p>Start: {formatMalaysiaDate(latestApplication.proposed_start_date)}</p>
             <p>End: {formatMalaysiaDate(latestApplication.proposed_end_date)}</p>
@@ -185,15 +192,15 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="proposedStartDate" type="date" required />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">Monthly rent RM</span>
+                <span className="text-sm font-medium text-gray-700">Monthly rent RM (residential or approved special rate)</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="monthlyRent" type="number" min="0" step="0.01" />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">Deposit RM</span>
+                <span className="text-sm font-medium text-gray-700">Security deposit RM (residential only)</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="deposit" type="number" min="0" step="0.01" />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">Utility deposit RM</span>
+                <span className="text-sm font-medium text-gray-700">Utility deposit RM (residential only)</span>
                 <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="utilityDeposit" type="number" min="0" step="0.01" />
               </label>
               <label className="block">

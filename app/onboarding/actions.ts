@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/data/organization";
 import { addMonths } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -119,6 +120,12 @@ export async function submitTenantApplication(formData: FormData) {
   }
 
   const finalDuration = [6, 12].includes(duration) ? duration : Number(property.default_contract_duration_months ?? 12);
+  const effectiveMonthlyRent = property.is_commercial
+    ? Number(room.monthly_rent ?? 0)
+    : monthlyRent || Number(room.monthly_rent ?? 0);
+  const commercialDeposits = property.is_commercial
+    ? commercialDepositSchedule(effectiveMonthlyRent)
+    : null;
   const { data: application, error } = await supabase
     .from("tenant_applications")
     .insert({
@@ -134,9 +141,9 @@ export async function submitTenantApplication(formData: FormData) {
       contract_duration_months: finalDuration,
       proposed_start_date: proposedStartDate,
       proposed_end_date: addMonths(proposedStartDate, finalDuration),
-      monthly_rent: monthlyRent || Number(room.monthly_rent ?? 0),
-      deposit,
-      utility_deposit: utilityDeposit,
+      monthly_rent: effectiveMonthlyRent,
+      deposit: commercialDeposits?.securityDeposit ?? deposit,
+      utility_deposit: commercialDeposits?.utilityDeposit ?? utilityDeposit,
       status: "pending_verification",
       verification_status: "pending_verification",
       payment_status: "unpaid",

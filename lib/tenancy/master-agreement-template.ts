@@ -47,7 +47,9 @@ Utility Deposit: RM {{utility_deposit}}
 Key Deposit: RM {{key_deposit}}
 Other Deposit: RM {{other_deposit}}
 
-Deposits are held as security and are not advance rent. Subject to deductions supported by records, the refundable balance will be processed within {{deposit_refund_days}} day(s) after checkout and final account reconciliation.
+{{deposit_schedule_clause}}
+
+Deposits are held as security and are not advance rent. No cash refund of any Deposit is made under DEKEZ policy. Where the Tenant completes the agreed contract and has fully paid a Deposit equal to at least one full month of Monthly Rent, DEKEZ may approve the eligible Deposit amount as a contra against rent or final charges after checkout and final account reconciliation. An amount below one full month of Monthly Rent is not eligible for rental contra and will be recognised as maintenance-fee income at checkout. Any Utility Deposit may first be applied against outstanding utility or other permitted charges. All treatment remains subject to deductions supported by records and applicable law.
 
 ## 6. PERMITTED USE
 

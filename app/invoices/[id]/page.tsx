@@ -15,6 +15,7 @@ import {
 } from "@/lib/invoices/format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { isTenantInvoiceVisible } from "@/lib/billing/tenant-invoice-visibility";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -51,6 +52,21 @@ export default async function RentalInvoicePage({ params }: PageProps) {
     .join(" - ");
   const description = `${propertyLabel} ${invoice.roomName} - RENTAL FOR ${month.toUpperCase()}`;
   const returnHref = role === "tenant" ? "/payments" : "/rental-invoices";
+  const commercialDeposits = commercialDepositSchedule(
+    invoice.grossRentAmount,
+  );
+  const usesCommercialDepositSplit =
+    invoice.propertyIsCommercial &&
+    invoice.depositAmount > 0 &&
+    Math.abs(
+      invoice.depositAmount - commercialDeposits.totalDeposit,
+    ) < 0.005;
+  const depositLineCount = usesCommercialDepositSplit
+    ? 2
+    : invoice.depositAmount > 0
+      ? 1
+      : 0;
+  const firstDepositLineNumber = invoice.referralCreditAmount > 0 ? 3 : 2;
 
   return (
     <main className="min-h-screen bg-[#eceff3] px-4 py-6 text-[#17130d] print:bg-white print:p-0 sm:px-6">
@@ -171,9 +187,34 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               </span>
             </div>
           ) : null}
-          {invoice.depositAmount > 0 ? (
+          {usesCommercialDepositSplit ? (
+            <>
+              <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm">
+                <span>{firstDepositLineNumber}</span>
+                <span className="pr-4 font-medium">
+                  COMMERCIAL SECURITY DEPOSIT - 2 MONTHS
+                </span>
+                <span className="text-center">1</span>
+                <span className="text-center">UNIT</span>
+                <span className="text-right">
+                  {money.format(commercialDeposits.securityDeposit)}
+                </span>
+              </div>
+              <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm">
+                <span>{firstDepositLineNumber + 1}</span>
+                <span className="pr-4 font-medium">
+                  COMMERCIAL UTILITY DEPOSIT - 0.5 MONTH
+                </span>
+                <span className="text-center">1</span>
+                <span className="text-center">UNIT</span>
+                <span className="text-right">
+                  {money.format(commercialDeposits.utilityDeposit)}
+                </span>
+              </div>
+            </>
+          ) : invoice.depositAmount > 0 ? (
             <div className="grid grid-cols-[3rem_1fr_4rem_5rem_7rem] border-t border-gray-200 px-3 py-4 text-sm">
-              <span>{invoice.referralCreditAmount > 0 ? 3 : 2}</span>
+              <span>{firstDepositLineNumber}</span>
               <span className="pr-4 font-medium">
                 SECURITY DEPOSIT - FIRST TENANCY INVOICE
               </span>
@@ -192,7 +233,7 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               <span>
                 {index +
                   2 +
-                  (invoice.depositAmount > 0 ? 1 : 0) +
+                  depositLineCount +
                   (invoice.referralCreditAmount > 0 ? 1 : 0)}
               </span>
               <span className="pr-4 font-medium">

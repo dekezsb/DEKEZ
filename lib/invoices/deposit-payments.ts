@@ -12,6 +12,7 @@ const depositCategories = [
   "deposit",
   "rental_deposit",
   "security_deposit",
+  "utility_deposit",
 ];
 
 function addAmount(map: Map<string, number>, key: string | null, amount: unknown) {

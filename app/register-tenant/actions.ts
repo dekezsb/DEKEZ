@@ -13,6 +13,9 @@ import {
   uploadTenantDocuments,
 } from "@/lib/tenant-documents";
 import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
+import {
+  commercialDepositSchedule,
+} from "@/lib/tenancy/commercial-deposit-policy";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -57,7 +60,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
     "emergencyContactNumber",
   );
   const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
-  const deposit = Math.max(0, numberValue(formData, "deposit"));
+  const statedDeposit = Math.max(0, numberValue(formData, "deposit"));
   const contractStart = textValue(formData, "contractStart");
   const contractEnd = textValue(formData, "contractEnd") || null;
   const tenantType = textValue(formData, "tenantType") || "individual";
@@ -137,6 +140,16 @@ export async function submitAdminTenantApplication(formData: FormData) {
     fail("property");
   }
   const isMonthlyStay = property.rental_model === "monthly_stay";
+  const commercialDeposits = commercialDepositSchedule(monthlyRent);
+  const securityDeposit = isMonthlyStay
+    ? 0
+    : property.is_commercial
+      ? commercialDeposits.securityDeposit
+      : statedDeposit;
+  const utilityDeposit =
+    !isMonthlyStay && property.is_commercial
+      ? commercialDeposits.utilityDeposit
+      : 0;
   if (isMonthlyStay && !paymentSlip) {
     fail("payment", propertyId, roomId);
   }
@@ -246,7 +259,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
       proposed_start_date: contractStart,
       proposed_end_date: isMonthlyStay ? null : contractEnd,
       monthly_rent: monthlyRent,
-      deposit: isMonthlyStay ? 0 : deposit,
+      deposit: securityDeposit,
+      utility_deposit: utilityDeposit,
       contract_duration_months: isMonthlyStay ? 1 : undefined,
       rental_model: property.rental_model,
       status: "submitted",
