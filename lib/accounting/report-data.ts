@@ -249,7 +249,7 @@ export async function getProfitLossReport(
         journalSourceIds.length
           ? supabase
               .from("tenancies")
-              .select("id, property_id, room_id, properties(id, name, property_code), rooms(id, name, room_number), tenants(id, full_name)")
+              .select("id, property_id, room_id, properties!tenancies_property_id_fkey(id, name, property_code), rooms!tenancies_room_id_fkey(id, name, room_number), tenants!tenancies_tenant_id_fkey(id, full_name)")
               .in("id", journalSourceIds)
           : Promise.resolve({ data: [], error: null }),
         profileIds.length
