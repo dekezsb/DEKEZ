@@ -6,6 +6,15 @@ type ProfitLossRow = {
   amount: number;
 };
 
+type ReportingAccount = {
+  id?: string | null;
+  code?: string | null;
+  name?: string | null;
+  account_type?: string | null;
+  report_group?: string | null;
+  system_key?: string | null;
+};
+
 export type ProfitLossReport = {
   revenue: ProfitLossRow[];
   costsOfSales: ProfitLossRow[];
@@ -32,6 +41,24 @@ function addRow(rows: Map<string, ProfitLossRow>, key: string, label: string, am
     label,
     amount: numberValue(current?.amount) + amount,
   });
+}
+
+const canonicalAccountRows: Record<string, Pick<ProfitLossRow, "key" | "label">> = {
+  rental_income: { key: "rental_income", label: "Rental Income" },
+  top_up_utilities_income: { key: "top_up_utilities_income", label: "Top Up Utilities Income" },
+  electricity_income: { key: "electricity_income", label: "Electricity Charges Income" },
+  other_tenant_income: { key: "other_tenant_income", label: "Other Tenant Charges Income" },
+};
+
+function reportingRowForAccount(account: ReportingAccount) {
+  const systemKey = account.system_key?.trim();
+  if (systemKey && canonicalAccountRows[systemKey]) return canonicalAccountRows[systemKey];
+
+  const name = account.name?.trim() || "Uncategorised Account";
+  return {
+    key: systemKey || `account_${account.id ?? account.code ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+    label: name,
+  };
 }
 
 function normalizedExpenseLabel(name: string | null | undefined) {
@@ -116,11 +143,11 @@ export async function getProfitLossReport(
     const category = String(line.category ?? "other");
     const amount = numberValue(line.amount);
     if (category === "top_up_utilities") {
-      addRow(revenue, category, "Top Up Utilities Income", amount);
+      addRow(revenue, "top_up_utilities_income", "Top Up Utilities Income", amount);
     } else if (category === "electricity") {
-      addRow(revenue, category, "Electricity Charges Income", amount);
+      addRow(revenue, "electricity_income", "Electricity Charges Income", amount);
     } else {
-      addRow(revenue, "other_tenant_charges", "Other Tenant Charges", amount);
+      addRow(revenue, "other_tenant_income", "Other Tenant Charges Income", amount);
     }
   }
 
@@ -141,7 +168,7 @@ export async function getProfitLossReport(
 
   let manualTransactionsQuery = supabase
     .from("bank_manual_transactions")
-    .select("id, amount, transaction_date, property_id, accounting_accounts!bank_manual_transactions_offset_account_id_fkey(name, account_type, report_group)")
+    .select("id, amount, transaction_date, property_id, accounting_accounts!bank_manual_transactions_offset_account_id_fkey(id, code, name, account_type, report_group, system_key)")
     .eq("company_id", input.companyId)
     .gte("transaction_date", input.startDate)
     .lte("transaction_date", input.endDate);
@@ -153,10 +180,12 @@ export async function getProfitLossReport(
     const account = Array.isArray(relation) ? relation[0] : relation;
     const amount = Math.abs(numberValue(transaction.amount));
     if (account?.account_type === "income") {
-      addRow(revenue, `account_${account.name}`, account.name, amount);
+      const row = reportingRowForAccount(account);
+      addRow(revenue, row.key, row.label, amount);
     } else if (account?.account_type === "expense") {
       const target = account.report_group === "cost_of_sales" ? costOfSalesRows : expenseRows;
-      addRow(target, `account_${account.name}`, account.name, amount);
+      const row = reportingRowForAccount(account);
+      addRow(target, row.key, row.label, amount);
     }
   }
 
@@ -171,7 +200,7 @@ export async function getProfitLossReport(
   let journalLinesQuery = journalEntryIds.length
     ? supabase
         .from("accounting_journal_lines")
-        .select("debit, credit, property_id, accounting_accounts!inner(id, name, account_type, report_group)")
+        .select("debit, credit, property_id, accounting_accounts!inner(id, code, name, account_type, report_group, system_key)")
         .in("journal_entry_id", journalEntryIds)
     : null;
   if (journalLinesQuery && input.propertyId) {
@@ -187,10 +216,12 @@ export async function getProfitLossReport(
     const debit = numberValue(line.debit);
     const credit = numberValue(line.credit);
     if (account?.account_type === "income") {
-      addRow(revenue, `journal_account_${account.id}`, account.name, credit - debit);
+      const row = reportingRowForAccount(account);
+      addRow(revenue, row.key, row.label, credit - debit);
     } else if (account?.account_type === "expense") {
       const target = account.report_group === "cost_of_sales" ? costOfSalesRows : expenseRows;
-      addRow(target, `journal_account_${account.id}`, account.name, debit - credit);
+      const row = reportingRowForAccount(account);
+      addRow(target, row.key, row.label, debit - credit);
     }
   }
 
