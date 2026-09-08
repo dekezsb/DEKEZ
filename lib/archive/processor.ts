@@ -334,7 +334,7 @@ async function prepareTenancyAgreement(
   const { data: agreement, error } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, tenancy_id, rendered_content, status, signed_at, term_start_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot",
+      "id, tenancy_id, rendered_content, status, signed_at, pdf_url, term_start_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, version_number, is_correction",
     )
     .eq("id", sourceId)
     .maybeSingle();
@@ -366,36 +366,51 @@ async function prepareTenancyAgreement(
         .eq("id", tenancy.room_id)
         .maybeSingle(),
     ]);
-  const { data: signatureRecord } = await supabase
-    .from("tenancy_agreement_signatures")
-    .select("signature_url, signed_at")
-    .eq("agreement_id", agreement.id)
-    .order("signed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  let signatureBytes: Uint8Array | null = null;
-  if (signatureRecord?.signature_url) {
-    const { data: signature } = await supabase.storage
-      .from("tenancy-signatures")
-      .download(signatureRecord.signature_url);
-    if (signature) {
-      signatureBytes = new Uint8Array(await signature.arrayBuffer());
-    }
-  }
-  const appendixDocuments = await loadAgreementAppendixDocuments(supabase, {
-    tenancyId: agreement.tenancy_id,
-    tenantProfileId: tenant?.profile_id,
-  });
   const signed = ["signed", "renewal_signed"].includes(agreement.status);
-  const bytes = await createAgreementPdf({
-    content: agreement.rendered_content,
-    signerName: signed
-      ? agreement.tenant_name_snapshot ?? tenant?.full_name ?? "Tenant"
-      : null,
-    signedAt: signatureRecord?.signed_at ?? agreement.signed_at,
-    tenantSignatureBytes: signatureBytes,
-    appendixDocuments,
-  });
+  let bytes: Uint8Array;
+  if (signed && agreement.pdf_url) {
+    const { data: storedPdf, error: storedPdfError } = await supabase.storage
+      .from("tenancy-agreements")
+      .download(agreement.pdf_url);
+    if (storedPdfError || !storedPdf) {
+      throw new Error(
+        `Stored signed tenancy agreement PDF is unavailable: ${
+          storedPdfError?.message ?? agreement.id
+        }`,
+      );
+    }
+    bytes = new Uint8Array(await storedPdf.arrayBuffer());
+  } else {
+    const { data: signatureRecord } = await supabase
+      .from("tenancy_agreement_signatures")
+      .select("signature_url, signed_at")
+      .eq("agreement_id", agreement.id)
+      .order("signed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    let signatureBytes: Uint8Array | null = null;
+    if (signatureRecord?.signature_url) {
+      const { data: signature } = await supabase.storage
+        .from("tenancy-signatures")
+        .download(signatureRecord.signature_url);
+      if (signature) {
+        signatureBytes = new Uint8Array(await signature.arrayBuffer());
+      }
+    }
+    const appendixDocuments = await loadAgreementAppendixDocuments(supabase, {
+      tenancyId: agreement.tenancy_id,
+      tenantProfileId: tenant?.profile_id,
+    });
+    bytes = await createAgreementPdf({
+      content: agreement.rendered_content,
+      signerName: signed
+        ? agreement.tenant_name_snapshot ?? tenant?.full_name ?? "Tenant"
+        : null,
+      signedAt: signatureRecord?.signed_at ?? agreement.signed_at,
+      tenantSignatureBytes: signatureBytes,
+      appendixDocuments,
+    });
+  }
   const checkedOut =
     Boolean(tenancy.checkout_date) ||
     ["completed", "terminated", "cancelled", "ended"].includes(tenancy.status);
@@ -417,6 +432,8 @@ async function prepareTenancyAgreement(
       propertyCode,
       roomNumber,
       termStartDate: agreement.term_start_date,
+      versionNumber: agreement.version_number,
+      corrected: agreement.is_correction,
     }),
     bytes,
   };

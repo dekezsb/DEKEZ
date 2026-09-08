@@ -11,12 +11,19 @@ import { statusBadgeClass } from "@/lib/status-styles";
 import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { issueCorrectedCommercialAgreement } from "../../tenancy-agreements/actions";
 import { signAgreement } from "../actions";
 import { TenantSignatureForm } from "../tenant-signature-form";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; signed?: string; print?: string }>;
+  searchParams: Promise<{
+    corrected?: string;
+    correctionError?: string;
+    error?: string;
+    signed?: string;
+    print?: string;
+  }>;
 };
 
 export default async function AgreementDetailPage({ params, searchParams }: PageProps) {
@@ -29,7 +36,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
       : await createClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, tenancy_id, term_type, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until, admin_rejected_at, admin_rejection_reason, replacement_agreement_id")
+    .select("id, tenancy_id, term_type, agreement_type, version_number, status, rendered_content, signed_at, pdf_url, generated_at, term_start_date, term_end_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, retention_until, admin_rejected_at, admin_rejection_reason, replacement_agreement_id, is_correction, correction_reason")
     .eq("id", id)
     .single();
 
@@ -51,7 +58,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
 
   const { data: tenancy } = await supabase
     .from("tenancies")
-    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name), rooms!tenancies_room_id_fkey(name, room_number)")
+    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name, is_commercial), rooms!tenancies_room_id_fkey(name, room_number)")
     .eq("id", agreement.tenancy_id)
     .maybeSingle();
   const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
@@ -65,6 +72,17 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
     role === "tenant" ? "/e-tenancy" : "/tenancy-agreements";
   const pdfPath = `/api/tenancy-agreements/${agreement.id}/pdf`;
   const signatureRejected = Boolean(agreement.admin_rejected_at);
+  const correctedCopyIssued = Boolean(
+    agreement.replacement_agreement_id && !signatureRejected,
+  );
+  const isCorrectedCopy = agreement.is_correction;
+  const canIssueCommercialCorrection =
+    (role === "super_admin" || role === "admin") &&
+    Boolean(property?.is_commercial) &&
+    agreement.agreement_type === "commercial_office" &&
+    ["signed", "renewal_signed"].includes(agreement.status) &&
+    !isCorrectedCopy &&
+    !agreement.replacement_agreement_id;
   const signingErrors: Record<string, string> = {
     agreement_unavailable:
       "This agreement is no longer available for signing. Please contact DEKEZ.",
@@ -101,10 +119,18 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
             className={
               signatureRejected
                 ? "bg-red-100 text-red-700"
+                : correctedCopyIssued || isCorrectedCopy
+                  ? "bg-amber-100 text-amber-800"
                 : statusBadgeClass(agreement.status)
             }
           >
-            {signatureRejected ? "signature rejected" : agreement.status}
+            {signatureRejected
+              ? "signature rejected"
+              : correctedCopyIssued
+                ? "corrected copy issued"
+                : isCorrectedCopy
+                  ? `corrected · ${agreement.status.replaceAll("_", " ")}`
+                : agreement.status}
           </Badge>
         </div>
       </div>
@@ -118,6 +144,19 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
         <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
           {signingErrors[query.error] ??
             "The agreement could not be signed. Please try again."}
+        </div>
+      ) : null}
+      {query.corrected === "1" ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+          Corrected office agreement created with the exact two-month security
+          deposit and half-month utility deposit amounts. The tenant must sign
+          this new version.
+        </div>
+      ) : null}
+      {query.correctionError ? (
+        <div className="rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-600 shadow-sm">
+          The corrected office agreement could not be created. The signed
+          original was not changed.
         </div>
       ) : null}
       {signatureRejected ? (
@@ -135,6 +174,21 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
               </Link>
             </Button>
           ) : null}
+        </div>
+      ) : null}
+      {correctedCopyIssued ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">A corrected office agreement was issued.</p>
+          <p className="mt-1">
+            The signed original remains here for audit. Use the corrected copy
+            for the current two-month security and half-month utility deposit
+            schedule.
+          </p>
+          <Button asChild className="mt-3">
+            <Link href={`/e-tenancy/${agreement.replacement_agreement_id}`}>
+              Open corrected copy
+            </Link>
+          </Button>
         </div>
       ) : null}
 
@@ -157,6 +211,14 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
                 Open PDF / Print
               </a>
             </Button>
+            {canIssueCommercialCorrection ? (
+              <form action={issueCorrectedCommercialAgreement}>
+                <input type="hidden" name="agreementId" value={agreement.id} />
+                <Button size="sm" type="submit" variant="outline">
+                  Issue corrected office TA
+                </Button>
+              </form>
+            ) : null}
           </div>
         </CardContent>
       </Card>

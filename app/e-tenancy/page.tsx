@@ -53,6 +53,9 @@ async function TenantAgreementList() {
       <div className="grid gap-4">
         {agreements.map((agreement) => {
           const signatureRejected = Boolean(agreement.admin_rejected_at);
+          const correctedCopyIssued = Boolean(
+            agreement.replacement_agreement_id && !signatureRejected,
+          );
           const tenancy = Array.isArray(agreement.tenancies)
             ? agreement.tenancies[0]
             : agreement.tenancies;
@@ -93,11 +96,17 @@ async function TenantAgreementList() {
                     className={
                       signatureRejected
                         ? "bg-red-100 text-red-700"
+                        : correctedCopyIssued || agreement.is_correction
+                          ? "bg-amber-100 text-amber-800"
                         : statusBadgeClass(agreement.status)
                     }
                   >
                     {signatureRejected
                       ? "signature rejected"
+                      : correctedCopyIssued
+                        ? "corrected copy issued"
+                        : agreement.is_correction
+                          ? `corrected · ${agreement.status.replaceAll("_", " ")}`
                       : agreement.status.replaceAll("_", " ")}
                   </Badge>
                 </div>
@@ -124,16 +133,24 @@ async function TenantAgreementList() {
                     ) : null}
                   </div>
                 ) : null}
+                {correctedCopyIssued ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 sm:col-span-2">
+                    A corrected office agreement is ready. Open the new copy
+                    and sign it.
+                  </div>
+                ) : null}
                 <Button asChild className="sm:col-span-2">
                   <Link
                     href={
-                      signatureRejected && agreement.replacement_agreement_id
+                      (signatureRejected || correctedCopyIssued) &&
+                      agreement.replacement_agreement_id
                         ? `/e-tenancy/${agreement.replacement_agreement_id}`
                         : `/e-tenancy/${agreement.id}`
                     }
                   >
-                    {signatureRejected && agreement.replacement_agreement_id
-                      ? "Open replacement and sign again"
+                    {(signatureRejected || correctedCopyIssued) &&
+                    agreement.replacement_agreement_id
+                      ? "Open corrected copy and sign"
                       : [
                             "pending_signature",
                             "renewal_pending",

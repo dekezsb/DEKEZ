@@ -43,6 +43,8 @@ export type AgreementArchiveItem = {
   admin_rejected_by: string | null;
   admin_rejection_reason: string | null;
   replacement_agreement_id: string | null;
+  is_correction: boolean;
+  correction_reason: string | null;
   retention_until: string | null;
   pdf_url: string | null;
   tenant_name_snapshot: string | null;
@@ -373,6 +375,10 @@ export function AgreementArchive({
             <TableBody>
               {filtered.map((agreement) => {
                 const item = details(agreement);
+                const correctedCopyIssued = Boolean(
+                  agreement.replacement_agreement_id &&
+                    !agreement.admin_rejected_at,
+                );
                 return (
                   <TableRow key={agreement.id}>
                     <TableCell className="font-medium">{item.tenant}</TableCell>
@@ -395,11 +401,17 @@ export function AgreementArchive({
                         className={
                           agreement.admin_rejected_at
                             ? "bg-red-100 text-red-700"
+                            : correctedCopyIssued || agreement.is_correction
+                              ? "bg-amber-100 text-amber-800"
                             : statusBadgeClass(agreement.status)
                         }
                       >
                         {agreement.admin_rejected_at
                           ? "signature rejected"
+                          : correctedCopyIssued
+                            ? "corrected copy issued"
+                            : agreement.is_correction
+                              ? `corrected · ${agreement.status.replaceAll("_", " ")}`
                           : agreement.status.replaceAll("_", " ")}
                       </Badge>
                       {agreement.admin_rejection_reason ? (
@@ -445,17 +457,17 @@ export function AgreementArchive({
                             View
                           </Link>
                         </Button>
-                        {agreement.admin_rejected_at &&
-                        agreement.replacement_agreement_id ? (
+                        {agreement.replacement_agreement_id ? (
                           <Button asChild size="sm">
                             <Link
                               href={`/e-tenancy/${agreement.replacement_agreement_id}`}
                             >
-                              Replacement
+                              Corrected copy
                             </Link>
                           </Button>
                         ) : null}
                         {canManage &&
+                        !agreement.is_correction &&
                         !agreement.signed_at &&
                         !["signed", "renewal_signed"].includes(
                           agreement.status,

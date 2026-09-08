@@ -354,6 +354,7 @@ async function renderExistingAgreement(
   agreement: RegenerableAgreement,
   templateContent: string,
   monthlyRent?: number,
+  agreementTypeOverride?: AgreementDocumentType,
 ) {
   const context = await loadTenancyContext(supabase, agreement.tenancy_id);
   if (!context) {
@@ -382,9 +383,9 @@ async function renderExistingAgreement(
     context.property_id,
     context.properties?.is_commercial ?? false,
   );
-  const agreementType = agreementTypeForProperty(
-    context.properties?.is_commercial ?? false,
-  );
+  const agreementType =
+    agreementTypeOverride ??
+    agreementTypeForProperty(context.properties?.is_commercial ?? false);
 
   return {
     agreementType,
@@ -493,6 +494,7 @@ async function createTermAgreement(
     .eq("term_start_date", startDate)
     .eq("term_end_date", endDate)
     .is("admin_rejected_at", null)
+    .is("replacement_agreement_id", null)
     .limit(1)
     .maybeSingle();
 
@@ -840,6 +842,53 @@ export async function updateUnsignedAgreementRent(
     .eq("new_agreement_id", agreement.id);
 
   return updated.id;
+}
+
+export async function renderSignedAgreementReplacement(
+  supabase: SupabaseClient,
+  agreementId: string,
+  userId: string,
+) {
+  const { data: agreement, error: agreementError } = await supabase
+    .from("tenancy_agreements")
+    .select(
+      "id, tenancy_id, version_number, term_start_date, term_end_date, status, monthly_rent_snapshot, agreement_type",
+    )
+    .eq("id", agreementId)
+    .maybeSingle();
+
+  if (agreementError || !agreement) {
+    throw new Error(agreementError?.message ?? "Agreement not found.");
+  }
+  if (!["signed", "renewal_signed"].includes(agreement.status)) {
+    throw new Error("Only a signed agreement can be replaced for re-signing.");
+  }
+  if (!agreement.term_start_date || !agreement.term_end_date) {
+    throw new Error("The signed agreement term dates are incomplete.");
+  }
+  const monthlyRent = Number(agreement.monthly_rent_snapshot ?? 0);
+  if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+    throw new Error("The signed agreement rent snapshot is invalid.");
+  }
+
+  const template = await ensureMasterTemplate(supabase, userId);
+  const { agreementType, renderedContent } = await renderExistingAgreement(
+    supabase,
+    agreement as RegenerableAgreement,
+    template.template_content,
+    monthlyRent,
+    agreement.agreement_type as AgreementDocumentType,
+  );
+
+  if (!renderedContent.includes("[Pending tenant signature]")) {
+    throw new Error("The replacement agreement is not ready for tenant signature.");
+  }
+
+  return {
+    agreementType,
+    renderedContent,
+    templateId: template.id,
+  };
 }
 
 export async function regenerateAllUnsignedAgreements(

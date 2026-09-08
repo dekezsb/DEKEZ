@@ -22,14 +22,21 @@ export function agreementPdfName(input: {
   propertyCode: string | null | undefined;
   roomNumber: string | null | undefined;
   termStartDate: string | null | undefined;
+  versionNumber?: number | null;
+  corrected?: boolean;
 }) {
   const room = filenamePart(input.roomNumber, "ROOM")
     .replace(/^ROOM_?/, "")
     .replace(/^R/, "");
 
-  return [
+  const baseName = [
     filenamePart(input.tenantName, "TENANT"),
     `${filenamePart(input.propertyCode, "PROPERTY")}R${room}`,
     compactDate(input.termStartDate),
-  ].join("_") + ".pdf";
+  ].join("_");
+  const correctionSuffix = input.corrected
+    ? `_V${Math.max(1, Number(input.versionNumber ?? 1))}_CORRECTED`
+    : "";
+
+  return `${baseName}${correctionSuffix}.pdf`;
 }

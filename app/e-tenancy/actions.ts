@@ -59,7 +59,7 @@ export async function signAgreement(formData: FormData) {
   const { data: agreement, error: agreementError } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, rendered_content, tenancy_id, term_type, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot",
+      "id, rendered_content, tenancy_id, term_type, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot, version_number, is_correction",
     )
     .eq("id", agreementId)
     .maybeSingle();
@@ -218,6 +218,8 @@ export async function signAgreement(formData: FormData) {
     propertyCode: property?.property_code ?? property?.name,
     roomNumber: room?.room_number ?? room?.name,
     termStartDate: agreement.term_start_date,
+    versionNumber: agreement.version_number,
+    corrected: agreement.is_correction,
   });
   const pdfPath = `${user.id}/${agreement.id}/${pdfFileName}`;
   const { error: pdfUploadError } = await supabase.storage

@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createAgreementForTenancy,
   prepareNextRenewalAgreement,
+  renderSignedAgreementReplacement,
   updateUnsignedAgreementRent,
 } from "@/lib/tenancy/agreement";
 import { sendAgreementRequest } from "@/lib/tenancy/agreement-whatsapp";
@@ -403,25 +404,32 @@ export async function rejectSignedAgreementForResign(formData: FormData) {
   const supabase = createAdminClient();
   const { data: agreement } = await supabase
     .from("tenancy_agreements")
-    .select("id, rendered_content")
+    .select("id")
     .eq("id", agreementId)
     .in("status", ["signed", "renewal_signed"])
-    .is("admin_verified_at", null)
     .is("admin_rejected_at", null)
+    .is("replacement_agreement_id", null)
     .maybeSingle();
 
   if (!agreement) {
     redirect(verificationPath("agreements", "error=agreement_reject"));
   }
 
-  const replacementContent = agreement.rendered_content.replace(
-    /Signed digitally by [^\r\n]+/,
-    "[Pending tenant signature]",
-  );
-  if (
-    replacementContent === agreement.rendered_content ||
-    !replacementContent.includes("[Pending tenant signature]")
-  ) {
+  let replacementContent: string;
+  let replacementTemplateId: string;
+  try {
+    const replacement =
+      await renderSignedAgreementReplacement(supabase, agreement.id, user.id)
+    replacementContent = replacement.renderedContent;
+    replacementTemplateId = replacement.templateId;
+  } catch (replacementError) {
+    console.error("Unable to prepare the corrected agreement for re-signing.", {
+      agreementId: agreement.id,
+      error:
+        replacementError instanceof Error
+          ? replacementError.message
+          : String(replacementError),
+    });
     redirect(
       verificationPath("agreements", "error=agreement_replacement_prepare"),
     );
@@ -433,6 +441,7 @@ export async function rejectSignedAgreementForResign(formData: FormData) {
       source_agreement_id: agreement.id,
       rejection_reason: reason,
       replacement_rendered_content: replacementContent,
+      replacement_template_id: replacementTemplateId,
       performed_by_user_id: user.id,
     },
   );

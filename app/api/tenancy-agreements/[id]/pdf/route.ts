@@ -25,7 +25,7 @@ export async function GET(_request: Request, { params }: RouteProps) {
   const { data: agreement, error: agreementError } = await scopedClient
     .from("tenancy_agreements")
     .select(
-      "id, tenancy_id, rendered_content, status, signed_at, term_start_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot",
+      "id, tenancy_id, rendered_content, status, signed_at, pdf_url, term_start_date, tenant_name_snapshot, property_name_snapshot, room_name_snapshot, version_number, is_correction",
     )
     .eq("id", id)
     .maybeSingle();
@@ -72,6 +72,44 @@ export async function GET(_request: Request, { params }: RouteProps) {
             .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
+  const filename = agreementPdfName({
+    tenantName: agreement.tenant_name_snapshot ?? tenant?.full_name,
+    propertyCode:
+      property?.property_code ??
+      agreement.property_name_snapshot ??
+      property?.name,
+    roomNumber:
+      agreement.room_name_snapshot ?? room?.room_number ?? room?.name,
+    termStartDate: agreement.term_start_date,
+    versionNumber: agreement.version_number,
+    corrected: agreement.is_correction,
+  });
+  const signed = ["signed", "renewal_signed"].includes(agreement.status);
+
+  if (signed && agreement.pdf_url) {
+    const { data: storedPdf, error: storedPdfError } = await admin.storage
+      .from("tenancy-agreements")
+      .download(agreement.pdf_url);
+    if (storedPdfError || !storedPdf) {
+      console.error("Stored signed tenancy agreement PDF could not be loaded.", {
+        agreementId: agreement.id,
+        error: storedPdfError?.message,
+      });
+      return new Response("Stored signed agreement PDF is unavailable.", {
+        status: 500,
+      });
+    }
+
+    return new Response(Buffer.from(await storedPdf.arrayBuffer()), {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Type": "application/pdf",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
   const { data: signatureRecord } = await admin
     .from("tenancy_agreement_signatures")
     .select("signature_url, signed_at")
@@ -97,7 +135,7 @@ export async function GET(_request: Request, { params }: RouteProps) {
     : [];
 
   const signerName =
-    agreement.status === "signed" || agreement.status === "renewal_signed"
+    signed
       ? agreement.tenant_name_snapshot ?? tenant?.full_name ?? "Tenant"
       : null;
   const pdfBytes = await createAgreementPdf({
@@ -107,17 +145,6 @@ export async function GET(_request: Request, { params }: RouteProps) {
     tenantSignatureBytes: signatureBytes,
     appendixDocuments,
   });
-  const filename = agreementPdfName({
-    tenantName: agreement.tenant_name_snapshot ?? tenant?.full_name,
-    propertyCode:
-      property?.property_code ??
-      agreement.property_name_snapshot ??
-      property?.name,
-    roomNumber:
-      agreement.room_name_snapshot ?? room?.room_number ?? room?.name,
-    termStartDate: agreement.term_start_date,
-  });
-
   return new Response(Buffer.from(pdfBytes), {
     headers: {
       "Cache-Control": "private, no-store",

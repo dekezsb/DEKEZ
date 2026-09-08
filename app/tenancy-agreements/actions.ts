@@ -5,7 +5,10 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { regenerateAllUnsignedAgreements } from "@/lib/tenancy/agreement";
+import {
+  regenerateAllUnsignedAgreements,
+  renderSignedAgreementReplacement,
+} from "@/lib/tenancy/agreement";
 import { sendAgreementRequest } from "@/lib/tenancy/agreement-whatsapp";
 
 function textValue(formData: FormData, key: string) {
@@ -134,6 +137,90 @@ export async function deleteWrongUnsignedAgreement(formData: FormData) {
   revalidatePath("/tenant");
   revalidatePath("/dashboard");
   redirect("/tenancy-agreements?deleted=1");
+}
+
+export async function issueCorrectedCommercialAgreement(formData: FormData) {
+  await requireRole(["super_admin", "admin"], {
+    module: "tenancy_agreements",
+    level: "manage",
+  });
+  const user = await getCurrentUser();
+  const agreementId = textValue(formData, "agreementId");
+  if (!user || !agreementId) {
+    redirect("/tenancy-agreements?correctionError=missing");
+  }
+
+  const admin = createAdminClient();
+  const { data: source, error: sourceError } = await admin
+    .from("tenancy_agreements")
+    .select(
+      "id, agreement_type, status, signed_at, admin_rejected_at, replacement_agreement_id, is_correction",
+    )
+    .eq("id", agreementId)
+    .maybeSingle();
+
+  if (sourceError || !source) {
+    redirect("/tenancy-agreements?correctionError=not_found");
+  }
+  if (source.replacement_agreement_id) {
+    redirect(`/e-tenancy/${source.replacement_agreement_id}?corrected=1`);
+  }
+  if (
+    source.agreement_type !== "commercial_office" ||
+    source.is_correction ||
+    !source.signed_at ||
+    !["signed", "renewal_signed"].includes(source.status) ||
+    source.admin_rejected_at
+  ) {
+    redirect(`/e-tenancy/${source.id}?correctionError=unavailable`);
+  }
+
+  let replacement;
+  try {
+    replacement = await renderSignedAgreementReplacement(
+      admin,
+      source.id,
+      user.id,
+    );
+  } catch (error) {
+    console.error("Unable to render the corrected commercial agreement.", {
+      agreementId: source.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    redirect(`/e-tenancy/${source.id}?correctionError=render`);
+  }
+
+  if (replacement.agreementType !== "commercial_office") {
+    redirect(`/e-tenancy/${source.id}?correctionError=classification`);
+  }
+
+  const reason =
+    "Correct commercial office deposit schedule to two months security plus one-half month utilities, with the exact RM amounts.";
+  const { data: replacementId, error: replacementError } = await admin.rpc(
+    "reject_signed_agreement_and_request_resign",
+    {
+      source_agreement_id: source.id,
+      rejection_reason: reason,
+      replacement_rendered_content: replacement.renderedContent,
+      replacement_template_id: replacement.templateId,
+      performed_by_user_id: user.id,
+    },
+  );
+
+  if (replacementError || typeof replacementId !== "string") {
+    console.error("Unable to issue the corrected commercial agreement.", {
+      agreementId: source.id,
+      error: replacementError?.message,
+    });
+    redirect(`/e-tenancy/${source.id}?correctionError=save`);
+  }
+
+  revalidatePath("/tenancy-agreements");
+  revalidatePath("/verification");
+  revalidatePath("/e-tenancy");
+  revalidatePath(`/e-tenancy/${source.id}`);
+  revalidatePath(`/e-tenancy/${replacementId}`);
+  redirect(`/e-tenancy/${replacementId}?corrected=1`);
 }
 
 export async function sendRenewalWhatsAppReminder(formData: FormData) {
