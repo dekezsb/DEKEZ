@@ -157,7 +157,7 @@ export async function getProfitLossReport(
 
   let expensesQuery = supabase
     .from("expenses")
-    .select("id, property_id, room_id, amount, tax_amount, charge_to, status, expense_date, supplier, description, receipt_number, expense_categories(name), properties(id, name, property_code), rooms(id, name, room_number)")
+    .select("id, property_id, room_id, amount, tax_amount, charge_to, status, expense_date, supplier, description, receipt_number, expense_categories(id, name), properties(id, name, property_code), rooms(id, name, room_number)")
     .eq("company_id", input.companyId)
     .eq("charge_to", "company")
     .in("status", ["verified", "reimbursed"])
@@ -178,17 +178,29 @@ export async function getProfitLossReport(
     utilityBillsQuery = utilityBillsQuery.eq("property_id", input.propertyId);
   }
 
-  const [rentBillsResult, expensesResult, utilityBillsResult] = await Promise.all([
+  const [rentBillsResult, expensesResult, utilityBillsResult, expenseCategoryMappingsResult] = await Promise.all([
     rentBillsQuery,
     expensesQuery,
     utilityBillsQuery,
+    supabase
+      .from("accounting_category_mappings")
+      .select("source_key, accounting_accounts!inner(id, code, name, account_type, report_group, system_key)")
+      .eq("company_id", input.companyId)
+      .eq("source_type", "expense_category"),
   ]);
   assertQuerySucceeded("rental invoices", rentBillsResult.error);
   assertQuerySucceeded("company expenses", expensesResult.error);
   assertQuerySucceeded("utility bills", utilityBillsResult.error);
+  assertQuerySucceeded("expense account mappings", expenseCategoryMappingsResult.error);
   const rentBills = rentBillsResult.data;
   const expenses = expensesResult.data;
   const utilityBills = utilityBillsResult.data;
+  const expenseCategoryAccountById = new Map(
+    (expenseCategoryMappingsResult.data ?? []).map((mapping) => [
+      mapping.source_key,
+      singleRelation(mapping.accounting_accounts) as ReportingAccount | null,
+    ]),
+  );
 
   const billIds = (rentBills ?? []).map((bill) => bill.id);
   const lineItemsResult = billIds.length
@@ -319,13 +331,29 @@ export async function getProfitLossReport(
 
   for (const expense of expenses ?? []) {
     const relation = expense.expense_categories as
-      | { name: string | null }
-      | { name: string | null }[]
+      | { id: string | null; name: string | null }
+      | { id: string | null; name: string | null }[]
       | null;
-    const category = Array.isArray(relation) ? relation[0]?.name : relation?.name;
-    const label = normalizedExpenseLabel(category);
+    const categoryRecord = singleRelation(relation);
+    const category = categoryRecord?.name;
+    const mappedAccount = categoryRecord?.id
+      ? expenseCategoryAccountById.get(categoryRecord.id) ?? null
+      : null;
+    const mappedExpenseAccount = mappedAccount?.account_type === "expense"
+      ? mappedAccount
+      : null;
+    const fallbackLabel = normalizedExpenseLabel(category);
+    const row = mappedExpenseAccount
+      ? reportingRowForAccount(mappedExpenseAccount)
+      : {
+          key: fallbackLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+          label: fallbackLabel,
+        };
+    const target = mappedExpenseAccount?.report_group === "cost_of_sales"
+      ? costOfSalesRows
+      : expenseRows;
     const amount = numberValue(expense.amount);
-    addRow(expenseRows, label.toLowerCase().replace(/[^a-z0-9]+/g, "_"), label, amount, input.includeDetails ? {
+    addRow(target, row.key, row.label, amount, input.includeDetails ? {
       id: `expense:${expense.id}`,
       sourceType: "company_expense",
       sourceLabel: "Verified company expense",
@@ -365,8 +393,9 @@ export async function getProfitLossReport(
   for (const transaction of manualTransactions ?? []) {
     const relation = transaction.accounting_accounts;
     const account = Array.isArray(relation) ? relation[0] : relation;
-    const amount = Math.abs(numberValue(transaction.amount));
+    const bankAmount = numberValue(transaction.amount);
     if (account?.account_type === "income") {
+      const amount = bankAmount;
       const row = reportingRowForAccount(account);
       addRow(revenue, row.key, row.label, amount, input.includeDetails ? {
         id: `manual:${transaction.id}`,
@@ -379,11 +408,12 @@ export async function getProfitLossReport(
         roomName: null,
         partyName: null,
         description: transaction.description,
-        debit: 0,
-        credit: amount,
+        debit: amount < 0 ? -amount : 0,
+        credit: amount > 0 ? amount : 0,
         amount,
       } : null);
     } else if (account?.account_type === "expense") {
+      const amount = -bankAmount;
       const target = account.report_group === "cost_of_sales" ? costOfSalesRows : expenseRows;
       const row = reportingRowForAccount(account);
       addRow(target, row.key, row.label, amount, input.includeDetails ? {
@@ -397,8 +427,8 @@ export async function getProfitLossReport(
         roomName: null,
         partyName: null,
         description: transaction.description,
-        debit: amount,
-        credit: 0,
+        debit: amount > 0 ? amount : 0,
+        credit: amount < 0 ? -amount : 0,
         amount,
       } : null);
     }

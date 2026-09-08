@@ -114,6 +114,13 @@ function tabHref(tab: string, month: string, propertyId: string, statementId?: s
   return `/reports?${search.toString()}`;
 }
 
+function pnlLedgerHref(month: string, propertyId: string, rowKey: string) {
+  const search = new URLSearchParams({ tab: "profit-loss", month, ledger: rowKey });
+  if (propertyId) search.set("property", propertyId);
+  const anchorKey = rowKey.replace(/[^a-z0-9_-]/gi, "-");
+  return `/reports?${search.toString()}#pnl-ledger-${anchorKey}`;
+}
+
 function bankReviewPageHref(month: string, propertyId: string, statementId: string, reviewPage: number, bankFlow: "credit" | "debit") {
   const search = new URLSearchParams({ tab: "bank", month, statement: statementId, bankFlow });
   if (propertyId) search.set("property", propertyId);
@@ -715,6 +722,20 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     accounts: adjustmentAccounts.filter((account) => account.account_type === type),
   })).filter((group) => group.accounts.length);
 
+  const postingMonth = validMonth(params.posting_month);
+  const postingAccount = params.posting_account_id
+    ? accountById.get(params.posting_account_id)
+    : null;
+  const postingAccountKey = params.posting_account_key
+    || postingAccount?.system_key
+    || (postingAccount ? `account_${postingAccount.id}` : "");
+  const postingAccountLabel = params.posting_account_key === "rental_income"
+    ? "Rental Income"
+    : postingAccount?.name ?? "matched accounting source";
+  const postingAffectsProfitLoss = params.posting_kind === "tenant_receipt"
+    || postingAccount?.account_type === "income"
+    || postingAccount?.account_type === "expense";
+
   const mergedRows = new Map<string, { label: string; current: number; previous: number }>();
   for (const row of [...currentReport.revenue, ...currentReport.costsOfSales, ...currentReport.expenses]) mergedRows.set(row.key, { label: row.label, current: row.amount, previous: 0 });
   for (const row of [...priorReport.revenue, ...priorReport.costsOfSales, ...priorReport.expenses]) {
@@ -759,6 +780,31 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       {params.error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessages[params.error] ?? "The accounting action could not be completed."}</div> : null}
       {params.account_created ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">New chart account added. It is now available in journals and bank reconciliation.</div> : null}
       {params.account_updated ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Account wording updated. Existing transactions stayed linked to the same account.</div> : null}
+      {postingMonth ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-950">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="font-semibold">Matched posting belongs to {rentalMonthLabel(postingMonth)} · {postingAccountLabel}</p>
+              <p className="mt-1 text-blue-800">
+                {params.posting_kind === "tenant_receipt"
+                  ? "The rental invoice is the income entry. Matching the bank receipt clears Rental Receivables and links the bank proof; it does not create COGS."
+                  : postingAccount?.report_group === "cost_of_sales"
+                    ? "This outgoing property-rent payment is shown as Cost of Sales in its bank transaction month. Matching it later does not move the cost into the current month."
+                    : postingAccount?.account_type === "expense"
+                      ? "This outgoing payment is shown as an expense in its posting month."
+                      : postingAccount?.account_type === "income"
+                        ? "This incoming amount is shown as income in its posting month."
+                        : "The bank match is retained in the reconciliation trail and its Balance Sheet accounts are updated in the same reporting month."}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {postingAffectsProfitLoss && postingAccountKey ? <Button asChild size="sm"><Link href={pnlLedgerHref(postingMonth, selectedPropertyId, postingAccountKey)}>View P&amp;L ledger</Link></Button> : null}
+              <Button asChild size="sm" variant="outline"><Link href={tabHref("trial-balance", postingMonth, selectedPropertyId)}>View Trial Balance</Link></Button>
+              <Button asChild size="sm" variant="outline"><Link href={tabHref("balance-sheet", postingMonth, selectedPropertyId)}>View Balance Sheet effect</Link></Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <nav className="flex gap-2 overflow-x-auto border-b border-[#d7dde5] pb-3">
         {tabs.map((item) => {
@@ -808,6 +854,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <ProfitLossStatement
           currentReport={currentReport}
           endDate={endDate}
+          openRowKey={params.ledger}
           priorReport={priorReport}
           propertyScope={properties.find((property) => property.id === selectedPropertyId)?.name ?? "All properties"}
           startDate={startDate}
@@ -836,6 +883,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               />
             </CardHeader>
             <CardContent className="space-y-5">
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                Income and expense accounts do not appear as separate Balance Sheet lines. Their matched effect is included in Bank, Rental Receivables or Payables, and Current-year profit. Open the P&amp;L supporting ledger or Trial Balance to see the income/expense account itself.
+              </div>
               {selectedPropertyId ? <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">The property filter is active. Tenant and journal balances are filtered, but bank accounts remain company-level because one bank account serves several properties.</div> : null}
               <div className="grid gap-5 xl:grid-cols-3">
                 <BalanceSection rows={balanceAssets} title="Assets" total={totalAssets} tone="emerald" />

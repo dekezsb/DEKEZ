@@ -1048,7 +1048,13 @@ export async function autoMatchStatement(formData: FormData) {
   }
 
   revalidatePath("/reports");
-  redirect(bankActionPath(formData, { statement: statementId, auto_matched: String(matchedCount) }));
+  redirect(bankActionPath(formData, {
+    statement: statementId,
+    month: statementRentalMonth,
+    posting_month: statementRentalMonth,
+    posting_kind: "automatic",
+    auto_matched: String(matchedCount),
+  }));
 }
 
 export async function matchBankLine(formData: FormData) {
@@ -1201,7 +1207,14 @@ export async function matchBankLine(formData: FormData) {
     });
     await refreshLineStatus(supabase, line.id);
     revalidatePath("/reports");
-    redirect(bankActionPath(formData, { statement: line.statement_import_id, recurring_matched: currentMonth }));
+    redirect(bankActionPath(formData, {
+      statement: line.statement_import_id,
+      month: currentMonth,
+      posting_month: currentMonth,
+      posting_kind: "manual_bank_transaction",
+      posting_account_id: template.offset_account_id,
+      recurring_matched: currentMonth,
+    }));
   }
   if (sourceRemaining <= 0.005) {
     redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_used" }));
@@ -1226,8 +1239,28 @@ export async function matchBankLine(formData: FormData) {
     redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "match_create" }));
   }
   await refreshLineStatus(supabase, line.id);
+  let postingAccountId = "";
+  if (sourceType === "manual_bank_transaction") {
+    const { data: manualTransaction } = await supabase
+      .from("bank_manual_transactions")
+      .select("offset_account_id")
+      .eq("id", sourceId)
+      .eq("company_id", company.id)
+      .maybeSingle();
+    postingAccountId = manualTransaction?.offset_account_id ?? "";
+  }
+  const postingMonth = (candidate.isRental ? candidate.invoiceMonth : candidate.date)?.slice(0, 7)
+    || statementRentalMonth;
   revalidatePath("/reports");
-  redirect(bankActionPath(formData, { statement: line.statement_import_id, matched: "1" }));
+  redirect(bankActionPath(formData, {
+    statement: line.statement_import_id,
+    month: postingMonth,
+    posting_month: postingMonth,
+    posting_kind: candidate.isRental ? "tenant_receipt" : sourceType,
+    ...(candidate.isRental ? { posting_account_key: "rental_income" } : {}),
+    ...(postingAccountId ? { posting_account_id: postingAccountId } : {}),
+    matched: "1",
+  }));
 }
 
 export async function matchOwnAccountTransfer(formData: FormData) {
@@ -1396,7 +1429,15 @@ export async function createBankAdjustment(formData: FormData) {
   }
   await refreshLineStatus(supabase, line.id);
   revalidatePath("/reports");
-  redirect(bankActionPath(formData, { statement: line.statement_import_id, adjusted: "1" }));
+  const postingMonth = line.transaction_date.slice(0, 7);
+  redirect(bankActionPath(formData, {
+    statement: line.statement_import_id,
+    month: postingMonth,
+    posting_month: postingMonth,
+    posting_kind: "manual_bank_transaction",
+    posting_account_id: account.id,
+    adjusted: "1",
+  }));
 }
 
 export async function ignoreBankLine(formData: FormData) {
@@ -1498,7 +1539,15 @@ export async function createTenantPaymentFromBankLine(formData: FormData) {
   revalidatePath("/payments");
   revalidatePath("/rent-due-tracker");
   revalidatePath("/dashboard");
-  redirect(reportPath({ payment_matched: "1" }));
+  const postingMonth = rentBill.bill_month.slice(0, 7);
+  redirect(bankActionPath(formData, {
+    statement: line.statement_import_id,
+    month: postingMonth,
+    posting_month: postingMonth,
+    posting_kind: "tenant_receipt",
+    posting_account_key: "rental_income",
+    payment_matched: "1",
+  }));
 }
 
 export async function finalizeBankReconciliation(formData: FormData) {
