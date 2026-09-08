@@ -147,6 +147,11 @@ async function ensureCanonicalTenancy(
   const startDate = record.contract_start ?? today();
   const dueDay = record.due_day ?? Number(startDate.slice(8, 10));
   const monthlyRent = Number(record.monthly_rent ?? room.monthly_rent ?? 0);
+  const deposit = requiredTenancyDeposit({
+    isCommercial: property.is_commercial,
+    monthlyRent,
+    statedDeposit: record.deposit,
+  });
   const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
     .insert({
@@ -154,7 +159,7 @@ async function ensureCanonicalTenancy(
       tenant_id: tenantId,
       room_id: room.id,
       monthly_rent: monthlyRent,
-      deposit: Number(record.deposit ?? 0),
+      deposit,
       start_date: startDate,
       end_date: record.contract_end,
       due_day: dueDay,
@@ -181,7 +186,7 @@ async function ensureCanonicalTenancy(
   await Promise.all([
     supabase
       .from("tenant_records")
-      .update({ tenant_id: tenantId, tenancy_id: tenancy.id })
+      .update({ tenant_id: tenantId, tenancy_id: tenancy.id, deposit })
       .eq("id", record.id),
     supabase
       .from("rooms")
@@ -598,6 +603,13 @@ export async function updateRoomField(formData: FormData) {
 
   if (field === "monthlyRent") {
     const monthlyRent = Math.max(0, numberValue(formData, "value"));
+    const commercialDeposit = property.is_commercial
+      ? requiredTenancyDeposit({
+          isCommercial: true,
+          monthlyRent,
+          statedDeposit: 0,
+        })
+      : null;
     const updates = [
       supabase
         .from("rooms")
@@ -610,7 +622,12 @@ export async function updateRoomField(formData: FormData) {
       updates.push(
         supabase
           .from("tenant_records")
-          .update({ monthly_rent: monthlyRent })
+          .update({
+            monthly_rent: monthlyRent,
+            ...(commercialDeposit === null
+              ? {}
+              : { deposit: commercialDeposit }),
+          })
           .eq("id", tenantRecordId)
           .eq("room_id", roomId)
           .eq("property_id", property.id),
@@ -620,7 +637,13 @@ export async function updateRoomField(formData: FormData) {
       updates.push(
         supabase
           .from("tenancies")
-          .update({ monthly_rent: monthlyRent, monthly_rental: monthlyRent })
+          .update({
+            monthly_rent: monthlyRent,
+            monthly_rental: monthlyRent,
+            ...(commercialDeposit === null
+              ? {}
+              : { deposit: commercialDeposit }),
+          })
           .eq("id", tenancyId)
           .eq("room_id", roomId)
           .eq("property_id", property.id),
@@ -710,6 +733,13 @@ export async function updateRoomField(formData: FormData) {
   }
 
   if (field === "deposit") {
+    if (property.is_commercial) {
+      return {
+        ok: false,
+        error:
+          "Commercial office deposit is automatic: 2 months security plus 0.5 month utilities. Change the monthly rent instead.",
+      };
+    }
     const deposit = Math.max(0, numberValue(formData, "value"));
     const updates = [];
     if (tenantRecordId) {

@@ -7,6 +7,7 @@ import {
   type PropertyTenancySettings,
 } from "@/lib/tenancy/property-settings";
 import { calculateTermEndDate } from "@/lib/e-tenancy";
+import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
 
 type DataClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -283,7 +284,17 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
       const agreement = tenancyId ? agreementByTenancy.get(tenancyId) : null;
       const billAmount = Number(bill?.amount ?? 0);
       const amountReceived = Number(bill?.paid_amount ?? 0);
-      const deposit = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
+      const monthlyRent = Number(
+        tenancy?.monthly_rental ??
+          tenantRecord?.monthly_rent ??
+          room.monthly_rent ??
+          0,
+      );
+      const deposit = requiredTenancyDeposit({
+        isCommercial: Boolean(propertyResult.data.is_commercial),
+        monthlyRent,
+        statedDeposit: tenancy?.deposit ?? tenantRecord?.deposit ?? 0,
+      });
       const contractEnd = tenancy?.contract_end ?? tenantRecord?.contract_end ?? null;
       const storedDuration = Number(tenancy?.contract_duration_months ?? 0);
       const inferredDuration =
@@ -306,7 +317,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         name: room.name ?? room.room_number,
         roomNumber: room.room_number ?? room.name,
         status: room.status,
-        monthlyRent: Number(tenancy?.monthly_rental ?? tenantRecord?.monthly_rent ?? room.monthly_rent ?? 0),
+        monthlyRent,
         tenantId: tenancy?.tenant_id ?? tenantRecord?.tenant_id ?? null,
         tenantProfileId: canonicalTenant?.profile_id ?? null,
         tenantRecordId: tenantRecord?.id ?? null,

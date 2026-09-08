@@ -59,7 +59,10 @@ export async function submitAdminTenantApplication(formData: FormData) {
     formData,
     "emergencyContactNumber",
   );
-  const monthlyRent = Math.max(0, numberValue(formData, "monthlyRent"));
+  const submittedMonthlyRent = Math.max(
+    0,
+    numberValue(formData, "monthlyRent"),
+  );
   const statedDeposit = Math.max(0, numberValue(formData, "deposit"));
   const contractStart = textValue(formData, "contractStart");
   const contractEnd = textValue(formData, "contractEnd") || null;
@@ -140,16 +143,6 @@ export async function submitAdminTenantApplication(formData: FormData) {
     fail("property");
   }
   const isMonthlyStay = property.rental_model === "monthly_stay";
-  const commercialDeposits = commercialDepositSchedule(monthlyRent);
-  const securityDeposit = isMonthlyStay
-    ? 0
-    : property.is_commercial
-      ? commercialDeposits.securityDeposit
-      : statedDeposit;
-  const utilityDeposit =
-    !isMonthlyStay && property.is_commercial
-      ? commercialDeposits.utilityDeposit
-      : 0;
   if (isMonthlyStay && !paymentSlip) {
     fail("payment", propertyId, roomId);
   }
@@ -173,7 +166,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
   const supabase = await getAdmin();
   const { data: room } = await supabase
     .from("rooms")
-    .select("id, property_id, unit_id, status")
+    .select("id, property_id, unit_id, status, monthly_rent")
     .eq("id", roomId)
     .eq("property_id", property.id)
     .maybeSingle();
@@ -181,6 +174,23 @@ export async function submitAdminTenantApplication(formData: FormData) {
   if (!room || room.status !== "vacant") {
     fail("occupied", propertyId);
   }
+
+  const monthlyRent = property.is_commercial
+    ? Math.max(0, Number(room.monthly_rent ?? 0))
+    : submittedMonthlyRent;
+  if (monthlyRent <= 0) {
+    fail("missing", propertyId, roomId);
+  }
+  const commercialDeposits = commercialDepositSchedule(monthlyRent);
+  const securityDeposit = isMonthlyStay
+    ? 0
+    : property.is_commercial
+      ? commercialDeposits.securityDeposit
+      : statedDeposit;
+  const utilityDeposit =
+    !isMonthlyStay && property.is_commercial
+      ? commercialDeposits.utilityDeposit
+      : 0;
 
   const { data: existingApplications } = await supabase
     .from("tenant_applications")

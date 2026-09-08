@@ -36,6 +36,7 @@ import {
   type PropertyRoomView,
 } from "@/lib/data/property-details";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import {
   generateRoomAgreement,
   sendRoomAgreement,
@@ -413,6 +414,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                     key={room.id}
                     propertyId={id}
                     propertyName={details.property.name}
+                    isCommercial={details.property.isCommercial}
                     room={room}
                     canManage={canManage}
                   />
@@ -427,6 +429,7 @@ export default async function PropertyDetailsPage({ params, searchParams }: Page
                 key={room.id}
                 propertyId={id}
                 propertyName={details.property.name}
+                isCommercial={details.property.isCommercial}
                 room={room}
                 canManage={canManage}
               />
@@ -484,6 +487,25 @@ function HiddenRoomFields({ propertyId, room }: { propertyId: string; room: Prop
       <input name="tenantRecordId" type="hidden" value={room.tenantRecordId ?? ""} />
       <input name="tenancyId" type="hidden" value={room.tenancyId ?? ""} />
     </>
+  );
+}
+
+function CommercialDepositAmount({ monthlyRent }: { monthlyRent: number }) {
+  const schedule = commercialDepositSchedule(monthlyRent);
+
+  return (
+    <div className="min-w-36">
+      <p className="font-semibold text-gray-950">
+        {money.format(schedule.totalDeposit)}
+      </p>
+      <p className="mt-1 text-xs text-gray-500">
+        Security {money.format(schedule.securityDeposit)}
+      </p>
+      <p className="text-xs text-gray-500">
+        Utilities {money.format(schedule.utilityDeposit)}
+      </p>
+      <p className="text-xs font-medium text-[#8a6415]">Automatic: 2 + 0.5 months</p>
+    </div>
   );
 }
 
@@ -555,11 +577,13 @@ function AgreementActions({
 
 function DesktopRoomRow({
   canManage,
+  isCommercial,
   propertyId,
   propertyName,
   room,
 }: {
   canManage: boolean;
+  isCommercial: boolean;
   propertyId: string;
   propertyName: string;
   room: PropertyRoomView;
@@ -612,7 +636,9 @@ function DesktopRoomRow({
         />
       </TableCell>
       <TableCell>
-        {vacant ? money.format(room.deposit) : (
+        {isCommercial ? (
+          <CommercialDepositAmount monthlyRent={room.monthlyRent} />
+        ) : vacant ? money.format(room.deposit) : (
           <InlineRoomField
             propertyId={propertyId}
             roomId={room.id}
@@ -755,11 +781,13 @@ function DesktopRoomRow({
 
 function MobileRoomCard({
   canManage,
+  isCommercial,
   propertyId,
   propertyName,
   room,
 }: {
   canManage: boolean;
+  isCommercial: boolean;
   propertyId: string;
   propertyName: string;
   room: PropertyRoomView;
@@ -807,7 +835,9 @@ function MobileRoomCard({
         <div>
           <dt className="text-gray-500">Deposit</dt>
           <dd className="mt-1">
-            {vacant ? <span className="font-medium">{money.format(room.deposit)}</span> : (
+            {isCommercial ? (
+              <CommercialDepositAmount monthlyRent={room.monthlyRent} />
+            ) : vacant ? <span className="font-medium">{money.format(room.deposit)}</span> : (
               <InlineRoomField
                 propertyId={propertyId}
                 roomId={room.id}

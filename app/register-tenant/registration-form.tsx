@@ -355,15 +355,24 @@ export function RegistrationForm({
           Monthly rent RM
         </span>
         <input
-          className={fieldClass()}
+          className={`${fieldClass()} ${
+            selectedProperty?.isCommercial ? "bg-gray-50" : ""
+          }`}
           min="0"
           name="monthlyRent"
           onChange={(event) => setMonthlyRent(event.target.value)}
+          readOnly={selectedProperty?.isCommercial}
           required
           step="0.01"
           type="number"
           value={monthlyRent}
         />
+        {selectedProperty?.isCommercial ? (
+          <span className="mt-1.5 block text-xs text-[#60708a]">
+            Uses this room&apos;s rent from Room Management so the 2 + 0.5 month
+            deposit and TA stay correct.
+          </span>
+        ) : null}
       </label>
 
       {isMonthlyStay ? (
