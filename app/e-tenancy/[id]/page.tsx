@@ -9,6 +9,7 @@ import {
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
+import { malaysiaToday } from "@/lib/tenancy/agreement";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { issueCorrectedCommercialAgreement } from "../../tenancy-agreements/actions";
@@ -58,7 +59,7 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
 
   const { data: tenancy } = await supabase
     .from("tenancies")
-    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, properties(name, is_commercial), rooms!tenancies_room_id_fkey(name, room_number)")
+    .select("tenant_id, tenancy_start_date, tenancy_end_date, contract_duration_months, status, checkout_date, properties(name, is_commercial), rooms!tenancies_room_id_fkey(name, room_number)")
     .eq("id", agreement.tenancy_id)
     .maybeSingle();
   const property = Array.isArray(tenancy?.properties) ? tenancy?.properties[0] : tenancy?.properties;
@@ -76,11 +77,18 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
     agreement.replacement_agreement_id && !signatureRejected,
   );
   const isCorrectedCopy = agreement.is_correction;
+  const today = malaysiaToday();
   const canIssueCommercialCorrection =
     (role === "super_admin" || role === "admin") &&
     Boolean(property?.is_commercial) &&
     agreement.agreement_type === "commercial_office" &&
     ["signed", "renewal_signed"].includes(agreement.status) &&
+    tenancy?.status === "active" &&
+    !tenancy.checkout_date &&
+    Boolean(agreement.term_start_date) &&
+    Boolean(agreement.term_end_date) &&
+    agreement.term_start_date! <= today &&
+    agreement.term_end_date! >= today &&
     !isCorrectedCopy &&
     !agreement.replacement_agreement_id;
   const signingErrors: Record<string, string> = {

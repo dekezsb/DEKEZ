@@ -86,7 +86,16 @@ export async function GET(_request: Request, { params }: RouteProps) {
   });
   const signed = ["signed", "renewal_signed"].includes(agreement.status);
 
-  if (signed && agreement.pdf_url) {
+  if (signed) {
+    if (!agreement.pdf_url) {
+      console.error("Signed tenancy agreement has no immutable PDF archive.", {
+        agreementId: agreement.id,
+      });
+      return new Response("Stored signed agreement PDF is unavailable.", {
+        status: 500,
+      });
+    }
+
     const { data: storedPdf, error: storedPdfError } = await admin.storage
       .from("tenancy-agreements")
       .download(agreement.pdf_url);

@@ -368,7 +368,13 @@ async function prepareTenancyAgreement(
     ]);
   const signed = ["signed", "renewal_signed"].includes(agreement.status);
   let bytes: Uint8Array;
-  if (signed && agreement.pdf_url) {
+  if (signed) {
+    if (!agreement.pdf_url) {
+      throw new Error(
+        `Signed tenancy agreement has no immutable PDF archive: ${agreement.id}`,
+      );
+    }
+
     const { data: storedPdf, error: storedPdfError } = await supabase.storage
       .from("tenancy-agreements")
       .download(agreement.pdf_url);

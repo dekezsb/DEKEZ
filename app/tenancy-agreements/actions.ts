@@ -6,9 +6,11 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  malaysiaToday,
   regenerateAllUnsignedAgreements,
   renderSignedAgreementReplacement,
 } from "@/lib/tenancy/agreement";
+import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { sendAgreementRequest } from "@/lib/tenancy/agreement-whatsapp";
 
 function textValue(formData: FormData, key: string) {
@@ -154,7 +156,7 @@ export async function issueCorrectedCommercialAgreement(formData: FormData) {
   const { data: source, error: sourceError } = await admin
     .from("tenancy_agreements")
     .select(
-      "id, agreement_type, status, signed_at, admin_rejected_at, replacement_agreement_id, is_correction",
+      "id, tenancy_id, term_type, term_start_date, term_end_date, version_number, monthly_rent_snapshot, agreement_type, status, signed_at, admin_rejected_at, replacement_agreement_id, is_correction",
     )
     .eq("id", agreementId)
     .maybeSingle();
@@ -173,6 +175,40 @@ export async function issueCorrectedCommercialAgreement(formData: FormData) {
     source.admin_rejected_at
   ) {
     redirect(`/e-tenancy/${source.id}?correctionError=unavailable`);
+  }
+
+  const { data: tenancy } = await admin
+    .from("tenancies")
+    .select("id, status, checkout_date, properties(is_commercial)")
+    .eq("id", source.tenancy_id)
+    .maybeSingle();
+  const property = Array.isArray(tenancy?.properties)
+    ? tenancy.properties[0]
+    : tenancy?.properties;
+  const today = malaysiaToday();
+  if (
+    !tenancy ||
+    tenancy.status !== "active" ||
+    tenancy.checkout_date ||
+    !property?.is_commercial ||
+    !source.term_start_date ||
+    !source.term_end_date ||
+    source.term_start_date > today ||
+    source.term_end_date < today
+  ) {
+    redirect(`/e-tenancy/${source.id}?correctionError=not_current`);
+  }
+
+  if (source.term_type === "renewal") {
+    const { data: currentRenewal } = await admin
+      .from("tenancy_renewals")
+      .select("id")
+      .eq("tenancy_id", source.tenancy_id)
+      .eq("new_agreement_id", source.id)
+      .maybeSingle();
+    if (!currentRenewal) {
+      redirect(`/e-tenancy/${source.id}?correctionError=not_current`);
+    }
   }
 
   let replacement;
@@ -194,13 +230,23 @@ export async function issueCorrectedCommercialAgreement(formData: FormData) {
     redirect(`/e-tenancy/${source.id}?correctionError=classification`);
   }
 
-  const reason =
-    "Correct commercial office deposit schedule to two months security plus one-half month utilities, with the exact RM amounts.";
+  const monthlyRent = Number(source.monthly_rent_snapshot ?? 0);
+  const deposits = commercialDepositSchedule(monthlyRent);
+  const amount = (value: number) =>
+    new Intl.NumberFormat("en-MY", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  const reason = `Correct and restate the commercial office agreement with Security Deposit RM ${amount(
+    deposits.securityDeposit,
+  )} (two months), Utility Deposit RM ${amount(
+    deposits.utilityDeposit,
+  )} (one-half month), and Total Deposit RM ${amount(deposits.totalDeposit)}.`;
   const { data: replacementId, error: replacementError } = await admin.rpc(
-    "reject_signed_agreement_and_request_resign",
+    "issue_corrected_commercial_agreement",
     {
       source_agreement_id: source.id,
-      rejection_reason: reason,
+      correction_reason: reason,
       replacement_rendered_content: replacement.renderedContent,
       replacement_template_id: replacement.templateId,
       performed_by_user_id: user.id,
