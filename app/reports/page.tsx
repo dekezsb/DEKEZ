@@ -28,6 +28,7 @@ import {
 import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { ChartOfAccountsManager } from "@/components/accounting/chart-of-accounts-manager";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
+import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
 import {
@@ -269,7 +270,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const bankFlow: "credit" | "debit" = params.bankFlow === "debit" ? "debit" : "credit";
 
   const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult] = await Promise.all([
-    getProfitLossReport(supabase, { companyId: company.id, startDate, endDate, propertyId: selectedPropertyId || null }),
+    getProfitLossReport(supabase, { companyId: company.id, startDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: priorDates.startDate, endDate: priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
@@ -804,40 +805,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       ) : null}
 
       {tab === "profit-loss" ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><CardTitle>Profit &amp; Loss Statement</CardTitle><CardDescription>{dateLabel(startDate)} to {dateLabel(endDate)} · accrual basis · deposits excluded from income</CardDescription></div>
-            <CsvDownloadButton
-              fileName={`DEKEZ-profit-and-loss-${startDate}-to-${endDate}.csv`}
-              label="Download P&L CSV"
-              rows={[
-                ["DEKEZ Profit & Loss", `${startDate} to ${endDate}`, "Accrual basis"],
-                ["Section", "Account", "Current RM", "Previous RM", "Difference RM"],
-                ...currentReport.revenue.map((row) => { const previous = priorReport.revenue.find((item) => item.key === row.key)?.amount ?? 0; return ["Revenue", row.label, row.amount.toFixed(2), previous.toFixed(2), (row.amount - previous).toFixed(2)]; }),
-                ["Revenue", "Total revenue", currentReport.totalRevenue.toFixed(2), priorReport.totalRevenue.toFixed(2), (currentReport.totalRevenue - priorReport.totalRevenue).toFixed(2)],
-                ...currentReport.costsOfSales.map((row) => { const previous = priorReport.costsOfSales.find((item) => item.key === row.key)?.amount ?? 0; return ["Cost of sales", row.label, row.amount.toFixed(2), previous.toFixed(2), (row.amount - previous).toFixed(2)]; }),
-                ["Cost of sales", "Gross profit", currentReport.grossProfit.toFixed(2), priorReport.grossProfit.toFixed(2), (currentReport.grossProfit - priorReport.grossProfit).toFixed(2)],
-                ...currentReport.expenses.map((row) => { const previous = priorReport.expenses.find((item) => item.key === row.key)?.amount ?? 0; return ["Operating expenses", row.label, row.amount.toFixed(2), previous.toFixed(2), (row.amount - previous).toFixed(2)]; }),
-                ["Operating expenses", "Total expenses", currentReport.totalExpenses.toFixed(2), priorReport.totalExpenses.toFixed(2), (currentReport.totalExpenses - priorReport.totalExpenses).toFixed(2)],
-                ["Result", "Net profit / (loss)", currentReport.netProfit.toFixed(2), priorReport.netProfit.toFixed(2), (currentReport.netProfit - priorReport.netProfit).toFixed(2)],
-              ]}
-            />
-          </CardHeader>
-          <CardContent>
-            <Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead className="text-right">Current period</TableHead><TableHead className="text-right">Previous period</TableHead><TableHead className="text-right">Difference</TableHead></TableRow></TableHeader><TableBody>
-              <TableRow className="bg-emerald-50"><TableCell className="font-semibold text-emerald-900" colSpan={4}>Revenue</TableCell></TableRow>
-              {currentReport.revenue.map((row) => { const previous = priorReport.revenue.find((item) => item.key === row.key)?.amount ?? 0; return <TableRow key={row.key}><TableCell className="pl-8">{row.label}</TableCell><TableCell className="text-right">{money(row.amount)}</TableCell><TableCell className="text-right">{money(previous)}</TableCell><TableCell className={`text-right ${differenceClass(row.amount - previous)}`}>{money(row.amount - previous)}</TableCell></TableRow>; })}
-              <TableRow><TableCell className="font-semibold">Total revenue</TableCell><TableCell className="text-right font-semibold">{money(currentReport.totalRevenue)}</TableCell><TableCell className="text-right font-semibold">{money(priorReport.totalRevenue)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(currentReport.totalRevenue - priorReport.totalRevenue)}`}>{money(currentReport.totalRevenue - priorReport.totalRevenue)}</TableCell></TableRow>
-              <TableRow className="bg-amber-50"><TableCell className="font-semibold text-amber-900" colSpan={4}>Cost of sales / direct property costs</TableCell></TableRow>
-              {currentReport.costsOfSales.length ? currentReport.costsOfSales.map((row) => { const previous = priorReport.costsOfSales.find((item) => item.key === row.key)?.amount ?? 0; return <TableRow key={row.key}><TableCell className="pl-8">{row.label}</TableCell><TableCell className="text-right">{money(row.amount)}</TableCell><TableCell className="text-right">{money(previous)}</TableCell><TableCell className="text-right">{money(row.amount - previous)}</TableCell></TableRow>; }) : <TableRow><TableCell className="pl-8 text-gray-500" colSpan={4}>No direct property costs recorded for this period.</TableCell></TableRow>}
-              <TableRow><TableCell className="font-semibold">Gross profit</TableCell><TableCell className="text-right font-semibold">{money(currentReport.grossProfit)}</TableCell><TableCell className="text-right font-semibold">{money(priorReport.grossProfit)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(currentReport.grossProfit - priorReport.grossProfit)}`}>{money(currentReport.grossProfit - priorReport.grossProfit)}</TableCell></TableRow>
-              <TableRow className="bg-red-50"><TableCell className="font-semibold text-red-900" colSpan={4}>Operating expenses</TableCell></TableRow>
-              {currentReport.expenses.map((row) => { const previous = priorReport.expenses.find((item) => item.key === row.key)?.amount ?? 0; return <TableRow key={row.key}><TableCell className="pl-8">{row.label}</TableCell><TableCell className="text-right">{money(row.amount)}</TableCell><TableCell className="text-right">{money(previous)}</TableCell><TableCell className={`text-right ${differenceClass(previous - row.amount)}`}>{money(row.amount - previous)}</TableCell></TableRow>; })}
-              <TableRow><TableCell className="font-semibold">Total expenses</TableCell><TableCell className="text-right font-semibold">{money(currentReport.totalExpenses)}</TableCell><TableCell className="text-right font-semibold">{money(priorReport.totalExpenses)}</TableCell><TableCell className="text-right font-semibold">{money(currentReport.totalExpenses - priorReport.totalExpenses)}</TableCell></TableRow>
-              <TableRow className="border-t-2 border-gray-900 bg-gray-50"><TableCell className="text-base font-bold">Net profit / (loss)</TableCell><TableCell className="text-right text-base font-bold">{money(currentReport.netProfit)}</TableCell><TableCell className="text-right text-base font-bold">{money(priorReport.netProfit)}</TableCell><TableCell className={`text-right text-base font-bold ${differenceClass(currentReport.netProfit - priorReport.netProfit)}`}>{money(currentReport.netProfit - priorReport.netProfit)}</TableCell></TableRow>
-            </TableBody></Table>
-          </CardContent>
-        </Card>
+        <ProfitLossStatement
+          currentReport={currentReport}
+          endDate={endDate}
+          priorReport={priorReport}
+          propertyScope={properties.find((property) => property.id === selectedPropertyId)?.name ?? "All properties"}
+          startDate={startDate}
+        />
       ) : null}
 
       {tab === "balance-sheet" ? (
