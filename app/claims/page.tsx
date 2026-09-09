@@ -25,6 +25,7 @@ type PageProps = {
 };
 
 const errorMessages: Record<string, string> = {
+  office_company: "Office use requires one company assigned to your account. Ask your main account to check the company assignment.",
   missing: "Complete the description, property, amount and payment source.",
   property: "The selected property is not available.",
   room: "The selected room does not belong to that property.",
@@ -286,7 +287,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
                         </Badge>
                       </div>
                       <p className="mt-2 text-sm text-gray-600">
-                        {property?.name ?? "Property"}
+                        {property?.name ?? "Office use"}
                         {room
                           ? ` / ${room.room_number ?? room.name ?? "Room"}`
                           : ""}

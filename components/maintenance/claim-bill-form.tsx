@@ -59,6 +59,7 @@ export function ClaimBillForm({
   tickets: TicketOption[];
 }) {
   const [propertyId, setPropertyId] = useState("");
+  const officeUse = propertyId === "office_use";
   const [fundingSource, setFundingSource] = useState("company_cash");
   const propertyRooms = useMemo(
     () => rooms.filter((room) => room.property_id === propertyId),
@@ -85,7 +86,7 @@ export function ClaimBillForm({
       </label>
 
       <label className="block">
-        <span className="text-sm font-medium text-gray-700">Property *</span>
+        <span className="text-sm font-medium text-gray-700">Property / Office use *</span>
         <select
           className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
           name="propertyId"
@@ -94,6 +95,7 @@ export function ClaimBillForm({
           value={propertyId}
         >
           <option value="">Select a property</option>
+          {allowUnlinkedJob ? <option value="office_use">Office use — company expense</option> : null}
           {properties.map((property) => (
             <option key={property.id} value={property.id}>
               {property.name}
@@ -108,11 +110,12 @@ export function ClaimBillForm({
         </span>
         <select
           className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2 disabled:bg-[#f4f6f8]"
-          disabled={!propertyId}
+          disabled={!propertyId || officeUse}
+          key={propertyId}
           name="roomId"
         >
           <option value="">
-            {propertyId ? "No specific room" : "Choose a property first"}
+            {officeUse ? "Not applicable — office use" : propertyId ? "No specific room" : "Choose a property first"}
           </option>
           {propertyRooms.map((room) => (
             <option key={room.id} value={room.id}>
@@ -190,7 +193,8 @@ export function ClaimBillForm({
         </span>
         <select
           className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2 disabled:bg-[#f4f6f8]"
-          disabled={!propertyId}
+          disabled={!propertyId || officeUse}
+          key={propertyId}
           name="ticketId"
           required={!allowUnlinkedJob}
         >

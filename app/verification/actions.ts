@@ -484,7 +484,7 @@ export async function reviewClaim(formData: FormData) {
   const supabase = await adminClient();
   const { data: claim } = await supabase
     .from("claims")
-    .select("id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, bill_date, status")
+    .select("id, company_id, ticket_id, property_id, room_id, submitted_by, labour_cost, material_cost, total_amount, description, funding_source, bill_date, status")
     .eq("id", claimId)
     .maybeSingle();
 
@@ -497,15 +497,15 @@ export async function reviewClaim(formData: FormData) {
   }
 
   if (decision === "approved") {
-    const { data: property } = await supabase
+    const { data: property } = claim.property_id ? await supabase
       .from("properties")
       .select("id, company_id, organization_id")
       .eq("id", claim.property_id)
-      .maybeSingle();
+      .maybeSingle() : { data: claim.company_id ? { id: null, company_id: claim.company_id, organization_id: null } : null };
     const { data: category } = await supabase
       .from("expense_categories")
       .select("id")
-      .eq("name", "Repairs & Maintenance")
+      .eq("name", claim.property_id ? "Repairs & Maintenance" : "Office & Administration")
       .maybeSingle();
 
     if (!property) {

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
-import { getCurrentUser } from "@/lib/data/organization";
+import { getCurrentUser, getUserCompanies } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -186,6 +186,10 @@ export async function createClaimBill(formData: FormData) {
   const attachmentKind = textValue(formData, "attachmentKind");
   const returnTo = textValue(formData, "returnTo");
   const canSubmitWithoutTicket = ["super_admin", "admin"].includes(role);
+  const officeUse = propertyId === "office_use";
+  if (officeUse && (!canSubmitWithoutTicket || roomId || ticketId)) {
+    redirect(claimPath("claim_error=property", returnTo));
+  }
 
   if (
     !description ||
@@ -215,15 +219,20 @@ export async function createClaimBill(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { data: property } = await supabase
+  const { data: property } = officeUse ? { data: null } : await supabase
     .from("properties")
     .select("id, company_id")
     .eq("id", propertyId)
     .maybeSingle();
 
-  if (!property) {
+  if (!officeUse && !property) {
     redirect(claimPath("claim_error=property", returnTo));
   }
+  const officeCompanies = officeUse ? await getUserCompanies() : [];
+  if (officeUse && officeCompanies.length !== 1) {
+    redirect(claimPath("claim_error=office_company", returnTo));
+  }
+  const companyId = officeUse ? officeCompanies[0].id : property!.company_id;
 
   if (roomId) {
     const { data: room } = await supabase
@@ -231,7 +240,7 @@ export async function createClaimBill(formData: FormData) {
       .select("id, property_id")
       .eq("id", roomId)
       .maybeSingle();
-    if (!room || room.property_id !== property.id) {
+    if (!room || room.property_id !== property?.id) {
       redirect(claimPath("claim_error=room", returnTo));
     }
   }
@@ -244,7 +253,7 @@ export async function createClaimBill(formData: FormData) {
       .maybeSingle();
     if (
       !ticket ||
-      ticket.property_id !== property.id ||
+      ticket.property_id !== property?.id ||
       (roomId && ticket.room_id && ticket.room_id !== roomId)
     ) {
       redirect(claimPath("claim_error=ticket", returnTo));
@@ -252,16 +261,16 @@ export async function createClaimBill(formData: FormData) {
   }
 
   const admin = createAdminClient();
-  const { data: ownership } = await admin
+  const { data: ownership } = officeUse ? { data: null } : await admin
     .from("property_owners")
     .select("owner_id")
-    .eq("property_id", property.id)
+    .eq("property_id", property!.id)
     .is("end_date", null)
     .order("ownership_percentage", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!ownership?.owner_id) {
+  if (!officeUse && !ownership?.owner_id) {
     redirect(claimPath("claim_error=owner", returnTo));
   }
 
@@ -269,9 +278,10 @@ export async function createClaimBill(formData: FormData) {
     .from("claims")
     .insert({
       ticket_id: ticketId || null,
-      property_id: property.id,
+      property_id: property?.id ?? null,
+      company_id: companyId,
       room_id: roomId || null,
-      owner_id: ownership.owner_id,
+      owner_id: ownership?.owner_id ?? null,
       submitted_by: user.id,
       labour_cost: 0,
       material_cost: amount,

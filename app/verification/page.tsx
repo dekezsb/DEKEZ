@@ -1173,7 +1173,7 @@ function ClaimBills({
                           "Staff member"}
                       </TableCell>
                       <TableCell>
-                        <p>{property?.name ?? "-"}</p>
+                        <p>{property?.name ?? "Office use"}</p>
                         <p className="text-xs text-gray-500">
                           {room
                             ? room.room_number ?? room.name ?? "Room"
