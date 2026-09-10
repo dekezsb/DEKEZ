@@ -489,6 +489,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", submissionId)
+    .eq("verification_status", currentSubmission.verification_status)
     .select("id, tenant_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, unit_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number")
     .single();
 

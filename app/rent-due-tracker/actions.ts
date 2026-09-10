@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createHash } from "node:crypto";
+import { folderSummary, type FolderSlip } from "@/lib/payments/payment-folder";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -287,12 +289,108 @@ async function getPaymentBalances(
   });
 
   return {
+    depositRequired,
+    depositPaid,
     rentOutstanding: Math.max(
       Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0),
       0,
     ),
     depositOutstanding: Math.max(depositRequired - depositPaid, 0),
   };
+}
+
+async function paymentFolderContext(billId: string) {
+  await requireRole(["super_admin", "admin"]);
+  const user = await getCurrentUser();
+  const db = createAdminClient();
+  const bill = await getBillContext(db, billId);
+  const properties = await getProperties();
+  const property = properties.find((property) => property.id === bill?.property_id);
+  if (!user || !bill || !property) throw new Error("This invoice is not available to your account.");
+  return { user, db, bill, property };
+}
+
+async function folderSubmissions(db: ReturnType<typeof createAdminClient>, bill: NonNullable<Awaited<ReturnType<typeof getBillContext>>>) {
+  const rows = [];
+  for (let offset = 0; ; offset += 500) {
+    let query = db.from("payment_submissions").select("id, rent_bill_id, amount, payment_date, payment_type, payment_note, verification_status, reference_number, receipt_url, receipt_sha256, submission_key")
+      .order("created_at").order("id").range(offset, offset + 499);
+    if (bill.tenancy_id) query = query.or(`tenancy_id.eq.${bill.tenancy_id},rent_bill_id.eq.${bill.id}`);
+    else if (bill.tenant_record_id) query = query.or(`tenant_record_id.eq.${bill.tenant_record_id},rent_bill_id.eq.${bill.id}`);
+    else query = query.eq("rent_bill_id", bill.id);
+    const { data, error } = await query;
+    if (error) throw new Error("Could not load the payment folder. Please try again.");
+    rows.push(...(data ?? []));
+    if ((data?.length ?? 0) < 500) break;
+  }
+  return rows;
+}
+
+export async function getMonthlyPaymentFolder(billId: string) {
+  const { db, bill, property } = await paymentFolderContext(billId);
+  const [balances, submissions] = await Promise.all([getPaymentBalances(db, bill), folderSubmissions(db, bill)]);
+  const visible = submissions.filter((s) => s.rent_bill_id === bill.id || ["deposit", "rent_and_deposit"].includes(s.payment_type));
+  const slips: FolderSlip[] = await Promise.all(visible.map(async (s) => {
+    const { data } = s.receipt_url ? await db.storage.from("payment-receipts").createSignedUrl(s.receipt_url, 600) : { data: null };
+    return { id: s.id, billId: s.rent_bill_id, purpose: s.payment_type, amount: Number(s.amount), date: s.payment_date ?? "",
+      note: s.payment_note, reference: s.reference_number, status: s.verification_status, url: data?.signedUrl ?? null };
+  }));
+  const pending = slips.filter((s) => s.status === "pending_verification");
+  return { month: bill.bill_month, slips, eligible: supportsReservations(property.property_code),
+    rental: folderSummary(Number(bill.amount), balances.rentOutstanding, pending.filter((s) => s.billId === bill.id && ["monthly_rent", "first_month_rental"].includes(s.purpose)).reduce((sum, s) => sum + s.amount, 0)),
+    deposit: folderSummary(balances.depositRequired, balances.depositOutstanding, pending.filter((s) => s.purpose === "deposit").reduce((sum, s) => sum + s.amount, 0)),
+    mixedPending: pending.some((s) => s.purpose === "rent_and_deposit") };
+}
+
+export async function submitPaymentFolderSlip(form: FormData): Promise<{ ok: boolean; message: string; warning?: boolean }> {
+  const { db, bill, property, user } = await paymentFolderContext(textValue(form, "billId"));
+  if (!supportsReservations(property.property_code)) return { ok: false, message: "This instalment workflow is not enabled for BDS or PTT." };
+  const amount = numberValue(form, "amount");
+  const purpose = textValue(form, "purpose");
+  const date = textValue(form, "date");
+  const key = textValue(form, "key");
+  const reference = textValue(form, "reference");
+  const file = fileValue(form, "receipt");
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
+  if (!file || file.size > 3 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type)
+    || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001 || !validDate || !["monthly_rent", "deposit"].includes(purpose)
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) return { ok: false, message: "Enter the amount, date and a JPG, PNG, WebP or PDF slip (under 3 MB)." };
+  const previous = await folderSubmissions(db, bill);
+  if (previous.some((s) => s.submission_key === key)) return { ok: true, message: "Already saved — not uploaded again." };
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const live = previous.filter((s) => s.verification_status !== "rejected");
+  const normalize = (s: string) => s.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  if (live.some((s) => s.receipt_sha256 === hash || (normalize(reference) && normalize(s.reference_number ?? "") === normalize(reference))))
+    return { ok: false, message: "This file or bank reference is already saved. Check the earlier slips; do not upload it again." };
+  // Older slips predate fingerprints. Compare their stored bytes without modifying their records.
+  for (const s of live.filter((s) => !s.receipt_sha256 && s.receipt_url && s.rent_bill_id === bill.id)) {
+    const { data } = await db.storage.from("payment-receipts").download(s.receipt_url!);
+    if (data && createHash("sha256").update(Buffer.from(await data.arrayBuffer())).digest("hex") === hash)
+      return { ok: false, message: "This file is already attached to this invoice. Use the existing slip." };
+  }
+  const similar = live.some((s) => Number(s.amount) === amount && s.payment_date === date);
+  if (similar && textValue(form, "confirmSimilar") !== "1") return { ok: false, warning: true, message: "A payment with the same amount and date is already saved. Check it below. Confirm only if this is a different bank transfer." };
+  const balances = await getPaymentBalances(db, bill);
+  if ((purpose === "deposit" ? balances.depositOutstanding : balances.rentOutstanding) <= 0.005)
+    return { ok: false, message: "This balance is already fully paid. Check the month or Deposit tab." };
+  const path = `${user.id}/${bill.id}/folder-${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+  const { error: uploadError } = await db.storage.from("payment-receipts").upload(path, bytes, { contentType: file.type, upsert: false });
+  if (uploadError) return { ok: false, message: "Upload failed. Your other saved slips remain safe. Please retry this slip." };
+  const { error } = await db.rpc("record_payment_folder_slip", { p_bill: bill.id, p_actor: user.id, p_item: {
+    key, amount, purpose, date, reference, note: textValue(form, "note"), hash, path, file_name: file.name, content_type: file.type,
+    tenant_id: bill.tenant_id ?? bill.tenant?.id ?? null, tenant_record_id: bill.tenant_record_id, similar_confirmed: similar,
+  } });
+  if (error) {
+    // A transport error may arrive after commit. Check the idempotency key before cleaning up.
+    const { data: saved, error: lookupError } = await db.from("payment_submissions").select("id").eq("submission_key", key).maybeSingle();
+    if (!saved) {
+      if (!lookupError) await db.storage.from("payment-receipts").remove([path]);
+      return { ok: false, message: error.message.includes("Duplicate") ? "Duplicate slip or bank reference. Check the saved payments." : "Could not confirm saving. Retry this same slip; it will not be counted twice." };
+    }
+  }
+  for (const path of ["/rent-due-tracker", "/dashboard", "/payment-verification", "/verification"]) revalidatePath(path);
+  return { ok: true, message: "Saved — awaiting bank verification." };
 }
 
 function single<T>(value: T | T[] | null | undefined) {

@@ -9,6 +9,9 @@ import { money } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { PaymentRecordActions } from "./payment-record-actions";
+import { getProperties } from "@/lib/data/organization";
+import { groupPaymentFolders } from "@/lib/payments/payment-folder";
+import { FolderReview } from "./folder-review";
 
 export type PaymentVerificationPageProps = {
   searchParams: Promise<{
@@ -45,6 +48,8 @@ type SubmissionRecord = {
   verified_at: string | null;
   created_at: string;
   rejection_reason: string | null;
+  payment_note: string | null;
+  receipt_sha256: string | null;
   properties?: { name: string } | { name: string }[] | null;
   rooms?: { name: string; room_number: string | null } | { name: string; room_number: string | null }[] | null;
   rent_bills?: {
@@ -142,19 +147,14 @@ function malaysiaTime(value: string) {
   }).format(new Date(value));
 }
 
-function latestSubmissionPerBill<
-  T extends { id: string; rent_bill_id: string | null },
->(submissions: T[]) {
-  const seen = new Set<string>();
-
-  return submissions.filter((submission) => {
-    const key = submission.rent_bill_id
-      ? `bill:${submission.rent_bill_id}`
-      : `submission:${submission.id}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+async function allRows<T>(query: { range(from: number, to: number): PromiseLike<{ data: T[] | null; error: unknown }> }) {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await query.range(offset, offset + 499);
+    if (error) throw new Error("Payment verification records could not load. Please retry.");
+    rows.push(...(data ?? []));
+    if ((data?.length ?? 0) < 500) return rows;
+  }
 }
 
 export default async function PaymentVerificationPage({
@@ -178,60 +178,31 @@ export async function PaymentVerificationContent({
   const currentMonth = malaysiaDate().slice(0, 7);
   const monthFilter = params.month ?? "";
 
-  let query = supabase
+  const properties = await getProperties();
+  const propertyIds = params.property ? properties.filter((p) => p.id === params.property).map((p) => p.id) : properties.map((p) => p.id);
+  const allSubmissions = propertyIds.length ? await allRows<SubmissionRecord>(supabase
     .from("payment_submissions")
-    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
-    .order("created_at", { ascending: false });
-
-  if (params.property) {
-    query = query.eq("property_id", params.property);
-  }
-  if (params.tenant) {
-    query = query.eq("tenant_id", params.tenant);
-  }
-  if (params.method) {
-    query = query.eq("payment_method", params.method);
-  }
-  if (monthFilter) {
-    query = query.gte("payment_date", `${monthFilter}-01`).lt("payment_date", nextMonth(monthFilter));
-  }
-
-  const [submissionsResult, profilesResult, tenantRecordsResult, propertiesResult, allSubmissionsResult] = await Promise.all([
-    query,
-    supabase.from("profiles").select("id, full_name, phone"),
-    supabase.from("tenant_records").select("id, full_name, phone"),
-    supabase.from("properties").select("id, name").order("name", { ascending: true }),
-    supabase
-      .from("payment_submissions")
-      .select("id, rent_bill_id, amount, verification_status, verified_at, payment_date, created_at")
-      .order("created_at", { ascending: false }),
+    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, payment_note, receipt_sha256, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
+    .in("property_id", propertyIds).order("created_at", { ascending: false }).order("id")) : [];
+  const matching = (s: SubmissionRecord) => (!params.tenant || s.tenant_id === params.tenant)
+    && (!params.method || s.payment_method === params.method)
+    && (!monthFilter || (s.bill_month ?? single(s.rent_bills)?.bill_month ?? s.payment_date ?? "").slice(0, 7) === monthFilter);
+  // Select folders by the filters, then retain every slip inside those folders.
+  const groups = groupPaymentFolders(allSubmissions).filter(([, rows]) =>
+    rows.some((s) => matching(s) && (statusFilter === "all" || s.verification_status === statusFilter)));
+  const submissions = groups.flatMap(([, rows]) => rows);
+  const [profileRows, recordRows] = await Promise.all([
+    allRows<{ id: string; full_name: string | null; phone: string | null }>(supabase.from("profiles").select("id, full_name, phone").order("id")),
+    allRows<{ id: string; full_name: string; phone: string | null }>(supabase.from("tenant_records").select("id, full_name, phone").in("property_id", propertyIds).order("id")),
   ]);
-
-  const latestFilteredSubmissions = latestSubmissionPerBill(
-    (submissionsResult.data ?? []) as SubmissionRecord[],
-  );
-  const submissions =
-    statusFilter === "all"
-      ? latestFilteredSubmissions
-      : latestFilteredSubmissions.filter(
-          (submission) => submission.verification_status === statusFilter,
-        );
-  const allSubmissions = latestSubmissionPerBill(
-    allSubmissionsResult.data ?? [],
-  );
-  const profiles = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
-  const tenantRecords = new Map((tenantRecordsResult.data ?? []).map((tenant) => [tenant.id, tenant]));
-  const properties = propertiesResult.data ?? [];
+  const profiles = new Map(profileRows.map((p) => [p.id, p]));
+  const tenantRecords = new Map(recordRows.map((p) => [p.id, p]));
   const signedUrls = new Map<string, string>();
-
-  for (const submission of submissions) {
-    if (submission.receipt_url) {
-      const { data } = await supabase.storage.from("payment-receipts").createSignedUrl(submission.receipt_url, 60 * 10);
-      if (data?.signedUrl) {
-        signedUrls.set(submission.id, data.signedUrl);
-      }
-    }
-  }
+  await Promise.all(submissions.map(async (submission) => {
+    if (!submission.receipt_url) return;
+    const { data } = await supabase.storage.from("payment-receipts").createSignedUrl(submission.receipt_url, 600);
+    if (data?.signedUrl) signedUrls.set(submission.id, data.signedUrl);
+  }));
 
   const today = malaysiaDate();
   const pendingPayments = allSubmissions.filter((submission) => submission.verification_status === "pending_verification");
@@ -287,7 +258,7 @@ export async function PaymentVerificationContent({
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Default view shows pending verification first.</CardDescription>
+          <CardDescription>Default view shows folders with pending slips, including their earlier verified payments.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 lg:grid-cols-6" method="get">
@@ -318,7 +289,7 @@ export async function PaymentVerificationContent({
               </select>
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-gray-700">Month</span>
+              <span className="text-sm font-medium text-gray-700">Rental month</span>
               <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="month" type="month" defaultValue={monthFilter} />
             </label>
             <label className="block">
@@ -347,89 +318,36 @@ export async function PaymentVerificationContent({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {submissions.length ? (
-            <>
-              <div className="hidden overflow-x-auto lg:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Tenant / Staff</TableHead>
-                      <TableHead>Property</TableHead>
-                      <TableHead>Room</TableHead>
-                      <TableHead>Amount Due</TableHead>
-                      <TableHead>Amount Submitted</TableHead>
-                      <TableHead>Payment Method</TableHead>
-                      <TableHead>Slip</TableHead>
-                      <TableHead className="min-w-48">Verify</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {submissions.map((submission) => {
-                      const row = buildRow(submission, profiles, tenantRecords, signedUrls);
-                      return (
-                        <TableRow key={submission.id}>
-                          <TableCell className="min-w-40">
-                            <p>{formatMalaysiaDate(submission.payment_date)}</p>
-                            <p className="text-xs text-gray-500">{malaysiaTime(submission.created_at)}</p>
-                          </TableCell>
-                          <TableCell className="min-w-48 font-medium text-gray-950">{row.tenantName}</TableCell>
-                          <TableCell>{row.propertyName}</TableCell>
-                          <TableCell>{row.roomName}</TableCell>
-                          <TableCell>{row.amountDue}</TableCell>
-                          <TableCell className="font-semibold text-gray-950">{row.amountSubmitted}</TableCell>
-                          <TableCell>
-                            <p>{submission.payment_method}</p>
-                            <p className="text-xs text-gray-500">{submission.reference_number ?? "-"}</p>
-                          </TableCell>
-                          <TableCell>
-                            <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
-                          </TableCell>
-                          <TableCell>
-                            <PaymentRecordActions
-                              {...row}
-                              canCorrectPurpose={role === "super_admin"}
-                              canReverse={role === "super_admin"}
-                              returnTo={returnTo}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="grid gap-4 lg:hidden">
-                {submissions.map((submission) => {
+          {groups.length ? <div className="space-y-4">{groups.map(([key, unsorted]) => {
+            const rows = [...unsorted].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+            const first = buildRow(rows[0], profiles, tenantRecords, signedUrls);
+            const pending = rows.filter((s) => s.verification_status === "pending_verification");
+            const verified = rows.filter((s) => s.verification_status === "verified");
+            return <details key={key} className="rounded-xl border bg-white" open={groups.length === 1}>
+              <summary className="cursor-pointer rounded-xl bg-slate-50 p-4">
+                <span className="font-semibold">{first.tenantName} · {first.propertyName} / {first.roomName}</span>
+                <span className="mt-1 block text-sm">{key.startsWith("deposit:") ? "Deposit folder — all months" : `Rental folder — ${first.billMonth.slice(0, 7)}`} · {rows.length} slips · {pending.length} awaiting verification</span>
+                <span className="mt-1 block text-sm">Verified slips: {money(verified.reduce((n, s) => n + Number(s.amount), 0))} · Pending slips: {money(pending.reduce((n, s) => n + Number(s.amount), 0))}</span>
+              </summary>
+              <div className="p-4">
+                <p className="mb-3 text-sm text-gray-600">Check each transfer against your bank. Earlier verified slips remain visible and are already counted. Combined rent/deposit slips show the full transfer amount; use their allocation details when reviewing.</p>
+                <div className="grid gap-3 lg:grid-cols-3">{rows.map((submission, index) => {
                   const row = buildRow(submission, profiles, tenantRecords, signedUrls);
-                  return (
-                    <div className="rounded-lg border border-[#d7dde5] bg-white p-4" key={submission.id}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-gray-950">{row.tenantName}</p>
-                          <p className="mt-1 text-sm text-gray-600">{row.propertyName} / {row.roomName}</p>
-                          <p className="mt-2 text-xl font-bold">{row.amountSubmitted}</p>
-                          <p className="text-xs text-gray-500">{formatMalaysiaDate(submission.payment_date)} {malaysiaTime(submission.created_at)}</p>
-                        </div>
-                        <ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} />
-                      </div>
-                      <div className="mt-4">
-                        <PaymentRecordActions
-                          {...row}
-                          canCorrectPurpose={role === "super_admin"}
-                          canReverse={role === "super_admin"}
-                          returnTo={returnTo}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                  return <article key={submission.id} className={`rounded-lg border p-3 ${submission.verification_status === "verified" ? "border-green-200 bg-green-50" : "bg-white"}`}>
+                    <h3 className="font-semibold">Slip {index + 1} · {row.amountSubmitted}</h3>
+                    <p className="text-sm">{formatMalaysiaDate(submission.payment_date)} · {submission.payment_type.replaceAll("_", " ")}</p>
+                    <p className="break-words text-sm">Bank reference: {submission.reference_number || "Not entered"}</p>
+                    {submission.payment_note ? <p className="my-2 whitespace-pre-wrap text-sm">{submission.payment_note}</p> : null}
+                    <div className="my-3"><ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} /></div>
+                    {submission.receipt_sha256 && submission.verification_status === "pending_verification" ? <>
+                      <FolderReview id={submission.id} />
+                      <details className="mt-3"><summary className="cursor-pointer text-sm underline">Allocation / correction / rejection review</summary><PaymentRecordActions {...row} canCorrectPurpose={role === "super_admin"} canReverse={role === "super_admin"} returnTo={returnTo} /></details>
+                    </> : <PaymentRecordActions {...row} canCorrectPurpose={role === "super_admin"} canReverse={role === "super_admin"} returnTo={returnTo} />}
+                  </article>;
+                })}</div>
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-gray-500">No bank-in records for this filter.</p>
-          )}
+            </details>;
+          })}</div> : <p className="text-sm text-gray-500">No payment folders for this filter.</p>}
         </CardContent>
       </Card>
     </section>

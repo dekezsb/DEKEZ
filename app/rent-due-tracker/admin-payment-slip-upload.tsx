@@ -10,7 +10,8 @@ import {
   paymentPurposeTotal,
   type PaymentPurpose,
 } from "@/lib/payments/payment-purpose";
-import { uploadRentPaymentSlip } from "./actions";
+import { uploadRentPaymentSlip, getMonthlyPaymentFolder } from "./actions";
+import { MonthlyPaymentFolder } from "./monthly-payment-folder";
 import { PaymentSlipHistory } from "./payment-slip-history";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
@@ -50,8 +51,18 @@ export function AdminPaymentSlipUpload({
   onOpenChange,
 }: AdminPaymentSlipUploadProps) {
   const [internalOpen, setInternalOpen] = useState(false);
+  const [folder, setFolder] = useState<Awaited<ReturnType<typeof getMonthlyPaymentFolder>> | null>(null);
+  const [folderError, setFolderError] = useState("");
   const [submissionKey, setSubmissionKey] = useState("");
   const open = controlledOpen ?? internalOpen;
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setFolder(null); setFolderError("");
+    getMonthlyPaymentFolder(billId).then((data) => { if (active) setFolder(data); })
+      .catch(() => { if (active) setFolderError("Could not load this payment folder. Close and try again."); });
+    return () => { active = false; };
+  }, [billId, open]);
   const defaultPurpose: PaymentPurpose =
     rentOutstanding > 0.005 && depositOutstanding > 0.005
       ? "rent_and_deposit"
@@ -103,6 +114,9 @@ export function AdminPaymentSlipUpload({
     );
   }, [billId, defaultPurpose, depositOutstanding, open, rentOutstanding]);
 
+  if (open && !folder) return <div role="dialog" aria-modal="true" aria-label="Loading payment folder" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="rounded bg-white p-6"><p role="status">{folderError || "Loading rental and deposit payments…"}</p><Button onClick={() => setOpen(false)} type="button">Close</Button></div></div>;
+  if (open && folder?.eligible) return <MonthlyPaymentFolder billId={billId} tenantName={tenantName} propertyName={propertyName} roomName={roomName} initial={folder} paymentDateDefault={paymentDateDefault} onClose={() => setOpen(false)} />;
+
   return (
     <>
       {!hideTrigger ? (
@@ -114,7 +128,7 @@ export function AdminPaymentSlipUpload({
           variant="outline"
         >
           <Paperclip aria-hidden="true" className="size-4" />
-          + Add another payment / slip
+          Rental / Deposit folder
         </Button>
       ) : null}
 
