@@ -3,6 +3,7 @@ import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { ProfitLossReport, ProfitLossRow } from "@/lib/accounting/report-data";
+import { profitTrend } from "@/lib/accounting/profit-trend";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -89,7 +90,7 @@ function ProfitLossAccountRow({
             <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-gray-900">{row.label} · current-period supporting ledger</p>
-                <p className="text-xs text-gray-600">{dateLabel(startDate)} to {dateLabel(endDate)}. Change the Reporting month above to inspect another month.</p>
+                <p className="text-xs text-gray-600">{dateLabel(startDate)} to {dateLabel(endDate)}. Use the period and outlet filters above to inspect another selection.</p>
               </div>
               <p className="text-xs font-medium text-gray-600">{row.details.length} source {row.details.length === 1 ? "record" : "records"}</p>
             </div>
@@ -188,6 +189,8 @@ export function ProfitLossStatement({
   endDate,
   propertyScope,
   openRowKey,
+  priorStartDate,
+  priorEndDate,
 }: {
   currentReport: ProfitLossReport;
   priorReport: ProfitLossReport;
@@ -195,9 +198,12 @@ export function ProfitLossStatement({
   endDate: string;
   propertyScope: string;
   openRowKey?: string | null;
+  priorStartDate: string;
+  priorEndDate: string;
 }) {
   const summaryCsvRows: Array<Array<string | number>> = [
     ["DEKEZ Profit & Loss", `${startDate} to ${endDate}`, "Accrual basis", propertyScope],
+    ["Comparison period", `${priorStartDate} to ${priorEndDate}`],
     ["Section", "Account", "Current RM", "Previous RM", "Difference RM"],
     ...mergeRows(currentReport.revenue, priorReport.revenue).map(({ row, previousAmount }) => ["Revenue", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
     ["Revenue", "Total revenue", currentReport.totalRevenue.toFixed(2), priorReport.totalRevenue.toFixed(2), (currentReport.totalRevenue - priorReport.totalRevenue).toFixed(2)],
@@ -206,6 +212,12 @@ export function ProfitLossStatement({
     ...mergeRows(currentReport.expenses, priorReport.expenses).map(({ row, previousAmount }) => ["Operating expenses", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
     ["Operating expenses", "Total expenses", currentReport.totalExpenses.toFixed(2), priorReport.totalExpenses.toFixed(2), (currentReport.totalExpenses - priorReport.totalExpenses).toFixed(2)],
     ["Result", "Net profit / (loss)", currentReport.netProfit.toFixed(2), priorReport.netProfit.toFixed(2), (currentReport.netProfit - priorReport.netProfit).toFixed(2)],
+  ];
+  const trend = profitTrend(currentReport, startDate, endDate);
+  const trendCsv: Array<Array<string | number>> = [
+    ["Monthly profit tracking", `${startDate} to ${endDate}`, propertyScope],
+    ["Month", "Income RM", "Direct costs RM", "Operating expenses RM", "Net profit RM"],
+    ...trend.map((row) => [row.month, row.income.toFixed(2), row.costs.toFixed(2), row.expenses.toFixed(2), row.profit.toFixed(2)]),
   ];
   const ledgerCsvRows: Array<Array<string | number>> = [
     ["DEKEZ P&L Supporting Ledger", `${startDate} to ${endDate}`, propertyScope],
@@ -232,6 +244,7 @@ export function ProfitLossStatement({
         <div>
           <CardTitle>Profit &amp; Loss Statement</CardTitle>
           <CardDescription>{dateLabel(startDate)} to {dateLabel(endDate)} · accrual basis · deposits excluded from income · {propertyScope}</CardDescription>
+          <p className="mt-1 text-xs text-gray-600">Compared with {dateLabel(priorStartDate)} to {dateLabel(priorEndDate)} · {propertyScope}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <CsvDownloadButton fileName={`DEKEZ-profit-and-loss-${startDate}-to-${endDate}.csv`} label="Download P&L CSV" rows={summaryCsvRows} />
@@ -239,8 +252,22 @@ export function ProfitLossStatement({
         </div>
       </CardHeader>
       <CardContent>
+        <div className="mb-5 grid gap-3 sm:grid-cols-3">
+          {[{ label: "Income", value: currentReport.totalRevenue }, { label: "Total costs & expenses", value: currentReport.totalCostOfSales + currentReport.totalExpenses }, { label: "Net profit / (loss)", value: currentReport.netProfit }].map((item) => <div key={item.label} className="rounded-lg border border-[#d7dde5] bg-slate-50 p-4"><p className="text-xs text-gray-600">{item.label}</p><p className={`mt-1 text-xl font-semibold ${item.value < 0 ? "text-red-700" : "text-gray-900"}`}>{money(item.value)}</p></div>)}
+        </div>
+        {trend.length > 1 ? <details className="mb-5 rounded-lg border border-[#d7dde5]" open>
+          <summary className="cursor-pointer p-4 text-sm font-semibold">Month-by-month profit · {propertyScope}</summary>
+          <div className="px-4 pb-4">
+            <div className="mb-3"><CsvDownloadButton fileName={`DEKEZ-monthly-profit-${startDate}-to-${endDate}.csv`} label="Download monthly comparison" rows={trendCsv} /></div>
+            <Table><TableHeader><TableRow><TableHead>Month</TableHead><TableHead className="text-right">Income</TableHead><TableHead className="text-right">Direct costs</TableHead><TableHead className="text-right">Operating expenses</TableHead><TableHead className="text-right">Net profit / (loss)</TableHead></TableRow></TableHeader>
+              <TableBody>{trend.map((row) => <TableRow key={row.month}><TableCell>{new Intl.DateTimeFormat("en-MY", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${row.month}-01T00:00:00Z`))}</TableCell><TableCell className="text-right">{money(row.income)}</TableCell><TableCell className="text-right">{money(row.costs)}</TableCell><TableCell className="text-right">{money(row.expenses)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(row.profit)}`}>{money(row.profit)}</TableCell></TableRow>)}
+                <TableRow className="font-semibold"><TableCell>Total</TableCell><TableCell className="text-right">{money(currentReport.totalRevenue)}</TableCell><TableCell className="text-right">{money(currentReport.totalCostOfSales)}</TableCell><TableCell className="text-right">{money(currentReport.totalExpenses)}</TableCell><TableCell className="text-right">{money(currentReport.netProfit)}</TableCell></TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </details> : null}
         <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-          <strong>Audit breakdown:</strong> Open any account below to see every source record inside the current-period total. Each ledger is checked back to the P&amp;L figure and follows the selected month and property.
+          <strong>Audit breakdown:</strong> Open any account below to see every source record inside the current-period total. Each ledger is checked back to the P&amp;L figure and follows the selected period and outlet.
         </div>
         <Table className="min-w-[780px]">
           <TableHeader>

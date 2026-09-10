@@ -29,6 +29,8 @@ import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { ChartOfAccountsManager } from "@/components/accounting/chart-of-accounts-manager";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
+import { PnlPeriodFields } from "@/components/accounting/pnl-period-fields";
+import { reportPeriod } from "@/lib/accounting/report-period";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
 import {
@@ -275,10 +277,19 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const selectedPropertyId = properties.some((property) => property.id === params.property) ? params.property ?? "" : "";
   const tab = ["overview", "profit-loss", "balance-sheet", "trial-balance", "bank", "journal", "ledger"].includes(params.tab ?? "") ? params.tab ?? "overview" : "overview";
   const bankFlow: "credit" | "debit" = params.bankFlow === "debit" ? "debit" : "credit";
+  const period = ["monthly", "six-months", "yearly", "custom"].includes(params.period ?? "") ? params.period! : "monthly";
+  const comparison = params.comparison === "last-year" ? "last-year" : "previous";
+  let pnlDates = reportPeriod(selectedMonth);
+  let periodError = "";
+  if (tab === "profit-loss") {
+    try { pnlDates = reportPeriod(selectedMonth, period, params.from, params.to, comparison); }
+    catch (error) { periodError = error instanceof Error ? error.message : "Invalid reporting period"; }
+  }
+
 
   const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult] = await Promise.all([
-    getProfitLossReport(supabase, { companyId: company.id, startDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
-    getProfitLossReport(supabase, { companyId: company.id, startDate: priorDates.startDate, endDate: priorDates.endDate, propertyId: selectedPropertyId || null }),
+    getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
+    getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
     supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(240),
@@ -769,10 +780,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           <h1 className="mt-2 text-2xl font-semibold text-gray-950 sm:text-3xl">Accounts &amp; Reports</h1>
           <p className="mt-2 max-w-3xl text-sm text-gray-600">Bukku-style accrual P&amp;L, invoice control and bank matching using the records already inside DEKEZ.</p>
         </div>
-        <form className="grid gap-2 rounded-lg border border-[#d7dde5] bg-white p-3 sm:grid-cols-[170px_230px_auto]" method="get">
+        <form className="grid gap-2 rounded-lg border border-[#d7dde5] bg-white p-3 sm:grid-cols-2 xl:max-w-2xl" method="get">
           <input name="tab" type="hidden" value={tab} />
-          <label className="text-xs font-medium text-gray-600">Reporting month<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3 text-sm" defaultValue={selectedMonth} name="month" type="month" /></label>
-          <label className="text-xs font-medium text-gray-600">Property<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue={selectedPropertyId} name="property"><option value="">All properties</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>
+          {tab === "profit-loss" ? <PnlPeriodFields key={`${period}-${selectedMonth}-${params.from}-${params.to}-${comparison}`} period={period} month={selectedMonth} from={params.from} to={params.to} comparison={comparison} /> : <label className="text-xs font-medium text-gray-600">Reporting month<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3 text-sm" defaultValue={selectedMonth} name="month" type="month" /></label>}
+          <label className="text-xs font-medium text-gray-600">Outlet / property<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue={selectedPropertyId} name="property"><option value="">All outlets / properties</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>
           <Button className="self-end" type="submit">View</Button>
         </form>
       </div>
@@ -850,14 +861,17 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </>
       ) : null}
 
-      {tab === "profit-loss" ? (
+      {tab === "profit-loss" && periodError ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{periodError}. Please update the filters and click View.</p> : null}
+      {tab === "profit-loss" && !periodError ? (
         <ProfitLossStatement
           currentReport={currentReport}
-          endDate={endDate}
+          endDate={pnlDates.endDate}
+          priorStartDate={pnlDates.priorStartDate}
+          priorEndDate={pnlDates.priorEndDate}
           openRowKey={params.ledger}
           priorReport={priorReport}
           propertyScope={properties.find((property) => property.id === selectedPropertyId)?.name ?? "All properties"}
-          startDate={startDate}
+          startDate={pnlDates.startDate}
         />
       ) : null}
 

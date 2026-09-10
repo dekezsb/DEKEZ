@@ -1,5 +1,30 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+// Annual reports can exceed the API's row cap. Fetch every page in stable order.
+async function allReportRows<T>(query: PromiseLike<{ data: T[] | null; error: unknown }> & {
+  order(column: string): unknown;
+  range(from: number, to: number): PromiseLike<{ data: T[] | null; error: unknown }>;
+}) {
+  query.order("id");
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const result = await query.range(offset, offset + 499);
+    if (result.error) return { data: rows, error: result.error };
+    rows.push(...(result.data ?? []));
+    if ((result.data?.length ?? 0) < 500) return { data: rows, error: null };
+  }
+}
+
+async function reportRowsByIds<T>(ids: string[], fetch: (batch: string[]) => Promise<{ data: T[]; error: unknown }>) {
+  const data: T[] = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const result = await fetch(ids.slice(offset, offset + 100));
+    if (result.error) return { data, error: result.error };
+    data.push(...result.data);
+  }
+  return { data, error: null };
+}
+
 export type ProfitLossLedgerDetail = {
   id: string;
   sourceType: "rental_invoice" | "invoice_charge" | "company_expense" | "utility_bill" | "bank_adjustment" | "journal_entry";
@@ -179,9 +204,9 @@ export async function getProfitLossReport(
   }
 
   const [rentBillsResult, expensesResult, utilityBillsResult, expenseCategoryMappingsResult] = await Promise.all([
-    rentBillsQuery,
-    expensesQuery,
-    utilityBillsQuery,
+    allReportRows(rentBillsQuery),
+    allReportRows(expensesQuery),
+    allReportRows(utilityBillsQuery),
     supabase
       .from("accounting_category_mappings")
       .select("source_key, accounting_accounts!inner(id, code, name, account_type, report_group, system_key)")
@@ -203,12 +228,10 @@ export async function getProfitLossReport(
   );
 
   const billIds = (rentBills ?? []).map((bill) => bill.id);
-  const lineItemsResult = billIds.length
-    ? await supabase
+  const lineItemsResult = await reportRowsByIds(billIds, (batch) => allReportRows(supabase
         .from("rental_invoice_line_items")
         .select("id, rent_bill_id, category, description, amount")
-        .in("rent_bill_id", billIds)
-    : { data: [], error: null };
+        .in("rent_bill_id", batch)));
   assertQuerySucceeded("rental invoice charges", lineItemsResult.error);
   const lineItems = lineItemsResult.data;
 
@@ -219,32 +242,30 @@ export async function getProfitLossReport(
     .gte("transaction_date", input.startDate)
     .lte("transaction_date", input.endDate);
   if (input.propertyId) manualTransactionsQuery = manualTransactionsQuery.eq("property_id", input.propertyId);
-  const manualTransactionsResult = await manualTransactionsQuery;
+  const manualTransactionsResult = await allReportRows(manualTransactionsQuery);
   assertQuerySucceeded("bank adjustments", manualTransactionsResult.error);
   const manualTransactions = manualTransactionsResult.data;
 
-  const journalEntriesResult = await supabase
+  const journalEntriesResult = await allReportRows(supabase
     .from("accounting_journal_entries")
     .select("id, entry_date, entry_number, source_type, source_id, reference_number, description")
     .eq("company_id", input.companyId)
     .eq("status", "posted")
     .gte("entry_date", input.startDate)
-    .lte("entry_date", input.endDate);
+    .lte("entry_date", input.endDate));
   assertQuerySucceeded("posted journal entries", journalEntriesResult.error);
   const journalEntries = journalEntriesResult.data;
   const journalEntryIds = (journalEntries ?? []).map((entry) => entry.id);
-  let journalLinesQuery = journalEntryIds.length
-      ? supabase
+  const journalLinesResult = await reportRowsByIds(journalEntryIds, (batch) => {
+    let journalLinesQuery = supabase
           .from("accounting_journal_lines")
           .select("id, journal_entry_id, property_id, tenant_id, description, debit, credit, properties(id, name, property_code), accounting_accounts!inner(id, code, name, account_type, report_group, system_key)")
-        .in("journal_entry_id", journalEntryIds)
-    : null;
+        .in("journal_entry_id", batch);
   if (journalLinesQuery && input.propertyId) {
     journalLinesQuery = journalLinesQuery.eq("property_id", input.propertyId);
   }
-  const journalLinesResult = journalLinesQuery
-    ? await journalLinesQuery
-    : { data: [], error: null };
+    return allReportRows(journalLinesQuery);
+  });
   assertQuerySucceeded("posted journal lines", journalLinesResult.error);
   const journalLines = journalLinesResult.data;
 
@@ -258,15 +279,11 @@ export async function getProfitLossReport(
   ].filter((id): id is string => Boolean(id))));
   const [sourceTenanciesResult, profilesResult] = input.includeDetails
     ? await Promise.all([
-        journalSourceIds.length
-          ? supabase
+        reportRowsByIds(journalSourceIds, (batch) => allReportRows(supabase
               .from("tenancies")
               .select("id, property_id, room_id, properties!tenancies_property_id_fkey(id, name, property_code), rooms!tenancies_room_id_fkey(id, name, room_number), tenants!tenancies_tenant_id_fkey(id, full_name)")
-              .in("id", journalSourceIds)
-          : Promise.resolve({ data: [], error: null }),
-        profileIds.length
-          ? supabase.from("profiles").select("id, full_name").in("id", profileIds)
-          : Promise.resolve({ data: [], error: null }),
+              .in("id", batch))),
+        reportRowsByIds(profileIds, (batch) => allReportRows(supabase.from("profiles").select("id, full_name").in("id", batch))),
       ])
     : [{ data: [], error: null }, { data: [], error: null }];
   assertQuerySucceeded("tenancy references for the supporting ledger", sourceTenanciesResult.error);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getProfitLossReport } from "../../lib/accounting/report-data.ts";
+import { profitTrend } from "../../lib/accounting/profit-trend.ts";
 
 const COMPANY_ID = "company-1";
 const PROPERTY = {
@@ -28,6 +29,10 @@ function listFilterValues(value) {
 class FakeQuery {
   #rows;
   #filters = [];
+  #range = [0, 999];
+
+  order() { return this; }
+  range(from, to) { this.#range = [from, to]; return this; }
 
   constructor(rows) {
     this.#rows = rows;
@@ -75,7 +80,7 @@ class FakeQuery {
   }
 
   then(resolve, reject) {
-    const data = this.#rows.filter((row) => this.#filters.every((filter) => filter(row)));
+    const data = this.#rows.filter((row) => this.#filters.every((filter) => filter(row))).slice(this.#range[0], this.#range[1] + 1);
     return Promise.resolve({ data, error: null }).then(resolve, reject);
   }
 }
@@ -112,6 +117,21 @@ function report(supabase, startDate, endDate, includeDetails = true) {
     includeDetails,
   });
 }
+
+test("annual totals and supporting ledger include more than 1000 invoices and stay property scoped", async () => {
+  const bills = Array.from({ length: 1305 }, (_, i) => ({
+    id: `bill-${i}`, property_id: PROPERTY.id, properties: PROPERTY, amount: 400,
+    bill_month: `2026-${String(i % 12 + 1).padStart(2, "0")}-01`, status: "unpaid", removed_at: null,
+  }));
+  const supabase = fakeSupabase({ rent_bills: [...bills, { ...bills[0], id: "other-outlet", property_id: "other" }] });
+  const result = await getProfitLossReport(supabase, { companyId: COMPANY_ID, startDate: "2026-01-01", endDate: "2026-12-31", propertyId: PROPERTY.id, includeDetails: true });
+  assert.equal(result.totalRevenue, 1305 * 400);
+  assert.equal(result.revenue[0].details.length, 1305);
+  assert.equal(result.revenue[0].details.reduce((sum, row) => sum + row.amount, 0), result.totalRevenue);
+  const trend = profitTrend(result, "2026-01-01", "2026-12-31");
+  assert.equal(trend.length, 12);
+  assert.equal(trend.reduce((sum, row) => sum + row.profit, 0), result.netProfit);
+});
 
 test("a July 5050 bank adjustment appears in July COGS and never leaks into September", async () => {
   const supabase = fakeSupabase({
