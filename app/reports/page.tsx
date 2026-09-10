@@ -29,6 +29,7 @@ import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { ChartOfAccountsManager } from "@/components/accounting/chart-of-accounts-manager";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
+import { BankExpenseVoucher } from "@/components/accounting/bank-expense-voucher";
 import { OutletBalanceTable, type OutletBalanceEntry } from "@/components/accounting/outlet-balance-table";
 import { outletProfit } from "@/lib/accounting/outlet-profit";
 import { PnlPeriodFields } from "@/components/accounting/pnl-period-fields";
@@ -198,6 +199,7 @@ function bankTextMatchScore(bankText: string, candidateText: string) {
 }
 
 const errorMessages: Record<string, string> = {
+  voucher_details: "Voucher not saved. Check all line amounts, property codes and categories. The total must equal the remaining bank debit, the statement must be open and the accounting month must not be locked. Refresh if another user has already matched it.",
   accounting_context: "Your accounting company could not be loaded.",
   bank_account_details: "Choose bank or company card, then enter the account name, institution and full account/card number (6 to 30 digits).",
   bank_account_create: "The bank account could not be created.",
@@ -821,6 +823,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       </div>
 
       {params.error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessages[params.error] ?? "The accounting action could not be completed."}</div> : null}
+      {params.voucher_saved ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Payment voucher {params.voucher_saved} saved and reconciled. Each expense line is posted to its selected outlet and category.</div> : null}
       {params.account_created ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">New chart account added. It is now available in journals and bank reconciliation.</div> : null}
       {params.account_updated ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Account wording updated. Existing transactions stayed linked to the same account.</div> : null}
       {postingMonth ? (
@@ -1328,12 +1331,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             {remaining < -0.005 && params.batchLine === line.id ? (
                               <details className="rounded-lg border-2 border-[#b8892c] bg-[#fffaf0]" open>
                                 <summary className="cursor-pointer list-none px-4 py-4 font-semibold text-[#7a5618]">
-                                  Allocate this debit across several bills or claim receipts
+                                  Payment voucher / allocate across properties
                                   <span className="mt-1 block text-xs font-normal text-gray-600">
-                                    Tick the receipts below. Their combined total must equal {money(Math.abs(remaining))}.
+                                    Enter new expenses by line, or select bills already recorded. Total must equal {money(Math.abs(remaining))}.
                                   </span>
                                 </summary>
                                 <div className="border-t border-amber-200 p-4">
+                                  {remaining < -0.005 ? <BankExpenseVoucher lineId={line.id} amount={Math.abs(remaining)} properties={properties.map(({ id, name }) => ({ id, name }))} accounts={accounts.filter((a) => a.account_type === "expense" && a.is_active).map(({ id, code, name }) => ({ id, code, name }))} /> : null}
                                   <BankReceiptBatchForm
                                     lineAmount={remaining}
                                     lineId={line.id}

@@ -1343,6 +1343,25 @@ export async function unmatchBankLine(formData: FormData) {
   redirect(bankActionPath(formData, { statement: line?.statement_import_id ?? "", unmatched: "1" }));
 }
 
+export async function createBankExpenseVoucher(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  let lines: unknown;
+  try { lines = JSON.parse(textValue(formData, "voucherLines")); } catch { lines = null; }
+  if (!Array.isArray(lines) || lines.length < 1 || lines.length > 50 || textValue(formData, "confirmed") !== "1") {
+    redirect(bankActionPath(formData, { error: "voucher_details" }, "debit"));
+  }
+  const { data, error } = await supabase.rpc("record_bank_expense_voucher", {
+    p_company: company.id, p_actor: user.id, p_line: textValue(formData, "lineId"),
+    p_payee: textValue(formData, "payee"), p_lines: lines,
+  });
+  if (error || !data) {
+    console.error("[accounting] expense voucher rejected", { code: error?.code, message: error?.message });
+    redirect(bankActionPath(formData, { error: "voucher_details" }, "debit"));
+  }
+  revalidatePath("/reports");
+  redirect(bankActionPath(formData, { statement: data.statement_id, voucher_saved: data.voucher_number }, "debit"));
+}
+
 export async function createBankAdjustment(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const lineId = textValue(formData, "lineId");
