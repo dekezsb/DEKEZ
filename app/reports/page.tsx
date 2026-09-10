@@ -1321,6 +1321,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <label className="block text-xs font-medium text-blue-950">Matching opposite statement line<select className="mt-1 h-10 w-full rounded-md border border-blue-300 bg-white px-3 text-sm" name="counterpartLineId" required><option value="">Choose the other account line</option>{transferCandidates.map((candidate) => { const account = bankAccounts.find((item) => item.id === candidate.bank_account_id); const statement = singleRelation(candidate.bank_statement_imports); return <option key={candidate.id} value={candidate.id}>{account?.name ?? account?.bank_name ?? "Other DEKEZ account"} · {dateLabel(candidate.transaction_date)} · {money(Math.abs(Number(candidate.amount)))} · statement ending {dateLabel(statement?.period_end)} · {candidate.description}</option>; })}</select></label>
                               <ReconciliationSubmitButton className="w-full" pendingLabel="Linking both accounts..."><Link2 className="h-4 w-4" />Match own-account transfer</ReconciliationSubmitButton>
                             </form> : null}
+                            {remaining < -0.005 ? <BankExpenseVoucher lineId={line.id} amount={Math.abs(remaining)} properties={properties.map(({ id, name }) => ({ id, name }))} accounts={accounts.filter((a) => a.account_type === "expense" && a.is_active).map(({ id, code, name }) => ({ id, code, name }))} /> : null}
                             {remaining < -0.005 && params.batchLine !== line.id ? (
                               <Button asChild className="w-full justify-start" variant="outline">
                                 <Link href={bankBatchLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage, line.id)} prefetch={false}>
@@ -1337,7 +1338,6 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                                   </span>
                                 </summary>
                                 <div className="border-t border-amber-200 p-4">
-                                  {remaining < -0.005 ? <BankExpenseVoucher lineId={line.id} amount={Math.abs(remaining)} properties={properties.map(({ id, name }) => ({ id, name }))} accounts={accounts.filter((a) => a.account_type === "expense" && a.is_active).map(({ id, code, name }) => ({ id, code, name }))} /> : null}
                                   <BankReceiptBatchForm
                                     lineAmount={remaining}
                                     lineId={line.id}
