@@ -223,6 +223,7 @@ export function moduleForPath(pathname: string): AccessModule | null {
     ["/staff", "dashboard"],
     ["/admin-setup", "admin_setup"],
     ["/register-tenant", "properties"],
+    ["/reservations", "properties"],
     ["/properties", "properties"],
     ["/room-availability", "properties"],
     ["/smart-devices", "properties"],

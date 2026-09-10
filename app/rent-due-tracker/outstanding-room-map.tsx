@@ -222,6 +222,8 @@ export function OutstandingRoomMap({
                       <p className="mt-1 text-xs font-medium text-current/75">Due day {room.dueDay ?? "-"}</p>
                       <p className="mt-0.5 text-xs font-semibold">{timing.label}</p>
                       <p className="mt-2 text-xs font-semibold text-red-700">{money(room.outstanding)}</p>
+                      {room.paymentStatus === "pending_verification" ? <p className="mt-1 text-xs">Slip awaiting verification</p> : null}
+                      {canUploadSlip ? <p className="mt-1 text-xs underline">Add payment / instalment</p> : null}
                       {room.depositOutstanding > 0.005 ? (
                         <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                           Deposit {money(room.depositOutstanding)}

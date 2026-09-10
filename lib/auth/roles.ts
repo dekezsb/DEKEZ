@@ -132,6 +132,7 @@ export const protectedRoutes = [
   "/dashboard",
   "/admin-setup",
   "/register-tenant",
+  "/reservations",
   "/properties",
   "/room-availability",
   "/smart-devices",

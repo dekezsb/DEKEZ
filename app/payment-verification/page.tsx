@@ -73,8 +73,9 @@ type SubmissionRecord = {
 };
 
 const errorMessages: Record<string, string> = {
+  reservation_first: "This payment belongs to a room reservation. Its slip is saved. Request actual check-in from Reservations and approve the tenant before applying this payment to a rental invoice.",
   identity_first:
-    "Verify the Sulaman tenant registration first. Then verify this first-month payment to activate check-in.",
+    "Approve the tenant check-in first, then verify this payment against its invoice.",
   missing: "Choose a payment and action.",
   reason: "Please enter a rejection or reversal reason.",
   review: "Payment could not be updated.",

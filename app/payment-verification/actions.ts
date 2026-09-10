@@ -149,13 +149,13 @@ export async function reviewPaymentSubmission(formData: FormData) {
   if (decision === "verified" && currentSubmission.tenant_application_id) {
     const { data: applicationReadiness } = await supabase
       .from("tenant_applications")
-      .select("rental_model, verification_status")
+      .select("rental_model, verification_status, registration_mode")
       .eq("id", currentSubmission.tenant_application_id)
       .maybeSingle();
-    if (
-      applicationReadiness?.rental_model === "monthly_stay" &&
-      applicationReadiness.verification_status !== "verified"
-    ) {
+    if (applicationReadiness?.registration_mode === "reservation") {
+      redirect(withResult(returnTo, "error=reservation_first"));
+    }
+    if (applicationReadiness?.verification_status !== "verified") {
       redirect(withResult(returnTo, "error=identity_first"));
     }
   }

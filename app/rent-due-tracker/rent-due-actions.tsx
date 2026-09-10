@@ -117,6 +117,7 @@ export function RentDueActions({
   const [paymentFilePreparing, setPaymentFilePreparing] = useState(false);
   const [paymentFileError, setPaymentFileError] = useState("");
   const [paymentFileName, setPaymentFileName] = useState("");
+  const [submissionKey, setSubmissionKey] = useState("");
 
   const canVerify = Boolean(latestSubmissionId && latestSubmissionStatus === "pending_verification");
   const paymentSlipAction = compact
@@ -124,6 +125,7 @@ export function RentDueActions({
     : uploadRentPaymentSlip;
 
   function openOnlinePaymentModal() {
+    setSubmissionKey(crypto.randomUUID());
     setPaymentFileError("");
     setPaymentFileName("");
     setOnlineOpen(true);
@@ -154,14 +156,13 @@ export function RentDueActions({
         </Button>
         <Button
           className="border-[#d9bf84] text-[#8a641d] hover:bg-[#fff8e8]"
-          disabled={canVerify}
           size="sm"
           type="button"
           variant="outline"
           onClick={openOnlinePaymentModal}
         >
           <Paperclip aria-hidden="true" className="size-4" />
-          {canVerify ? "Slip submitted" : "Online"}
+            {canVerify ? "Add next payment slip" : "Upload payment / instalment"}
         </Button>
       </div>
       {compact ? null : (
@@ -265,6 +266,8 @@ export function RentDueActions({
           <form action={paymentSlipAction} className="grid gap-4 sm:grid-cols-2">
             <input name="billId" type="hidden" value={billId} />
             <input name="returnTo" type="hidden" value="/dashboard" />
+            <input name="submissionKey" type="hidden" value={submissionKey} />
+            <label className="block sm:col-span-2">Payment note (optional)<input className="mt-2 w-full rounded-md border px-3 py-2" name="paymentNote" /></label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Amount submitted RM</span>
               <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" defaultValue={outstandingAmountValue} min="0.01" name="amount" required step="0.01" type="number" />

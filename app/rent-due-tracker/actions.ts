@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
@@ -524,6 +525,17 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     redirect(rentTrackerPath(formData, "error", "bill_not_found"));
   }
 
+  const { data: paymentProperty } = await supabase.from("properties")
+    .select("property_code").eq("id", bill.property_id).maybeSingle();
+  const instalment = supportsReservations(paymentProperty?.property_code);
+  const submissionKey = textValue(formData, "submissionKey");
+  if (submissionKey && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(submissionKey)) {
+    redirect(rentTrackerPath(formData, "error", "proof_missing"));
+  }
+  if (submissionKey) {
+    const { data: existing } = await supabase.from("payment_submissions").select("id").eq("submission_key", submissionKey).eq("rent_bill_id", bill.id).maybeSingle();
+    if (existing) redirect(rentTrackerPath(formData, "uploaded", "1"));
+  }
   const { data: pendingSubmission } = await supabase
     .from("payment_submissions")
     .select("id")
@@ -532,7 +544,7 @@ export async function uploadRentPaymentSlip(formData: FormData) {
     .limit(1)
     .maybeSingle();
 
-  if (pendingSubmission) {
+  if (pendingSubmission && !instalment) {
     console.info("[payment-slip] pending submission already exists", {
       billId,
       submissionId: pendingSubmission.id,
@@ -577,6 +589,9 @@ export async function uploadRentPaymentSlip(formData: FormData) {
             ? "other"
             : "monthly_rent",
       payment_type: paymentPurpose,
+      instalment,
+      submission_key: textValue(formData, "submissionKey") || null,
+      payment_note: textValue(formData, "paymentNote") || null,
       amount,
       payment_date: paymentDate,
       payment_method: paymentMethod,

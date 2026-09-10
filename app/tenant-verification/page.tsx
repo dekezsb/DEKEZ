@@ -75,7 +75,7 @@ export async function TenantVerificationContent({
   const [applicationsResult, documentsResult, paymentsResult] = await Promise.all([
     supabase
       .from("tenant_applications")
-      .select("id, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, utility_deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
+      .select("id, registration_mode, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, utility_deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
       .neq("status", "draft")
       .eq("verification_status", "pending_verification")
       .order("submitted_at", { ascending: false }),
@@ -189,6 +189,7 @@ export async function TenantVerificationContent({
                           <p className="font-medium text-gray-950">
                             {application.full_name}
                           </p>
+                          <p className="mt-1 text-xs font-semibold text-amber-800">{application.registration_mode === "reservation" ? "RESERVATION ONLY — approval holds the room; no check-in or rent billing" : "Check-in application"}</p>
                           {role === "super_admin" ? (
                             <details className="mt-2 rounded-md border border-[#d7dde5] bg-[#f8fafc] p-2 text-sm">
                               <summary className="cursor-pointer font-medium text-[#8a641e]">

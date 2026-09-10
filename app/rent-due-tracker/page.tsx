@@ -464,7 +464,6 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
   const outstandingCollections = visibleCollections.filter(
     (collection) =>
       collection.totalOutstanding > 0
-      && collection.paymentStatus !== "pending_verification"
       && (
         collection.settlementStatus !== "paid"
         || collection.depositOutstanding > 0
@@ -478,7 +477,6 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           Boolean(room.tenantName)
           && Boolean(room.billId)
           && room.outstanding > 0
-          && room.paymentStatus !== "pending_verification"
           && (room.status === "unpaid" || room.status === "partially_paid"),
       ),
     }))
@@ -552,7 +550,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
       {params.uploaded === "1" ? (
         <PaymentFlashNotice
           kind="success"
-          message="Payment slip submitted. The room is hidden from this outstanding list while verification is pending. If the verified payment is partial, the room will return with its remaining balance."
+          message="Payment slip submitted for verification. You can upload the next instalment separately. Outstanding balances change after verification."
         />
       ) : null}
       {params.error ? (
@@ -630,7 +628,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
         </summary>
         <div className="mt-5">
           <CollectionDetails
-            canUploadSlip={false}
+            canUploadSlip={canUploadSlip}
             collections={outstandingCollections}
             paymentDateDefault={today}
             selectedMonth={tracker.selectedMonth}

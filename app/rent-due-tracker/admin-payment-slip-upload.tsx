@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Paperclip } from "lucide-react";
+import { PaymentSlipFile } from "@/components/payment-slip-file";
 import { Button } from "@/components/ui/button";
 import {
   allocatePaymentPurpose,
@@ -48,6 +49,7 @@ export function AdminPaymentSlipUpload({
   onOpenChange,
 }: AdminPaymentSlipUploadProps) {
   const [internalOpen, setInternalOpen] = useState(false);
+  const [submissionKey, setSubmissionKey] = useState("");
   const open = controlledOpen ?? internalOpen;
   const defaultPurpose: PaymentPurpose =
     rentOutstanding > 0.005 && depositOutstanding > 0.005
@@ -89,6 +91,7 @@ export function AdminPaymentSlipUpload({
 
   useEffect(() => {
     if (!open) return;
+    setSubmissionKey(crypto.randomUUID());
     setPaymentPurpose(defaultPurpose);
     setAmount(
       paymentPurposeTotal(
@@ -110,7 +113,7 @@ export function AdminPaymentSlipUpload({
           variant="outline"
         >
           <Paperclip aria-hidden="true" className="size-4" />
-          Upload Slip
+          Add payment / instalment
         </Button>
       ) : null}
 
@@ -143,11 +146,14 @@ export function AdminPaymentSlipUpload({
             <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               The slip moves to Payment Verification after submission. The
               official balance changes only after an authorized Admin verifies
-              the amount. A partial balance remains open until fully paid.
+              the amount. Enter the amount received for this instalment only.
+              Upload each later payment separately, even while an earlier slip is pending.
             </p>
 
             <form action={uploadRentPaymentSlip} className="grid gap-4 sm:grid-cols-2">
               <input name="billId" type="hidden" value={billId} />
+              <input name="submissionKey" type="hidden" value={submissionKey} />
+              <label className="block sm:col-span-2"><span className="text-sm font-medium">Payment note (optional)</span><input className="mt-2 w-full rounded-md border px-3 py-2" name="paymentNote" placeholder="e.g. Second rental instalment" /></label>
               <input name="returnMonth" type="hidden" value={selectedMonth} />
               <input name="returnProperty" type="hidden" value={selectedProperty} />
               <label className="block sm:col-span-2">
@@ -266,15 +272,7 @@ export function AdminPaymentSlipUpload({
               </label>
               <label className="block sm:col-span-2">
                 <span className="text-sm font-medium text-gray-700">Payment slip</span>
-                <input
-                  accept="image/*,.pdf"
-                  capture="environment"
-                  className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
-                  name="receipt"
-                  required
-                  type="file"
-                />
-                <span className="mt-1 block text-xs text-gray-500">Image or PDF, maximum 10 MB.</span>
+                <PaymentSlipFile />
               </label>
               <div className="flex flex-col gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
                 <Button onClick={() => setOpen(false)} type="button" variant="outline">

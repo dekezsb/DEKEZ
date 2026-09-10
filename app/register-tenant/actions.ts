@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { supportsReservations } from "@/lib/tenancy/reservation-policy";
+import { malaysiaDateString } from "@/lib/data/rent-due";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser, getProperties } from "@/lib/data/organization";
@@ -16,6 +18,7 @@ import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
 import {
   commercialDepositSchedule,
 } from "@/lib/tenancy/commercial-deposit-policy";
+import { PAYMENT_PURPOSES, type PaymentPurpose } from "@/lib/payments/payment-purpose";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -25,6 +28,14 @@ function textValue(formData: FormData, key: string) {
 function numberValue(formData: FormData, key: string) {
   const value = Number(textValue(formData, key));
   return Number.isFinite(value) ? value : 0;
+}
+
+function paymentPurposeValue(formData: FormData) {
+  const value = textValue(formData, "paymentPurpose");
+  if ((PAYMENT_PURPOSES as readonly string[]).includes(value)) {
+    return value as PaymentPurpose;
+  }
+  return null;
 }
 
 async function getAdmin() {
@@ -95,6 +106,10 @@ export async function submitAdminTenantApplication(formData: FormData) {
   );
   const paymentSlip = formFile(formData, "paymentSlip");
   const paymentMethod = textValue(formData, "paymentMethod") || "online_payment";
+  const selectedPaymentPurpose = paymentPurposeValue(formData);
+  const paymentAmount = Math.max(0, numberValue(formData, "paymentAmount"));
+  const paymentNote = textValue(formData, "paymentNote");
+  const hasPaymentSlip = Boolean(paymentSlip);
 
   if (
     !user ||
@@ -143,8 +158,19 @@ export async function submitAdminTenantApplication(formData: FormData) {
     fail("property");
   }
   const isMonthlyStay = property.rental_model === "monthly_stay";
-  if (isMonthlyStay && !paymentSlip) {
+  const flexible = supportsReservations(property.property_code);
+  const registrationMode = textValue(formData, "registrationMode") === "reservation" ? "reservation" : "check_in";
+  if (registrationMode === "reservation" && !flexible) fail("property", propertyId, roomId);
+  if (isMonthlyStay && !flexible && !paymentSlip) {
     fail("payment", propertyId, roomId);
+  }
+  if (flexible) {
+    if (hasPaymentSlip && (!selectedPaymentPurpose || paymentAmount <= 0)) {
+      fail("payment", propertyId, roomId);
+    }
+    if (paymentAmount > 0 && !hasPaymentSlip) {
+      fail("payment", propertyId, roomId);
+    }
   }
   if (property.is_commercial && !commercialSupportingDocument) {
     fail("commercial_document", propertyId, roomId);
@@ -257,6 +283,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
       business_email: property.is_commercial ? businessEmail : null,
       submitted_by: user.id,
       submission_source: "admin_assisted",
+      registration_mode: registrationMode,
       identity_type: identityType,
       property_id: property.id,
       unit_id: room.unit_id,
@@ -275,7 +302,9 @@ export async function submitAdminTenantApplication(formData: FormData) {
       rental_model: property.rental_model,
       status: "submitted",
       verification_status: "pending_verification",
-      payment_status: isMonthlyStay ? "pending_verification" : "unpaid",
+      payment_status: paymentSlip ? "pending_verification" : "unpaid",
+      admin_notes:
+        paymentNote ? `Registration payment note: ${paymentNote}` : null,
     })
     .select("id")
     .single();
@@ -314,7 +343,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
     fail("upload", propertyId, roomId);
   }
 
-  if (isMonthlyStay && paymentSlip) {
+  if (hasPaymentSlip && paymentSlip) {
     const extension = paymentSlip.name.split(".").pop()?.toLowerCase() || "jpg";
     const receiptPath = `${user.id}/admin-registration/${application.id}/first-month-${crypto.randomUUID()}.${extension}`;
     const { error: receiptUploadError } = await supabase.storage
@@ -344,9 +373,11 @@ export async function submitAdminTenantApplication(formData: FormData) {
         unit_id: room.unit_id,
         room_id: room.id,
         bill_type: "check_in",
-        payment_type: "monthly_rent",
-        amount: monthlyRent,
-        payment_date: new Date().toISOString().slice(0, 10),
+        payment_type: selectedPaymentPurpose ?? "monthly_rent",
+        instalment: flexible,
+        payment_note: paymentNote || null,
+        amount: paymentAmount,
+        payment_date: textValue(formData, "paymentDate") || malaysiaDateString(),
         payment_method: paymentMethod,
         receipt_url: receiptPath,
         verification_status: "pending_verification",
@@ -390,6 +421,10 @@ export async function submitAdminTenantApplication(formData: FormData) {
     }
   }
 
+  if (registrationMode === "reservation") {
+    await supabase.from("rooms").update({ status: "reserved", updated_at: new Date().toISOString() }).eq("id", room.id).eq("status", "vacant");
+    revalidatePath("/reservations");
+  }
   revalidatePath("/register-tenant");
   revalidatePath("/verification");
   revalidatePath("/tenant-verification");

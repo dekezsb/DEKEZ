@@ -34,15 +34,16 @@ export async function convertTenantApplication(
   const { data: application } = await supabase
     .from("tenant_applications")
     .select(
-      "id, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, utility_deposit, rental_model, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
+      "id, registration_mode, tenant_id, property_id, unit_id, room_id, full_name, ic_passport_number, whatsapp_number, contract_duration_months, proposed_start_date, proposed_end_date, monthly_rent, deposit, utility_deposit, rental_model, verification_status, payment_status, status, agreement_type, tenant_type, business_name, business_registration_number, registered_address, authorised_representative_name, representative_identity_number, business_contact_number, business_email",
     )
     .eq("id", applicationId)
     .maybeSingle();
 
   if (
     !application ||
+    application.registration_mode === "reservation" ||
     application.verification_status !== "verified" ||
-    ((requireVerifiedPayment || application.rental_model === "monthly_stay") &&
+    (requireVerifiedPayment &&
       application.payment_status !== "verified")
   ) {
     return { ok: false, reason: "application_not_ready" };

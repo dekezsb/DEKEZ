@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { PAYMENT_PURPOSES } from "@/lib/payments/payment-purpose";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type RegistrationProperty = {
@@ -10,6 +12,7 @@ type RegistrationProperty = {
   label: string;
   isCommercial: boolean;
   rentalModel: "tenancy" | "monthly_stay";
+  code: string | null;
 };
 
 type RegistrationRoom = {
@@ -91,6 +94,10 @@ export function RegistrationForm({
   const [monthlyRent, setMonthlyRent] = useState(
     String(initialRoom?.monthlyRent ?? 0),
   );
+  const [paymentAmount, setPaymentAmount] = useState("0");
+  const [paymentPurpose, setPaymentPurpose] = useState("monthly_rent");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [registrationMode, setRegistrationMode] = useState("check_in");
   const [identityType, setIdentityType] = useState<"ic" | "passport">("ic");
   const [tenantType, setTenantType] = useState<"company" | "sole_proprietor">(
     "sole_proprietor",
@@ -99,6 +106,10 @@ export function RegistrationForm({
     (property) => property.id === propertyId,
   );
   const isMonthlyStay = selectedProperty?.rentalModel === "monthly_stay";
+  const isAdvancedPaymentProperty = supportsReservations(selectedProperty?.code);
+  const canCollectReservationPayment =
+    Boolean(selectedProperty) &&
+    isAdvancedPaymentProperty;
   const commercialDeposits = commercialDepositSchedule(monthlyRent);
 
   function selectProperty(nextPropertyId: string) {
@@ -114,6 +125,10 @@ export function RegistrationForm({
     if (!nextProperty?.isCommercial) {
       setTenantType("sole_proprietor");
     }
+    setPaymentAmount("0");
+    setPaymentPurpose("monthly_rent");
+    setPaymentNote("");
+    setRegistrationMode("check_in");
   }
 
   function selectRoom(nextRoomId: string) {
@@ -141,6 +156,74 @@ export function RegistrationForm({
           ))}
         </select>
       </label>
+
+      {canCollectReservationPayment ? (
+        <div className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
+          <label className="block mb-4">
+            <span className="text-sm font-semibold">Registration type</span>
+            <select className={fieldClass()} name="registrationMode" value={registrationMode} onChange={(event) => setRegistrationMode(event.target.value)}>
+              <option value="check_in">Check in tenant — submit for approval</option>
+              <option value="reservation">Reserve room only — tenant has not checked in</option>
+            </select>
+          </label>
+          <p className="text-sm font-semibold text-[#07142f]">
+            Initial payment / instalment (optional)
+          </p>
+          <p className="mt-1 text-xs text-[#60708a]">
+            Use this when tenant paid only part of rent/deposit first. Leave amount
+            at zero if no payment has been received. A reservation holds the room without starting rental billing.
+          </p>
+          <label className="mt-3">
+            <span className="text-sm font-medium text-[#17223b]">
+              Payment purpose
+            </span>
+            <select
+              className={fieldClass()}
+              name="paymentPurpose"
+              onChange={(event) => setPaymentPurpose(event.target.value)}
+              value={paymentPurpose}
+            >
+              {PAYMENT_PURPOSES.map((purpose) => (
+                <option key={purpose} value={purpose}>
+                  {purpose.replaceAll("_", " ").toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-3">
+            <span className="text-sm font-medium text-[#17223b]">
+              Amount paid now
+            </span>
+            <input
+              className={fieldClass()}
+              min="0"
+              name="paymentAmount"
+              onChange={(event) => setPaymentAmount(event.target.value)}
+              step="0.01"
+              type="number"
+              value={paymentAmount}
+            />
+          </label>
+          <label className="mt-3">
+            <span className="text-sm font-medium text-[#17223b]">
+              Payment note
+            </span>
+            <input
+              className={fieldClass()}
+              name="paymentNote"
+              onChange={(event) => setPaymentNote(event.target.value)}
+              placeholder="e.g. RM100 reserve + RM50 top up electricity"
+              value={paymentNote}
+            />
+          </label>
+          <label className="mt-3 block"><span className="text-sm font-medium">Payment date (leave blank for today)</span><input className={fieldClass()} name="paymentDate" type="date" /></label>
+          <FileField label="Payment slip (optional)" name="paymentSlip" />
+          <input name="paymentMethod" type="hidden" value="online_payment" />
+          <p className="mt-2 text-xs leading-5 text-[#60708a]">
+            Upload only when a receipt is paid now.
+          </p>
+        </div>
+      ) : null}
 
       {selectedProperty?.isCommercial ? (
         <fieldset className="grid gap-4 rounded-md border border-[#d7dde5] p-4 sm:col-span-2 sm:grid-cols-2">
@@ -378,8 +461,8 @@ export function RegistrationForm({
       {isMonthlyStay ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
           <strong>Sulaman monthly stay</strong><br />
-          No deposit and no tenancy agreement. The first month must be paid
-          now; future months are due on this same check-in day until checkout.
+          No deposit and no tenancy agreement. Payments can be recorded in instalments;
+          monthly rent starts from the approved check-in date.
           <input name="deposit" type="hidden" value="0" />
         </div>
       ) : selectedProperty?.isCommercial ? (
@@ -429,7 +512,7 @@ export function RegistrationForm({
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
-          {isMonthlyStay ? "Check-in date" : "Contract start"}
+          {registrationMode === "reservation" ? "Expected check-in date" : "Check-in / contract start date"}
         </span>
         <input
           className={fieldClass()}
@@ -485,13 +568,16 @@ export function RegistrationForm({
         </div>
       ) : null}
 
-      {isMonthlyStay ? (
+      {isMonthlyStay && !canCollectReservationPayment ? (
         <fieldset className="rounded-md border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
           <legend className="px-1 text-sm font-semibold text-amber-950">
             First-month online payment
           </legend>
           <FileField label="Bank / DuitNow payment slip" name="paymentSlip" required />
           <input name="paymentMethod" type="hidden" value="online_payment" />
+          <input name="paymentAmount" type="hidden" value={monthlyRent} />
+          <input name="paymentPurpose" type="hidden" value="monthly_rent" />
+          <input name="paymentNote" type="hidden" value="" />
           <p className="mt-2 text-xs leading-5 text-amber-900">
             The room remains reserved until both the tenant registration and
             this payment are verified. Cash is not accepted.
@@ -499,10 +585,19 @@ export function RegistrationForm({
         </fieldset>
       ) : null}
 
+      {!canCollectReservationPayment && !isMonthlyStay && (
+        <>
+          <input name="paymentAmount" type="hidden" value={paymentAmount} />
+          <input name="paymentPurpose" type="hidden" value={paymentPurpose} />
+          <input name="paymentNote" type="hidden" value={paymentNote} />
+          <input name="paymentMethod" type="hidden" value="online_payment" />
+        </>
+      )}
+
       <div className="flex flex-col gap-2 border-t border-[#e3e8ef] pt-5 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="max-w-md text-xs leading-5 text-[#60708a]">
-          {isMonthlyStay
-            ? "Sulaman check-in activates only after identity and first-month payment verification."
+          {registrationMode === "reservation"
+            ? "After approval, this room is reserved. Use Reservations to add payments and request actual check-in later."
             : "The room remains vacant until an authorized Admin approves this application in Verification."}
         </p>
         <SubmitButton disabled={!propertyId || !roomId} />

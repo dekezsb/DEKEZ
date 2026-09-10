@@ -29,7 +29,7 @@ const errorMessages: Record<string, string> = {
   occupied: "That room is no longer vacant. Choose another room.",
   pending: "That room already has a tenant application awaiting review.",
   submit: "The tenant application could not be submitted.",
-  payment: "Sulaman monthly stays require the first-month online payment slip before submission.",
+  payment: "Enter the amount received and upload its payment slip. Leave the amount at zero if nothing has been paid yet.",
 };
 
 async function getAdmin() {
@@ -96,6 +96,8 @@ export default async function RegisterTenantPage({ searchParams }: PageProps) {
         </div>
       ) : null}
 
+      <Button asChild variant="outline"><Link href="/reservations">Reservations — add instalments or request check-in</Link></Button>
+
       {params.error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
           {errorMessages[params.error] ?? "Unable to submit the registration."}
@@ -113,16 +115,17 @@ export default async function RegisterTenantPage({ searchParams }: PageProps) {
         </CardHeader>
         <CardContent className="pt-6">
           {properties.length ? (
-            <RegistrationForm
-              action={submitAdminTenantApplication}
-              initialPropertyId={params.property}
-              initialRoomId={params.room}
-              properties={properties.map((property) => ({
-                id: property.id,
-                label: property.name,
-                isCommercial: property.is_commercial,
-                rentalModel: property.rental_model,
-              }))}
+              <RegistrationForm
+                action={submitAdminTenantApplication}
+                initialPropertyId={params.property}
+                initialRoomId={params.room}
+                properties={properties.map((property) => ({
+                  id: property.id,
+                  label: property.name,
+                  isCommercial: property.is_commercial,
+                  code: property.property_code ?? null,
+                  rentalModel: property.rental_model,
+                }))}
               rooms={availableRooms.map((room) => ({
                 id: room.id,
                 propertyId: room.property_id,

@@ -60,7 +60,7 @@ export async function reviewTenantApplication(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", applicationId)
-    .select("tenant_id, room_id, submission_source, rental_model, payment_status")
+    .select("tenant_id, room_id, submission_source, rental_model, payment_status, registration_mode")
     .single();
 
   if (error || !application) {
@@ -82,11 +82,10 @@ export async function reviewTenantApplication(formData: FormData) {
 
   if (
     decision === "verified" &&
+    application.registration_mode !== "reservation" &&
     ["admin_assisted", "self_registration"].includes(
       application.submission_source,
-    ) &&
-    (application.rental_model !== "monthly_stay" ||
-      application.payment_status === "verified")
+    )
   ) {
     const conversion = await convertTenantApplication(supabase, {
       actorId: user.id,
@@ -304,6 +303,7 @@ export async function correctTenantApplicationName(formData: FormData) {
   }
 
   revalidatePath("/tenant-verification");
+  revalidatePath("/reservations");
   revalidatePath("/verification");
   revalidatePath("/registration-status");
   revalidatePath("/admin-setup");
