@@ -29,6 +29,8 @@ import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { ChartOfAccountsManager } from "@/components/accounting/chart-of-accounts-manager";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
+import { OutletBalanceTable, type OutletBalanceEntry } from "@/components/accounting/outlet-balance-table";
+import { outletProfit } from "@/lib/accounting/outlet-profit";
 import { PnlPeriodFields } from "@/components/accounting/pnl-period-fields";
 import { reportPeriod } from "@/lib/accounting/report-period";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
@@ -290,14 +292,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
-    getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null }),
+    getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
     supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(240),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, description, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
     supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
     supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
-    supabase.from("payments").select("id, amount, payment_date").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate),
+    supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate),
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
   ]);
 
@@ -483,6 +485,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     const depositOutstanding = Math.max(Number(bill.deposit_amount ?? 0) - (depositPaid.get(bill.tenancy_id) ?? 0), 0);
     return {
       id: String(bill.id),
+      propertyId: bill.property_id as string | null,
       invoiceNumber: bill.invoice_number as string | null,
       billMonth: String(bill.bill_month),
       dueDate: String(bill.due_date),
@@ -592,6 +595,35 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const totalLiabilities = balanceLiabilities.reduce((total, row) => total + row.amount, 0);
   const totalEquity = balanceEquity.reduce((total, row) => total + row.amount, 0);
   const balanceSheetDifference = totalAssets - totalLiabilities - totalEquity;
+  const outletBalances: OutletBalanceEntry[] = [];
+  if (tab === "balance-sheet" && !selectedPropertyId) {
+    const add = (propertyId: string | null | undefined, section: OutletBalanceEntry["section"], label: string, amount: number) => {
+      outletBalances.push({ propertyId: propertyId || null, section, label, amount });
+    };
+    add(null, "Assets", "Bank and cash", bankAssets - manualNormalBalance("cash_on_hand"));
+    add(null, "Liabilities", "Company card payable", companyCardPayable);
+    for (const bill of receivableInvoices) {
+      add(bill.propertyId, "Assets", "Rental receivables", bill.rentOutstanding);
+      add(bill.propertyId, "Assets", "Deposit receivables", bill.depositOutstanding);
+    }
+    for (const payment of depositPaymentsResult.data ?? []) add(payment.property_id, "Liabilities", "Tenant security deposits held", Number(payment.amount));
+    for (const expense of companyBatchRows.filter((e) => e.expense_date <= endDate)) add(expense.property_id, "Liabilities", "Accounts payable", Number(expense.amount));
+    for (const liability of companyLiabilities) {
+      const expense = liabilityExpenses.get(liability.expense_id);
+      if (expense?.expense_date && expense.expense_date <= endDate) add(expense.property_id, "Liabilities", "Staff reimbursement payable", Number(liability.amount));
+    }
+    const operationalLabels: Record<string, string> = { cash_on_hand: "Bank and cash", rental_receivable: "Rental receivables", deposit_receivable: "Deposit receivables", accounts_payable: "Accounts payable", staff_reimbursement_payable: "Staff reimbursement payable", tenant_security_deposits: "Tenant security deposits held" };
+    for (const line of journalLines) {
+      const account = accountById.get(line.account_id);
+      if (!account || !["asset", "liability", "equity"].includes(account.account_type)) continue;
+      const label = operationalLabels[account.system_key ?? ""];
+      if (!label && (operationalSystemKeys.has(account.system_key ?? "") || bankAccountLedgerIds.has(account.id))) continue;
+      if (!label && !otherBalanceRows.some((r) => r.key === account.id)) continue;
+      const amount = (Number(line.debit) - Number(line.credit)) * (account.normal_balance === "credit" ? -1 : 1);
+      add(line.property_id, account.account_type === "asset" ? "Assets" : account.account_type === "liability" ? "Liabilities" : "Equity", label || account.name, amount);
+    }
+    for (const row of outletProfit(yearToDateReport, properties)) add(row.id === "unallocated" ? null : row.id, "Equity", "Current-year profit / (loss)", row.profit);
+  }
 
   const trialRows = [
     ...balanceAssets.map((row) => ({ code: row.code, label: row.label, debit: Math.max(row.amount, 0), credit: Math.max(-row.amount, 0), source: row.source })),
@@ -865,6 +897,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       {tab === "profit-loss" && !periodError ? (
         <ProfitLossStatement
           currentReport={currentReport}
+          outlets={!selectedPropertyId ? properties.map(({ id, name }) => ({ id, name })) : undefined}
           endDate={pnlDates.endDate}
           priorStartDate={pnlDates.priorStartDate}
           priorEndDate={pnlDates.priorEndDate}
@@ -877,6 +910,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
       {tab === "balance-sheet" ? (
         <div className="space-y-5">
+          {!selectedPropertyId ? <OutletBalanceTable outlets={properties.map(({ id, name }) => ({ id, name }))} entries={outletBalances} date={endDate} /> : null}
           <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><CardTitle>Balance Sheet</CardTitle><CardDescription>As at {dateLabel(endDate)} · accrual basis · shows who owes DEKEZ and what DEKEZ still owes.</CardDescription></div>

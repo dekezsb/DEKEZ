@@ -33,6 +33,7 @@ export type ProfitLossLedgerDetail = {
   documentNumber: string;
   referenceNumber: string | null;
   propertyName: string;
+  propertyId?: string | null;
   roomName: string | null;
   partyName: string | null;
   description: string;
@@ -309,6 +310,7 @@ export async function getProfitLossReport(
       documentNumber: bill.invoice_number || shortDocument("Invoice", bill.id),
       referenceNumber: bill.invoice_date && bill.invoice_date !== bill.bill_month ? `Issued ${bill.invoice_date}` : null,
       propertyName: propertyLabel(bill.properties),
+      propertyId: bill.property_id,
       roomName: roomLabel(bill.rooms),
       partyName: tenancyTenantName(bill.tenancies) || (bill.tenant_id ? profileNameById.get(bill.tenant_id) ?? null : null),
       description: bill.notes?.trim() || `Monthly rent · ${ledgerMonthLabel(bill.bill_month)}`,
@@ -330,6 +332,7 @@ export async function getProfitLossReport(
       documentNumber: bill?.invoice_number || shortDocument("Invoice line", line.id),
       referenceNumber: bill?.invoice_date && bill.invoice_date !== bill.bill_month ? `Issued ${bill.invoice_date}` : null,
       propertyName: propertyLabel(bill?.properties),
+      propertyId: bill?.property_id,
       roomName: roomLabel(bill?.rooms),
       partyName: tenancyTenantName(bill?.tenancies) || (bill?.tenant_id ? profileNameById.get(bill.tenant_id) ?? null : null),
       description: line.description?.trim() || category.replaceAll("_", " ").replace(/^./, (value) => value.toUpperCase()),
@@ -378,6 +381,7 @@ export async function getProfitLossReport(
       documentNumber: expense.receipt_number?.trim() || shortDocument("Expense", expense.id),
       referenceNumber: null,
       propertyName: propertyLabel(expense.properties),
+      propertyId: expense.property_id,
       roomName: roomLabel(expense.rooms),
       partyName: expense.supplier?.trim() || null,
       description: expense.description?.trim() || category || "Company expense",
@@ -398,6 +402,7 @@ export async function getProfitLossReport(
       documentNumber: utility.reference_number?.trim() || shortDocument("Utility", utility.id),
       referenceNumber: null,
       propertyName: propertyLabel(utility.properties),
+      propertyId: utility.property_id,
       roomName: roomLabel(utility.rooms),
       partyName: utility.tenant_id ? profileNameById.get(utility.tenant_id) ?? null : null,
       description: utility.notes?.trim() || `${label} · ${ledgerMonthLabel(utility.bill_month)}`,
@@ -422,6 +427,7 @@ export async function getProfitLossReport(
         documentNumber: shortDocument("Bank adjustment", transaction.id),
         referenceNumber: transaction.reference_number?.trim() || null,
         propertyName: propertyLabel(transaction.properties),
+        propertyId: transaction.property_id,
         roomName: null,
         partyName: null,
         description: transaction.description,
@@ -441,6 +447,7 @@ export async function getProfitLossReport(
         documentNumber: shortDocument("Bank adjustment", transaction.id),
         referenceNumber: transaction.reference_number?.trim() || null,
         propertyName: propertyLabel(transaction.properties),
+        propertyId: transaction.property_id,
         roomName: null,
         partyName: null,
         description: transaction.description,
@@ -472,6 +479,7 @@ export async function getProfitLossReport(
         documentNumber: entry?.entry_number || shortDocument("Journal", line.id),
         referenceNumber: entry?.reference_number?.trim() || null,
         propertyName: propertyLabel(singleRelation(line.properties) ?? sourceTenancy?.properties),
+        propertyId: line.property_id,
         roomName: roomLabel(sourceTenancy?.rooms),
         partyName: (line.tenant_id ? profileNameById.get(line.tenant_id) : null) || tenancyTenantName(sourceTenancy),
         description: line.description?.trim() || entry?.description?.trim() || "Posted journal entry",
@@ -491,6 +499,7 @@ export async function getProfitLossReport(
         documentNumber: entry?.entry_number || shortDocument("Journal", line.id),
         referenceNumber: entry?.reference_number?.trim() || null,
         propertyName: propertyLabel(singleRelation(line.properties) ?? sourceTenancy?.properties),
+        propertyId: line.property_id,
         roomName: roomLabel(sourceTenancy?.rooms),
         partyName: (line.tenant_id ? profileNameById.get(line.tenant_id) : null) || tenancyTenantName(sourceTenancy),
         description: line.description?.trim() || entry?.description?.trim() || "Posted journal entry",

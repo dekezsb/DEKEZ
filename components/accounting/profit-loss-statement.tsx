@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { ProfitLossReport, ProfitLossRow } from "@/lib/accounting/report-data";
 import { profitTrend } from "@/lib/accounting/profit-trend";
+import { OutletProfitTable } from "@/components/accounting/outlet-profit-table";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -191,6 +192,7 @@ export function ProfitLossStatement({
   openRowKey,
   priorStartDate,
   priorEndDate,
+  outlets,
 }: {
   currentReport: ProfitLossReport;
   priorReport: ProfitLossReport;
@@ -200,6 +202,7 @@ export function ProfitLossStatement({
   openRowKey?: string | null;
   priorStartDate: string;
   priorEndDate: string;
+  outlets?: { id: string; name: string }[];
 }) {
   const summaryCsvRows: Array<Array<string | number>> = [
     ["DEKEZ Profit & Loss", `${startDate} to ${endDate}`, "Accrual basis", propertyScope],
@@ -252,6 +255,7 @@ export function ProfitLossStatement({
         </div>
       </CardHeader>
       <CardContent>
+        {outlets ? <OutletProfitTable report={currentReport} outlets={outlets} startDate={startDate} endDate={endDate} /> : null}
         <div className="mb-5 grid gap-3 sm:grid-cols-3">
           {[{ label: "Income", value: currentReport.totalRevenue }, { label: "Total costs & expenses", value: currentReport.totalCostOfSales + currentReport.totalExpenses }, { label: "Net profit / (loss)", value: currentReport.netProfit }].map((item) => <div key={item.label} className="rounded-lg border border-[#d7dde5] bg-slate-50 p-4"><p className="text-xs text-gray-600">{item.label}</p><p className={`mt-1 text-xl font-semibold ${item.value < 0 ? "text-red-700" : "text-gray-900"}`}>{money(item.value)}</p></div>)}
         </div>
