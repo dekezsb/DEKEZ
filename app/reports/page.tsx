@@ -30,6 +30,7 @@ import { ChartOfAccountsManager } from "@/components/accounting/chart-of-account
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
 import { BankExpenseVoucher } from "@/components/accounting/bank-expense-voucher";
+import { CompactReconciliationList } from "@/components/accounting/compact-reconciliation-list";
 import { OutletBalanceTable, type OutletBalanceEntry } from "@/components/accounting/outlet-balance-table";
 import { outletProfit } from "@/lib/accounting/outlet-profit";
 import { PnlPeriodFields } from "@/components/accounting/pnl-period-fields";
@@ -752,12 +753,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     .sort((left, right) => Number(right.hasSafeMatch) - Number(left.hasSafeMatch) || left.originalIndex - right.originalIndex);
   const safeSuggestedCount = prioritizedFlowLines.filter((item) => item.hasSafeMatch).length;
   const manualReviewCount = prioritizedFlowLines.length - safeSuggestedCount;
-  const reviewPageSize = 20;
-  const reviewPageCount = Math.max(1, Math.ceil(prioritizedFlowLines.length / reviewPageSize));
-  const requestedReviewPage = Number(params.reviewPage ?? "1");
-  const reviewPage = Number.isInteger(requestedReviewPage) ? Math.min(Math.max(requestedReviewPage, 1), reviewPageCount) : 1;
+  const reviewPage = 1;
   const reviewLines = prioritizedFlowLines
-    .slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize)
     .map((item) => item.line);
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
   const unreconciledTotal = statementImports.filter((item) => item.status === "in_progress").length;
@@ -1189,6 +1186,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       {manualReviewCount ? ` Finish those first; the remaining ${manualReviewCount} ${manualReviewCount === 1 ? "transaction stays" : "transactions stay"} afterward for manual selection.` : " Every remaining transaction has a safe suggestion."}
                     </div>
                   ) : null}
+                  <CompactReconciliationList searchTerms={reviewLines.map((line) => `${line.description} ${line.reference_number ?? ""} ${line.transaction_date} ${dateLabel(line.transaction_date)} ${Math.abs(Number(line.amount)).toFixed(2)}`)}>
                   {reviewLines.map((line) => {
                     const lineMatches = matchesByLine.get(line.id) ?? [];
                     const matchedAmount = lineMatches.reduce((total, match) => total + Number(match.matched_amount ?? 0), 0);
@@ -1304,13 +1302,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       && Math.abs(Math.abs(Number(candidate.amount)) - Math.abs(remaining)) < 0.005,
                     );
                     return (
-                      <div className="rounded-lg border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
-                        <div className="grid gap-3 p-4 sm:grid-cols-[110px_1fr_150px_150px] sm:items-center">
+                      <details name="bank-reconciliation-row" open={params.batchLine === line.id} className="group rounded-md border border-[#d7dde5] bg-white" id={`bank-line-${line.id}`} key={line.id}>
+                        <summary className="grid cursor-pointer list-none gap-2 px-3 py-2 hover:bg-blue-50 focus-visible:outline focus-visible:outline-blue-500 sm:grid-cols-[100px_1fr_125px_110px] sm:items-center">
                           <div className="text-sm"><p className="font-medium">{dateLabel(line.transaction_date)}</p><p className="text-xs text-gray-500">{line.reference_number || "No reference"}</p></div>
                           <div><div className="flex flex-wrap items-center gap-2"><Badge className={Number(line.amount) > 0 ? "bg-emerald-700 text-white" : "bg-red-700 text-white"}>{Number(line.amount) > 0 ? "CREDIT" : "DEBIT"}</Badge><p className="font-semibold text-gray-950">{transactionLabel}</p>{locationHint ? <Badge className="bg-blue-100 text-blue-800">{locationHint.propertyCode} Room {locationHint.roomCode}</Badge> : null}</div><p className="mt-1 line-clamp-2 text-xs text-gray-600">{transactionDetails || "No additional bank description"}</p></div>
                           <div className="text-right"><p className={`font-semibold ${Number(line.amount) >= 0 ? "text-emerald-700" : "text-red-600"}`}>{Number(line.amount) >= 0 ? "+" : "-"}{money(Math.abs(Number(line.amount)))}</p><p className="text-xs text-gray-500">{Number(line.amount) >= 0 ? "Money received" : "Money paid out"}</p></div>
-                          <div className="flex flex-col items-stretch gap-2 sm:items-end"><Badge className={statusClasses[line.status] ?? ""}>Needs review</Badge></div>
-                        </div>
+                          <div className="text-right text-xs font-semibold text-blue-700"><span className="group-open:hidden">Reconcile ▸</span><span className="hidden group-open:inline">Close ▾</span></div>
+                        </summary>
                         <div className="border-t border-[#d7dde5] bg-gray-50 p-4">
                           {lineMatches.length ? <div className="mb-4 space-y-2">{lineMatches.map((match) => { const candidate = candidateMap.get(`${match.source_type}:${match.source_id}`); return <div className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" key={match.id}><span><strong>{match.match_method.replaceAll("_", " ")}</strong> · {candidate?.description ?? match.source_type.replaceAll("_", " ")} · {money(match.matched_amount)}</span>{selectedStatement.status === "in_progress" ? <form action={unmatchBankLine}><input name="matchId" type="hidden" value={match.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button size="sm" type="submit" variant="outline">Unmatch</Button></form> : null}</div>; })}</div> : null}
                           {selectedStatement.status === "in_progress" && line.status === "unmatched" ? <div className="space-y-4">
@@ -1397,11 +1395,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                             </details>
                           </div> : null}
                         </div>
-                      </div>
+                      </details>
                     );
                   })}
+                  </CompactReconciliationList>
                   {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All {bankFlow === "credit" ? "credits" : "debits"} have been matched or explained.</div> : null}
-                  {reviewPageCount > 1 ? <div className="flex items-center justify-between gap-3 border-t border-[#d7dde5] pt-4 text-sm"><span>Page {reviewPage} of {reviewPageCount} · showing up to {reviewPageSize} unmatched {bankFlow === "credit" ? "credits" : "debits"}</span><div className="flex gap-2">{reviewPage > 1 ? <Button asChild size="sm" variant="outline"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage - 1, bankFlow)} prefetch={false}>Previous</Link></Button> : null}{reviewPage < reviewPageCount ? <Button asChild size="sm"><Link href={bankReviewPageHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage + 1, bankFlow)} prefetch={false}>Next</Link></Button> : null}</div></div> : null}
                 </CardContent>
               </Card>
             </>
