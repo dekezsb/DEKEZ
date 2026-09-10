@@ -11,6 +11,7 @@ import {
   type PaymentPurpose,
 } from "@/lib/payments/payment-purpose";
 import { uploadRentPaymentSlip } from "./actions";
+import { PaymentSlipHistory } from "./payment-slip-history";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -113,7 +114,7 @@ export function AdminPaymentSlipUpload({
           variant="outline"
         >
           <Paperclip aria-hidden="true" className="size-4" />
-          Add payment / instalment
+          + Add another payment / slip
         </Button>
       ) : null}
 
@@ -150,6 +151,7 @@ export function AdminPaymentSlipUpload({
               Upload each later payment separately, even while an earlier slip is pending.
             </p>
 
+            <PaymentSlipHistory billId={billId} />
             <form action={uploadRentPaymentSlip} className="grid gap-4 sm:grid-cols-2">
               <input name="billId" type="hidden" value={billId} />
               <input name="submissionKey" type="hidden" value={submissionKey} />

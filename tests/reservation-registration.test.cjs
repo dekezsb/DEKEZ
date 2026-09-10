@@ -18,6 +18,15 @@ for (const ext of ['.ts', '.tsx']) {
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const { RegistrationForm } = require('../app/register-tenant/registration-form.tsx');
+test('public Register exposes reservation and actual payment details, not just the staff form', () => {
+  const { RegistrationForm: PublicRegistrationForm } = require('../app/register/registration-form.tsx');
+  const html = renderToStaticMarkup(React.createElement(PublicRegistrationForm, { properties: [], rooms: [] }));
+  assert.match(html, /Reserve room first/);
+  assert.match(html, /name="paymentAmount"/);
+  assert.match(html, /name="paymentDate"/);
+  assert.match(html, /name="paymentNote"/);
+  assert.match(html, /name="paymentPurpose"/);
+});
 function render(code, rentalModel = 'tenancy') {
   return renderToStaticMarkup(React.createElement(RegistrationForm, {
     action: async () => {}, initialPropertyId: 'property',

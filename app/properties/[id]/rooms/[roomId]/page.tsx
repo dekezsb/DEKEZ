@@ -19,6 +19,8 @@ import {
 } from "../../actions";
 import { PaymentQrPreview } from "../../property-controls";
 import { CheckoutForm } from "./checkout-form";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { cancelReservation } from "@/app/reservations/actions";
 
 type PageProps = {
   params: Promise<{ id: string; roomId: string }>;
@@ -88,6 +90,12 @@ export default async function RoomDetailsPage({
     includeSensitiveDocuments: canManage,
   });
   const { property, room } = details;
+  const { data: reservation } = canManage && room.status === "reserved" && !room.tenantName
+    ? await createAdminClient().from("tenant_applications").select("id, full_name")
+      .eq("property_id", property.id).eq("room_id", room.id)
+      .in("status", ["submitted", "approved", "pending_verification"])
+      .order("submitted_at", { ascending: false }).limit(1).maybeSingle()
+    : { data: null };
   const tenantKey = room.tenantRecordId ?? room.tenantId ?? room.id;
   const portalMessage = query.portal ? portalMessages[query.portal] : null;
 
@@ -186,8 +194,17 @@ export default async function RoomDetailsPage({
         <Card>
           <CardContent className="flex flex-col items-start justify-between gap-4 pt-6 sm:flex-row sm:items-center">
             <div>
-              <p className="font-semibold text-gray-950">This room is vacant</p>
-              <p className="mt-1 text-sm text-gray-600">Tenant, billing, agreement and payment history actions are not active.</p>
+              <p className="font-semibold text-gray-950">{room.status === "reserved" ? "This room is reserved" : "This room is vacant"}</p>
+              <p className="mt-1 text-sm text-gray-600">{room.status === "reserved" ? `${reservation?.full_name ?? "Reservation"} — not checked in. Rental billing has not started.` : "Tenant, billing, agreement and payment history actions are not active."}</p>
+              {reservation && role === "super_admin" ? <details className="mt-3">
+                <summary className="cursor-pointer rounded border border-red-300 px-4 py-2 font-semibold text-red-700">Remove reservation / release room</summary>
+                <form action={cancelReservation} className="mt-3 space-y-3">
+                  <input type="hidden" name="applicationId" value={reservation.id} />
+                  <label className="block">Reason<input className="block rounded border p-2" name="reason" required /></label>
+                  <label className="flex gap-2"><input type="checkbox" name="confirm" value="1" required />Cancel reservation; keep payment slips and audit history.</label>
+                  <Button type="submit" className="bg-red-700 text-white">Confirm removal</Button>
+                </form>
+              </details> : null}
             </div>
             {canManage ? (
               <Button asChild>

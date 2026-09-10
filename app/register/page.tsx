@@ -13,6 +13,7 @@ export default async function RegisterPage({
   let properties: {
     contractDurations: number[];
     id: string;
+    propertyCode: string;
     isCommercial: boolean;
     label: string;
     rentalModel: "tenancy" | "monthly_stay";
@@ -42,6 +43,7 @@ export default async function RegisterPage({
           ? property.contract_duration_options
           : [6, 12],
       id: property.id,
+      propertyCode: property.property_code ?? "",
       isCommercial: Boolean(property.is_commercial),
       rentalModel:
         property.rental_model === "monthly_stay" ? "monthly_stay" : "tenancy",

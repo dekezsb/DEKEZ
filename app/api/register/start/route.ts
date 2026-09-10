@@ -13,6 +13,7 @@ import {
   type ValidatedReferral,
 } from "@/lib/referrals/registration";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
+import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -111,6 +112,10 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const accountType = cleanText(body?.accountType) as AccountType;
+  const registrationMode = cleanText(body?.registrationMode) || "check_in";
+  if (!["check_in", "reservation"].includes(registrationMode)) {
+    return NextResponse.json({ error: "Choose check-in or reservation." }, { status: 400 });
+  }
   const identityType = cleanText(body?.identityType) as IdentityType;
   const fullName = cleanText(body?.fullName);
   const emergencyContactName = cleanText(body?.emergencyContactName);
@@ -167,6 +172,7 @@ export async function POST(request: NextRequest) {
   let property:
     | {
         company_id: string;
+        property_code: string;
         contract_duration_options: number[];
         id: string;
         is_commercial: boolean;
@@ -203,7 +209,7 @@ export async function POST(request: NextRequest) {
       admin
         .from("properties")
         .select(
-          "id, company_id, is_commercial, rental_model, contract_duration_options",
+          "id, company_id, property_code, is_commercial, rental_model, contract_duration_options",
         )
         .eq("id", propertyId)
         .eq("status", "active")
@@ -236,6 +242,9 @@ export async function POST(request: NextRequest) {
         { error: "That room already has a registration under review." },
         { status: 409 },
       );
+    }
+    if (registrationMode === "reservation" && !supportsReservations(property.property_code)) {
+      return NextResponse.json({ error: "Reservations are not available for this property." }, { status: 400 });
     }
     if (!proposedStartDate) {
       proposedStartDate = new Intl.DateTimeFormat("en-CA", {
@@ -356,7 +365,8 @@ export async function POST(request: NextRequest) {
         .insert({
           tenant_id: userId,
           submitted_by: userId,
-          submission_source: "self_registration",
+        submission_source: "self_registration",
+        registration_mode: registrationMode,
           identity_type: identityType,
           property_id: property.id,
           unit_id: room.unit_id,

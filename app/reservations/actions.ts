@@ -13,7 +13,7 @@ function text(form: FormData, key: string) {
   return String(form.get(key) ?? "").trim();
 }
 
-async function context(form: FormData) {
+async function context(form: FormData, allowLegacyReserved = false) {
   await requireRole(["super_admin", "admin"], { module: "properties", level: "manage" });
   const actor = await getCurrentUser();
   if (!actor) redirect("/");
@@ -22,8 +22,11 @@ async function context(form: FormData) {
     .select("id, property_id, room_id, unit_id, tenant_id, status, registration_mode, verification_status, proposed_end_date")
     .eq("id", text(form, "applicationId")).single();
   const property = (await getProperties()).find((item) => item.id === application?.property_id);
+  const { data: room } = allowLegacyReserved && application ? await db.from("rooms")
+    .select("status, current_tenancy_id").eq("id", application.room_id).maybeSingle() : { data: null };
+  const legacyReserved = allowLegacyReserved && room?.status === "reserved" && !room.current_tenancy_id;
   if (error || !application || !property || !supportsReservations(property.property_code)
-    || application.registration_mode !== "reservation" || !["submitted", "pending_verification", "approved"].includes(application.status)) {
+    || (application.registration_mode !== "reservation" && !legacyReserved) || !["submitted", "pending_verification", "approved"].includes(application.status)) {
     redirect("/reservations?error=unavailable");
   }
   return { db, actor, application };
@@ -73,11 +76,12 @@ export async function addReservationPayment(form: FormData) {
 
 export async function cancelReservation(form: FormData) {
   await requireRole(["super_admin"], { module: "properties", level: "manage" });
-  const { db, actor, application } = await context(form);
+  const { db, actor, application } = await context(form, true);
   const reason = text(form, "reason");
   if (!reason || text(form, "confirm") !== "1") redirect("/reservations?error=cancel");
   const { error } = await db.rpc("cancel_room_reservation", { p_application: application.id, p_actor: actor.id, p_reason: reason });
   if (error) redirect("/reservations?error=cancel");
+  revalidatePath(`/properties/${application.property_id}/rooms/${application.room_id}`);
   revalidatePath("/reservations"); revalidatePath("/properties"); revalidatePath("/register-tenant"); revalidatePath("/room-availability");
   redirect("/reservations?cancelled=1");
 }

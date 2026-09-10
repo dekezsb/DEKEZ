@@ -1,4 +1,5 @@
 "use client";
+import { PaymentSlipHistory } from "./payment-slip-history";
 
 import { Link } from "@/components/app-link";
 import { useState } from "react";
@@ -162,7 +163,7 @@ export function RentDueActions({
           onClick={openOnlinePaymentModal}
         >
           <Paperclip aria-hidden="true" className="size-4" />
-            {canVerify ? "Add next payment slip" : "Upload payment / instalment"}
+            + Add another payment / slip
         </Button>
       </div>
       {compact ? null : (
@@ -263,6 +264,7 @@ export function RentDueActions({
           <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Uploading a slip keeps this bill pending. Rent is counted as paid only after an authorized user verifies the payment.
           </p>
+          <PaymentSlipHistory billId={billId} />
           <form action={paymentSlipAction} className="grid gap-4 sm:grid-cols-2">
             <input name="billId" type="hidden" value={billId} />
             <input name="returnTo" type="hidden" value="/dashboard" />

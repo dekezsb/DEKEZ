@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { isPaymentPurpose } from "@/lib/payments/payment-purpose";
 
 type AccountType = "owner" | "tenant";
 type UploadKey =
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
     const { data: application } = await admin
       .from("tenant_applications")
       .select(
-        "id, tenant_id, property_id, unit_id, room_id, monthly_rent, status",
+        "id, tenant_id, property_id, unit_id, room_id, monthly_rent, status, registration_mode",
       )
       .eq("id", applicationId)
       .eq("tenant_id", user.id)
@@ -147,6 +148,13 @@ export async function POST(request: Request) {
         { error: "The tenant registration record could not be found." },
         { status: 404 },
       );
+    }
+    const paymentAmount = Number(body?.paymentAmount);
+    const paymentPurpose = cleanText(body?.paymentPurpose) || "monthly_rent";
+    const paymentDate = cleanText(body?.paymentDate);
+    if (confirmedUploads.some((upload) => upload.key === "paymentSlip") &&
+      (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || !isPaymentPurpose(paymentPurpose) || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate))) {
+      return NextResponse.json({ error: "Enter the actual amount paid and payment date for your slip." }, { status: 400 });
     }
 
     const tenantDocuments = confirmedUploads.filter(
@@ -207,9 +215,10 @@ export async function POST(request: Request) {
             unit_id: application.unit_id,
             room_id: application.room_id,
             bill_type: "check_in",
-            payment_type: "monthly_rent",
-            amount: Number(application.monthly_rent ?? 0),
-            payment_date: new Date().toISOString().slice(0, 10),
+            payment_type: paymentPurpose,
+            amount: paymentAmount,
+            payment_date: paymentDate,
+            payment_note: cleanText(body?.paymentNote) || null,
             payment_method: "online_payment",
             receipt_url: paymentSlip.path,
             verification_status: "pending_verification",
@@ -258,7 +267,9 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: applicationError } = await admin
+    const { error: applicationError } = application.registration_mode === "reservation"
+      ? await admin.rpc("submit_public_reservation", { p_application: application.id, p_tenant: user.id, p_payment_recorded: paymentRecorded })
+      : await admin
       .from("tenant_applications")
       .update({
         status: "submitted",

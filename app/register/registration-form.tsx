@@ -4,6 +4,7 @@ import { Camera, FileText, Image as ImageIcon } from "lucide-react";
 import { Link } from "@/components/app-link";
 import { FormEvent, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -17,6 +18,7 @@ type UploadKey =
   | "tradingLicense";
 
 type RegistrationProperty = {
+  propertyCode: string;
   contractDurations: number[];
   id: string;
   isCommercial: boolean;
@@ -132,6 +134,7 @@ export function RegistrationForm({
   const [identityType, setIdentityType] = useState<IdentityType>("ic");
   const [propertyId, setPropertyId] = useState("");
   const [roomId, setRoomId] = useState("");
+  const [registrationMode, setRegistrationMode] = useState("check_in");
   const [files, setFiles] = useState<Partial<Record<UploadKey, File>>>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -142,6 +145,8 @@ export function RegistrationForm({
   const availableRooms = rooms.filter(
     (room) => room.propertyId === propertyId,
   );
+  const flexiblePayments = supportsReservations(selectedProperty?.propertyCode);
+  const effectiveMode = flexiblePayments ? registrationMode : "check_in";
 
   function selectFile(key: UploadKey, file: File) {
     setFiles((current) => ({ ...current, [key]: file }));
@@ -178,6 +183,7 @@ export function RegistrationForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountType,
+          registrationMode: effectiveMode,
           companyDetails: formData.get("companyDetails"),
           companyName: formData.get("companyName"),
           fullName: formData.get("fullName"),
@@ -219,6 +225,10 @@ export function RegistrationForm({
         body: JSON.stringify({
           accountType,
           applicationId: startResult.applicationId,
+          paymentAmount: formData.get("paymentAmount"),
+          paymentDate: formData.get("paymentDate"),
+          paymentNote: formData.get("paymentNote"),
+          paymentPurpose: formData.get("paymentPurpose"),
           uploads: signedUploads.map(({ token: _token, ...upload }) => upload),
         }),
       });
@@ -272,7 +282,7 @@ export function RegistrationForm({
         <p className="mt-1 text-sm leading-6 text-[#60708a]">
           {accountType === "tenant"
             ? selectedProperty?.rentalModel === "monthly_stay"
-              ? "Sulaman uses a rolling monthly stay. Register, pay the first month immediately and upload the slip. Your room starts only after Admin verifies both your identity and payment. No deposit or tenancy agreement is required."
+              ? "Sulaman uses a rolling monthly stay. Choose check-in or reserve the room first. You may submit partial payments; an Admin reviews your registration before check-in. No tenancy agreement is required."
               : "Choose a vacant room and submit your details. An Admin will verify the registration before preparing your tenancy agreement."
             : "Submit your identity details. An Admin will verify them and assign the properties you may view."}
         </p>
@@ -327,6 +337,14 @@ export function RegistrationForm({
                 ))}
               </select>
             </label>
+            <fieldset className="rounded-md border p-4 sm:col-span-2">
+              <legend className="px-1 font-semibold">Check in or reserve?</legend>
+              <div className="flex flex-wrap gap-4">
+                <label><input type="radio" name="registrationMode" checked={effectiveMode === "check_in"} onChange={() => setRegistrationMode("check_in")} /> Check in</label>
+                <label><input type="radio" name="registrationMode" disabled={!flexiblePayments} checked={effectiveMode === "reservation"} onChange={() => setRegistrationMode("reservation")} /> Reserve room first</label>
+              </div>
+              <p className="mt-2 text-sm text-gray-600">{!propertyId ? "Choose a property to enable reservations." : flexiblePayments ? "A reservation holds the room only. It does not start your tenancy or rental billing. Payments can be made in instalments." : "Reservations are not available for BDS and PTT."}</p>
+            </fieldset>
             {selectedProperty?.rentalModel !== "monthly_stay" ? (
               <label className="sm:col-span-2">
                 <span className="text-sm font-medium text-[#17223b]">
@@ -570,6 +588,18 @@ export function RegistrationForm({
             <legend className="px-1 text-sm font-semibold text-[#07142f]">
               Payment proof
             </legend>
+            <label className="mb-3 block text-sm">Actual amount paid (RM)
+              <input className={inputClass} name="paymentAmount" type="number" min="0.01" step="0.01" required={Boolean(files.paymentSlip)} placeholder="e.g. 100.00" />
+            </label>
+            <label className="mb-3 block text-sm">Payment is for
+              <select className={inputClass} name="paymentPurpose"><option value="monthly_rent">Rent / reservation towards first rent</option><option value="deposit">Deposit</option><option value="rent_and_deposit">Rent and deposit</option><option value="other">Other charge</option></select>
+            </label>
+            <label className="mb-3 block text-sm">Payment date
+              <input className={inputClass} name="paymentDate" type="date" required={Boolean(files.paymentSlip)} />
+            </label>
+            <label className="mb-3 block text-sm">Payment notes
+              <input className={inputClass} name="paymentNote" placeholder="e.g. First RM100 towards room reservation" />
+            </label>
             <FilePicker
               file={files.paymentSlip}
               label="Payment slip"
@@ -577,7 +607,7 @@ export function RegistrationForm({
               required
             />
             <p className="mt-3 text-xs leading-5 text-[#7b879c]">
-              {selectedProperty?.rentalModel === "monthly_stay"
+              {flexiblePayments ? "Enter only the amount actually paid. You can pay the balance later; staff can add each further payment and slip separately. A reservation is not a check-in." : selectedProperty?.rentalModel === "monthly_stay"
                 ? "First-month payment is required now. Upload the online transfer receipt; check-in activates only after Admin verification."
                 : "Upload the receipt or transfer screenshot. It remains pending until an Admin verifies it."}
             </p>

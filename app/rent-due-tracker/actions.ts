@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
-import { getCurrentUser } from "@/lib/data/organization";
+import { getCurrentUser, getProperties } from "@/lib/data/organization";
 import { dayDifference, malaysiaDateString } from "@/lib/data/rent-due";
 import {
   getVerifiedDepositPaymentMaps,
@@ -23,6 +23,24 @@ import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+export async function getPaymentSlipHistory(billId: string) {
+  await requireRole(["super_admin", "admin"]);
+  const db = createAdminClient();
+  const { data: bill } = await db.from("rent_bills").select("property_id").eq("id", billId).maybeSingle();
+  const properties = await getProperties();
+  if (!bill || !properties.some((property) => property.id === bill.property_id)) throw new Error("Bill unavailable");
+  const { data, error } = await db.from("payment_submissions")
+    .select("id, amount, payment_date, payment_note, verification_status, receipt_url")
+    .eq("rent_bill_id", billId).order("created_at", { ascending: false }).limit(200);
+  if (error) throw new Error("Payment history unavailable");
+  return Promise.all((data ?? []).map(async (payment) => {
+    const { data: receipt } = payment.receipt_url ? await db.storage.from("payment-receipts")
+      .createSignedUrl(payment.receipt_url, 600) : { data: null };
+    return { id: payment.id, amount: Number(payment.amount), date: payment.payment_date,
+      note: payment.payment_note, status: payment.verification_status, url: receipt?.signedUrl ?? null };
+  }));
 }
 
 function numberValue(formData: FormData, key: string) {
