@@ -292,7 +292,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
 
 
-  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult] = await Promise.all([
+  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult, manualBalanceTransactionsResult] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
@@ -304,6 +304,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate),
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
+    supabase.from("bank_manual_transactions").select("amount, offset_account_id, property_id").eq("company_id", company.id).lte("transaction_date", endDate),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
@@ -516,6 +517,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     manualNetDebitByAccount.set(
       line.account_id,
       (manualNetDebitByAccount.get(line.account_id) ?? 0) + Number(line.debit ?? 0) - Number(line.credit ?? 0),
+    );
+  }
+  for (const transaction of manualBalanceTransactionsResult.data ?? []) {
+    if (selectedPropertyId && transaction.property_id !== selectedPropertyId) continue;
+    manualNetDebitByAccount.set(
+      transaction.offset_account_id,
+      (manualNetDebitByAccount.get(transaction.offset_account_id) ?? 0) - Number(transaction.amount ?? 0),
     );
   }
   const manualNormalBalance = (systemKey: string) => {
@@ -820,7 +828,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       </div>
 
       {params.error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessages[params.error] ?? "The accounting action could not be completed."}</div> : null}
-      {params.voucher_saved ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Payment voucher {params.voucher_saved} saved and reconciled. Each expense line is posted to its selected outlet and category.</div> : null}
+      {params.voucher_saved ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Payment voucher {params.voucher_saved} saved and reconciled. Each line is posted to its selected outlet and chart of account.</div> : null}
       {params.account_created ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">New chart account added. It is now available in journals and bank reconciliation.</div> : null}
       {params.account_updated ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Account wording updated. Existing transactions stayed linked to the same account.</div> : null}
       {postingMonth ? (
@@ -1319,7 +1327,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <label className="block text-xs font-medium text-blue-950">Matching opposite statement line<select className="mt-1 h-10 w-full rounded-md border border-blue-300 bg-white px-3 text-sm" name="counterpartLineId" required><option value="">Choose the other account line</option>{transferCandidates.map((candidate) => { const account = bankAccounts.find((item) => item.id === candidate.bank_account_id); const statement = singleRelation(candidate.bank_statement_imports); return <option key={candidate.id} value={candidate.id}>{account?.name ?? account?.bank_name ?? "Other DEKEZ account"} · {dateLabel(candidate.transaction_date)} · {money(Math.abs(Number(candidate.amount)))} · statement ending {dateLabel(statement?.period_end)} · {candidate.description}</option>; })}</select></label>
                               <ReconciliationSubmitButton className="w-full" pendingLabel="Linking both accounts..."><Link2 className="h-4 w-4" />Match own-account transfer</ReconciliationSubmitButton>
                             </form> : null}
-                            {remaining < -0.005 ? <BankExpenseVoucher lineId={line.id} amount={Math.abs(remaining)} properties={properties.map(({ id, name }) => ({ id, name }))} accounts={accounts.filter((a) => a.account_type === "expense" && a.is_active).map(({ id, code, name }) => ({ id, code, name }))} /> : null}
+                            {remaining < -0.005 ? <BankExpenseVoucher lineId={line.id} amount={Math.abs(remaining)} properties={properties.map(({ id, name }) => ({ id, name }))} accounts={adjustmentAccounts.map(({ id, code, name, account_type }) => ({ id, code, name, accountType: account_type }))} /> : null}
                             {remaining < -0.005 && params.batchLine !== line.id ? (
                               <Button asChild className="w-full justify-start" variant="outline">
                                 <Link href={bankBatchLineHref(selectedMonth, selectedPropertyId, selectedStatement.id, reviewPage, line.id)} prefetch={false}>
@@ -1332,7 +1340,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                                 <summary className="cursor-pointer list-none px-4 py-4 font-semibold text-[#7a5618]">
                                   Payment voucher / allocate across properties
                                   <span className="mt-1 block text-xs font-normal text-gray-600">
-                                    Enter new expenses by line, or select bills already recorded. Total must equal {money(Math.abs(remaining))}.
+                                    Enter new accounting allocations by line, or select bills already recorded. Total must equal {money(Math.abs(remaining))}.
                                   </span>
                                 </summary>
                                 <div className="border-t border-amber-200 p-4">
