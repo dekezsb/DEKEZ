@@ -462,7 +462,19 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       .from("rent_bills")
       .select("id, tenancy_id, tenant_record_id, tenant_id, property_id, room_id, bill_month, due_date, invoice_number, amount, deposit_amount, paid_amount, status")
       .in("property_id", propertyIds)
-      .in("status", ["unpaid", "partially_paid", "payment_submitted", "paid"])
+      .in("status", [
+        "unpaid",
+        "partial",
+        "partially_paid",
+        "submitted",
+        "pending_verification",
+        "payment_submitted",
+        "rejected",
+        "overdue",
+        "upcoming",
+        "due_today",
+        "paid",
+      ])
       .is("removed_at", null)
       .order("due_date", { ascending: true });
     openBills = result.data ?? [];
@@ -491,6 +503,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       id: String(bill.id),
       propertyId: bill.property_id as string | null,
       invoiceNumber: bill.invoice_number as string | null,
+      status: String(bill.status),
       billMonth: String(bill.bill_month),
       dueDate: String(bill.due_date),
       tenantName: tenantNames.get(bill.tenant_record_id) || `Tenant ${String(bill.tenant_id ?? "").slice(0, 8)}`,
@@ -1375,10 +1388,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                               <div><p className="font-semibold">Tenant paid but did not upload a slip</p><p className="text-xs text-gray-600">Use only for a real unmatched bank receipt. DEKEZ records the payment, knocks off the invoice and retains the statement as proof.</p></div>
                               <input name="lineId" type="hidden" value={line.id} />
                               <input name="bankFlow" type="hidden" value="credit" />
-                              <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">Only {rentalMonthLabel(statementRentalMonth)} rental invoices are allowed for this statement. Older outstanding invoices are not carried forward here.</p>
+                              <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">Only {rentalMonthLabel(statementRentalMonth)} invoices are shown. Fully paid invoices remain selectable so incoming extras can be added as a new line and matched to the same unit.</p>
                               {isSmallExtraCredit ? <p className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">RM{Number(remaining).toFixed(0)} detected for {locationHint?.propertyCode} Room {locationHint?.roomCode}. It is prepared as a same-month extra/electricity item, not rental. Choose its exact purpose before confirming.</p> : null}
                               {suggestedInvoice ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">QR name and room matched: {suggestedInvoice.propertyCode} Room {suggestedInvoice.roomCode} · {suggestedInvoice.tenantName} · rental invoice month {rentalMonthLabel(suggestedInvoice.billMonth)}</p> : exactRoomInvoices.length ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">The QR room is {locationHint?.propertyCode} Room {locationHint?.roomCode}, but the QR name did not safely match the invoice tenant. Only this exact room is shown below—check the name before confirming.</p> : locationHint ? <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">No {rentalMonthLabel(statementRentalMonth)} invoice was found for {locationHint.propertyCode} Room {locationHint.roomCode}. DEKEZ will not show another room.</p> : null}
-                              <label className="block text-xs font-medium">{rentalMonthLabel(statementRentalMonth)} tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose {rentalMonthLabel(statementRentalMonth)} invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{rentalMonthLabel(bill.billMonth)} · {bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.id.slice(0, 8)} · owing {money(bill.outstanding)}</option>)}</select></label>
+                              <label className="block text-xs font-medium">{rentalMonthLabel(statementRentalMonth)} tenant invoice<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={suggestedInvoice?.id ?? ""} name="rentBillId" required><option disabled value="">Choose {rentalMonthLabel(statementRentalMonth)} invoice</option>{invoiceChoices.map((bill) => <option key={bill.id} value={bill.id}>{bill.id === suggestedInvoice?.id ? "Recommended · " : ""}{rentalMonthLabel(bill.billMonth)} · {bill.tenantName} · {bill.propertyName} / {bill.roomName} · {bill.invoiceNumber ?? bill.id.slice(0, 8)} · {bill.status === "paid" ? "Paid RM 0.00 owing · available for extra line" : `owing ${money(bill.outstanding)}`}</option>)}</select></label>
                               <div className="grid grid-cols-3 gap-2"><label className="text-xs">Rent<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? "0.00" : suggestedInvoice ? Math.min(Number(remaining), suggestedInvoice.rentOutstanding).toFixed(2) : undefined} min="0" name="rentalAmount" step="0.01" type="number" /></label><label className="text-xs">Deposit<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? "0.00" : suggestedInvoice ? Math.min(Math.max(Number(remaining) - suggestedInvoice.rentOutstanding, 0), suggestedInvoice.depositOutstanding).toFixed(2) : undefined} min="0" name="depositAmount" step="0.01" type="number" /></label><label className="text-xs">Other / top-up<input className="mt-1 h-9 w-full rounded-md border border-[#d7dde5] px-2" defaultValue={isSmallExtraCredit ? Number(remaining).toFixed(2) : undefined} min="0" name="otherAmount" step="0.01" type="number" /></label></div>
                               <p className="text-xs font-medium text-[#7a5618]">Allocation total must equal {money(remaining)}.</p>
                               <select className="h-9 w-full rounded-md border border-[#d7dde5] bg-white px-2 text-sm" defaultValue={isSmallExtraCredit ? "" : "other"} name="otherCategory" required={isSmallExtraCredit}><option disabled value="">Choose this RM{Number(remaining).toFixed(0)} purpose</option><option value="other">Other / extra</option><option value="top_up_utilities">Top Up Utilities</option><option value="electricity">Electricity</option><option value="water">Water</option><option value="key_lock">Key / lock</option><option value="access_card">Access card</option><option value="damage">Damage</option><option value="cleaning">Cleaning</option><option value="furniture">Furniture</option></select>
