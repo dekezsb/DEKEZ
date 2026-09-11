@@ -1355,7 +1355,7 @@ export async function createBankExpenseVoucher(formData: FormData) {
     p_payee: textValue(formData, "payee"), p_lines: lines,
   });
   if (error || !data) {
-    console.error("[accounting] expense voucher rejected", { code: error?.code, message: error?.message });
+    console.error("[accounting] bank voucher rejected", { code: error?.code, message: error?.message });
     redirect(bankActionPath(formData, { error: "voucher_details" }, "debit"));
   }
   revalidatePath("/reports");
