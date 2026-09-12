@@ -63,6 +63,13 @@ function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function moneyValue(value: unknown) {
+  const text = cleanText(value);
+  if (!text) return null;
+  const amount = Number(text);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
 function validUpload(value: unknown): value is UploadMetadata {
   if (!value || typeof value !== "object") return false;
   const upload = value as Partial<UploadMetadata>;
@@ -190,6 +197,8 @@ export async function POST(request: NextRequest) {
     | null = null;
   let proposedStartDate = "";
   let duration = 12;
+  let agreedMonthlyRent: number | null = null;
+  let agreedDeposit: number | null = null;
   let validatedReferral: ValidatedReferral | null = null;
 
   if (accountType === "tenant") {
@@ -197,6 +206,8 @@ export async function POST(request: NextRequest) {
     const roomId = cleanText(body?.roomId);
     proposedStartDate = cleanText(body?.preferredMoveInDate);
     duration = Number(body?.rentalPeriod);
+    agreedMonthlyRent = moneyValue(body?.agreedMonthlyRent);
+    agreedDeposit = moneyValue(body?.agreedDeposit);
 
     if (!propertyId || !roomId) {
       return NextResponse.json(
@@ -241,6 +252,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "That room already has a registration under review." },
         { status: 409 },
+      );
+    }
+    if (
+      agreedMonthlyRent === null ||
+      agreedMonthlyRent <= 0 ||
+      (property.rental_model !== "monthly_stay" && agreedDeposit === null)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Enter the agreed room rent and required security deposit for this tenant.",
+        },
+        { status: 400 },
       );
     }
     if (registrationMode === "reservation" && !supportsReservations(property.property_code)) {
@@ -357,9 +381,20 @@ export async function POST(request: NextRequest) {
     if (profileError) throw profileError;
 
     if (accountType === "tenant" && property && room) {
+      const monthlyRent = agreedMonthlyRent ?? Number(room.monthly_rent ?? 0);
       const commercialDeposits = property.is_commercial
-        ? commercialDepositSchedule(room.monthly_rent)
+        ? commercialDepositSchedule(monthlyRent)
         : null;
+      const securityDeposit =
+        property.rental_model === "monthly_stay"
+          ? 0
+          : property.is_commercial
+            ? commercialDeposits?.securityDeposit ?? 0
+            : agreedDeposit ?? 0;
+      const utilityDeposit =
+        property.rental_model === "monthly_stay"
+          ? 0
+          : commercialDeposits?.utilityDeposit ?? 0;
       const { data: application, error: applicationError } = await admin
         .from("tenant_applications")
         .insert({
@@ -383,13 +418,14 @@ export async function POST(request: NextRequest) {
             property.rental_model === "monthly_stay"
               ? null
               : addMonths(proposedStartDate, duration),
-          monthly_rent: Number(room.monthly_rent ?? 0),
-          deposit: commercialDeposits?.securityDeposit ?? 0,
-          utility_deposit: commercialDeposits?.utilityDeposit ?? 0,
+          monthly_rent: monthlyRent,
+          deposit: securityDeposit,
+          utility_deposit: utilityDeposit,
           rental_model: property.rental_model,
           status: "draft",
           verification_status: "incomplete",
           payment_status: "unpaid",
+          admin_notes: `Registration terms declared — room rent to collect: RM ${monthlyRent.toFixed(2)}; security deposit to collect: RM ${securityDeposit.toFixed(2)}.`,
         })
         .select("id")
         .single();

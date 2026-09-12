@@ -316,12 +316,12 @@ export async function TenantVerificationContent({
                         </TableCell>
                         <TableCell className="min-w-56 align-top">
                           <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
-                            <p className="font-semibold">Staff check-in declaration</p>
+                            <p className="font-semibold">New tenant check-in declaration</p>
                             <p>Room rent to collect: {money(application.monthly_rent)}</p>
                             <p>Deposit to collect: {money(totalDeposit)}</p>
                             <div className="border-t border-emerald-200 pt-1">
-                              <p>Rent reported paid: {money(reportedRent)}</p>
-                              <p>Deposit reported paid: {money(reportedDeposit)}</p>
+                              <p>Rent received today: {money(reportedRent)}</p>
+                              <p>Deposit received today: {money(reportedDeposit)}</p>
                               {combinedReported > 0 ? (
                                 <p>Combined payment reported: {money(combinedReported)}</p>
                               ) : null}

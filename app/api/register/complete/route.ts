@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { isPaymentPurpose } from "@/lib/payments/payment-purpose";
 
 type AccountType = "owner" | "tenant";
 type UploadKey =
@@ -32,6 +31,26 @@ const documentTypes: Partial<Record<UploadKey, string>> = {
 
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function moneyValue(value: unknown) {
+  const text = cleanText(value);
+  if (!text) return null;
+  const amount = Number(text);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
+function checkInPaymentNote({
+  rentPaid,
+  depositPaid,
+  note,
+}: {
+  rentPaid: number;
+  depositPaid: number;
+  note: string;
+}) {
+  const declaration = `Registration payment declaration — rent received: RM ${rentPaid.toFixed(2)}; deposit received: RM ${depositPaid.toFixed(2)}.`;
+  return note ? `${declaration}\nNote: ${note}` : declaration;
 }
 
 async function objectExists(
@@ -137,7 +156,7 @@ export async function POST(request: Request) {
     const { data: application } = await admin
       .from("tenant_applications")
       .select(
-        "id, tenant_id, property_id, unit_id, room_id, monthly_rent, status, registration_mode",
+        "id, tenant_id, property_id, unit_id, room_id, monthly_rent, deposit, utility_deposit, status, registration_mode",
       )
       .eq("id", applicationId)
       .eq("tenant_id", user.id)
@@ -149,12 +168,30 @@ export async function POST(request: Request) {
         { status: 404 },
       );
     }
-    const paymentAmount = Number(body?.paymentAmount);
-    const paymentPurpose = cleanText(body?.paymentPurpose) || "monthly_rent";
+    const rentPaid = moneyValue(body?.rentPaid);
+    const depositPaid = moneyValue(body?.depositPaid);
     const paymentDate = cleanText(body?.paymentDate);
-    if (confirmedUploads.some((upload) => upload.key === "paymentSlip") &&
-      (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || !isPaymentPurpose(paymentPurpose) || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate))) {
-      return NextResponse.json({ error: "Enter the actual amount paid and payment date for your slip." }, { status: 400 });
+    const paymentSlip = confirmedUploads.find(
+      (upload) => upload.key === "paymentSlip",
+    );
+    const totalPaid = (rentPaid ?? 0) + (depositPaid ?? 0);
+    const requiredDeposit =
+      Number(application.deposit ?? 0) + Number(application.utility_deposit ?? 0);
+    if (
+      rentPaid === null ||
+      depositPaid === null ||
+      rentPaid > Number(application.monthly_rent ?? 0) + 0.005 ||
+      depositPaid > requiredDeposit + 0.005 ||
+      (totalPaid > 0 && (!paymentSlip || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate))) ||
+      (paymentSlip && totalPaid <= 0)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Enter valid rent and deposit amounts within the agreed terms, plus the payment date and slip for money received.",
+        },
+        { status: 400 },
+      );
     }
 
     const tenantDocuments = confirmedUploads.filter(
@@ -192,80 +229,96 @@ export async function POST(request: Request) {
       }
     }
 
-    const paymentSlip = confirmedUploads.find(
-      (upload) => upload.key === "paymentSlip",
-    );
     let paymentRecorded = false;
 
     if (paymentSlip) {
-      let { data: paymentSubmission } = await admin
+      const paymentNote = checkInPaymentNote({
+        rentPaid: rentPaid ?? 0,
+        depositPaid: depositPaid ?? 0,
+        note: cleanText(body?.paymentNote),
+      });
+      const paymentRows = [
+        rentPaid && rentPaid > 0
+          ? {
+              tenant_id: user.id,
+              tenant_application_id: application.id,
+              property_id: application.property_id,
+              unit_id: application.unit_id,
+              room_id: application.room_id,
+              bill_type: "check_in",
+              payment_type: "monthly_rent",
+              amount: rentPaid,
+              payment_date: paymentDate,
+              payment_note: paymentNote,
+              payment_method: "online_payment",
+              receipt_url: paymentSlip.path,
+              verification_status: "pending_verification",
+            }
+          : null,
+        depositPaid && depositPaid > 0
+          ? {
+              tenant_id: user.id,
+              tenant_application_id: application.id,
+              property_id: application.property_id,
+              unit_id: application.unit_id,
+              room_id: application.room_id,
+              bill_type: "check_in",
+              payment_type: "deposit",
+              amount: depositPaid,
+              payment_date: paymentDate,
+              payment_note: paymentNote,
+              payment_method: "online_payment",
+              receipt_url: paymentSlip.path,
+              verification_status: "pending_verification",
+            }
+          : null,
+      ].filter((row): row is NonNullable<typeof row> => row !== null);
+      const { data: paymentSubmissions, error: paymentError } = await admin
         .from("payment_submissions")
-        .select("id")
-        .eq("tenant_application_id", application.id)
-        .eq("receipt_url", paymentSlip.path)
-        .maybeSingle();
+        .insert(paymentRows)
+        .select("id");
 
-      if (!paymentSubmission) {
-        const result = await admin
-          .from("payment_submissions")
-          .insert({
-            tenant_id: user.id,
-            tenant_application_id: application.id,
-            property_id: application.property_id,
-            unit_id: application.unit_id,
-            room_id: application.room_id,
-            bill_type: "check_in",
-            payment_type: paymentPurpose,
-            amount: paymentAmount,
-            payment_date: paymentDate,
-            payment_note: cleanText(body?.paymentNote) || null,
-            payment_method: "online_payment",
-            receipt_url: paymentSlip.path,
-            verification_status: "pending_verification",
-          })
-          .select("id")
-          .single();
-        paymentSubmission = result.data;
-        if (result.error || !paymentSubmission) {
-          console.error("[register/complete] payment left for Admin review", {
-            applicationId: application.id,
-            error: result.error?.message ?? "Payment row was not returned.",
-            filePath: paymentSlip.path,
-          });
-        }
-      }
-
-      if (paymentSubmission) {
+      if (paymentError || !paymentSubmissions?.length) {
+        console.error("[register/complete] payment left for Admin review", {
+          applicationId: application.id,
+          error: paymentError?.message ?? "Payment rows were not returned.",
+          filePath: paymentSlip.path,
+        });
+      } else {
         paymentRecorded = true;
-        const { data: existingAttachment } = await admin
+        const { error: attachmentError } = await admin
           .from("payment_attachments")
-          .select("id")
-          .eq("payment_submission_id", paymentSubmission.id)
-          .eq("file_path", paymentSlip.path)
-          .maybeSingle();
-        if (!existingAttachment) {
-          const { error: attachmentError } = await admin
-            .from("payment_attachments")
-            .insert({
+          .insert(
+            paymentSubmissions.map((paymentSubmission) => ({
               payment_submission_id: paymentSubmission.id,
               tenant_id: user.id,
               file_path: paymentSlip.path,
               file_name: paymentSlip.fileName,
               content_type: paymentSlip.contentType,
-            });
-          if (attachmentError) {
-            console.error(
-              "[register/complete] payment attachment left for Admin review",
-              {
-                applicationId: application.id,
-                error: attachmentError.message,
-                filePath: paymentSlip.path,
-              },
-            );
-          }
+            })),
+          );
+        if (attachmentError) {
+          console.error("[register/complete] payment attachment left for Admin review", {
+            applicationId: application.id,
+            error: attachmentError.message,
+            filePath: paymentSlip.path,
+          });
         }
       }
     }
+
+    const paymentNote = checkInPaymentNote({
+      rentPaid: rentPaid ?? 0,
+      depositPaid: depositPaid ?? 0,
+      note: cleanText(body?.paymentNote),
+    });
+    await admin
+      .from("tenant_applications")
+      .update({
+        admin_notes: `Registration terms declared — room rent to collect: RM ${Number(application.monthly_rent ?? 0).toFixed(2)}; security deposit to collect: RM ${requiredDeposit.toFixed(2)}.\n${paymentNote}`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", application.id);
 
     const { error: applicationError } = application.registration_mode === "reservation"
       ? await admin.rpc("submit_public_reservation", { p_application: application.id, p_tenant: user.id, p_payment_recorded: paymentRecorded })

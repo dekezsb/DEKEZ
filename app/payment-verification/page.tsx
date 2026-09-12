@@ -387,8 +387,8 @@ export async function PaymentVerificationContent({
                     {row.checkInSummary ? (
                       <div className="my-2 rounded border border-emerald-200 bg-white/70 p-2 text-xs text-emerald-950">
                         <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
-                        <p>Staff reported: rent {row.checkInSummary.reportedRent} · deposit {row.checkInSummary.reportedDeposit}</p>
-                        {row.checkInSummary.note ? <p className="mt-1 whitespace-pre-wrap">Staff note: {row.checkInSummary.note}</p> : null}
+                        <p>Received today: rent {row.checkInSummary.reportedRent} · deposit {row.checkInSummary.reportedDeposit}</p>
+                        {row.checkInSummary.note ? <p className="mt-1 whitespace-pre-wrap">Registration note: {row.checkInSummary.note}</p> : null}
                       </div>
                     ) : null}
                     {submission.payment_note ? <p className="my-2 whitespace-pre-wrap text-sm">{submission.payment_note}</p> : null}

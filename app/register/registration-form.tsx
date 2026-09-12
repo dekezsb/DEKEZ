@@ -136,6 +136,8 @@ export function RegistrationForm({
   const [roomId, setRoomId] = useState("");
   const [registrationMode, setRegistrationMode] = useState("check_in");
   const [files, setFiles] = useState<Partial<Record<UploadKey, File>>>({});
+  const [rentPaid, setRentPaid] = useState("0");
+  const [depositPaid, setDepositPaid] = useState("0");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -166,6 +168,19 @@ export function RegistrationForm({
     setError(null);
 
     const formData = new FormData(event.currentTarget);
+    const reportedRent = Number(formData.get("rentPaid") ?? 0);
+    const reportedDeposit = Number(formData.get("depositPaid") ?? 0);
+    const reportedTotal =
+      (Number.isFinite(reportedRent) ? reportedRent : 0) +
+      (Number.isFinite(reportedDeposit) ? reportedDeposit : 0);
+    if (reportedTotal > 0 && !files.paymentSlip) {
+      setError("Attach the payment slip when rent or deposit was received.");
+      return;
+    }
+    if (files.paymentSlip && reportedTotal <= 0) {
+      setError("Enter the rent and/or deposit amount shown on the payment slip.");
+      return;
+    }
     setIsLoading(true);
     try {
       const uploads = Object.entries(files)
@@ -186,6 +201,8 @@ export function RegistrationForm({
           registrationMode: effectiveMode,
           companyDetails: formData.get("companyDetails"),
           companyName: formData.get("companyName"),
+          agreedDeposit: formData.get("agreedDeposit"),
+          agreedMonthlyRent: formData.get("agreedMonthlyRent"),
           fullName: formData.get("fullName"),
           emergencyContactName: formData.get("emergencyContactName"),
           emergencyContactNumber: formData.get("emergencyContactNumber"),
@@ -225,10 +242,10 @@ export function RegistrationForm({
         body: JSON.stringify({
           accountType,
           applicationId: startResult.applicationId,
-          paymentAmount: formData.get("paymentAmount"),
           paymentDate: formData.get("paymentDate"),
+          depositPaid: formData.get("depositPaid"),
           paymentNote: formData.get("paymentNote"),
-          paymentPurpose: formData.get("paymentPurpose"),
+          rentPaid: formData.get("rentPaid"),
           uploads: signedUploads.map(({ token: _token, ...upload }) => upload),
         }),
       });
@@ -505,6 +522,57 @@ export function RegistrationForm({
                 </select>
               </label>
             )}
+            <fieldset className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 sm:col-span-2">
+                <legend className="px-1 text-sm font-semibold text-emerald-900">
+                  Agreed room terms
+                </legend>
+                <p className="mb-3 text-xs leading-5 text-emerald-900/80">
+                  For staff-assisted registrations: enter the actual price agreed
+                  with this tenant. These rooms do not need one fixed public
+                  price. An Admin will see and verify these amounts before
+                  check-in.
+                </p>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <label>
+                    <span className="text-sm font-medium text-[#17223b]">
+                      Agreed room rent to collect (RM)
+                    </span>
+                    <input
+                      className={inputClass}
+                      inputMode="decimal"
+                      min="0.01"
+                      name="agreedMonthlyRent"
+                      placeholder="e.g. 550.00"
+                      required
+                      step="0.01"
+                      type="number"
+                    />
+                  </label>
+                  {selectedProperty?.rentalModel === "monthly_stay" ? (
+                    <div className="rounded-md border border-emerald-200 bg-white/70 px-3 py-2 text-sm text-emerald-950">
+                      <p className="font-medium">Required security deposit</p>
+                      <p className="mt-1">RM 0.00 for a monthly stay</p>
+                      <input name="agreedDeposit" type="hidden" value="0" />
+                    </div>
+                  ) : (
+                    <label>
+                      <span className="text-sm font-medium text-[#17223b]">
+                        Required security deposit (RM)
+                      </span>
+                      <input
+                        className={inputClass}
+                        inputMode="decimal"
+                        min="0"
+                        name="agreedDeposit"
+                        placeholder="e.g. 550.00"
+                        required
+                        step="0.01"
+                        type="number"
+                      />
+                    </label>
+                  )}
+                </div>
+            </fieldset>
           </>
         ) : (
           <>
@@ -586,30 +654,59 @@ export function RegistrationForm({
           ) : null}
           <fieldset className="rounded-md border border-[#d7dde5] p-4">
             <legend className="px-1 text-sm font-semibold text-[#07142f]">
-              Payment proof
+              Check-in / reservation payment declaration
             </legend>
-            <label className="mb-3 block text-sm">Actual amount paid (RM)
-              <input className={inputClass} name="paymentAmount" type="number" min="0.01" step="0.01" required={Boolean(files.paymentSlip)} placeholder="e.g. 100.00" />
-            </label>
-            <label className="mb-3 block text-sm">Payment is for
-              <select className={inputClass} name="paymentPurpose"><option value="monthly_rent">Rent / reservation towards first rent</option><option value="deposit">Deposit</option><option value="rent_and_deposit">Rent and deposit</option><option value="other">Other charge</option></select>
-            </label>
+            <p className="mb-3 text-xs leading-5 text-[#60708a]">
+              Enter what was actually received on this date. Rent and deposit
+              are recorded separately, so partial payments are clear during
+              Admin verification.
+            </p>
+            <div className="mb-3 grid gap-5 sm:grid-cols-2">
+              <label className="block text-sm">
+                Rent received today (RM)
+                <input
+                  className={inputClass}
+                  inputMode="decimal"
+                  min="0"
+                  name="rentPaid"
+                  onChange={(event) => setRentPaid(event.target.value)}
+                  placeholder="0.00"
+                  step="0.01"
+                  type="number"
+                  value={rentPaid}
+                />
+              </label>
+              <label className="block text-sm">
+                Deposit received today (RM)
+                <input
+                  className={inputClass}
+                  inputMode="decimal"
+                  min="0"
+                  name="depositPaid"
+                  onChange={(event) => setDepositPaid(event.target.value)}
+                  placeholder="0.00"
+                  step="0.01"
+                  type="number"
+                  value={depositPaid}
+                />
+              </label>
+            </div>
             <label className="mb-3 block text-sm">Payment date
-              <input className={inputClass} name="paymentDate" type="date" required={Boolean(files.paymentSlip)} />
+              <input className={inputClass} name="paymentDate" type="date" required={Number(rentPaid || 0) + Number(depositPaid || 0) > 0} />
             </label>
-            <label className="mb-3 block text-sm">Payment notes
-              <input className={inputClass} name="paymentNote" placeholder="e.g. First RM100 towards room reservation" />
+            <label className="mb-3 block text-sm">Staff / payment notes
+              <input className={inputClass} name="paymentNote" placeholder="e.g. Deposit only; rent will be paid separately" />
             </label>
             <FilePicker
               file={files.paymentSlip}
-              label="Payment slip"
+              label="Payment slip (required when money was received)"
               onSelect={(file) => selectFile("paymentSlip", file)}
-              required
+              required={Number(rentPaid || 0) + Number(depositPaid || 0) > 0}
             />
             <p className="mt-3 text-xs leading-5 text-[#7b879c]">
-              {flexiblePayments ? "Enter only the amount actually paid. You can pay the balance later; staff can add each further payment and slip separately. A reservation is not a check-in." : selectedProperty?.rentalModel === "monthly_stay"
+              {flexiblePayments ? "Enter only the actual amounts received. You can collect the rent and deposit balance later; staff can add each further payment and slip separately. A reservation is not a check-in." : selectedProperty?.rentalModel === "monthly_stay"
                 ? "First-month payment is required now. Upload the online transfer receipt; check-in activates only after Admin verification."
-                : "Upload the receipt or transfer screenshot. It remains pending until an Admin verifies it."}
+                : "Upload the receipt or transfer screenshot for any money received. It remains pending until an Admin verifies it."}
             </p>
           </fieldset>
         </>
