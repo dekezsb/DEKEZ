@@ -4,7 +4,6 @@ import { useState } from "react";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
-import { PAYMENT_PURPOSES } from "@/lib/payments/payment-purpose";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 
 type RegistrationProperty = {
@@ -94,9 +93,9 @@ export function RegistrationForm({
   const [monthlyRent, setMonthlyRent] = useState(
     String(initialRoom?.monthlyRent ?? 0),
   );
-  const [paymentAmount, setPaymentAmount] = useState("0");
-  const [paymentPurpose, setPaymentPurpose] = useState("monthly_rent");
-  const [paymentNote, setPaymentNote] = useState("");
+  const [rentPaid, setRentPaid] = useState("0");
+  const [depositPaid, setDepositPaid] = useState("0");
+  const [staffNote, setStaffNote] = useState("");
   const [registrationMode, setRegistrationMode] = useState("check_in");
   const [identityType, setIdentityType] = useState<"ic" | "passport">("ic");
   const [tenantType, setTenantType] = useState<"company" | "sole_proprietor">(
@@ -107,10 +106,14 @@ export function RegistrationForm({
   );
   const isMonthlyStay = selectedProperty?.rentalModel === "monthly_stay";
   const isAdvancedPaymentProperty = supportsReservations(selectedProperty?.code);
-  const canCollectReservationPayment =
-    Boolean(selectedProperty) &&
-    isAdvancedPaymentProperty;
   const commercialDeposits = commercialDepositSchedule(monthlyRent);
+  const requiredDeposit = selectedProperty?.isCommercial
+    ? commercialDeposits.totalDeposit
+    : isMonthlyStay
+      ? 0
+      : 0;
+  const hasReportedPayment =
+    Number(rentPaid || 0) + Number(depositPaid || 0) > 0;
 
   function selectProperty(nextPropertyId: string) {
     setPropertyId(nextPropertyId);
@@ -125,9 +128,9 @@ export function RegistrationForm({
     if (!nextProperty?.isCommercial) {
       setTenantType("sole_proprietor");
     }
-    setPaymentAmount("0");
-    setPaymentPurpose("monthly_rent");
-    setPaymentNote("");
+    setRentPaid("0");
+    setDepositPaid("0");
+    setStaffNote("");
     setRegistrationMode("check_in");
   }
 
@@ -157,71 +160,15 @@ export function RegistrationForm({
         </select>
       </label>
 
-      {canCollectReservationPayment ? (
+      {isAdvancedPaymentProperty ? (
         <div className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
-          <label className="block mb-4">
+          <label className="block">
             <span className="text-sm font-semibold">Registration type</span>
             <select className={fieldClass()} name="registrationMode" value={registrationMode} onChange={(event) => setRegistrationMode(event.target.value)}>
               <option value="check_in">Check in tenant — submit for approval</option>
               <option value="reservation">Reserve room only — tenant has not checked in</option>
             </select>
           </label>
-          <p className="text-sm font-semibold text-[#07142f]">
-            Initial payment / instalment (optional)
-          </p>
-          <p className="mt-1 text-xs text-[#60708a]">
-            Use this when tenant paid only part of rent/deposit first. Leave amount
-            at zero if no payment has been received. A reservation holds the room without starting rental billing.
-          </p>
-          <label className="mt-3">
-            <span className="text-sm font-medium text-[#17223b]">
-              Payment purpose
-            </span>
-            <select
-              className={fieldClass()}
-              name="paymentPurpose"
-              onChange={(event) => setPaymentPurpose(event.target.value)}
-              value={paymentPurpose}
-            >
-              {PAYMENT_PURPOSES.map((purpose) => (
-                <option key={purpose} value={purpose}>
-                  {purpose.replaceAll("_", " ").toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="mt-3">
-            <span className="text-sm font-medium text-[#17223b]">
-              Amount paid now
-            </span>
-            <input
-              className={fieldClass()}
-              min="0"
-              name="paymentAmount"
-              onChange={(event) => setPaymentAmount(event.target.value)}
-              step="0.01"
-              type="number"
-              value={paymentAmount}
-            />
-          </label>
-          <label className="mt-3">
-            <span className="text-sm font-medium text-[#17223b]">
-              Payment note
-            </span>
-            <input
-              className={fieldClass()}
-              name="paymentNote"
-              onChange={(event) => setPaymentNote(event.target.value)}
-              placeholder="e.g. RM100 reserve + RM50 top up electricity"
-              value={paymentNote}
-            />
-          </label>
-          <label className="mt-3 block"><span className="text-sm font-medium">Payment date (leave blank for today)</span><input className={fieldClass()} name="paymentDate" type="date" /></label>
-          <FileField label="Payment slip (optional)" name="paymentSlip" />
-          <input name="paymentMethod" type="hidden" value="online_payment" />
-          <p className="mt-2 text-xs leading-5 text-[#60708a]">
-            Upload only when a receipt is paid now.
-          </p>
         </div>
       ) : null}
 
@@ -435,7 +382,7 @@ export function RegistrationForm({
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
-          Monthly rent RM
+          Agreed room rent to collect (RM)
         </span>
         <input
           className={`${fieldClass()} ${
@@ -497,7 +444,9 @@ export function RegistrationForm({
         </div>
       ) : (
         <label>
-          <span className="text-sm font-medium text-[#17223b]">Deposit RM</span>
+          <span className="text-sm font-medium text-[#17223b]">
+            Agreed security deposit to collect (RM)
+          </span>
           <input
             className={fieldClass()}
             defaultValue="0"
@@ -509,6 +458,80 @@ export function RegistrationForm({
           <input name="utilityDeposit" type="hidden" value="0" />
         </label>
       )}
+
+      <fieldset className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 sm:col-span-2">
+        <legend className="px-1 text-sm font-semibold text-emerald-950">
+          Check-in payment declaration
+        </legend>
+        <p className="mb-4 text-xs leading-5 text-emerald-900">
+          Enter exactly what was received today. Rent and deposit are recorded
+          separately, so partial payments stay clear for your main account to
+          verify. Leave both fields at RM 0.00 if nothing has been paid yet.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Rent received today (RM)
+            </span>
+            <input
+              className={fieldClass()}
+              max={monthlyRent || undefined}
+              min="0"
+              name="rentPaid"
+              onChange={(event) => setRentPaid(event.target.value)}
+              step="0.01"
+              type="number"
+              value={rentPaid}
+            />
+          </label>
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Deposit received today (RM)
+            </span>
+            <input
+              className={fieldClass()}
+              max={requiredDeposit || undefined}
+              min="0"
+              name="depositPaid"
+              onChange={(event) => setDepositPaid(event.target.value)}
+              step="0.01"
+              type="number"
+              value={depositPaid}
+            />
+          </label>
+        </div>
+        <label className="mt-4 block">
+          <span className="text-sm font-medium text-[#17223b]">
+            Staff check-in note
+          </span>
+          <textarea
+            className={`${fieldClass()} min-h-20 py-3`}
+            name="staffNote"
+            onChange={(event) => setStaffNote(event.target.value)}
+            placeholder="e.g. Tenant paid the deposit first. Rent balance will be paid later."
+            value={staffNote}
+          />
+        </label>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label>
+            <span className="text-sm font-medium text-[#17223b]">
+              Payment date
+            </span>
+            <input className={fieldClass()} name="paymentDate" type="date" />
+          </label>
+          <FileField
+            label="Bank / DuitNow payment proof"
+            name="paymentSlip"
+            required={hasReportedPayment}
+          />
+        </div>
+        <input name="paymentMethod" type="hidden" value="online_payment" />
+        <p className="mt-3 text-xs leading-5 text-emerald-900">
+          {hasReportedPayment
+            ? "This proof will be sent to Payment Verification. It is not counted as paid until you verify it."
+            : "No payment proof is needed while both received amounts are RM 0.00."}
+        </p>
+      </fieldset>
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
@@ -567,32 +590,6 @@ export function RegistrationForm({
           </p>
         </div>
       ) : null}
-
-      {isMonthlyStay && !canCollectReservationPayment ? (
-        <fieldset className="rounded-md border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
-          <legend className="px-1 text-sm font-semibold text-amber-950">
-            First-month online payment
-          </legend>
-          <FileField label="Bank / DuitNow payment slip" name="paymentSlip" required />
-          <input name="paymentMethod" type="hidden" value="online_payment" />
-          <input name="paymentAmount" type="hidden" value={monthlyRent} />
-          <input name="paymentPurpose" type="hidden" value="monthly_rent" />
-          <input name="paymentNote" type="hidden" value="" />
-          <p className="mt-2 text-xs leading-5 text-amber-900">
-            The room remains reserved until both the tenant registration and
-            this payment are verified. Cash is not accepted.
-          </p>
-        </fieldset>
-      ) : null}
-
-      {!canCollectReservationPayment && !isMonthlyStay && (
-        <>
-          <input name="paymentAmount" type="hidden" value={paymentAmount} />
-          <input name="paymentPurpose" type="hidden" value={paymentPurpose} />
-          <input name="paymentNote" type="hidden" value={paymentNote} />
-          <input name="paymentMethod" type="hidden" value="online_payment" />
-        </>
-      )}
 
       <div className="flex flex-col gap-2 border-t border-[#e3e8ef] pt-5 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="max-w-md text-xs leading-5 text-[#60708a]">

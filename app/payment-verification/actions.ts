@@ -535,10 +535,19 @@ export async function reviewPaymentSubmission(formData: FormData) {
         .eq("id", submission.tenant_application_id)
         .maybeSingle();
 
+      const { count: pendingApplicationPayments } = await supabase
+        .from("payment_submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_application_id", submission.tenant_application_id)
+        .eq("verification_status", "pending_verification");
+
       await supabase
         .from("tenant_applications")
         .update({
-          payment_status: "verified",
+          payment_status:
+            (pendingApplicationPayments ?? 0) > 0
+              ? "pending_verification"
+              : "verified",
           updated_at: new Date().toISOString(),
         })
         .eq("id", submission.tenant_application_id);

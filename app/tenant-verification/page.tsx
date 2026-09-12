@@ -84,7 +84,7 @@ export async function TenantVerificationContent({
       .select("id, tenant_application_id, document_type, file_path, file_name, content_type, verification_status"),
     supabase
       .from("payment_submissions")
-      .select("id, tenant_application_id, amount, receipt_url, verification_status")
+      .select("id, tenant_application_id, amount, payment_type, payment_note, receipt_url, verification_status")
       .not("tenant_application_id", "is", null),
   ]);
 
@@ -98,28 +98,36 @@ export async function TenantVerificationContent({
     documentsByApplication.set(document.tenant_application_id, list);
   }
 
-  const paymentByApplication = new Map<
+  const paymentsByApplication = new Map<
     string,
-    {
+    Array<{
       amount: number;
       fileName: string | null;
       id: string;
+      payment_note: string | null;
+      payment_type: string;
       signedUrl?: string;
       verification_status: string;
-    }
+    }>
   >();
   for (const payment of paymentsResult.data ?? []) {
-    if (!payment.tenant_application_id || !payment.receipt_url) continue;
-    const { data } = await supabase.storage
-      .from("payment-receipts")
-      .createSignedUrl(payment.receipt_url, 60 * 10);
-    paymentByApplication.set(payment.tenant_application_id, {
+    if (!payment.tenant_application_id) continue;
+    const { data } = payment.receipt_url
+      ? await supabase.storage
+          .from("payment-receipts")
+          .createSignedUrl(payment.receipt_url, 60 * 10)
+      : { data: null };
+    const list = paymentsByApplication.get(payment.tenant_application_id) ?? [];
+    list.push({
       amount: Number(payment.amount ?? 0),
-      fileName: payment.receipt_url.split("/").at(-1) ?? null,
+      fileName: payment.receipt_url?.split("/").at(-1) ?? null,
       id: payment.id,
+      payment_note: payment.payment_note,
+      payment_type: payment.payment_type,
       signedUrl: data?.signedUrl,
       verification_status: payment.verification_status,
     });
+    paymentsByApplication.set(payment.tenant_application_id, list);
   }
 
   const applications = applicationsResult.data ?? [];
@@ -169,6 +177,7 @@ export async function TenantVerificationContent({
                     <TableHead>Room</TableHead>
                     <TableHead>Rent</TableHead>
                     <TableHead>Deposits</TableHead>
+                    <TableHead>Check-in money</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Documents</TableHead>
                     <TableHead>Payment slip</TableHead>
@@ -181,15 +190,54 @@ export async function TenantVerificationContent({
                     const property = Array.isArray(application.properties) ? application.properties[0] : application.properties;
                     const room = Array.isArray(application.rooms) ? application.rooms[0] : application.rooms;
                     const documents = documentsByApplication.get(application.id) ?? [];
-                    const payment = paymentByApplication.get(application.id);
+                    const payments = paymentsByApplication.get(application.id) ?? [];
+                    const reportedRent = payments
+                      .filter((payment) => ["monthly_rent", "first_month_rental"].includes(payment.payment_type))
+                      .reduce((total, payment) => total + payment.amount, 0);
+                    const reportedDeposit = payments
+                      .filter((payment) => payment.payment_type === "deposit")
+                      .reduce((total, payment) => total + payment.amount, 0);
+                    const combinedReported = payments
+                      .filter((payment) => payment.payment_type === "rent_and_deposit")
+                      .reduce((total, payment) => total + payment.amount, 0);
+                    const totalDeposit =
+                      Number(application.deposit ?? 0) +
+                      Number(application.utility_deposit ?? 0);
+                    const uniquePaymentProofs = Array.from(
+                      new Map(
+                        payments
+                          .filter((payment) => payment.signedUrl)
+                          .map((payment) => [payment.signedUrl!, payment]),
+                      ).values(),
+                    );
+                    const staffPaymentNote = payments.find(
+                      (payment) => payment.payment_note,
+                    )?.payment_note;
 
                     return (
-                      <TableRow key={application.id}>
+                      <TableRow
+                        className={
+                          application.registration_mode === "check_in"
+                            ? "bg-emerald-50/50"
+                            : "bg-amber-50/40"
+                        }
+                        key={application.id}
+                      >
                         <TableCell className="min-w-64 align-top">
                           <p className="font-medium text-gray-950">
                             {application.full_name}
                           </p>
-                          <p className="mt-1 text-xs font-semibold text-amber-800">{application.registration_mode === "reservation" ? "RESERVATION ONLY — approval holds the room; no check-in or rent billing" : "Check-in application"}</p>
+                          <p
+                            className={`mt-1 inline-flex rounded px-2 py-1 text-xs font-semibold ${
+                              application.registration_mode === "reservation"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {application.registration_mode === "reservation"
+                              ? "RESERVATION ONLY — approval holds the room; no check-in or rent billing"
+                              : "NEW TENANT CHECK-IN"}
+                          </p>
                           {role === "super_admin" ? (
                             <details className="mt-2 rounded-md border border-[#d7dde5] bg-[#f8fafc] p-2 text-sm">
                               <summary className="cursor-pointer font-medium text-[#8a641e]">
@@ -266,6 +314,28 @@ export async function TenantVerificationContent({
                             )}
                           </p>
                         </TableCell>
+                        <TableCell className="min-w-56 align-top">
+                          <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                            <p className="font-semibold">Staff check-in declaration</p>
+                            <p>Room rent to collect: {money(application.monthly_rent)}</p>
+                            <p>Deposit to collect: {money(totalDeposit)}</p>
+                            <div className="border-t border-emerald-200 pt-1">
+                              <p>Rent reported paid: {money(reportedRent)}</p>
+                              <p>Deposit reported paid: {money(reportedDeposit)}</p>
+                              {combinedReported > 0 ? (
+                                <p>Combined payment reported: {money(combinedReported)}</p>
+                              ) : null}
+                            </div>
+                            <p className="text-xs text-emerald-800">
+                              Awaiting bank verification — not counted as paid yet.
+                            </p>
+                            {application.admin_notes ? (
+                              <p className="whitespace-pre-wrap border-t border-emerald-200 pt-2 text-xs">
+                                Registration note: {application.admin_notes}
+                              </p>
+                            ) : null}
+                          </div>
+                        </TableCell>
                         <TableCell>{application.contract_duration_months} months</TableCell>
                         <TableCell className="min-w-52">
                           <div className="grid grid-cols-2 gap-2">
@@ -286,24 +356,30 @@ export async function TenantVerificationContent({
                           </div>
                         </TableCell>
                         <TableCell className="min-w-40">
-                          {payment?.signedUrl ? (
+                          {uniquePaymentProofs.length ? (
                             <div className="space-y-2">
-                              <DocumentPreview
-                                fileName={payment.fileName}
-                                label="Payment slip"
-                                size="sm"
-                                url={payment.signedUrl}
-                              />
-                              <p className="text-xs text-gray-500">
-                                {money(payment.amount)}
-                              </p>
-                              <Badge
-                                className={statusBadgeClass(
-                                  payment.verification_status,
-                                )}
-                              >
-                                {payment.verification_status.replaceAll("_", " ")}
-                              </Badge>
+                              {uniquePaymentProofs.map((payment) => (
+                                <div key={payment.id}>
+                                  <DocumentPreview
+                                    fileName={payment.fileName}
+                                    label="Payment proof"
+                                    size="sm"
+                                    url={payment.signedUrl!}
+                                  />
+                                  <Badge
+                                    className={statusBadgeClass(
+                                      payment.verification_status,
+                                    )}
+                                  >
+                                    {payment.verification_status.replaceAll("_", " ")}
+                                  </Badge>
+                                </div>
+                              ))}
+                              {staffPaymentNote ? (
+                                <p className="whitespace-pre-wrap text-xs text-gray-600">
+                                  {staffPaymentNote}
+                                </p>
+                              ) : null}
                             </div>
                           ) : (
                             <span className="text-sm text-gray-500">None</span>
@@ -340,7 +416,7 @@ export async function TenantVerificationContent({
                                   type="number"
                                 />
                               </label>
-                              <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Notes optional" defaultValue={application.admin_notes ?? ""} />
+                              <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Admin verification note (staff check-in note is kept above)" />
                               <div className="grid gap-2 sm:grid-cols-3">
                                 <Button name="decision" size="sm" type="submit" value="verified">Approve</Button>
                                 <Button name="decision" size="sm" type="submit" value="more_information_required" variant="outline">More info</Button>

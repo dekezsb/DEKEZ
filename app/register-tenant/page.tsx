@@ -29,7 +29,8 @@ const errorMessages: Record<string, string> = {
   occupied: "That room is no longer vacant. Choose another room.",
   pending: "That room already has a tenant application awaiting review.",
   submit: "The tenant application could not be submitted.",
-  payment: "Enter the amount received and upload its payment slip. Leave the amount at zero if nothing has been paid yet.",
+  payment:
+    "Enter rent and deposit received separately. Neither amount can exceed the agreed amount, and payment proof is required whenever money is recorded.",
 };
 
 async function getAdmin() {
@@ -41,7 +42,10 @@ async function getAdmin() {
 }
 
 export default async function RegisterTenantPage({ searchParams }: PageProps) {
-  await requireRole(["super_admin", "admin"]);
+  await requireRole(
+    ["super_admin", "admin", "technician", "maintenance_staff"],
+    { module: "maintenance", level: "manage" },
+  );
   const params = await searchParams;
   const supabase = await getAdmin();
   const [properties, rooms, pendingResult] = await Promise.all([
@@ -66,7 +70,7 @@ export default async function RegisterTenantPage({ searchParams }: PageProps) {
           Current Page
         </p>
         <h1 className="mt-1 text-2xl font-semibold text-[#07142f]">
-          Register New Tenant
+          Register New Tenant Check-in
         </h1>
       </div>
 
@@ -106,11 +110,11 @@ export default async function RegisterTenantPage({ searchParams }: PageProps) {
 
       <Card className="rounded-lg border-[#d7dde5] shadow-sm">
         <CardHeader className="border-b border-[#e3e8ef]">
-          <CardTitle className="text-xl">Register New Tenant</CardTitle>
+          <CardTitle className="text-xl">Tenant Check-in Registration</CardTitle>
           <p className="max-w-2xl text-sm leading-6 text-[#60708a]">
-            Enter the tenant details and choose a vacant room. An Admin must
-            approve the application in Verification before the room is
-            assigned.
+            Your maintenance team can register the agreed room rent, required
+            deposit and any partial money received. Only an Admin can verify
+            the payment and assign the room.
           </p>
         </CardHeader>
         <CardContent className="pt-6">

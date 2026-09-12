@@ -222,7 +222,7 @@ export function moduleForPath(pathname: string): AccessModule | null {
   const routeModules: Array<[string, AccessModule]> = [
     ["/staff", "dashboard"],
     ["/admin-setup", "admin_setup"],
-    ["/register-tenant", "properties"],
+    ["/register-tenant", "maintenance"],
     ["/reservations", "properties"],
     ["/properties", "properties"],
     ["/room-availability", "properties"],

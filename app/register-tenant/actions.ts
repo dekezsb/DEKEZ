@@ -18,7 +18,6 @@ import { agreementTypeForProperty } from "@/lib/tenancy/agreement-types";
 import {
   commercialDepositSchedule,
 } from "@/lib/tenancy/commercial-deposit-policy";
-import { PAYMENT_PURPOSES, type PaymentPurpose } from "@/lib/payments/payment-purpose";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -28,14 +27,6 @@ function textValue(formData: FormData, key: string) {
 function numberValue(formData: FormData, key: string) {
   const value = Number(textValue(formData, key));
   return Number.isFinite(value) ? value : 0;
-}
-
-function paymentPurposeValue(formData: FormData) {
-  const value = textValue(formData, "paymentPurpose");
-  if ((PAYMENT_PURPOSES as readonly string[]).includes(value)) {
-    return value as PaymentPurpose;
-  }
-  return null;
 }
 
 async function getAdmin() {
@@ -53,9 +44,22 @@ function fail(code: string, propertyId = "", roomId = ""): never {
   redirect(`/register-tenant?${params.toString()}`);
 }
 
+function staffCheckInNote({
+  rentPaid,
+  depositPaid,
+  note,
+}: {
+  rentPaid: number;
+  depositPaid: number;
+  note: string;
+}) {
+  const declaredAmounts = `Staff payment declaration — rent received: RM ${rentPaid.toFixed(2)}; deposit received: RM ${depositPaid.toFixed(2)}.`;
+  return note ? `${declaredAmounts}\nStaff note: ${note}` : declaredAmounts;
+}
+
 export async function submitAdminTenantApplication(formData: FormData) {
-  await requireRole(["super_admin", "admin"], {
-    module: "properties",
+  await requireRole(["super_admin", "admin", "technician", "maintenance_staff"], {
+    module: "maintenance",
     level: "manage",
   });
   const user = await getCurrentUser();
@@ -106,9 +110,10 @@ export async function submitAdminTenantApplication(formData: FormData) {
   );
   const paymentSlip = formFile(formData, "paymentSlip");
   const paymentMethod = textValue(formData, "paymentMethod") || "online_payment";
-  const selectedPaymentPurpose = paymentPurposeValue(formData);
-  const paymentAmount = Math.max(0, numberValue(formData, "paymentAmount"));
-  const paymentNote = textValue(formData, "paymentNote");
+  const rentPaid = Math.max(0, numberValue(formData, "rentPaid"));
+  const depositPaid = Math.max(0, numberValue(formData, "depositPaid"));
+  const staffNote = textValue(formData, "staffNote");
+  const totalPaid = rentPaid + depositPaid;
   const hasPaymentSlip = Boolean(paymentSlip);
 
   if (
@@ -161,17 +166,6 @@ export async function submitAdminTenantApplication(formData: FormData) {
   const flexible = supportsReservations(property.property_code);
   const registrationMode = textValue(formData, "registrationMode") === "reservation" ? "reservation" : "check_in";
   if (registrationMode === "reservation" && !flexible) fail("property", propertyId, roomId);
-  if (isMonthlyStay && !flexible && !paymentSlip) {
-    fail("payment", propertyId, roomId);
-  }
-  if (flexible) {
-    if (hasPaymentSlip && (!selectedPaymentPurpose || paymentAmount <= 0)) {
-      fail("payment", propertyId, roomId);
-    }
-    if (paymentAmount > 0 && !hasPaymentSlip) {
-      fail("payment", propertyId, roomId);
-    }
-  }
   if (property.is_commercial && !commercialSupportingDocument) {
     fail("commercial_document", propertyId, roomId);
   }
@@ -217,6 +211,16 @@ export async function submitAdminTenantApplication(formData: FormData) {
     !isMonthlyStay && property.is_commercial
       ? commercialDeposits.utilityDeposit
       : 0;
+  const totalDepositRequired = securityDeposit + utilityDeposit;
+
+  if (
+    rentPaid > monthlyRent + 0.005 ||
+    depositPaid > totalDepositRequired + 0.005 ||
+    (totalPaid > 0 && !hasPaymentSlip) ||
+    (hasPaymentSlip && totalPaid <= 0)
+  ) {
+    fail("payment", propertyId, roomId);
+  }
 
   const { data: existingApplications } = await supabase
     .from("tenant_applications")
@@ -302,9 +306,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
       rental_model: property.rental_model,
       status: "submitted",
       verification_status: "pending_verification",
-      payment_status: paymentSlip ? "pending_verification" : "unpaid",
-      admin_notes:
-        paymentNote ? `Registration payment note: ${paymentNote}` : null,
+      payment_status: totalPaid > 0 ? "pending_verification" : "unpaid",
+      admin_notes: staffCheckInNote({ rentPaid, depositPaid, note: staffNote }),
     })
     .select("id")
     .single();
@@ -364,28 +367,53 @@ export async function submitAdminTenantApplication(formData: FormData) {
       fail("payment", propertyId, roomId);
     }
 
-    const { data: payment, error: paymentError } = await supabase
-      .from("payment_submissions")
-      .insert({
-        tenant_id: null,
-        tenant_application_id: application.id,
-        property_id: property.id,
-        unit_id: room.unit_id,
-        room_id: room.id,
-        bill_type: "check_in",
-        payment_type: selectedPaymentPurpose ?? "monthly_rent",
-        instalment: flexible,
-        payment_note: paymentNote || null,
-        amount: paymentAmount,
-        payment_date: textValue(formData, "paymentDate") || malaysiaDateString(),
-        payment_method: paymentMethod,
-        receipt_url: receiptPath,
-        verification_status: "pending_verification",
-      })
-      .select("id")
-      .single();
+    const paymentNote = staffCheckInNote({ rentPaid, depositPaid, note: staffNote });
+    const paymentRows = [
+      rentPaid > 0
+        ? {
+            tenant_id: null,
+            tenant_application_id: application.id,
+            property_id: property.id,
+            unit_id: room.unit_id,
+            room_id: room.id,
+            bill_type: "check_in",
+            payment_type: "monthly_rent",
+            instalment: registrationMode === "reservation",
+            payment_note: paymentNote,
+            amount: rentPaid,
+            payment_date: textValue(formData, "paymentDate") || malaysiaDateString(),
+            payment_method: paymentMethod,
+            receipt_url: receiptPath,
+            verification_status: "pending_verification",
+          }
+        : null,
+      depositPaid > 0
+        ? {
+            tenant_id: null,
+            tenant_application_id: application.id,
+            property_id: property.id,
+            unit_id: room.unit_id,
+            room_id: room.id,
+            bill_type: "check_in",
+            payment_type: "deposit",
+            instalment: registrationMode === "reservation",
+            payment_note: paymentNote,
+            amount: depositPaid,
+            payment_date: textValue(formData, "paymentDate") || malaysiaDateString(),
+            payment_method: paymentMethod,
+            receipt_url: receiptPath,
+            verification_status: "pending_verification",
+          }
+        : null,
+    ].filter((row): row is NonNullable<typeof row> => row !== null);
 
-    if (paymentError || !payment) {
+    const { data: payments, error: paymentError } = await supabase
+      .from("payment_submissions")
+      .insert(paymentRows)
+      .select("id")
+      .order("id");
+
+    if (paymentError || !payments?.length) {
       await Promise.all([
         supabase.storage.from("payment-receipts").remove([receiptPath]),
         supabase.storage
@@ -399,17 +427,19 @@ export async function submitAdminTenantApplication(formData: FormData) {
 
     const { error: attachmentError } = await supabase
       .from("payment_attachments")
-      .insert({
-        payment_submission_id: payment.id,
-        tenant_id: null,
-        file_path: receiptPath,
-        file_name: paymentSlip.name,
-        content_type: paymentSlip.type,
-      });
+      .insert(
+        payments.map((payment) => ({
+          payment_submission_id: payment.id,
+          tenant_id: null,
+          file_path: receiptPath,
+          file_name: paymentSlip.name,
+          content_type: paymentSlip.type,
+        })),
+      );
 
     if (attachmentError) {
       await Promise.all([
-        supabase.from("payment_submissions").delete().eq("id", payment.id),
+        supabase.from("payment_submissions").delete().in("id", payments.map((payment) => payment.id)),
         supabase.storage.from("payment-receipts").remove([receiptPath]),
         supabase.storage
           .from("tenant-documents")

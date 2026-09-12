@@ -61,6 +61,16 @@ export async function reviewTenantApplication(formData: FormData) {
 
   const supabase = await getAdmin();
   const status = decision === "verified" ? "approved" : decision === "rejected" ? "rejected" : "pending_verification";
+  const { data: existingApplication } = await supabase
+    .from("tenant_applications")
+    .select("admin_notes")
+    .eq("id", applicationId)
+    .maybeSingle();
+  const combinedNotes = notes
+    ? [existingApplication?.admin_notes, `Admin verification note: ${notes}`]
+        .filter(Boolean)
+        .join("\n\n")
+    : existingApplication?.admin_notes || null;
 
   const { data: application, error } = await supabase
     .from("tenant_applications")
@@ -69,7 +79,7 @@ export async function reviewTenantApplication(formData: FormData) {
       status,
       reviewed_by: user.id,
       reviewed_at: new Date().toISOString(),
-      admin_notes: notes || null,
+      admin_notes: combinedNotes,
       deposit,
       updated_at: new Date().toISOString(),
     })
@@ -115,7 +125,12 @@ export async function reviewTenantApplication(formData: FormData) {
             status: "submitted",
             reviewed_by: null,
             reviewed_at: null,
-            admin_notes: `Approval could not be completed: ${conversion.reason}`,
+            admin_notes: [
+              combinedNotes,
+              `Approval could not be completed: ${conversion.reason}`,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
             updated_at: new Date().toISOString(),
           })
           .eq("id", applicationId),

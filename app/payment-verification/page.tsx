@@ -52,6 +52,19 @@ type SubmissionRecord = {
   receipt_sha256: string | null;
   properties?: { name: string } | { name: string }[] | null;
   rooms?: { name: string; room_number: string | null } | { name: string; room_number: string | null }[] | null;
+  tenant_applications?: {
+    monthly_rent: number | string | null;
+    deposit: number | string | null;
+    utility_deposit: number | string | null;
+    admin_notes: string | null;
+    registration_mode: string | null;
+  } | {
+    monthly_rent: number | string | null;
+    deposit: number | string | null;
+    utility_deposit: number | string | null;
+    admin_notes: string | null;
+    registration_mode: string | null;
+  }[] | null;
   rent_bills?: {
     bill_month: string | null;
     due_date: string | null;
@@ -182,7 +195,7 @@ export async function PaymentVerificationContent({
   const propertyIds = params.property ? properties.filter((p) => p.id === params.property).map((p) => p.id) : properties.map((p) => p.id);
   const allSubmissions = propertyIds.length ? await allRows<SubmissionRecord>(supabase
     .from("payment_submissions")
-    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, payment_note, receipt_sha256, properties(name), rooms(name, room_number), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
+    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, payment_note, receipt_sha256, properties(name), rooms(name, room_number), tenant_applications(monthly_rent, deposit, utility_deposit, admin_notes, registration_mode), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
     .in("property_id", propertyIds).order("created_at", { ascending: false }).order("id")) : [];
   const matching = (s: SubmissionRecord) => (!params.tenant || s.tenant_id === params.tenant)
     && (!params.method || s.payment_method === params.method)
@@ -206,6 +219,26 @@ export async function PaymentVerificationContent({
 
   const today = malaysiaDate();
   const pendingPayments = allSubmissions.filter((submission) => submission.verification_status === "pending_verification");
+  const reportedCheckInAmounts = new Map<
+    string,
+    { rent: number; deposit: number }
+  >();
+  for (const submission of allSubmissions) {
+    if (!submission.tenant_application_id || submission.verification_status === "rejected") {
+      continue;
+    }
+    const amounts = reportedCheckInAmounts.get(submission.tenant_application_id) ?? {
+      rent: 0,
+      deposit: 0,
+    };
+    if (["monthly_rent", "first_month_rental"].includes(submission.payment_type)) {
+      amounts.rent += Number(submission.amount ?? 0);
+    }
+    if (submission.payment_type === "deposit") {
+      amounts.deposit += Number(submission.amount ?? 0);
+    }
+    reportedCheckInAmounts.set(submission.tenant_application_id, amounts);
+  }
   const verifiedPayments = allSubmissions.filter((submission) => submission.verification_status === "verified");
   const verifiedToday = verifiedPayments.filter(
     (submission) =>
@@ -320,23 +353,44 @@ export async function PaymentVerificationContent({
         <CardContent>
           {groups.length ? <div className="space-y-4">{groups.map(([key, unsorted]) => {
             const rows = [...unsorted].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
-            const first = buildRow(rows[0], profiles, tenantRecords, signedUrls);
+            const first = buildRow(rows[0], profiles, tenantRecords, signedUrls, reportedCheckInAmounts);
             const pending = rows.filter((s) => s.verification_status === "pending_verification");
             const verified = rows.filter((s) => s.verification_status === "verified");
-            return <details key={key} className="rounded-xl border bg-white" open={groups.length === 1}>
-              <summary className="cursor-pointer rounded-xl bg-slate-50 p-4">
+            const isCheckInFolder = rows.some((submission) => submission.bill_type === "check_in" || Boolean(submission.tenant_application_id));
+            const folderTone = isCheckInFolder
+              ? "border-emerald-200 bg-emerald-50/40"
+              : "border-sky-200 bg-sky-50/40";
+            const summaryTone = isCheckInFolder ? "bg-emerald-100/70" : "bg-sky-100/70";
+            return <details key={key} className={`rounded-xl border ${folderTone}`} open={groups.length === 1}>
+              <summary className={`cursor-pointer rounded-xl p-4 ${summaryTone}`}>
                 <span className="font-semibold">{first.tenantName} · {first.propertyName} / {first.roomName}</span>
+                <span className={`ml-2 inline-flex rounded px-2 py-0.5 text-xs font-semibold ${isCheckInFolder ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
+                  {isCheckInFolder ? "NEW TENANT CHECK-IN" : "MONTHLY RENTAL"}
+                </span>
                 <span className="mt-1 block text-sm">{key.startsWith("deposit:") ? "Deposit folder — all months" : `Rental folder — ${first.billMonth.slice(0, 7)}`} · {rows.length} slips · {pending.length} awaiting verification</span>
                 <span className="mt-1 block text-sm">Verified slips: {money(verified.reduce((n, s) => n + Number(s.amount), 0))} · Pending slips: {money(pending.reduce((n, s) => n + Number(s.amount), 0))}</span>
               </summary>
               <div className="p-4">
                 <p className="mb-3 text-sm text-gray-600">Check each transfer against your bank. Earlier verified slips remain visible and are already counted. Combined rent/deposit slips show the full transfer amount; use their allocation details when reviewing.</p>
                 <div className="grid gap-3 lg:grid-cols-3">{rows.map((submission, index) => {
-                  const row = buildRow(submission, profiles, tenantRecords, signedUrls);
-                  return <article key={submission.id} className={`rounded-lg border p-3 ${submission.verification_status === "verified" ? "border-green-200 bg-green-50" : "bg-white"}`}>
+                  const row = buildRow(submission, profiles, tenantRecords, signedUrls, reportedCheckInAmounts);
+                  const itemTone = row.isCheckIn
+                    ? "border-emerald-200 bg-emerald-50/70"
+                    : "border-sky-200 bg-sky-50/70";
+                  return <article key={submission.id} className={`rounded-lg border p-3 ${submission.verification_status === "verified" ? "border-green-300 bg-green-50" : itemTone}`}>
                     <h3 className="font-semibold">Slip {index + 1} · {row.amountSubmitted}</h3>
+                    <p className={`mt-1 inline-flex rounded px-2 py-0.5 text-xs font-semibold ${row.isCheckIn ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
+                      {row.isCheckIn ? "Check-in payment" : "Monthly rental payment"}
+                    </p>
                     <p className="text-sm">{formatMalaysiaDate(submission.payment_date)} · {submission.payment_type.replaceAll("_", " ")}</p>
                     <p className="break-words text-sm">Bank reference: {submission.reference_number || "Not entered"}</p>
+                    {row.checkInSummary ? (
+                      <div className="my-2 rounded border border-emerald-200 bg-white/70 p-2 text-xs text-emerald-950">
+                        <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
+                        <p>Staff reported: rent {row.checkInSummary.reportedRent} · deposit {row.checkInSummary.reportedDeposit}</p>
+                        {row.checkInSummary.note ? <p className="mt-1 whitespace-pre-wrap">Staff note: {row.checkInSummary.note}</p> : null}
+                      </div>
+                    ) : null}
                     {submission.payment_note ? <p className="my-2 whitespace-pre-wrap text-sm">{submission.payment_note}</p> : null}
                     <div className="my-3"><ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} /></div>
                     {submission.receipt_sha256 && submission.verification_status === "pending_verification" ? <>
@@ -365,12 +419,17 @@ function buildRow(
   profiles: Map<string, { id: string; full_name: string | null; phone: string | null }>,
   tenantRecords: Map<string, { id: string; full_name: string; phone: string | null }>,
   signedUrls: Map<string, string>,
+  reportedCheckInAmounts: Map<string, { rent: number; deposit: number }>,
 ) {
   const tenant = submission.tenant_id ? profiles.get(submission.tenant_id) : null;
   const tenantRecord = submission.tenant_record_id ? tenantRecords.get(submission.tenant_record_id) : null;
   const property = single(submission.properties);
   const room = single(submission.rooms);
   const bill = single(submission.rent_bills);
+  const application = single(submission.tenant_applications);
+  const checkInAmounts = submission.tenant_application_id
+    ? reportedCheckInAmounts.get(submission.tenant_application_id)
+    : null;
   const receiptUrl = signedUrls.get(submission.id) ?? null;
   const rawLineItems = bill?.rental_invoice_line_items;
   const lineItems = Array.isArray(rawLineItems)
@@ -427,6 +486,21 @@ function buildRow(
     verifiedBy: profiles.get(submission.verified_by ?? "")?.full_name ?? submission.verified_by,
     verifiedAt: submission.verified_at,
     rejectionReason: submission.rejection_reason,
+    isCheckIn:
+      submission.bill_type === "check_in" || Boolean(submission.tenant_application_id),
+    checkInSummary:
+      application && checkInAmounts
+        ? {
+            agreedRent: money(Number(application.monthly_rent ?? 0)),
+            requiredDeposit: money(
+              Number(application.deposit ?? 0) +
+                Number(application.utility_deposit ?? 0),
+            ),
+            reportedRent: money(checkInAmounts.rent),
+            reportedDeposit: money(checkInAmounts.deposit),
+            note: application.admin_notes,
+          }
+        : null,
   };
 }
 
