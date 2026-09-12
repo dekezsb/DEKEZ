@@ -328,6 +328,18 @@ export async function TenantVerificationContent({
                             <form action={reviewTenantApplication} className="space-y-2">
                               <input name="applicationId" type="hidden" value={application.id} />
                               <input name="returnTo" type="hidden" value={returnTo} />
+                              <label className="block space-y-1 text-sm font-medium">
+                                <span>Security deposit (RM)</span>
+                                <input
+                                  className="w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm"
+                                  defaultValue={Number(application.deposit ?? 0)}
+                                  min="0"
+                                  name="deposit"
+                                  required
+                                  step="0.01"
+                                  type="number"
+                                />
+                              </label>
                               <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Notes optional" defaultValue={application.admin_notes ?? ""} />
                               <div className="grid gap-2 sm:grid-cols-3">
                                 <Button name="decision" size="sm" type="submit" value="verified">Approve</Button>

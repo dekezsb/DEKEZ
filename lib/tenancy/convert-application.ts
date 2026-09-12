@@ -23,6 +23,104 @@ export type ConvertApplicationResult =
         | "tenant_record_failed";
     };
 
+type ApplicationForRecovery = {
+  id: string;
+  property_id: string;
+  room_id: string;
+  monthly_rent: number | string | null;
+  deposit: number | string | null;
+  status: string;
+  verification_status: string;
+};
+
+/**
+ * A request can be interrupted after the tenancy, room and tenant record were
+ * created but before the application state was finalized. Recover only when
+ * the active tenancy is explicitly linked to this exact application.
+ */
+async function recoverLinkedTenancyConversion(
+  supabase: SupabaseClient,
+  application: ApplicationForRecovery,
+  actorId: string,
+) {
+  const { data: matches } = await supabase
+    .from("tenancies")
+    .select(
+      "id, deposit, monthly_rental, check_in_date, tenancy_start_date, contract_start, start_date",
+    )
+    .eq("tenant_application_id", application.id)
+    .eq("property_id", application.property_id)
+    .eq("room_id", application.room_id)
+    .eq("status", "active")
+    .is("checkout_date", null)
+    .limit(2);
+
+  if ((matches?.length ?? 0) !== 1) return null;
+
+  const tenancy = matches![0];
+  if (
+    application.status === "converted_to_tenancy" &&
+    application.verification_status === "verified"
+  ) {
+    return tenancy.id;
+  }
+  const deposit = Math.max(
+    Number(application.deposit ?? 0),
+    Number(tenancy.deposit ?? 0),
+  );
+  const now = new Date().toISOString();
+  const startDate =
+    tenancy.check_in_date ??
+    tenancy.tenancy_start_date ??
+    tenancy.contract_start ??
+    tenancy.start_date;
+  const firstBillMonth = startDate ? `${startDate.slice(0, 7)}-01` : null;
+
+  const updates = [
+    supabase
+      .from("tenant_applications")
+      .update({
+        verification_status: "verified",
+        status: "converted_to_tenancy",
+        deposit,
+        reviewed_by: actorId,
+        reviewed_at: now,
+        admin_notes:
+          "Recovered the completed tenancy after an earlier approval was interrupted.",
+        updated_at: now,
+      })
+      .eq("id", application.id),
+    supabase
+      .from("tenant_records")
+      .update({ deposit, updated_at: now })
+      .eq("tenancy_id", tenancy.id),
+    supabase
+      .from("tenancies")
+      .update({ deposit, updated_at: now })
+      .eq("id", tenancy.id),
+  ];
+
+  if (firstBillMonth) {
+    updates.push(
+      supabase
+        .from("rent_bills")
+        .update({ deposit_amount: deposit, updated_at: now })
+        .eq("tenancy_id", tenancy.id)
+        .eq("bill_month", firstBillMonth)
+        .neq("status", "cancelled"),
+    );
+  }
+
+  const results = await Promise.all(updates);
+  if (results.some((result) => result.error)) return null;
+
+  await createAgreementForTenancy(supabase, tenancy.id, actorId, {
+    monthlyRent: Number(tenancy.monthly_rental ?? application.monthly_rent ?? 0),
+  });
+
+  return tenancy.id;
+}
+
 export async function convertTenantApplication(
   supabase: SupabaseClient,
   {
@@ -38,6 +136,17 @@ export async function convertTenantApplication(
     )
     .eq("id", applicationId)
     .maybeSingle();
+
+  if (application) {
+    const recoveredTenancyId = await recoverLinkedTenancyConversion(
+      supabase,
+      application,
+      actorId,
+    );
+    if (recoveredTenancyId) {
+      return { ok: true, tenancyId: recoveredTenancyId };
+    }
+  }
 
   if (
     !application ||

@@ -13,6 +13,13 @@ function textValue(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function amountValue(formData: FormData, key: string) {
+  const value = textValue(formData, key);
+  if (!value) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
 function returnPath(formData: FormData) {
   return textValue(formData, "returnTo") === "/verification?view=tenants"
     ? "/verification?view=tenants"
@@ -40,9 +47,15 @@ export async function reviewTenantApplication(formData: FormData) {
   const applicationId = textValue(formData, "applicationId");
   const decision = textValue(formData, "decision");
   const notes = textValue(formData, "notes");
+  const deposit = amountValue(formData, "deposit");
   const returnTo = returnPath(formData);
 
-  if (!user || !applicationId || !["verified", "rejected", "more_information_required"].includes(decision)) {
+  if (
+    !user ||
+    !applicationId ||
+    !["verified", "rejected", "more_information_required"].includes(decision) ||
+    deposit === null
+  ) {
     redirect(withResult(returnTo, "error=missing"));
   }
 
@@ -57,6 +70,7 @@ export async function reviewTenantApplication(formData: FormData) {
       reviewed_by: user.id,
       reviewed_at: new Date().toISOString(),
       admin_notes: notes || null,
+      deposit,
       updated_at: new Date().toISOString(),
     })
     .eq("id", applicationId)
