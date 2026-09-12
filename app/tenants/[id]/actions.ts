@@ -357,7 +357,9 @@ export async function updatePaymentPurpose(formData: FormData) {
   const supabase = await getAdmin();
   const { data: payment } = await supabase
     .from("payments")
-    .select("id, category, notes, status, reversed_at")
+    .select(
+      "id, category, notes, status, reversed_at, rent_bill_id, payment_submission_id",
+    )
     .eq("id", paymentId)
     .eq("property_id", propertyId)
     .eq("room_id", roomId)
@@ -390,6 +392,106 @@ export async function updatePaymentPurpose(formData: FormData) {
 
   if (error) {
     redirect(go("failed"));
+  }
+
+  // A purpose correction changes how the money is allocated. Recalculate the
+  // linked invoice from the confirmed payment rows so a deposit correction
+  // cannot leave the rental amount marked as paid.
+  if (payment.rent_bill_id) {
+    const [{ data: bill }, { data: lineItems }, { data: paymentRows }] =
+      await Promise.all([
+        supabase
+          .from("rent_bills")
+          .select("id, tenancy_id, amount, deposit_amount, paid_amount, status")
+          .eq("id", payment.rent_bill_id)
+          .maybeSingle(),
+        supabase
+          .from("rental_invoice_line_items")
+          .select("amount")
+          .eq("rent_bill_id", payment.rent_bill_id),
+        supabase
+          .from("payments")
+          .select("amount, category")
+          .eq("rent_bill_id", payment.rent_bill_id)
+          .in("status", ["confirmed", "paid"])
+          .is("reversed_at", null),
+      ]);
+
+    if (bill) {
+      const { data: tenancy } = bill.tenancy_id
+        ? await supabase
+            .from("tenancies")
+            .select("deposit")
+            .eq("id", bill.tenancy_id)
+            .maybeSingle()
+        : { data: null };
+      const extraTotal = (lineItems ?? []).reduce(
+        (total, item) => total + Number(item.amount ?? 0),
+        0,
+      );
+      const rentTotal = Math.max(Number(bill.amount ?? 0) + extraTotal, 0);
+      const depositRequired = Math.max(
+        Number(bill.deposit_amount ?? 0),
+        Number(tenancy?.deposit ?? 0),
+      );
+      const rentPaid = Math.min(
+        (paymentRows ?? [])
+          .filter((row) => row.category !== "deposit")
+          .reduce((total, row) => total + Number(row.amount ?? 0), 0),
+        rentTotal,
+      );
+      const depositPaid = Math.min(
+        (paymentRows ?? [])
+          .filter((row) => row.category === "deposit")
+          .reduce((total, row) => total + Number(row.amount ?? 0), 0),
+        depositRequired,
+      );
+      const totalDue = rentTotal + depositRequired;
+      const totalPaid = rentPaid + depositPaid;
+      const status =
+        totalPaid >= totalDue && totalDue > 0
+          ? "paid"
+          : totalPaid > 0
+            ? "partially_paid"
+            : "unpaid";
+
+      const { error: billError } = await supabase
+        .from("rent_bills")
+        .update({
+          paid_amount: rentPaid,
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", bill.id);
+
+      if (billError) {
+        redirect(go("failed"));
+      }
+
+      await supabase.from("rent_bill_audit_logs").insert({
+        bill_id: bill.id,
+        action: "correct_payment_purpose",
+        performed_by: user.id,
+        old_status: bill.status,
+        new_status: status,
+        old_paid_amount: Number(bill.paid_amount ?? 0),
+        new_paid_amount: rentPaid,
+        reason: correctionReason,
+      });
+    }
+  }
+
+  if (payment.payment_submission_id) {
+    const paymentType =
+      category === "deposit"
+        ? "deposit"
+        : category === "monthly_rent"
+          ? "monthly_rent"
+          : "other";
+    await supabase
+      .from("payment_submissions")
+      .update({ payment_type: paymentType, updated_at: new Date().toISOString() })
+      .eq("id", payment.payment_submission_id);
   }
 
   revalidatePath(`/tenants/${tenantKey}`);
