@@ -225,7 +225,8 @@ export function moduleForPath(pathname: string): AccessModule | null {
     ["/register-tenant", "maintenance"],
     ["/reservations", "properties"],
     ["/properties", "properties"],
-    ["/room-availability", "properties"],
+    // Room availability is shared by property users and maintenance users.
+    // Its page checks the appropriate module for the signed-in role.
     ["/smart-devices", "properties"],
     ["/rooms", "properties"],
     ["/tenants", "properties"],

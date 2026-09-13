@@ -109,17 +109,20 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Tenant Check-in", href: "/register-tenant", icon: CircleUserRound, module: "maintenance" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
   ],
   maintenance_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Tenant Check-in", href: "/register-tenant", icon: CircleUserRound, module: "maintenance" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
   ],
   cleaning_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
+    { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
     { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
   ],
   tenant: [
