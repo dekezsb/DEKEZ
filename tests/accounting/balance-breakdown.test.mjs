@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { balanceSnapshot, balanceComparison } from '../../lib/accounting/balance-breakdown.ts';
+import { balanceSnapshot, balanceComparison, accountLedger } from '../../lib/accounting/balance-breakdown.ts';
+
+test('asset ledger shows opening, separate debit/credit and closing in date order', () => {
+  const details = [
+    {id:'old',date:'2026-06-01',amount:100,source:'Posted journal'},
+    {id:'purchase',date:'2026-07-02',amount:50.25,source:'Bank voucher / adjustment offset'},
+    {id:'sale',date:'2026-07-03',amount:-20,source:'Posted journal'},
+  ];
+  const result=accountLedger(details,'Assets','2026-07-01','2026-07-31');
+  assert.equal(result.opening,100); assert.equal(result.debit,50.25); assert.equal(result.credit,20); assert.equal(result.closing,130.25);
+  assert.deepEqual(result.rows.map(r=>r.runningBalance),[150.25,130.25]);
+});
+test('liability credit increases balance, debit repayment reduces it, snapshots are not postings', () => {
+  const result=accountLedger([{id:'loan',date:'2026-07-01',amount:1000,source:'Posted journal'},{id:'repay',date:'2026-07-02',amount:-100,source:'Bank voucher / adjustment offset'},{id:'snapshot',date:'2026-07-03',amount:25,source:'Verified bill currently unpaid'}],'Liabilities','2026-07-01','2026-07-31');
+  assert.equal(result.credit,1000); assert.equal(result.debit,100); assert.equal(result.closing,925);
+  assert.equal(result.rows[2].debit,null); assert.equal(result.balanceSupport,25);
+});
 
 const defs = [
   {key:'asset', code:'1500', label:'Equipment', section:'Assets'},

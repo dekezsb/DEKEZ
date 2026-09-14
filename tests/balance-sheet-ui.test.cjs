@@ -23,5 +23,5 @@ test('Balance Sheet renders expandable account breakdowns, comparisons and trans
  const detail={id:'detail',date:'2026-07-01',reference:'PV-001',description:'Equipment purchase',propertyId:'a',propertyName:'SLS',amount:100,source:'Bank voucher'};
  const row={key:'asset',code:'1500',label:'Equipment',section:'Assets',amount:100,details:[detail]};
  const html=renderToStaticMarkup(React.createElement(BalanceSheetComparison,{current:{date:'2026-07-31',rows:[row]},prior:{date:'2026-06-30',rows:[{...row,amount:0,details:[]}]},scope:'All outlets'}));
- for(const text of ['<details','Equipment purchase','PV-001','SLS','31 Jul 2026','30 Jun 2026','Show zero-balance accounts','Historical limitation','Supporting total','Download supporting records','Liabilities','Equity']) assert.ok(html.includes(text),text);
+ for(const text of ['<details','Equipment purchase','PV-001','SLS','31 Jul 2026','30 Jun 2026','Show zero-balance accounts','Historical limitation','Closing balance','Debit','Credit','Running balance','View transactions','Show all available transactions','Download supporting records','Liabilities','Equity']) assert.ok(html.includes(text),text);
 });

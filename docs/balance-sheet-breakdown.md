@@ -11,3 +11,9 @@ Sources: currently outstanding invoices, confirmed deposit receipts, currently u
 The existing invoice/bill open-balance model uses current settlement status and editable source records; prior periods are management reconstructions, not immutable historical snapshots. This limitation is displayed on screen. The new report does not silently invent historical settlements or opening journals. The unexplained Assets minus Liabilities minus Equity difference remains visible for both dates and is not automatically classified as income or expense.
 
 No financial transactions, permissions or schema are changed by this report update.
+
+## Account transaction view
+
+Every account has a visible View transactions control. Each comparison date expands into a full-width ledger with a from-date filter, Show all available transactions, opening balance carried from available records, dated debit/credit columns, running balance and closing-to-report reconciliation. Each ledger is downloadable. Journal references open the selected journal; bank movements open the source statement.
+
+Actual journal/voucher entries, confirmed receipts and bank statement movements are distinguished from balance support. Currently outstanding invoice/bill summaries and derived profit support are NOT relabelled as posted transactions: they have blank debit/credit columns and appear in Other balance support. Consequently this is a ledger of the available report sources, not a claim that missing historical AR/AP postings have been reconstructed. Original financial records remain unchanged.

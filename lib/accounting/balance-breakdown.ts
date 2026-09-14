@@ -2,6 +2,7 @@ export type BalanceSectionName = "Assets" | "Liabilities" | "Equity";
 export type BalanceDetail = {
   id: string; date: string; reference: string; description: string;
   propertyId: string | null; propertyName: string; amount: number; source: string;
+  sourceHref?: string;
 };
 export type BalanceRow = {
   key: string; code: string; label: string; section: BalanceSectionName;
@@ -26,6 +27,28 @@ export function balanceSnapshot(date: string, definitions: Omit<BalanceRow, "amo
   return {date, rows: [...rows.values()].sort((a, b) => a.code.localeCompare(b.code))};
 }
 export type BalanceSnapshot = ReturnType<typeof balanceSnapshot>;
+
+export function accountLedger(details: BalanceDetail[], section: BalanceSectionName, from: string, to: string) {
+  const ordered = [...details].filter((line) => line.date <= to).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const isOpening = (line: BalanceDetail) => line.date < from || (line.date === from && line.description === "Statement opening balance");
+  const openingCents = ordered.filter(isOpening).reduce((sum, line) => sum + Math.round(line.amount * 100), 0);
+  let balanceCents = openingCents;
+  const rows = ordered.filter((line) => !isOpening(line)).map((line) => {
+    const cents = Math.round(line.amount * 100);
+    balanceCents += cents;
+    const kind = line.source === "Posted journal" || line.source === "Bank voucher / adjustment offset" ? "Posted entry"
+      : line.source === "Deposit payment" ? "Confirmed receipt"
+      : line.source.startsWith("Bank statement ending") ? "Bank movement"
+      : "Balance support — not a posting";
+    const signedDebit = section === "Assets" ? cents : -cents;
+    const posting = kind !== "Balance support — not a posting";
+    return {...line, kind, debit: posting ? Math.max(signedDebit, 0) / 100 : null, credit: posting ? Math.max(-signedDebit, 0) / 100 : null, runningBalance: balanceCents / 100};
+  });
+  return {opening: openingCents / 100, closing: balanceCents / 100, rows,
+    debit: rows.reduce((sum, row) => sum + Math.round((row.debit ?? 0) * 100), 0) / 100,
+    credit: rows.reduce((sum, row) => sum + Math.round((row.credit ?? 0) * 100), 0) / 100,
+    balanceSupport: rows.filter((row) => row.debit === null).reduce((sum, row) => sum + Math.round(row.amount * 100), 0) / 100};
+}
 
 export function balanceComparison(current: BalanceSnapshot, prior: BalanceSnapshot) {
   const priorByKey = new Map(prior.rows.map((row) => [row.key, row]));
