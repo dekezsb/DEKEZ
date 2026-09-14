@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
+import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -268,7 +270,7 @@ const errorMessages: Record<string, string> = {
 };
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
-  await requireRole(["super_admin", "owner", "admin"], { module: "reports", level: "view" });
+  const accountingRole = await requireRole(["super_admin", "owner", "admin"], { module: "reports", level: "view" });
   const params = await searchParams;
   const company = await getFirstCompany();
   if (!company) return <p className="text-sm text-gray-600">Set up a company before opening Accounting.</p>;
@@ -691,7 +693,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
 
   const statementLines = selectedStatementId
-    ? (await supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date").order("id")).data ?? []
+    ? (await allReportRows(supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date"))).data ?? []
     : [];
   const otherBankAccountIds = bankAccounts
     .filter((account) => account.id !== selectedStatement?.bank_account_id)
@@ -708,6 +710,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         .limit(1000)).data ?? []
     : [];
   const lineIds = statementLines.map((line) => line.id);
+  const [existingTenantPayments, accountingBankCredits] = tab === "bank" && bankFlow === "credit"
+    ? await Promise.all([loadExistingPayments(supabase, company.id), loadAccountingBankCredits(supabase, company.id)]) : [[], []];
   const matches = lineIds.length
     ? (await supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds)).data ?? []
     : [];
@@ -1220,13 +1224,18 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 </Link>
               </div>
 
-              <Card id="bank-transactions">
+              {bankFlow === "credit" ? <><div className="flex justify-end">{selectedStatement.status === "in_progress" ? <form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id}/><Button disabled={unmatchedCount>0||Math.abs(statementDifference)>0.005} type="submit">Finalise whole statement</Button></form> : <Badge>Reconciled and locked</Badge>}</div><TenantPaymentReconciliation
+                payments={existingTenantPayments}
+                banks={accountingBankCredits.filter(line=>line.statementId===selectedStatement.id)}
+                locked={selectedStatement.status!=="in_progress"}
+                canUnmatch={["super_admin","admin"].includes(accountingRole)}
+              /></> : <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <CardTitle className={bankFlow === "credit" ? "text-emerald-900" : "text-red-900"}>{bankFlow === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>
-                    <CardDescription>{bankFlow === "credit" ? `${creditLines.length} incoming receipts need attention. Rental suggestions are limited to the ${rentalMonthLabel(statementRentalMonth)} invoice month.` : `${debitLines.length} outgoing payments need attention. Allocate each debit to one recorded payment, several bills/claims, or an accounting category.`}</CardDescription>
+                    <CardTitle className={String(bankFlow) === "credit" ? "text-emerald-900" : "text-red-900"}>{String(bankFlow) === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>
+                    <CardDescription>{String(bankFlow) === "credit" ? `${creditLines.length} incoming receipts need attention. Rental suggestions are limited to the ${rentalMonthLabel(statementRentalMonth)} invoice month.` : `${debitLines.length} outgoing payments need attention. Allocate each debit to one recorded payment, several bills/claims, or an accounting category.`}</CardDescription>
                   </div>
-                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe {bankFlow === "credit" ? "credits" : "debits"}</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
+                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe {String(bankFlow) === "credit" ? "credits" : "debits"}</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {params.already_reconciled ? (
@@ -1492,9 +1501,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     );
                   })}
                   </CompactReconciliationList>
-                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All {bankFlow === "credit" ? "credits" : "debits"} have been matched or explained.</div> : null}
+                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All {String(bankFlow) === "credit" ? "credits" : "debits"} have been matched or explained.</div> : null}
                 </CardContent>
-              </Card>
+              </Card>}
             </>
           ) : <Card><CardContent className="pt-5"><p className="text-sm text-gray-600">Add a bank account and import a CSV statement to start reconciling.</p></CardContent></Card>}
         </div>

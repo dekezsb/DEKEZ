@@ -4,8 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export async function allReportRows<T>(query: PromiseLike<{ data: T[] | null; error: unknown }> & {
   order(column: string): unknown;
   range(from: number, to: number): PromiseLike<{ data: T[] | null; error: unknown }>;
-}) {
-  query.order("id");
+}, orderColumn = "id") {
+  query.order(orderColumn);
   const rows: T[] = [];
   for (let offset = 0; ; offset += 500) {
     const result = await query.range(offset, offset + 499);

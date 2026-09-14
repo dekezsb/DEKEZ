@@ -18,6 +18,8 @@ import {
 import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { refreshPaymentSuggestions } from "@/lib/accounting/tenant-reconciliation-data";
+import { allReportRows } from "@/lib/accounting/report-data";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -455,6 +457,11 @@ export async function importBankStatement(formData: FormData) {
   }
 
   revalidatePath("/reports");
+  try {
+    await refreshPaymentSuggestions(supabase, company.id);
+  } catch {
+    redirect(reportPath({ statement: statementImport.id, imported: String(parsedLines.length), suggestions: "retry" }));
+  }
   redirect(reportPath({ statement: statementImport.id, imported: String(parsedLines.length) }));
 }
 
@@ -968,6 +975,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
 
 export async function autoMatchStatement(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
+  if (bankFlowValue(formData) === "credit") redirect(bankActionPath(formData, { statement: textValue(formData, "statementId") }));
   const statementId = textValue(formData, "statementId");
   const bankFlow = bankFlowValue(formData);
   const [{ data: statementImport }, { data: lines }, { data: allMatches }, candidates] = await Promise.all([
@@ -1062,6 +1070,9 @@ export async function matchBankLine(formData: FormData) {
   const lineId = textValue(formData, "lineId");
   const sourceToken = textValue(formData, "sourceToken");
   const [sourceType, sourceId] = sourceToken.split(":");
+  if (["payment", "rent_bill"].includes(sourceType)) {
+    redirect(bankActionPath(formData, { error: "link_existing_payment_only" }));
+  }
   if (
     !lineId ||
     !sourceId ||
@@ -1307,6 +1318,10 @@ export async function unmatchBankLine(formData: FormData) {
     .eq("id", matchId)
     .maybeSingle();
   if (!match) redirect(bankActionPath(formData, { error: "unmatch_missing" }));
+  // Tenant payment links must use the audited admin-only unmatch action.
+  if (match.source_type === "payment" || match.source_type === "rent_bill") {
+    redirect(bankActionPath(formData, { error: "use_payment_unmatch" }));
+  }
   if (match.source_type === "bank_account_transfer") {
     const { data: linkedMatches } = await supabase
       .from("bank_reconciliation_matches")
@@ -1508,75 +1523,64 @@ export async function ignoreBankLine(formData: FormData) {
 }
 
 export async function createTenantPaymentFromBankLine(formData: FormData) {
-  const { user, company, supabase } = await accountingContext();
-  const lineId = textValue(formData, "lineId");
-  const rentBillId = textValue(formData, "rentBillId");
-  const [{ data: line }, { data: rentBill }] = await Promise.all([
-    supabase
-      .from("bank_statement_lines")
-      .select("id, statement_import_id, description, bank_statement_imports!inner(company_id, period_start, status)")
-      .eq("id", lineId)
-      .maybeSingle(),
-    supabase
-      .from("rent_bills")
-      .select("id, bill_month, property_id, room_id, properties!inner(company_id, property_code), rooms!inner(name, room_number)")
-      .eq("id", rentBillId)
-      .maybeSingle(),
-  ]);
-  const statement = singleRelation(line?.bank_statement_imports);
-  const property = singleRelation(rentBill?.properties);
-  const room = singleRelation(rentBill?.rooms);
-  const lineLocation = bankLocationToken(line?.description ?? "");
-  const invoiceLocation = bankLocationToken(
-    `${property?.property_code ?? ""} ${room?.name || room?.room_number || ""}`,
-  );
-  if (
-    !line ||
-    !rentBill ||
-    !statement ||
-    !property ||
-    statement.company_id !== company.id ||
-    property.company_id !== company.id ||
-    statement.status !== "in_progress" ||
-    rentBill.bill_month.slice(0, 7) !== statement.period_start.slice(0, 7) ||
-    (lineLocation !== null && invoiceLocation !== lineLocation)
-  ) {
-    redirect(reportPath({ statement: line?.statement_import_id ?? "", error: "tenant_payment_month" }));
+  await accountingContext();
+  redirect(bankActionPath(formData, { error: "link_existing_payment_only" }));
+}
+
+export async function refreshExistingPaymentSuggestions() {
+  const { company, supabase } = await accountingContext();
+  try {
+    await refreshPaymentSuggestions(supabase, company.id);
+    revalidatePath("/reports");
+    return { ok: true as const };
+  } catch {
+    return { ok: false as const, error: "Could not refresh suggestions. No payments or receipts were changed. Please retry." };
   }
-  const { error } = await supabase.rpc("record_bank_tenant_payment_and_match", {
-    target_statement_line_id: lineId,
-    target_rent_bill_id: rentBillId,
-    rental_allocation: numberValue(formData, "rentalAmount"),
-    deposit_allocation: numberValue(formData, "depositAmount"),
-    other_allocation: numberValue(formData, "otherAmount"),
-    other_category: textValue(formData, "otherCategory") || "other",
-    other_description: textValue(formData, "otherDescription") || null,
-    actor_id: user.id,
+}
+
+export async function reconcileExistingPayment(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const { error } = await supabase.rpc("reconcile_existing_tenant_payment", {
+    p_company: company.id, p_line: textValue(formData, "lineId"),
+    p_payment: textValue(formData, "paymentId"), p_actor: user.id,
   });
-  if (error) redirect(reportPath({ error: "tenant_payment_match" }));
+  if (error) return { ok: false as const, error: error.message.includes("duplicate") ? "Possible duplicate transaction. Please review." : "Cannot reconcile this pair. Check the existing payment, bank amount and statement status. Nothing was changed." };
   revalidatePath("/reports");
-  revalidatePath("/payments");
-  revalidatePath("/rent-due-tracker");
-  revalidatePath("/dashboard");
-  const postingMonth = rentBill.bill_month.slice(0, 7);
-  redirect(bankActionPath(formData, {
-    statement: line.statement_import_id,
-    month: postingMonth,
-    posting_month: postingMonth,
-    posting_kind: "tenant_receipt",
-    posting_account_key: "rental_income",
-    payment_matched: "1",
-  }));
+  return { ok: true as const };
+}
+
+export async function unreconcileExistingPayment(formData: FormData) {
+  await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
+  const { user, company, supabase } = await accountingContext();
+  const { error } = await supabase.rpc("unreconcile_existing_tenant_payment", {
+    p_company: company.id, p_payment: textValue(formData, "paymentId"),
+    p_actor: user.id, p_reason: textValue(formData, "reason"),
+  });
+  if (error) return { ok: false as const, error: "Unable to unmatch. An authorized admin and a reason are required." };
+  revalidatePath("/reports");
+  return { ok: true as const };
+}
+
+export async function unreconcileLegacyTenantBank(formData: FormData) {
+  await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
+  const { user, company, supabase } = await accountingContext();
+  const { error } = await supabase.rpc("unreconcile_legacy_tenant_bank", {
+    p_company: company.id, p_line: textValue(formData, "lineId"), p_actor: user.id, p_reason: textValue(formData, "reason"),
+  });
+  if (error) return { ok: false as const, error: "Unable to unmatch these legacy links. Admin review and a reason are required." };
+  revalidatePath("/reports");
+  return { ok: true as const };
 }
 
 export async function finalizeBankReconciliation(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
   const statementId = textValue(formData, "statementId");
-  const [{ data: statementImport }, { data: lines }] = await Promise.all([
+  const [{ data: statementImport }, { data: lines, error: lineError }] = await Promise.all([
     supabase.from("bank_statement_imports").select("id, opening_balance, closing_balance, status").eq("id", statementId).eq("company_id", company.id).single(),
-    supabase.from("bank_statement_lines").select("id, amount, status").eq("statement_import_id", statementId),
+    allReportRows(supabase.from("bank_statement_lines").select("id, amount, status").eq("statement_import_id", statementId)),
   ]);
   if (!statementImport || statementImport.status !== "in_progress") redirect(reportPath({ error: "statement_closed" }));
+  if (lineError) redirect(reportPath({ statement: statementId, error: "statement_lines" }));
   if ((lines ?? []).some((line) => !["matched", "adjusted", "ignored"].includes(line.status))) {
     redirect(reportPath({ statement: statementId, error: "statement_unmatched" }));
   }
