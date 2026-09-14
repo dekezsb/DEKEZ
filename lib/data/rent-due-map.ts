@@ -422,7 +422,7 @@ export async function getRentDueMap(
     loadConfirmedMonthlyRoomPayments(supabase, propertyIds, selectedMonth),
   ]);
 
-  const activeTenancyIds = new Set(tenancies.map((tenancy) => tenancy.id));
+  const activeTenancyRooms = new Map(tenancies.map((tenancy) => [tenancy.id, tenancy.room_id]));
   const activeTenancyRoomIds = new Set(
     tenancies.map((tenancy) => tenancy.room_id),
   );
@@ -442,9 +442,12 @@ export async function getRentDueMap(
       .map((tenant) => tenant.id),
   );
   const belongsToActiveOccupancy = (bill: RawRentBill) => {
-    if (bill.tenancy_id) return activeTenancyIds.has(bill.tenancy_id);
+    // Transfers retain the tenancy ID, but old invoices retain their old room.
+    // Never revive a vacated room in the current tracker through the ID alone.
+    if (bill.tenancy_id) return activeTenancyRooms.get(bill.tenancy_id) === bill.room_id;
     if (bill.tenant_record_id) {
-      return activeTenantRecordIds.has(bill.tenant_record_id);
+      return activeTenantRecordIds.has(bill.tenant_record_id) &&
+        tenantRecords.some((record) => record.id === bill.tenant_record_id && record.room_id === bill.room_id);
     }
     return Boolean(
       bill.tenant_id &&
