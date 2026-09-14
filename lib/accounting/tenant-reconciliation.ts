@@ -6,7 +6,7 @@ export type ExistingPayment = {
   bankId: string | null; legacyMatched: boolean;
   duplicate?: boolean; submissionOnly?: boolean;
 };
-export type StatementTransaction = { id: string; amount: number; date: string; reference: string; description: string; used: boolean; duplicate?: boolean; bankAccountId?: string; statementId?: string; legacyPaymentLinks?: {sourceType:string;sourceId:string;amount:number}[] };
+export type StatementTransaction = { id: string; amount: number; date: string; reference: string; description: string; used: boolean; completed?: boolean; duplicate?: boolean; bankAccountId?: string; statementId?: string; legacyPaymentLinks?: {sourceType:string;sourceId:string;amount:number}[] };
 const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 const contains = (haystack: string, needle: string) => normalized(needle).length >= 4 && normalized(haystack).includes(normalized(needle));
 export function rankExistingPayments(bank: StatementTransaction, payments: ExistingPayment[]) {

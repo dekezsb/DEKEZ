@@ -15,7 +15,7 @@ Module._load = function(request,...args){
 };
 for(const ext of ['.ts','.tsx']) Module._extensions[ext]=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true,target:ts.ScriptTarget.ES2022},fileName:f}).outputText,f);
 const {rankExistingPayments,flagDuplicateBanks,directReconciliationPayment}=require('../lib/accounting/tenant-reconciliation.ts');
-const {loadExistingPayments,refreshPaymentSuggestions}=require('../lib/accounting/tenant-reconciliation-data.ts');
+const {loadExistingPayments,loadAccountingBankCredits,refreshPaymentSuggestions}=require('../lib/accounting/tenant-reconciliation-data.ts');
 const {TenantPaymentReconciliation}=require('../components/accounting/tenant-payment-reconciliation.tsx');
 const React=require('react');
 const {renderToStaticMarkup}=require('react-dom/server');
@@ -73,13 +73,31 @@ test('duplicate bank detection includes account, amount, date and reference; amo
   const result=flagDuplicateBanks([bank({id:'used',used:true,bankAccountId:'a',reference:'REF123'}),bank({bankAccountId:'a',reference:'REF123'}),bank({id:'other-account',bankAccountId:'b',reference:'REF123'}),bank({id:'different',bankAccountId:'a',reference:'REF999',description:'Different'})]);
   assert.equal(result[1].duplicate,true);assert.equal(result[2].duplicate,false);assert.equal(result[3].duplicate,false);
 });
-test('compact UI displays original receipt, slip, AR and bank details, and exposes admin-only unmatch',()=>{
-  const render=(admin)=>renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[payment({bankId:'bank-1',reconciliationStatus:'RECONCILED'})],banks:[bank({used:true})],locked:false,canUnmatch:admin}));
+test('compact working UI displays original receipt, slip, AR and bank details',()=>{
+  const render=(admin)=>renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[payment()],banks:[bank()],locked:false,canUnmatch:admin}));
   const html=render(true);
-  for(const value of ['Example Tenant','INV-1001','REC-1001','BANK-1234','RECONCILED','View Receipt','View Slip','View Bank Transaction','AR reference','Unmatch']) assert.ok(html.includes(value),value);
+  for(const value of ['Example Tenant','INV-1001','REC-1001','BANK-1234','View Receipt','View Slip','View Bank Transaction','AR reference']) assert.ok(html.includes(value),value);
   assert.ok(!render(false).includes('>Unmatch</button>'));
   assert.ok(!html.includes('type="file"'),'no tenant upload controls');
   assert.ok(!html.includes('Create payment'),'no payment creation controls');
+});
+
+test('completed rows leave both working lists with no duplicate history, and return after unmatch',()=>{
+  const props={payments:[payment({bankId:'bank-1',reconciliationStatus:'RECONCILED'})],banks:[bank({used:true,completed:true})],locked:false,canUnmatch:true};
+  const before=JSON.stringify(props);
+  const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,props));
+  assert.match(html,/0 bank transactions still in process/);
+  assert.match(html,/No bank transactions left to reconcile/);
+  assert.match(html,/Payments \/ receipts still to reconcile \(0\)/);
+  for(const text of ['Example Tenant','REC-1001','>Unmatch</button>','Reconciled history'])assert.ok(!html.includes(text),text);
+  assert.equal(JSON.stringify(props),before,'display filtering must not mutate source records');
+  const reopened=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{...props,payments:[payment()],banks:[bank()]}));
+  assert.match(reopened,/Example Tenant/);assert.match(reopened,/1 bank transactions still in process/);
+});
+
+test('completed legacy bank rows are hidden but incomplete allocations remain for review',()=>{
+  const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[],banks:[bank({id:'done',completed:true,used:true,reference:'DONE-REF'}),bank({id:'partial',completed:false,used:true,reference:'PARTIAL-REF'})],locked:false,canUnmatch:true}));
+  assert.doesNotMatch(html,/DONE-REF/);assert.match(html,/PARTIAL-REF/);assert.match(html,/Existing allocation/);
 });
 
 function fakeDb(rows){
@@ -89,6 +107,14 @@ function fakeDb(rows){
     const q={select(){return q;},order(column){reads.push({table,column});return q;},range(a,b){range=[a,b];return q;},eq(){return q;},neq(){return q;},gt(){return q;},in(){return q;},is(){return q;},upsert(data){writes.push({table,op:'upsert',data});write=true;return q;},update(data){writes.push({table,op:'update',data});write=true;return q;},then(yes,no){return Promise.resolve({data:write?[]:filtered.slice(range[0],range[1]+1),error:null}).then(yes,no);}};return q;
   }};return db;
 }
+
+test('bank loader distinguishes completed statuses from an incomplete locked allocation without writes',async()=>{
+  const db=fakeDb({bank_statement_lines:['matched','adjusted','ignored','unmatched'].map((status,i)=>({id:`b${i}`,amount:380,status,bank_reconciliation_matches:i===3?[{source_type:'payment',source_id:'p',matched_amount:100}]:[]}))});
+  const rows=await loadAccountingBankCredits(db,'company');
+  assert.deepEqual(rows.map(b=>b.completed),[true,true,true,false]);
+  assert.equal(rows[3].used,true,'partial allocation remains locked but visible');
+  assert.equal(db.writes.length,0);
+});
 test('loader pages every payment, uses correct state primary key, and keeps orphan slips read-only',async()=>{
   const rows={payments:Array.from({length:501},(_,i)=>({id:`p${i}`,company_id:'c',amount:380,payment_date:'2026-09-07',status:'confirmed',reference_number:'',properties:{name:'SLS'},rooms:{room_number:'B4'},tenancies:{tenants:{full_name:'Example Tenant'}},receipts:[{receipt_number:`REC${i}`}]})),accounting_payment_reconciliations:[],bank_reconciliation_matches:[],payment_submissions:[{id:'orphan',amount:100,payment_date:'2026-09-07',receipt_url:'original.jpg',verification_status:'pending_verification',properties:{name:'SLS'},tenant_applications:{full_name:'Pending Applicant'}}]};
   const db=fakeDb(rows),before=JSON.stringify(rows);

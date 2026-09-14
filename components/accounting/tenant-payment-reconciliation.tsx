@@ -15,7 +15,11 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   const paymentById=useMemo(()=>new Map(payments.map(p=>[p.id,p])),[payments]);
   const paymentByBank=useMemo(()=>new Map(payments.filter(p=>p.bankId).map(p=>[p.bankId,p])),[payments]);
   const available=useMemo(()=>payments.filter(p=>p.eligible&&!p.bankId&&!p.legacyMatched),[payments]);
+  // Filter the display only: keep the full data for duplicate checks and matching locks.
+  const workingBanks=banks.filter(b=>!b.completed&&!paymentByBank.has(b.id));
+  const workingPayments=payments.filter(p=>!p.bankId&&!p.legacyMatched&&p.reconciliationStatus!=='RECONCILED');
   const matchesSearch=(value:string)=>value.toLowerCase().includes(search.toLowerCase());
+  const visibleBanks=workingBanks.filter(b=>matchesSearch(`${b.description} ${b.reference}`)||(suggestions.get(b.id)??[]).some(s=>matchesSearch(`${s.payment.tenant} ${s.payment.property} ${s.payment.room} ${s.payment.invoice} ${s.payment.receipt}`)));
   function run(bankId:string,paymentId:string,unmatch=false) {
     const reason=unmatch ? window.prompt('Reason for unmatching this payment:') : null;
     if(unmatch && !reason) return;
@@ -30,6 +34,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   }
   return <section className="space-y-3 rounded-lg border bg-white p-4" id="bank-transactions">
     <h2 className="text-lg font-semibold">Tenant payments ↔ Bank statement</h2>
+    <p className="text-sm font-medium">{workingBanks.length} bank transactions still in process. Completed items leave this page; view completed accounting entries in the ledger.</p>
     <p className="text-sm text-slate-600">Link existing records only. No new payment, receipt or Accounts Receivable posting. Suggestions never reconcile automatically.</p>
     <p className="text-sm text-slate-600">Clear matches with a receipt or slip are ready: View Receipt, check the tenant and amount, then press Reconcile. Use Manual Match when proof is missing or the match needs review.</p>
     <button type="button" disabled={pending||locked} className="rounded border px-3 py-2 text-sm disabled:opacity-40" onClick={()=>start(async()=>{try{const result=await refreshExistingPaymentSuggestions();setMessage(result.ok?'Suggestions refreshed. No payments or receipts changed.':result.error);if(result.ok)router.refresh();}catch{setMessage('Unable to refresh suggestions. Please retry.');}})}>Refresh match suggestions</button>
@@ -37,7 +42,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
     {message ? <p role="status" className="rounded bg-blue-50 p-2 text-sm">{message}</p>:null}
     <div className="max-h-[65vh] overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 z-10 bg-slate-100"><tr>
       {['Existing tenant payment / receipt','Property / Room','Invoice / Receipt No.','Receipt amount / date','Payment reference / AR','Bank amount / date','Bank description / reference','Confidence / Status','Action'].map(h=><th key={h} className="p-2">{h}</th>)}
-    </tr></thead><tbody>{banks.filter(b=>matchesSearch(`${b.description} ${b.reference} ${payments.find(p=>p.bankId===b.id)?.tenant ?? ''}`)|| (suggestions.get(b.id)??[]).some(s=>matchesSearch(`${s.payment.tenant} ${s.payment.property} ${s.payment.room} ${s.payment.invoice} ${s.payment.receipt}`))).map(bank=>{
+    </tr></thead><tbody>{!visibleBanks.length?<tr><td colSpan={9} className="p-6 text-center text-slate-600">{search?'No in-process transactions match your search.':'No bank transactions left to reconcile in this statement.'}</td></tr>:null}{visibleBanks.map(bank=>{
       const linked=paymentByBank.get(bank.id);
       const ranked=suggestions.get(bank.id)??[];
       const readyPayment=directReconciliationPayment(bank,ranked);
@@ -59,9 +64,9 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
           {!linked&&bank.legacyPaymentLinks?.length?<details className="mt-1"><summary>Review existing allocation</summary>{bank.legacyPaymentLinks.map(link=><p key={`${link.sourceType}:${link.sourceId}`}>{paymentById.get(link.sourceId)?.tenant??link.sourceType} · {money(link.amount)} · {link.sourceId}</p>)}{canUnmatch?<button type="button" disabled={pending} className="text-red-700 underline" onClick={()=>run(bank.id,'',true)}>Unmatch legacy links</button>:null}</details>:null}
         </td></tr>;
     })}</tbody></table></div>
-    <details><summary className="cursor-pointer font-semibold">All existing payments / receipts ({payments.length}) — including pending and unmatched</summary>
+    <details><summary className="cursor-pointer font-semibold">Payments / receipts still to reconcile ({workingPayments.length})</summary>
       <p className="py-2 text-xs text-slate-600">Slips awaiting an existing confirmed payment are read-only here. Continue to use your normal payment verification; reconciliation does not create or verify tenant payments.</p>
-      <div className="max-h-80 overflow-auto"><table className="w-full text-left text-xs"><thead><tr>{['Tenant','Property / Room','Invoice','Receipt','Amount / Date','Reference','Reconciliation status','Slip'].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead><tbody>{payments.filter(p=>matchesSearch(`${p.tenant} ${p.property} ${p.room} ${p.invoice} ${p.receipt} ${p.reference}`)).map(p=><tr className="border-t" key={p.id}><td className="p-2">{p.tenant}</td><td>{p.property} / {p.room}</td><td>{p.invoice||'—'}</td><td>{p.receipt||'—'}</td><td>{money(p.amount)} / {p.date}</td><td>{p.reference||'—'}</td><td>{p.bankId?'RECONCILED':p.legacyMatched?'MANUAL_REVIEW':p.reconciliationStatus}{!p.eligible?' — existing payment not confirmed / reversed':''}</td><td>{p.slipUrl?<a href={p.slipUrl} target="_blank" rel="noreferrer">View Slip</a>:'—'}</td></tr>)}</tbody></table></div>
+      <div className="max-h-80 overflow-auto"><table className="w-full text-left text-xs"><thead><tr>{['Tenant','Property / Room','Invoice','Receipt','Amount / Date','Reference','Reconciliation status','Slip'].map(h=><th className="p-2" key={h}>{h}</th>)}</tr></thead><tbody>{workingPayments.filter(p=>matchesSearch(`${p.tenant} ${p.property} ${p.room} ${p.invoice} ${p.receipt} ${p.reference}`)).map(p=><tr className="border-t" key={p.id}><td className="p-2">{p.tenant}</td><td>{p.property} / {p.room}</td><td>{p.invoice||'—'}</td><td>{p.receipt||'—'}</td><td>{money(p.amount)} / {p.date}</td><td>{p.reference||'—'}</td><td>{p.reconciliationStatus}{!p.eligible?' — existing payment not confirmed / reversed':''}</td><td>{p.slipUrl?<a href={p.slipUrl} target="_blank" rel="noreferrer">View Slip</a>:'—'}</td></tr>)}</tbody></table></div>
     </details>
   </section>;
 }
