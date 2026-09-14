@@ -87,6 +87,7 @@ type PageProps = {
 type VerificationView =
   | "users"
   | "tenants"
+  | "reservations"
   | "claims"
   | "agreements"
   | "meter_topups"
@@ -98,7 +99,8 @@ const views: {
   icon: typeof ShieldCheck;
 }[] = [
   { key: "users", label: "User Permission", icon: Building2 },
-  { key: "tenants", label: "Tenant & Room", icon: UserCheck },
+  { key: "tenants", label: "Check-in Approval", icon: UserCheck },
+  { key: "reservations", label: "Reservations", icon: UserCheck },
   { key: "claims", label: "Claim Bills", icon: ClipboardCheck },
   { key: "agreements", label: "Signed Agreement Verification", icon: FileSignature },
   { key: "payments", label: "Payment Verification", icon: CreditCard },
@@ -107,7 +109,7 @@ const views: {
 
 const errorMessages: Record<string, string> = {
   identity_first:
-    "Verify the Sulaman tenant registration first. Then verify the first-month payment to activate check-in.",
+    "Approve the tenant check-in first. Bank payment verification is a separate step and does not block check-in approval.",
   user_missing:
     "Choose a user permission and select properties when approving an Owner.",
   property_missing: "One of the selected properties could not be found.",
@@ -171,7 +173,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const availableViews =
     role === "admin"
       ? views.filter((view) =>
-          ["tenants", "agreements"].includes(view.key),
+          ["tenants", "reservations", "agreements"].includes(view.key),
         )
       : views;
   const activeView = availableViews.some((view) => view.key === params.view)
@@ -205,7 +207,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .is("end_date", null),
     supabase
       .from("tenant_applications")
-      .select("id, tenant_id, submission_source, property_id, room_id, full_name, verification_status, payment_status, status, proposed_start_date, proposed_end_date, properties(name), rooms(name, room_number)")
+      .select("id, registration_mode, tenant_id, submission_source, property_id, room_id, full_name, verification_status, payment_status, status, proposed_start_date, proposed_end_date, properties(name), rooms(name, room_number)")
       .order("submitted_at", { ascending: false }),
     supabase
       .from("claims")
@@ -319,7 +321,10 @@ export default async function VerificationPage({ searchParams }: PageProps) {
   const pendingCounts: Record<VerificationView, number> = {
     users: permissionUsers.length,
     tenants: tenantApplications.filter(
-      (application) => application.verification_status === "pending_verification",
+      (application) => application.registration_mode !== "reservation" && application.verification_status === "pending_verification" && application.status !== "draft",
+    ).length,
+    reservations: tenantApplications.filter(
+      (application) => application.registration_mode === "reservation" && application.verification_status === "pending_verification" && ["submitted", "pending_verification"].includes(application.status),
     ).length,
     claims: claims.filter(
       (claim) => claim.status === "pending_owner_approval",
@@ -416,7 +421,17 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       {activeView === "tenants" ? (
         <TenantVerificationContent
           embedded
+          registrationGroup="check_in"
           returnTo="/verification?view=tenants"
+          searchParams={searchParams}
+        />
+      ) : null}
+
+      {activeView === "reservations" ? (
+        <TenantVerificationContent
+          embedded
+          registrationGroup="reservation"
+          returnTo="/verification?view=reservations"
           searchParams={searchParams}
         />
       ) : null}

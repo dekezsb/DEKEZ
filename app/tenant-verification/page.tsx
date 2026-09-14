@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,9 +65,11 @@ export async function TenantVerificationContent({
   searchParams,
   embedded = false,
   returnTo = "/tenant-verification",
+  registrationGroup = "check_in",
 }: TenantVerificationPageProps & {
   embedded?: boolean;
   returnTo?: string;
+  registrationGroup?: "check_in" | "reservation";
 }) {
   const role = await requireRole(["super_admin", "admin"]);
   const params = await searchParams;
@@ -77,7 +80,7 @@ export async function TenantVerificationContent({
       .from("tenant_applications")
       .select("id, registration_mode, tenant_id, submitted_by, submission_source, identity_type, full_name, ic_passport_number, whatsapp_number, property_id, room_id, monthly_rent, deposit, utility_deposit, contract_duration_months, verification_status, payment_status, status, submitted_at, admin_notes, properties(name), rooms(name, room_number)")
       .neq("status", "draft")
-      .eq("verification_status", "pending_verification")
+      .in("status", ["submitted", "pending_verification", "approved"])
       .order("submitted_at", { ascending: false }),
     supabase
       .from("tenant_documents")
@@ -130,7 +133,11 @@ export async function TenantVerificationContent({
     paymentsByApplication.set(payment.tenant_application_id, list);
   }
 
-  const applications = applicationsResult.data ?? [];
+  const applications = (applicationsResult.data ?? []).filter((application) =>
+    registrationGroup === "reservation"
+      ? application.registration_mode === "reservation"
+      : application.registration_mode !== "reservation" && application.verification_status === "pending_verification",
+  );
 
   return (
     <section className="space-y-6">
@@ -160,8 +167,17 @@ export async function TenantVerificationContent({
 
       <Card>
         <CardHeader>
-          <CardTitle>Applications</CardTitle>
-          <CardDescription>Owner does not automatically see IC documents here. This page is for Admin/Super Admin review.</CardDescription>
+          <CardTitle>{registrationGroup === "reservation" ? "Room Reservations" : "Check-in Approval"}</CardTitle>
+          <CardDescription>
+            {registrationGroup === "reservation"
+              ? "Approve a reservation to hold the room only. No check-in or rent invoice is created. Approved reservations remain here until check-in or cancellation."
+              : "Approve the tenant and room to complete check-in. No payment is marked paid here; verify bank receipts separately in Payment Verification."}
+          </CardDescription>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button asChild size="sm" variant="outline"><Link href="/verification?view=tenants">Check-in Approval</Link></Button>
+            <Button asChild size="sm" variant="outline"><Link href="/verification?view=reservations">Reservations</Link></Button>
+            {registrationGroup === "reservation" ? <Button asChild size="sm" variant="outline"><Link href="/reservations">Manage reservations / request check-in</Link></Button> : null}
+          </div>
         </CardHeader>
         <CardContent>
           {applications.length ? (
@@ -316,7 +332,7 @@ export async function TenantVerificationContent({
                         </TableCell>
                         <TableCell className="min-w-56 align-top">
                           <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
-                            <p className="font-semibold">New tenant check-in declaration</p>
+                            <p className="font-semibold">{application.registration_mode === "reservation" ? "Reservation payment declaration" : "New tenant check-in declaration"}</p>
                             <p>Room rent to collect: {money(application.monthly_rent)}</p>
                             <p>Deposit to collect: {money(totalDeposit)}</p>
                             <div className="border-t border-emerald-200 pt-1">
@@ -418,7 +434,7 @@ export async function TenantVerificationContent({
                               </label>
                               <textarea className="min-h-16 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="notes" placeholder="Admin verification note (staff check-in note is kept above)" />
                               <div className="grid gap-2 sm:grid-cols-3">
-                                <Button name="decision" size="sm" type="submit" value="verified">Approve</Button>
+                                <Button name="decision" size="sm" type="submit" value="verified">{application.registration_mode === "reservation" ? "Approve reservation" : "Approve check-in"}</Button>
                                 <Button name="decision" size="sm" type="submit" value="more_information_required" variant="outline">More info</Button>
                                 <Button className="border-red-200 text-red-700 hover:bg-red-50" name="decision" size="sm" type="submit" value="rejected" variant="outline">Reject</Button>
                               </div>

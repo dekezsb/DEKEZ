@@ -137,6 +137,11 @@ export async function convertTenantApplication(
     .eq("id", applicationId)
     .maybeSingle();
 
+  // A reservation never activates occupancy, even through recovery of a stale link.
+  if (application?.registration_mode === "reservation") {
+    return { ok: false, reason: "application_not_ready" };
+  }
+
   if (application) {
     const recoveredTenancyId = await recoverLinkedTenancyConversion(
       supabase,

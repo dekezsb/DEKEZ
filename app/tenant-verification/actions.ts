@@ -21,8 +21,9 @@ function amountValue(formData: FormData, key: string) {
 }
 
 function returnPath(formData: FormData) {
-  return textValue(formData, "returnTo") === "/verification?view=tenants"
-    ? "/verification?view=tenants"
+  const path = textValue(formData, "returnTo");
+  return ["/verification?view=tenants", "/verification?view=reservations"].includes(path)
+    ? path
     : "/tenant-verification";
 }
 
@@ -63,9 +64,12 @@ export async function reviewTenantApplication(formData: FormData) {
   const status = decision === "verified" ? "approved" : decision === "rejected" ? "rejected" : "pending_verification";
   const { data: existingApplication } = await supabase
     .from("tenant_applications")
-    .select("admin_notes")
+    .select("admin_notes, status, verification_status")
     .eq("id", applicationId)
     .maybeSingle();
+  if (!existingApplication || !["submitted", "pending_verification"].includes(existingApplication.status) || existingApplication.verification_status === "verified") {
+    redirect(withResult(returnTo, "error=review"));
+  }
   const combinedNotes = notes
     ? [existingApplication?.admin_notes, `Admin verification note: ${notes}`]
         .filter(Boolean)
@@ -84,6 +88,8 @@ export async function reviewTenantApplication(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", applicationId)
+    .eq("status", existingApplication.status)
+    .eq("verification_status", existingApplication.verification_status)
     .select("tenant_id, room_id, submission_source, rental_model, payment_status, registration_mode")
     .single();
 
@@ -106,10 +112,7 @@ export async function reviewTenantApplication(formData: FormData) {
 
   if (
     decision === "verified" &&
-    application.registration_mode !== "reservation" &&
-    ["admin_assisted", "self_registration"].includes(
-      application.submission_source,
-    )
+    application.registration_mode !== "reservation"
   ) {
     const conversion = await convertTenantApplication(supabase, {
       actorId: user.id,
