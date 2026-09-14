@@ -30,6 +30,8 @@ import { ChartOfAccountsManager } from "@/components/accounting/chart-of-account
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
 import { BankExpenseVoucher } from "@/components/accounting/bank-expense-voucher";
+import { BalanceSheetComparison } from "@/components/accounting/balance-sheet-comparison";
+import { balanceSnapshot, type BalanceBasisLine, type BalanceRow, type BalanceSnapshot } from "@/lib/accounting/balance-breakdown";
 import { CompactReconciliationList } from "@/components/accounting/compact-reconciliation-list";
 import { OutletBalanceTable, type OutletBalanceEntry } from "@/components/accounting/outlet-balance-table";
 import { outletProfit } from "@/lib/accounting/outlet-profit";
@@ -274,8 +276,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const supabase = await createClient();
   const selectedMonth = validMonth(params.month) ?? new Date().toISOString().slice(0, 7);
   const startDate = `${selectedMonth}-01`;
-  const endDate = monthEnd(selectedMonth);
-  const yearStartDate = `${selectedMonth.slice(0, 4)}-01-01`;
+  let endDate = monthEnd(selectedMonth);
+  let yearStartDate = `${selectedMonth.slice(0, 4)}-01-01`;
   const priorDates = previousPeriod(startDate, endDate);
   const properties = (await getProperties()).filter((property) => property.company_id === company.id);
   const propertyIds = properties.map((property) => property.id);
@@ -286,9 +288,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const comparison = params.comparison === "last-year" ? "last-year" : "previous";
   let pnlDates = reportPeriod(selectedMonth);
   let periodError = "";
-  if (tab === "profit-loss") {
+  if (tab === "profit-loss" || tab === "balance-sheet") {
     try { pnlDates = reportPeriod(selectedMonth, period, params.from, params.to, comparison); }
     catch (error) { periodError = error instanceof Error ? error.message : "Invalid reporting period"; }
+  }
+  if (tab === "balance-sheet") {
+    endDate = pnlDates.endDate;
+    yearStartDate = `${endDate.slice(0, 4)}-01-01`;
   }
 
 
@@ -297,17 +303,18 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
-    supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false }).limit(240),
+    allReportRows(supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false })),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, description, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
     supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
-    supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
-    supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate),
+    allReportRows(supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false })),
+    allReportRows(supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate)),
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
-    allReportRows(supabase.from("bank_manual_transactions").select("id, amount, offset_account_id, property_id").eq("company_id", company.id).lte("transaction_date", endDate)),
+    allReportRows(supabase.from("bank_manual_transactions").select("id, amount, offset_account_id, property_id, transaction_date, reference_number, description").eq("company_id", company.id).lte("transaction_date", endDate)),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
+  if (tab === "balance-sheet" && [bankAccountsResult, statementsResult, accountsResult, journalEntriesResult, depositPaymentsResult, liabilitiesResult].some((result) => result.error)) throw new Error("Unable to load all Balance Sheet sources. Please retry; partial balances are not shown.");
   if (manualBalanceTransactionsResult.error) throw new Error("Unable to load bank voucher balances. Please retry.");
   const statementImports = statementsResult.data ?? [];
   const accounts = accountsResult.data ?? [];
@@ -459,7 +466,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
   let openBills: Array<Record<string, any>> = [];
   if (propertyIds.length) {
-    const result = await supabase
+    const result = await allReportRows(supabase
       .from("rent_bills")
       .select("id, tenancy_id, tenant_record_id, tenant_id, property_id, room_id, bill_month, due_date, invoice_number, amount, deposit_amount, paid_amount, status")
       .in("property_id", propertyIds)
@@ -477,7 +484,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         "paid",
       ])
       .is("removed_at", null)
-      .order("due_date", { ascending: true });
+      .order("due_date", { ascending: true }));
+    if (result.error) throw new Error("Unable to load invoice balances");
     openBills = result.data ?? [];
   }
   const billIds = openBills.map((bill) => bill.id as string);
@@ -833,6 +841,95 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     in_progress: "bg-amber-100 text-amber-800",
   };
 
+  let balanceSnapshots: {current: BalanceSnapshot; prior: BalanceSnapshot} | null = null;
+  if (tab === "balance-sheet") {
+    const [allAccountsResult, comparisonProfit] = await Promise.all([
+      allReportRows(supabase.from("accounting_accounts").select("id, code, name, account_type, system_key, is_active").eq("company_id", company.id)),
+      getProfitLossReport(supabase, {companyId: company.id, startDate: `${pnlDates.priorEndDate.slice(0, 4)}-01-01`, endDate: pnlDates.priorEndDate, propertyId: selectedPropertyId || null, includeDetails: true}),
+    ]);
+    if (allAccountsResult.error) throw new Error("Unable to load Balance Sheet accounts");
+    const balanceStatementIds = [...new Set([endDate, pnlDates.priorEndDate].flatMap((date) => bankAccounts.map((bank) => statementImports.find((s) => s.bank_account_id === bank.id && s.period_end <= date)?.id).filter((id): id is string => Boolean(id))))];
+    const bankBreakdownResult = balanceStatementIds.length
+      ? await allReportRows(supabase.from("bank_statement_lines").select("id, statement_import_id, transaction_date, description, reference_number, amount").in("statement_import_id", balanceStatementIds))
+      : {data: [], error: null};
+    if (bankBreakdownResult.error) throw new Error("Unable to load bank statement supporting movements");
+    const reportingAccounts = allAccountsResult.data;
+    const byId = new Map(reportingAccounts.map((a) => [a.id, a]));
+    const definitions: Omit<BalanceRow, "amount" | "details">[] = reportingAccounts
+      .filter((a) => ["asset", "liability", "equity"].includes(a.account_type))
+      .map((a) => ({key: a.id, code: a.code, label: a.name + (a.is_active ? "" : " (inactive)"), section: a.account_type === "asset" ? "Assets" : a.account_type === "liability" ? "Liabilities" : "Equity"}));
+    const base: BalanceBasisLine[] = [];
+    const definition = (key: string, code: string, label: string, section: BalanceRow["section"]) => {
+      const account = reportingAccounts.find((a) => a.system_key === key);
+      const result = account ? definitions.find((d) => d.key === account.id) : null;
+      if (result) return result;
+      const fallback = {key, code, label, section};
+      if (!definitions.some((d) => d.key === key)) definitions.push(fallback);
+      return fallback;
+    };
+    const rentAR = definition("rental_receivable", "1100", "Rental receivables", "Assets");
+    const depositAR = definition("deposit_receivable", "1110", "Deposit receivables", "Assets");
+    const depositHeld = definition("tenant_security_deposits", "2200", "Tenant security deposits held", "Liabilities");
+    const companyAP = definition("accounts_payable", "2000", "Accounts payable", "Liabilities");
+    const staffAP = definition("staff_reimbursement_payable", "2100", "Staff reimbursement payable", "Liabilities");
+    const earnings = {key: "current-earnings", code: "YTD", label: "Current-year profit / (loss)", section: "Equity" as const};
+    definitions.push(earnings);
+    const propertyName = (id: string | null) => propertyNames.get(id ?? "") ?? "Office / shared company";
+    for (const bill of allInvoiceOptions) {
+      const common = {date: bill.dueDate, propertyId: bill.propertyId, propertyName: propertyName(bill.propertyId), reference: bill.invoiceNumber ?? bill.id, description: `${bill.tenantName} · ${bill.roomName} · ${bill.billMonth.slice(0, 7)}`, source: "Invoice outstanding using current settlement status"};
+      if (bill.rentOutstanding) base.push({...rentAR, ...common, id: `rent-${bill.id}`, amount: bill.rentOutstanding});
+      if (bill.depositOutstanding) base.push({...depositAR, ...common, id: `deposit-ar-${bill.id}`, amount: bill.depositOutstanding});
+    }
+    for (const payment of depositPaymentsResult.data ?? []) base.push({...depositHeld, id: `deposit-${payment.id}`, date: payment.payment_date, reference: payment.id, description: "Confirmed tenant deposit receipt", propertyId: payment.property_id, propertyName: propertyName(payment.property_id), amount: Number(payment.amount), source: "Deposit payment"});
+    for (const expense of companyBatchRows) base.push({...companyAP, id: `bill-${expense.id}`, date: expense.expense_date, reference: expense.id, description: [expense.supplier, expense.description].filter(Boolean).join(" · "), propertyId: expense.property_id, propertyName: propertyName(expense.property_id), amount: Number(expense.amount), source: "Verified bill currently unpaid"});
+    for (const liability of companyLiabilities) {
+      const expense = liabilityExpenses.get(liability.expense_id);
+      if (!expense) continue;
+      base.push({...staffAP, id: `staff-${liability.id}`, date: expense.expense_date, reference: expense.id, description: `${staffNames.get(liability.staff_id) ?? "Staff"} · ${expense.description ?? expense.supplier ?? "Claim"}`, propertyId: expense.property_id, propertyName: propertyName(expense.property_id), amount: Number(liability.amount), source: "Claim currently awaiting reimbursement"});
+    }
+    const addPosting = (accountId: string, id: string, date: string, reference: string, description: string, propertyId: string | null, netDebit: number, source: string) => {
+      const account = byId.get(accountId);
+      const row = definitions.find((d) => d.key === accountId);
+      // Imported bank statements already include their bank-side movements.
+      if (!account || !row || bankAccountLedgerIds.has(accountId)) return;
+      base.push({...row, id, date, reference, description, propertyId, propertyName: propertyName(propertyId), amount: account.account_type === "asset" ? netDebit : -netDebit, source});
+    };
+    for (const line of journalLines) {
+      const entry = journalEntryById.get(line.journal_entry_id);
+      if (entry) addPosting(line.account_id, `journal-${line.id}`, entry.entry_date, entry.entry_number ?? entry.id, line.description ?? entry.description ?? "Journal", line.property_id, Number(line.debit) - Number(line.credit), "Posted journal");
+    }
+    for (const transaction of manualBalanceTransactionsResult.data) addPosting(transaction.offset_account_id, `voucher-${transaction.id}`, transaction.transaction_date, transaction.reference_number ?? transaction.id, transaction.description ?? "Bank voucher", transaction.property_id, -Number(transaction.amount), "Bank voucher / adjustment offset");
+    const makeSnapshot = (date: string, profit: typeof yearToDateReport) => {
+      const dated: BalanceBasisLine[] = [...base];
+      for (const bank of bankAccounts) {
+        const statement = statementImports.find((s) => s.bank_account_id === bank.id && s.period_end <= date);
+        const openingAvailable = bank.opening_balance_date && bank.opening_balance_date <= date;
+        if (!statement && !openingAvailable) continue;
+        const account = byId.get(bank.accounting_account_id);
+        const bankDefinition = definitions.find((d) => d.key === bank.accounting_account_id) ?? {key: `bank-${bank.id}`, code: "BANK", label: bank.name, section: "Assets" as const};
+        const value = Number(statement ? statement.closing_balance : bank.opening_balance);
+        const movements = statement ? bankBreakdownResult.data.filter((line) => line.statement_import_id === statement.id) : [];
+        const arithmetic = Number(statement?.opening_balance ?? 0) + movements.reduce((sum, line) => sum + Number(line.amount), 0);
+        const bankSign = account?.account_type === "liability" && value < 0 ? -1 : 1;
+        const bankCommon = {...bankDefinition, propertyId: null, propertyName: `Shared company bank · ${bank.name}`, shared: true};
+        if (statement && movements.every((line) => line.transaction_date <= statement.period_end) && Math.abs(arithmetic - value) < 0.005) {
+          dated.push({...bankCommon, id: `opening-${statement.id}`, date: statement.period_start, reference: statement.original_file_name ?? statement.id, description: "Statement opening balance", amount: Number(statement.opening_balance) * bankSign, source: `Statement ending ${statement.period_end}`});
+          for (const line of movements) dated.push({...bankCommon, id: `bank-line-${line.id}`, date: line.transaction_date, reference: line.reference_number ?? line.id, description: line.description, amount: Number(line.amount) * bankSign, source: `Bank statement ending ${statement.period_end}`});
+        } else {
+          dated.push({...bankCommon, id: `bank-${bank.id}`, date: statement?.period_end ?? bank.opening_balance_date!, reference: statement?.original_file_name ?? "Opening balance", description: statement ? "Imported closing balance — statement movements do not reconcile or are incomplete; review the statement" : "Recorded opening balance", amount: value * bankSign, source: statement ? "Closing balance only; transaction breakdown unavailable" : "Opening bank balance"});
+        }
+      }
+      for (const [group, sign] of [[profit.revenue, 1], [profit.costsOfSales, -1], [profit.expenses, -1]] as const) {
+        for (const row of group) for (const detail of row.details) dated.push({...earnings, id: `profit-${row.key}-${detail.id}`, date: detail.date, reference: detail.documentNumber || detail.referenceNumber || detail.id, description: `${row.label} · ${detail.description}`, propertyId: detail.propertyId ?? null, propertyName: detail.propertyName, amount: detail.amount * sign, source: detail.sourceLabel});
+      }
+      const snapshot = balanceSnapshot(date, definitions, dated, selectedPropertyId);
+      const earningsTotal = snapshot.rows.find((row) => row.key === earnings.key)?.amount ?? 0;
+      if (Math.abs(earningsTotal - profit.netProfit) > 0.011) throw new Error("Balance Sheet profit supporting records do not reconcile to P&L. Please review the source records.");
+      return snapshot;
+    };
+    balanceSnapshots = {current: makeSnapshot(endDate, yearToDateReport), prior: makeSnapshot(pnlDates.priorEndDate, comparisonProfit)};
+  }
+
   return (
     <section className="space-y-6 pb-12">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -843,7 +940,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </div>
         <form className="grid gap-2 rounded-lg border border-[#d7dde5] bg-white p-3 sm:grid-cols-2 xl:max-w-2xl" method="get">
           <input name="tab" type="hidden" value={tab} />
-          {tab === "profit-loss" ? <PnlPeriodFields key={`${period}-${selectedMonth}-${params.from}-${params.to}-${comparison}`} period={period} month={selectedMonth} from={params.from} to={params.to} comparison={comparison} /> : <label className="text-xs font-medium text-gray-600">Reporting month<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3 text-sm" defaultValue={selectedMonth} name="month" type="month" /></label>}
+          {(tab === "profit-loss" || tab === "balance-sheet") ? <PnlPeriodFields key={`${period}-${selectedMonth}-${params.from}-${params.to}-${comparison}`} period={period} month={selectedMonth} from={params.from} to={params.to} comparison={comparison} /> : <label className="text-xs font-medium text-gray-600">Reporting month<input className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] px-3 text-sm" defaultValue={selectedMonth} name="month" type="month" /></label>}
           <label className="text-xs font-medium text-gray-600">Outlet / property<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3 text-sm" defaultValue={selectedPropertyId} name="property"><option value="">All outlets / properties</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>
           <Button className="self-end" type="submit">View</Button>
         </form>
@@ -923,7 +1020,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </>
       ) : null}
 
-      {tab === "profit-loss" && periodError ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{periodError}. Please update the filters and click View.</p> : null}
+      {(tab === "profit-loss" || tab === "balance-sheet") && periodError ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{periodError}. Please update the filters and click View.</p> : null}
       {tab === "profit-loss" && !periodError ? (
         <ProfitLossStatement
           currentReport={currentReport}
@@ -938,44 +1035,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         />
       ) : null}
 
-      {tab === "balance-sheet" ? (
+      {tab === "balance-sheet" && balanceSnapshots && !periodError ? (
         <div className="space-y-5">
-          {!selectedPropertyId ? <OutletBalanceTable outlets={properties.map(({ id, name }) => ({ id, name }))} entries={outletBalances} date={endDate} /> : null}
-          <Card>
-            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><CardTitle>Balance Sheet</CardTitle><CardDescription>As at {dateLabel(endDate)} · accrual basis · shows who owes DEKEZ and what DEKEZ still owes.</CardDescription></div>
-              <CsvDownloadButton
-                fileName={`DEKEZ-balance-sheet-${endDate}.csv`}
-                label="Download balance sheet CSV"
-                rows={[
-                  ["DEKEZ Balance Sheet", `As at ${endDate}`],
-                  ["Section", "Code", "Account", "Amount RM", "Source"],
-                  ...balanceAssets.map((row) => ["Assets", row.code, row.label, row.amount.toFixed(2), row.source]),
-                  ["Assets", "", "Total Assets", totalAssets.toFixed(2), ""],
-                  ...balanceLiabilities.map((row) => ["Liabilities", row.code, row.label, row.amount.toFixed(2), row.source]),
-                  ["Liabilities", "", "Total Liabilities", totalLiabilities.toFixed(2), ""],
-                  ...balanceEquity.map((row) => ["Equity", row.code, row.label, row.amount.toFixed(2), row.source]),
-                  ["Equity", "", "Total Equity", totalEquity.toFixed(2), ""],
-                  ["Control", "", "Unbalanced / opening data still to post", balanceSheetDifference.toFixed(2), "Must be RM0.00 before audit finalisation"],
-                ]}
-              />
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-                Income and expense accounts do not appear as separate Balance Sheet lines. Their matched effect is included in Bank, Rental Receivables or Payables, and Current-year profit. Open the P&amp;L supporting ledger or Trial Balance to see the income/expense account itself.
-              </div>
-              {selectedPropertyId ? <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">The property filter is active. Tenant and journal balances are filtered, but bank accounts remain company-level because one bank account serves several properties.</div> : null}
-              <div className="grid gap-5 xl:grid-cols-3">
-                <BalanceSection rows={balanceAssets} title="Assets" total={totalAssets} tone="emerald" />
-                <BalanceSection rows={balanceLiabilities} title="Liabilities" total={totalLiabilities} tone="red" />
-                <BalanceSection rows={balanceEquity} title="Equity" total={totalEquity} tone="blue" />
-              </div>
-              <div className={`rounded-lg border px-4 py-4 ${Math.abs(balanceSheetDifference) < 0.005 ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><strong>{Math.abs(balanceSheetDifference) < 0.005 ? "Balance sheet balances" : "Opening / conversion balance still needs a journal"}</strong><span className="text-lg font-bold">Difference {money(balanceSheetDifference)}</span></div>
-                <p className="mt-2 text-xs">Before year-end audit finalisation this difference must be RM0.00. Use a balanced journal only after checking opening bank, loan, fixed-asset, AP and AR records.</p>
-              </div>
-            </CardContent>
-          </Card>
+          <BalanceSheetComparison current={balanceSnapshots.current} prior={balanceSnapshots.prior} scope={properties.find((p) => p.id === selectedPropertyId)?.name ?? "All outlets / company"} />
+          {!selectedPropertyId ? <OutletBalanceTable outlets={properties.map(({id, name}) => ({id, name}))} entries={balanceSnapshots.current.rows.flatMap((row) => row.details.map((line) => ({propertyId: line.propertyId, section: row.section, label: row.label, amount: line.amount})))} date={endDate} /> : null}
         </div>
       ) : null}
 
