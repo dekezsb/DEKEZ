@@ -50,6 +50,7 @@ import { allReportRows, getProfitLossReport, previousPeriod } from "@/lib/accoun
 import { requireRole } from "@/lib/auth/session";
 import { getFirstCompany, getProperties } from "@/lib/data/organization";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   autoMatchStatement,
   createBankAccount,
@@ -711,7 +712,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     : [];
   const lineIds = statementLines.map((line) => line.id);
   const [existingTenantPayments, accountingBankCredits] = tab === "bank" && bankFlow === "credit"
-    ? await Promise.all([loadExistingPayments(supabase, company.id), loadAccountingBankCredits(supabase, company.id)]) : [[], []];
+    ? await Promise.all([loadExistingPayments(supabase, company.id, true, createAdminClient()), loadAccountingBankCredits(supabase, company.id)]) : [[], []];
   const matches = lineIds.length
     ? (await supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds)).data ?? []
     : [];

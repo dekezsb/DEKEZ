@@ -82,6 +82,19 @@ test('refresh suggestions writes only internal reconciliation state, never tenan
   assert.ok(db.writes.some(w=>w.data.reconciliation_status==='MATCH_SUGGESTED'));
   assert.equal(JSON.stringify(rows),before);
 });
+test('reports use a separate private accounting connection only for reconciliation states',async()=>{
+  const regular=fakeDb({payments:[],payment_submissions:[],bank_reconciliation_matches:[]});
+  const internal=fakeDb({accounting_payment_reconciliations:[]});
+  const regularFrom=regular.from;
+  regular.from=function(table){assert.notEqual(table,'accounting_payment_reconciliations','regular user connection must not access private accounting states');return regularFrom.call(this,table);};
+  await loadExistingPayments(regular,'company',false,internal);
+  assert.ok(internal.reads.length>0);
+  assert.ok(internal.reads.every(r=>r.table==='accounting_payment_reconciliations'));
+  assert.equal(regular.writes.length+internal.writes.length,0);
+  const page=fs.readFileSync(path.join(root,'app/reports/page.tsx'),'utf8');
+  assert.match(page,/loadExistingPayments\(supabase, company\.id, true, createAdminClient\(\)\)/);
+  assert.ok(page.indexOf('await requireRole(')<page.indexOf('loadExistingPayments(supabase,'));
+});
 test('reconciliation RPCs contain no tenant or journal mutation; old tenant-creation action is disabled',()=>{
   for(const file of ['20260914151709_accounting_payment_link_only_reconciliation.sql','20260914153810_accounting_legacy_unmatch_audit.sql']){
     const sql=fs.readFileSync(path.join(root,'supabase/migrations',file),'utf8');
