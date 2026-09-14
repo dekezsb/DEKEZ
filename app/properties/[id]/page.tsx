@@ -490,8 +490,8 @@ function HiddenRoomFields({ propertyId, room }: { propertyId: string; room: Prop
   );
 }
 
-function CommercialDepositAmount({ monthlyRent }: { monthlyRent: number }) {
-  const schedule = commercialDepositSchedule(monthlyRent);
+function CommercialDepositAmount({ monthlyRent, agreedDeposit }: { monthlyRent: number; agreedDeposit?: PropertyRoomView["agreedDeposit"] }) {
+  const schedule = commercialDepositSchedule(monthlyRent, agreedDeposit);
 
   return (
     <div className="min-w-36">
@@ -504,7 +504,7 @@ function CommercialDepositAmount({ monthlyRent }: { monthlyRent: number }) {
       <p className="text-xs text-gray-500">
         Utilities {money.format(schedule.utilityDeposit)}
       </p>
-      <p className="text-xs font-medium text-[#8a6415]">Automatic: 2 + 0.5 months</p>
+      <p className="text-xs font-medium text-[#8a6415]">{agreedDeposit ? "Agreed deposit retained — no top-up" : "Automatic: 2 + 0.5 months"}</p>
     </div>
   );
 }
@@ -637,7 +637,7 @@ function DesktopRoomRow({
       </TableCell>
       <TableCell>
         {isCommercial ? (
-          <CommercialDepositAmount monthlyRent={room.monthlyRent} />
+          <CommercialDepositAmount monthlyRent={room.monthlyRent} agreedDeposit={room.agreedDeposit} />
         ) : vacant ? money.format(room.deposit) : (
           <InlineRoomField
             propertyId={propertyId}
@@ -836,7 +836,7 @@ function MobileRoomCard({
           <dt className="text-gray-500">Deposit</dt>
           <dd className="mt-1">
             {isCommercial ? (
-              <CommercialDepositAmount monthlyRent={room.monthlyRent} />
+              <CommercialDepositAmount monthlyRent={room.monthlyRent} agreedDeposit={room.agreedDeposit} />
             ) : vacant ? <span className="font-medium">{money.format(room.deposit)}</span> : (
               <InlineRoomField
                 propertyId={propertyId}

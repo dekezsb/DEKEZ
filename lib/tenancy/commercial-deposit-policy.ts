@@ -12,7 +12,13 @@ function moneyAmount(value: number | string | null | undefined) {
 
 export function commercialDepositSchedule(
   monthlyRent: number | string | null | undefined,
+  agreed?: { securityDeposit?: number | string | null; utilityDeposit?: number | string | null },
 ) {
+  if (agreed?.securityDeposit != null && agreed.utilityDeposit != null) {
+    const securityDeposit = moneyAmount(agreed.securityDeposit);
+    const utilityDeposit = moneyAmount(agreed.utilityDeposit);
+    return { securityDeposit, utilityDeposit, totalDeposit: moneyAmount(securityDeposit + utilityDeposit) };
+  }
   const rent = moneyAmount(monthlyRent);
   const securityDeposit = moneyAmount(
     rent * COMMERCIAL_SECURITY_DEPOSIT_MONTHS,
@@ -32,12 +38,14 @@ export function requiredTenancyDeposit({
   isCommercial,
   monthlyRent,
   statedDeposit,
+  agreed,
 }: {
   isCommercial: boolean;
   monthlyRent: number | string | null | undefined;
   statedDeposit: number | string | null | undefined;
+  agreed?: { securityDeposit?: number | string | null; utilityDeposit?: number | string | null };
 }) {
   return isCommercial
-    ? commercialDepositSchedule(monthlyRent).totalDeposit
+    ? commercialDepositSchedule(monthlyRent, agreed).totalDeposit
     : moneyAmount(statedDeposit);
 }

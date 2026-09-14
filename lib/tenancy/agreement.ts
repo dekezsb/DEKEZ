@@ -31,6 +31,8 @@ type TenancyContext = {
   room_id: string | null;
   monthly_rental: number | string | null;
   deposit: number | string | null;
+  security_deposit_override: number | string | null;
+  utility_deposit_override: number | string | null;
   start_date: string;
   end_date: string | null;
   contract_start: string | null;
@@ -116,7 +118,7 @@ async function loadTenancyContext(
   const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
     .select(
-      "id, tenant_id, property_id, room_id, monthly_rental, deposit, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, renewal_status, status, billing_status",
+      "id, tenant_id, property_id, room_id, monthly_rental, deposit, security_deposit_override, utility_deposit_override, start_date, end_date, contract_start, contract_end, tenancy_start_date, tenancy_end_date, check_in_date, checkout_date, contract_duration_months, rent_due_day, renewal_status, status, billing_status",
     )
     .eq("id", tenancyId)
     .maybeSingle();
@@ -255,7 +257,10 @@ function renderAgreement(
   agreementType: AgreementDocumentType,
 ) {
   const isCommercialOffice = agreementType === "commercial_office";
-  const commercialDeposits = commercialDepositSchedule(monthlyRent);
+  const commercialDeposits = commercialDepositSchedule(monthlyRent, {
+    securityDeposit: context.security_deposit_override,
+    utilityDeposit: context.utility_deposit_override,
+  });
   const securityDeposit = isCommercialOffice
     ? commercialDeposits.securityDeposit
     : Number(context.deposit ?? 0);
@@ -286,7 +291,9 @@ function renderAgreement(
     key_deposit: agreementAmount(0),
     other_deposit: agreementAmount(0),
     deposit_schedule_clause: isCommercialOffice
-      ? `For this commercial office tenancy, the Security Deposit is fixed at two (2) months of Monthly Rent and the Utility Deposit is fixed at one-half (0.5) month of Monthly Rent. The total commercial deposit required is RM ${agreementAmount(totalDeposit)}.`
+      ? context.security_deposit_override != null && context.utility_deposit_override != null
+        ? `For this tenancy, the agreed Security Deposit remains RM ${agreementAmount(securityDeposit)} and the Utility Deposit remains RM ${agreementAmount(utilityDeposit)}, totalling RM ${agreementAmount(totalDeposit)}. No deposit top-up is required for the current agreed rent.`
+        : `For this commercial office tenancy, the Security Deposit is fixed at two (2) months of Monthly Rent and the Utility Deposit is fixed at one-half (0.5) month of Monthly Rent. The total commercial deposit required is RM ${agreementAmount(totalDeposit)}.`
       : "The deposit amounts applicable to this tenancy are the amounts stated above.",
     rent_due_day: context.rent_due_day ?? new Date(`${startDate}T00:00:00Z`).getUTCDate(),
     tenancy_start_date: formatMalaysiaDate(startDate),

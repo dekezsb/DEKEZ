@@ -61,6 +61,7 @@ export type PropertyRoomView = {
   emergencyContactName: string | null;
   emergencyContactNumber: string | null;
   deposit: number;
+  agreedDeposit?: { securityDeposit: number; utilityDeposit: number };
   depositReceived: number;
   depositOutstanding: number;
   dueDay: number | null;
@@ -169,7 +170,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .eq("status", "active"),
       supabase
         .from("tenancies")
-        .select("id, tenant_id, room_id, monthly_rental, deposit, due_day, rent_due_day, contract_start, contract_end, contract_duration_months, status, tenants(full_name, phone, identity_number, profile_id)")
+        .select("id, tenant_id, room_id, monthly_rental, deposit, security_deposit_override, utility_deposit_override, due_day, rent_due_day, contract_start, contract_end, contract_duration_months, status, tenants(full_name, phone, identity_number, profile_id)")
         .eq("property_id", propertyId)
         .eq("status", "active"),
       supabase
@@ -290,10 +291,14 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
           room.monthly_rent ??
           0,
       );
+      const agreedDeposit = tenancy?.security_deposit_override != null && tenancy?.utility_deposit_override != null
+        ? { securityDeposit: Number(tenancy.security_deposit_override), utilityDeposit: Number(tenancy.utility_deposit_override) }
+        : undefined;
       const deposit = requiredTenancyDeposit({
         isCommercial: Boolean(propertyResult.data.is_commercial),
         monthlyRent,
         statedDeposit: tenancy?.deposit ?? tenantRecord?.deposit ?? 0,
+        agreed: agreedDeposit,
       });
       const contractEnd = tenancy?.contract_end ?? tenantRecord?.contract_end ?? null;
       const storedDuration = Number(tenancy?.contract_duration_months ?? 0);
@@ -328,6 +333,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         emergencyContactName: null,
         emergencyContactNumber: null,
         deposit,
+        agreedDeposit,
         depositReceived,
         depositOutstanding: Math.max(deposit - depositReceived, 0),
         dueDay: tenancy?.rent_due_day ?? tenancy?.due_day ?? tenantRecord?.due_day ?? null,
