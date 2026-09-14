@@ -4,6 +4,19 @@ import test from "node:test";
 import { getProfitLossReport } from "../../lib/accounting/report-data.ts";
 import { profitTrend } from "../../lib/accounting/profit-trend.ts";
 
+test("voucher assets, liabilities and equity do not become P&L expenses", async () => {
+  const transactions = ['asset', 'liability', 'equity', 'income', 'expense'].map((type, i) => ({
+    id: `voucher-${i}`, company_id: COMPANY_ID, amount: -100.25,
+    transaction_date: '2026-09-14', property_id: PROPERTY.id, properties: PROPERTY,
+    description: type, reference_number: 'PV-TEST',
+    accounting_accounts: {id: `account-${i}`, code: `${i}999`, name: type, account_type: type, report_group: type === 'expense' ? 'operating_expense' : type},
+  }));
+  const result = await report(fakeSupabase({bank_manual_transactions: transactions}), '2026-09-01', '2026-09-30');
+  assert.equal(result.totalRevenue, -100.25);
+  assert.equal(result.totalExpenses, 100.25);
+  assert.equal(result.netProfit, -200.50);
+});
+
 const COMPANY_ID = "company-1";
 const PROPERTY = {
   id: "property-1",

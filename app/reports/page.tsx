@@ -42,7 +42,7 @@ import {
   bankTenantNameMatchScore,
 } from "@/lib/accounting/bank-description";
 import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
-import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
+import { allReportRows, getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
 import { requireRole } from "@/lib/auth/session";
 import { getFirstCompany, getProperties } from "@/lib/data/organization";
 import { createClient } from "@/lib/supabase/server";
@@ -304,10 +304,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
     supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate),
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
-    supabase.from("bank_manual_transactions").select("amount, offset_account_id, property_id").eq("company_id", company.id).lte("transaction_date", endDate),
+    allReportRows(supabase.from("bank_manual_transactions").select("id, amount, offset_account_id, property_id").eq("company_id", company.id).lte("transaction_date", endDate)),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
+  if (manualBalanceTransactionsResult.error) throw new Error("Unable to load bank voucher balances. Please retry.");
   const statementImports = statementsResult.data ?? [];
   const accounts = accountsResult.data ?? [];
   const journalEntries = journalEntriesResult.data ?? [];
@@ -567,16 +568,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   bankAssets += manualNormalBalance("cash_on_hand");
 
   const operationalSystemKeys = new Set([
-    "cash_on_hand", "company_bank", "bank_transfer_clearing", "rental_receivable",
-    "deposit_receivable", "other_receivable", "accounts_payable",
-    "staff_reimbursement_payable", "tenant_security_deposits", "tenant_credits",
+    "cash_on_hand", "company_bank", "rental_receivable",
+    "deposit_receivable", "accounts_payable",
+    "staff_reimbursement_payable", "tenant_security_deposits",
   ]);
   const otherBalanceRows = accounts.flatMap((account) => {
     if (!["asset", "liability", "equity"].includes(account.account_type)) return [];
     if (operationalSystemKeys.has(account.system_key ?? "") || bankAccountLedgerIds.has(account.id)) return [];
     const netDebit = manualNetDebitByAccount.get(account.id) ?? 0;
     const amount = account.normal_balance === "credit" ? -netDebit : netDebit;
-    return Math.abs(amount) > 0.005 ? [{ key: account.id, code: account.code, label: account.name, amount, source: "Posted journals" }] : [];
+    return Math.abs(amount) > 0.005 ? [{ key: account.id, code: account.code, label: account.name, amount, source: "Posted journals / bank vouchers" }] : [];
   });
   const otherCurrentAssets = otherBalanceRows.filter((row) => accountById.get(row.key)?.report_group === "current_asset");
   const otherNonCurrentAssets = otherBalanceRows.filter((row) => accountById.get(row.key)?.report_group === "non_current_asset");
@@ -624,7 +625,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       if (expense?.expense_date && expense.expense_date <= endDate) add(expense.property_id, "Liabilities", "Staff reimbursement payable", Number(liability.amount));
     }
     const operationalLabels: Record<string, string> = { cash_on_hand: "Bank and cash", rental_receivable: "Rental receivables", deposit_receivable: "Deposit receivables", accounts_payable: "Accounts payable", staff_reimbursement_payable: "Staff reimbursement payable", tenant_security_deposits: "Tenant security deposits held" };
-    for (const line of journalLines) {
+    // The statement already supplies the bank balance. Add only each voucher's
+    // offset here, just as in the consolidated balance sheet above.
+    const outletPostingLines = [...journalLines, ...manualBalanceTransactionsResult.data.map((transaction) => ({
+      account_id: transaction.offset_account_id,
+      property_id: transaction.property_id,
+      debit: Math.max(-Number(transaction.amount), 0),
+      credit: Math.max(Number(transaction.amount), 0),
+    }))];
+    for (const line of outletPostingLines) {
       const account = accountById.get(line.account_id);
       if (!account || !["asset", "liability", "equity"].includes(account.account_type)) continue;
       const label = operationalLabels[account.system_key ?? ""];
