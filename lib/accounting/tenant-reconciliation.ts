@@ -34,3 +34,13 @@ export function rankExistingPayments(bank: StatementTransaction, payments: Exist
 export function flagDuplicateBanks(banks: StatementTransaction[]): StatementTransaction[] {
   return banks.map(bank => ({...bank, duplicate: !bank.used && banks.some(other => other.id!==bank.id && other.bankAccountId===bank.bankAccountId && other.used && other.amount===bank.amount && other.date===bank.date && ((bank.reference.trim() && bank.reference===other.reference) || (bank.description.trim() && bank.description===other.description)))}));
 }
+
+// A ready suggestion still requires the user's Reconcile click. It is not posted automatically.
+export function directReconciliationPayment(bank: StatementTransaction, ranked: ReturnType<typeof rankExistingPayments>) {
+  const top = ranked[0];
+  if (!top || bank.used || bank.duplicate || top.status !== 'MATCH_SUGGESTED'
+    || !['Exact Match','High Confidence'].includes(top.confidence) || !top.exactAmount || top.locationConflict
+    || !top.payment.eligible || top.payment.bankId || top.payment.legacyMatched || top.payment.duplicate
+    || !(top.payment.slipUrl || top.payment.receipt.trim())) return null;
+  return top.payment;
+}

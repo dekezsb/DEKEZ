@@ -6,7 +6,7 @@ The existing payment is the master. Reconciliation only links it to one bank sta
 
 1. Open Reports → Bank reconciliation → Credit / Money In and select the statement.
 2. Review the payment on the left against the bank entry on the right. Open the original slip, receipt details and AR invoice reference when needed.
-3. Select Suggested Match or use Manual Match to choose an existing payment. Suggestions do not select or reconcile themselves.
+3. Clear, exact-amount matches with an existing receipt or slip are ready for a direct Reconcile click, without a separate Select Suggested Match step. Use View Receipt to compare tenant, property/room, invoice, references, dates and both amounts. Use Change match to correct the proposed payment, or Manual Match for missing proof or uncertain matches. No suggestion reconciles automatically.
 4. Click Reconcile only after checking the tenant, property/room, amount, date and references. Unequal amounts remain for review; they are never silently adjusted.
 5. Reconciled payments and bank entries are locked. Only an authorized admin can Unmatch, with a reason recorded in the accounting audit log.
 

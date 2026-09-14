@@ -14,7 +14,7 @@ Module._load = function(request,...args){
   return load.call(this,request,...args);
 };
 for(const ext of ['.ts','.tsx']) Module._extensions[ext]=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true,target:ts.ScriptTarget.ES2022},fileName:f}).outputText,f);
-const {rankExistingPayments,flagDuplicateBanks}=require('../lib/accounting/tenant-reconciliation.ts');
+const {rankExistingPayments,flagDuplicateBanks,directReconciliationPayment}=require('../lib/accounting/tenant-reconciliation.ts');
 const {loadExistingPayments,refreshPaymentSuggestions}=require('../lib/accounting/tenant-reconciliation-data.ts');
 const {TenantPaymentReconciliation}=require('../components/accounting/tenant-payment-reconciliation.tsx');
 const React=require('react');
@@ -45,6 +45,29 @@ test('amount differences, duplicate references and conflicting room references r
 test('already linked, legacy-linked, reversed and unconfirmed masters cannot be suggested',()=>{
   assert.equal(rankExistingPayments(bank(),[payment({bankId:'used'}),payment({legacyMatched:true}),payment({eligible:false})]).length,0);
   assert.equal(rankExistingPayments(bank({used:true}),[payment()]).length,0);
+});
+test('clear matches with a slip or receipt are ready without a separate selection click',()=>{
+  for(const p of [payment({receipt:''}),payment({slipUrl:null})]){
+    const b=bank();assert.equal(directReconciliationPayment(b,rankExistingPayments(b,[p])).id,p.id);
+    const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[p],banks:[b],locked:false,canUnmatch:true}));
+    assert.match(html,/Ready to reconcile/);assert.doesNotMatch(html,/Select Suggested Match/);
+    const button=html.match(/<button\b[^>]*>Reconcile<\/button>/)?.[0];assert.ok(button);assert.doesNotMatch(button,/\sdisabled(?:=|>)/);
+    for(const value of ['Receipt amount: RM 380.00','Bank amount: RM 380.00','Payment reference:','Bank reference:','SLS - SULAMAN'])assert.ok(html.includes(value));
+  }
+});
+test('missing proof, ambiguous identities, mismatched rooms and duplicates still require manual review',()=>{
+  for(const [b,payments] of [
+    [bank(),[payment({slipUrl:null,receipt:''})]],
+    [bank(),[payment(),payment({id:'p2',tenant:'Other Tenant'})]],
+    [bank({description:'SLS B7'}),[payment()]],
+    [bank({duplicate:true}),[payment()]],
+    [bank({amount:379}),[payment()]],
+  ]){
+    assert.equal(directReconciliationPayment(b,rankExistingPayments(b,payments)),null);
+    const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments,banks:[b],locked:false,canUnmatch:true}));
+    assert.match(html.match(/<button\b[^>]*>Reconcile<\/button>/)?.[0]??'',/\sdisabled(?:=|>)/);
+    assert.match(html,/>Manual Match<\/button>/);
+  }
 });
 test('duplicate bank detection includes account, amount, date and reference; amount alone does not block',()=>{
   const result=flagDuplicateBanks([bank({id:'used',used:true,bankAccountId:'a',reference:'REF123'}),bank({bankAccountId:'a',reference:'REF123'}),bank({id:'other-account',bankAccountId:'b',reference:'REF123'}),bank({id:'different',bankAccountId:'a',reference:'REF999',description:'Different'})]);
