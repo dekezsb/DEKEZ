@@ -22,10 +22,11 @@ test('public Register exposes reservation and actual payment details, not just t
   const { RegistrationForm: PublicRegistrationForm } = require('../app/register/registration-form.tsx');
   const html = renderToStaticMarkup(React.createElement(PublicRegistrationForm, { properties: [], rooms: [] }));
   assert.match(html, /Reserve room first/);
-  assert.match(html, /name="paymentAmount"/);
+  assert.match(html, /name="rentPaid"/);
+  assert.match(html, /name="depositPaid"/);
   assert.match(html, /name="paymentDate"/);
   assert.match(html, /name="paymentNote"/);
-  assert.match(html, /name="paymentPurpose"/);
+  assert.match(html, /Payment slip/);
 });
 function render(code, rentalModel = 'tenancy') {
   return renderToStaticMarkup(React.createElement(RegistrationForm, {
@@ -34,11 +35,11 @@ function render(code, rentalModel = 'tenancy') {
     rooms: [{ id: 'room', propertyId: 'property', roomNumber: 'B4', monthlyRent: 380 }],
   }));
 }
-test('SLS monthly-stay registration offers reservation and one editable instalment amount', () => {
+test('normal SLS check-in retains its existing rent/deposit split and slip', () => {
   const html = render('SLS', 'monthly_stay');
   assert.match(html, /value="reservation"/);
-  assert.equal((html.match(/name="paymentAmount"/g) || []).length, 1);
-  assert.match(html, /name="paymentAmount"[^>]*type="number"|type="number"[^>]*name="paymentAmount"/);
+  assert.equal((html.match(/name="rentPaid"/g) || []).length, 1);
+  assert.equal((html.match(/name="depositPaid"/g) || []).length, 1);
   assert.equal((html.match(/name="paymentSlip"/g) || []).length, 1);
 });
 test('all eligible properties expose reservation, BDS and PTT retain standard registration', () => {

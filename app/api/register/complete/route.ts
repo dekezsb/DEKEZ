@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { reservationPaymentError } from "@/lib/tenancy/reservation-payment";
 
 type AccountType = "owner" | "tenant";
 type UploadKey =
@@ -167,6 +168,21 @@ export async function POST(request: Request) {
         { error: "The tenant registration record could not be found." },
         { status: 404 },
       );
+    }
+    if (application.registration_mode === "reservation") {
+      const slip = confirmedUploads.find((upload) => upload.key === "paymentSlip" && upload.bucket === "payment-receipts");
+      const problem = reservationPaymentError(body?.reservationDeposit, body?.paymentDate, Boolean(slip));
+      if (problem || uploads.length !== 1 || !slip || !slip.path.startsWith(`${user.id}/self-registration/${application.id}/`)) {
+        return NextResponse.json({ error: problem ?? "Upload only the reservation deposit slip for this reservation." }, { status: 400 });
+      }
+      const { error: reservationError } = await admin.rpc("submit_reservation_deposit", {
+        p_application: application.id, p_actor: user.id, p_amount: Number(body.reservationDeposit),
+        p_date: body.paymentDate, p_path: slip.path, p_file_name: slip.fileName, p_content_type: slip.contentType,
+        p_note: cleanText(body?.paymentNote),
+      });
+      if (reservationError) return NextResponse.json({ error: "Reservation could not be completed. The room may no longer be available, or the slip needs review. Retry without registering another account." }, { status: 409 });
+      await admin.from("profiles").update({ registration_completed_at: new Date().toISOString() }).eq("id", user.id);
+      return NextResponse.json({ redirectTo: "/registration-status" });
     }
     const rentPaid = moneyValue(body?.rentPaid);
     const depositPaid = moneyValue(body?.depositPaid);

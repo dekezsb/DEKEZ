@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
+import { reservationPaymentError } from "@/lib/tenancy/reservation-payment";
 import { malaysiaDateString } from "@/lib/data/rent-due";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -63,6 +64,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
     level: "manage",
   });
   const user = await getCurrentUser();
+  const registrationMode = textValue(formData, "registrationMode") === "reservation" ? "reservation" : "check_in";
+  const isReservation = registrationMode === "reservation";
   const propertyId = textValue(formData, "propertyId");
   const roomId = textValue(formData, "roomId");
   const fullName = textValue(formData, "fullName");
@@ -123,8 +126,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
     !fullName ||
     !identificationNumber ||
     !phone ||
-    !emergencyContactName ||
-    !emergencyContactNumber ||
+    (!isReservation && !emergencyContactName) ||
+    (!isReservation && !emergencyContactNumber) ||
     !contractStart ||
     !["ic", "passport"].includes(identityType)
   ) {
@@ -136,8 +139,8 @@ export async function submitAdminTenantApplication(formData: FormData) {
   }
 
   if (
-    (identityType === "ic" && !(icFront && icBack)) ||
-    (identityType === "passport" && !passportPhoto)
+    !isReservation && ((identityType === "ic" && !(icFront && icBack)) ||
+    (identityType === "passport" && !passportPhoto))
   ) {
     fail("document", propertyId, roomId);
   }
@@ -164,7 +167,6 @@ export async function submitAdminTenantApplication(formData: FormData) {
   }
   const isMonthlyStay = property.rental_model === "monthly_stay";
   const flexible = supportsReservations(property.property_code);
-  const registrationMode = textValue(formData, "registrationMode") === "reservation" ? "reservation" : "check_in";
   if (registrationMode === "reservation" && !flexible) fail("property", propertyId, roomId);
   if (property.is_commercial && !commercialSupportingDocument) {
     fail("commercial_document", propertyId, roomId);
@@ -212,6 +214,45 @@ export async function submitAdminTenantApplication(formData: FormData) {
       ? commercialDeposits.utilityDeposit
       : 0;
   const totalDepositRequired = securityDeposit + utilityDeposit;
+
+  if (isReservation) {
+    const amount = textValue(formData, "reservationDeposit");
+    const paymentDate = textValue(formData, "paymentDate");
+    if (reservationPaymentError(amount, paymentDate, Boolean(paymentSlip)) || !paymentSlip) fail("reservation_payment", propertyId, roomId);
+    const { data: booking, error: bookingError } = await supabase.from("tenant_applications").insert({
+      tenant_id: null, submitted_by: user.id, submission_source: "admin_assisted", registration_mode: "reservation",
+      identity_type: identityType, property_id: property.id, unit_id: room.unit_id, room_id: room.id,
+      full_name: fullName, ic_passport_number: identificationNumber, whatsapp_number: phone,
+      emergency_contact_name: emergencyContactName, emergency_contact_number: emergencyContactNumber,
+      proposed_start_date: contractStart, proposed_end_date: isMonthlyStay ? null : contractEnd,
+      monthly_rent: monthlyRent, deposit: securityDeposit, utility_deposit: utilityDeposit,
+      contract_duration_months: isMonthlyStay ? 1 : undefined, rental_model: property.rental_model,
+      status: "draft", verification_status: "incomplete", payment_status: "unpaid", admin_notes: staffNote,
+    }).select("id").single();
+    if (bookingError || !booking) fail("submit", propertyId, roomId);
+    const path = `${user.id}/admin-registration/${booking.id}/reservation-deposit-${crypto.randomUUID()}.${paymentSlip.name.split('.').pop()?.toLowerCase() || 'jpg'}`;
+    const { error: uploadError } = await supabase.storage.from("payment-receipts").upload(path, Buffer.from(await paymentSlip.arrayBuffer()), { contentType: paymentSlip.type, upsert: false });
+    if (uploadError) {
+      await supabase.from("tenant_applications").delete().eq("id", booking.id).eq("status", "draft");
+      fail("upload", propertyId, roomId);
+    }
+    const { error: reservationError } = await supabase.rpc("submit_reservation_deposit", {
+      p_application: booking.id, p_actor: user.id, p_amount: Number(amount), p_date: paymentDate,
+      p_path: path, p_file_name: paymentSlip.name, p_content_type: paymentSlip.type, p_note: staffNote,
+    });
+    if (reservationError) {
+      // Only remove a newly-created draft after confirming the atomic submission
+      // did not succeed (a lost response must not delete a successful booking).
+      const { data: state } = await supabase.from("tenant_applications").select("status").eq("id", booking.id).maybeSingle();
+      if (state?.status === "draft") {
+        await supabase.storage.from("payment-receipts").remove([path]);
+        await supabase.from("tenant_applications").delete().eq("id", booking.id).eq("status", "draft");
+      }
+      if (state?.status !== "submitted") fail("reservation_payment", propertyId, roomId);
+    }
+    for (const path of ["/reservations", "/verification", "/tenant-verification", "/properties", "/register-tenant", "/room-availability"]) revalidatePath(path);
+    redirect("/register-tenant?reserved=1");
+  }
 
   if (
     rentPaid > monthlyRent + 0.005 ||
@@ -378,7 +419,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
             room_id: room.id,
             bill_type: "check_in",
             payment_type: "monthly_rent",
-            instalment: registrationMode === "reservation",
+            instalment: false,
             payment_note: paymentNote,
             amount: rentPaid,
             payment_date: textValue(formData, "paymentDate") || malaysiaDateString(),
@@ -396,7 +437,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
             room_id: room.id,
             bill_type: "check_in",
             payment_type: "deposit",
-            instalment: registrationMode === "reservation",
+            instalment: false,
             payment_note: paymentNote,
             amount: depositPaid,
             payment_date: textValue(formData, "paymentDate") || malaysiaDateString(),
@@ -451,10 +492,6 @@ export async function submitAdminTenantApplication(formData: FormData) {
     }
   }
 
-  if (registrationMode === "reservation") {
-    await supabase.from("rooms").update({ status: "reserved", updated_at: new Date().toISOString() }).eq("id", room.id).eq("status", "vacant");
-    revalidatePath("/reservations");
-  }
   revalidatePath("/register-tenant");
   revalidatePath("/verification");
   revalidatePath("/tenant-verification");

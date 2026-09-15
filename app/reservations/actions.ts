@@ -7,7 +7,7 @@ import { getCurrentUser, getProperties } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isPaymentPurpose } from "@/lib/payments/payment-purpose";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
-import { formFile, isValidTenantDocument } from "@/lib/tenant-documents";
+import { formFile, isValidTenantDocument, uploadTenantDocuments, type TenantDocumentType } from "@/lib/tenant-documents";
 
 function text(form: FormData, key: string) {
   return String(form.get(key) ?? "").trim();
@@ -60,7 +60,7 @@ export async function addReservationPayment(form: FormData) {
     redirect("/reservations?error=payment");
   }
   const { error: attachmentError } = await db.from("payment_attachments").insert({
-    payment_submission_id: payment.id, tenant_id: application.tenant_id,
+    payment_submission_id: payment.id, tenant_id: application.tenant_id, tenant_application_id: application.id,
     file_path: path, file_name: file.name, content_type: file.type,
   });
   if (attachmentError) {
@@ -91,9 +91,29 @@ export async function requestReservationCheckIn(form: FormData) {
   const date = text(form, "checkInDate");
   const end = text(form, "contractEnd");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || (end && end < date)) redirect("/reservations?error=date");
+  const documents = ([['icFront','ic_front'],['icBack','ic_back'],['passportPhoto','passport_photo_page']] as const)
+    .flatMap(([key, documentType]) => { const file = formFile(form, key); return file ? [{ file, documentType: documentType as TenantDocumentType }] : []; });
+  if (documents.some(({ file }) => !isValidTenantDocument(file))) redirect("/reservations?error=document");
+  if (documents.length) {
+    let uploaded: Awaited<ReturnType<typeof uploadTenantDocuments>> = [];
+    let failed = false;
+    try {
+      uploaded = await uploadTenantDocuments(db, actor.id, crypto.randomUUID(), documents);
+      const { error } = await db.from("tenant_documents").insert(uploaded.map((document) => ({ ...document, tenant_application_id: application.id, tenant_id: application.tenant_id, uploaded_by: actor.id })));
+      if (error) failed = true;
+    } catch { failed = true; }
+    if (failed) {
+      if (uploaded.length) await db.storage.from("tenant-documents").remove(uploaded.map((document) => document.file_path));
+      redirect("/reservations?error=document");
+    }
+  }
+  const emergencyName = text(form, "emergencyContactName");
+  const emergencyPhone = text(form, "emergencyContactNumber");
   const { data, error } = await db.from("tenant_applications").update({
     registration_mode: "check_in", status: "submitted", verification_status: "pending_verification",
     proposed_start_date: date, proposed_end_date: end || null,
+    ...(emergencyName ? { emergency_contact_name: emergencyName } : {}),
+    ...(emergencyPhone ? { emergency_contact_number: emergencyPhone } : {}),
     reviewed_by: null, reviewed_at: null, updated_at: new Date().toISOString(),
   }).eq("id", application.id).eq("registration_mode", "reservation").select("id").maybeSingle();
   if (error || !data) redirect("/reservations?error=unavailable");

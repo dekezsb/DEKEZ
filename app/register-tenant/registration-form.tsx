@@ -52,7 +52,7 @@ function FileField({
   );
 }
 
-function SubmitButton({ disabled }: { disabled: boolean }) {
+function SubmitButton({ disabled, isReservation }: { disabled: boolean; isReservation: boolean }) {
   const { pending } = useFormStatus();
 
   return (
@@ -61,7 +61,7 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
       disabled={disabled || pending}
       type="submit"
     >
-      {pending ? "Submitting..." : "Submit for verification"}
+      {pending ? "Submitting..." : isReservation ? "Submit reservation" : "Submit for verification"}
     </Button>
   );
 }
@@ -97,6 +97,7 @@ export function RegistrationForm({
   const [depositPaid, setDepositPaid] = useState("0");
   const [staffNote, setStaffNote] = useState("");
   const [registrationMode, setRegistrationMode] = useState("check_in");
+  const isReservation = registrationMode === "reservation";
   const [identityType, setIdentityType] = useState<"ic" | "passport">("ic");
   const [tenantType, setTenantType] = useState<"company" | "sole_proprietor">(
     "sole_proprietor",
@@ -354,7 +355,7 @@ export function RegistrationForm({
         />
       </label>
 
-      <label>
+      <label hidden={isReservation}>
         <span className="text-sm font-medium text-[#17223b]">
           Emergency contact name
         </span>
@@ -362,11 +363,11 @@ export function RegistrationForm({
           className={fieldClass()}
           name="emergencyContactName"
           placeholder="Person to contact in an emergency"
-          required
+          required={!isReservation}
         />
       </label>
 
-      <label>
+      <label hidden={isReservation}>
         <span className="text-sm font-medium text-[#17223b]">
           Emergency contact number
         </span>
@@ -375,7 +376,7 @@ export function RegistrationForm({
           inputMode="tel"
           name="emergencyContactNumber"
           placeholder="+60 12-345 6789"
-          required
+          required={!isReservation}
           type="tel"
         />
       </label>
@@ -459,7 +460,16 @@ export function RegistrationForm({
         </label>
       )}
 
-      <fieldset className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 sm:col-span-2">
+      {isReservation ? <fieldset className="rounded-md border border-amber-200 bg-amber-50/50 p-4 sm:col-span-2">
+        <legend className="px-1 font-semibold">Reservation deposit — one slip only</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label>Reservation deposit received (RM)<input className={fieldClass()} name="reservationDeposit" type="number" min="0.01" step="0.01" required placeholder="e.g. 50.00" /></label>
+          <label>Payment date<input className={fieldClass()} name="paymentDate" type="date" required /></label>
+        </div>
+        <div className="mt-4"><FileField label="Reservation deposit slip" name="paymentSlip" required /></div>
+        <label className="mt-4 block">Notes (optional)<input className={fieldClass()} name="staffNote" /></label>
+        <p className="mt-3 text-sm text-amber-900">This holds the room, not a check-in. Your main account verifies this one slip and allocates the booking deposit against the check-in balance later.</p>
+      </fieldset> : <fieldset className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 sm:col-span-2">
         <legend className="px-1 text-sm font-semibold text-emerald-950">
           Check-in payment declaration
         </legend>
@@ -531,7 +541,7 @@ export function RegistrationForm({
             ? "This proof will be sent to Payment Verification. It is not counted as paid until you verify it."
             : "No payment proof is needed while both received amounts are RM 0.00."}
         </p>
-      </fieldset>
+      </fieldset>}
 
       <label>
         <span className="text-sm font-medium text-[#17223b]">
@@ -548,7 +558,7 @@ export function RegistrationForm({
       {isMonthlyStay ? (
         <input name="contractEnd" type="hidden" value="" />
       ) : (
-        <label>
+        <label hidden={isReservation}>
           <span className="text-sm font-medium text-[#17223b]">
             Contract end
           </span>
@@ -556,7 +566,7 @@ export function RegistrationForm({
         </label>
       )}
 
-      <fieldset className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
+      {!isReservation ? <fieldset className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
         <legend className="px-1 text-sm font-semibold text-[#07142f]">
           Identity documents
         </legend>
@@ -576,9 +586,9 @@ export function RegistrationForm({
             required
           />
         )}
-      </fieldset>
+      </fieldset> : <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">No IC photos are required to reserve. Add them on the existing reservation when the tenant arrives.</p>}
 
-      {selectedProperty?.isCommercial ? (
+      {!isReservation && selectedProperty?.isCommercial ? (
         <div className="rounded-md border border-[#ead8ad] bg-[#fffaf0] p-4 sm:col-span-2">
           <FileField
             label="Trading licence / supporting business document"
@@ -597,7 +607,7 @@ export function RegistrationForm({
             ? "After approval, this room is reserved. Use Reservations to add payments and request actual check-in later."
             : "The room remains vacant until an authorized Admin approves this application in Verification."}
         </p>
-        <SubmitButton disabled={!propertyId || !roomId} />
+        <SubmitButton disabled={!propertyId || !roomId} isReservation={isReservation} />
       </div>
     </form>
   );

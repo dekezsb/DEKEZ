@@ -14,6 +14,7 @@ import {
 } from "@/lib/referrals/registration";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
+import { reservationPaymentError } from "@/lib/tenancy/reservation-payment";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -134,6 +135,7 @@ export async function POST(request: NextRequest) {
     ? body.uploads
     : [];
   const uploads: UploadMetadata[] = rawUploads.filter(validUpload);
+  const isReservation = accountType === "tenant" && registrationMode === "reservation";
 
   if (
     !["owner", "tenant"].includes(accountType) ||
@@ -159,14 +161,40 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+  const cookiesToSet: CookieToSet[] = [];
+  const authClient = createServerClient(normalizeSupabaseUrl(url), anonKey, {
+    cookies: {
+      getAll: () => request.cookies.getAll(),
+      setAll(values) {
+        values.forEach(({ name, value }) => request.cookies.set(name, value));
+        cookiesToSet.push(...values);
+      },
+    },
+  });
+  let resumedApplicationId: string | null = null;
+  let resumedUserId: string | null = null;
   const { data: existingProfile } = await admin
     .from("profiles")
-    .select("id")
+    .select("id,requested_role,registration_completed_at")
     .in("normalized_phone", phone.lookupDigits)
     .limit(1)
     .maybeSingle();
 
   if (existingProfile) {
+    // A failed reservation can only be resumed by its existing authenticated
+    // session. Knowing a phone number is never enough to edit another account.
+    const { data: { user: sessionUser } } = isReservation ? await authClient.auth.getUser() : { data: { user: null } };
+    if (isReservation && sessionUser && sessionUser.id === existingProfile.id && existingProfile.requested_role === "tenant") {
+      const { data: ownApplication } = await admin.from("tenant_applications")
+        .select("id,status,registration_mode").eq("tenant_id", sessionUser.id)
+        .in("status", ["draft", "submitted", "pending_verification", "approved"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (ownApplication?.registration_mode === "reservation" && ownApplication.status !== "draft") return jsonWithCookies({ completed: true, redirectTo: "/registration-status" }, cookiesToSet);
+      if (ownApplication?.status === "draft" && !existingProfile.registration_completed_at) {
+        const { data: previousMoney, error: moneyError } = await admin.from("payment_submissions").select("id").eq("tenant_application_id", ownApplication.id).limit(1);
+        if (!moneyError && !previousMoney?.length) { resumedApplicationId = ownApplication.id; resumedUserId = sessionUser.id; }
+      }
+    }
+    if (!resumedUserId) {
     return NextResponse.json(
       {
         error:
@@ -174,6 +202,7 @@ export async function POST(request: NextRequest) {
       },
       { status: 409 },
     );
+    }
   }
 
   let property:
@@ -270,6 +299,10 @@ export async function POST(request: NextRequest) {
     if (registrationMode === "reservation" && !supportsReservations(property.property_code)) {
       return NextResponse.json({ error: "Reservations are not available for this property." }, { status: 400 });
     }
+    if (isReservation) {
+      const problem = reservationPaymentError(body?.reservationDeposit, body?.paymentDate, uploads.length === 1 && uploads[0].key === "paymentSlip");
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    }
     if (!proposedStartDate) {
       proposedStartDate = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Kuala_Lumpur",
@@ -325,7 +358,7 @@ export async function POST(request: NextRequest) {
 
   const aliasEmail = phoneAuthAlias(phone);
   const { data: created, error: createError } =
-    await admin.auth.admin.createUser({
+    resumedUserId ? { data: { user: { id: resumedUserId } }, error: null } : await admin.auth.admin.createUser({
       email: aliasEmail,
       email_confirm: true,
       password,
@@ -395,9 +428,7 @@ export async function POST(request: NextRequest) {
         property.rental_model === "monthly_stay"
           ? 0
           : commercialDeposits?.utilityDeposit ?? 0;
-      const { data: application, error: applicationError } = await admin
-        .from("tenant_applications")
-        .insert({
+      const applicationValues = {
           tenant_id: userId,
           submitted_by: userId,
         submission_source: "self_registration",
@@ -426,7 +457,11 @@ export async function POST(request: NextRequest) {
           verification_status: "incomplete",
           payment_status: "unpaid",
           admin_notes: `Registration terms declared — room rent to collect: RM ${monthlyRent.toFixed(2)}; security deposit to collect: RM ${securityDeposit.toFixed(2)}.`,
-        })
+        };
+      const applicationQuery = resumedApplicationId
+        ? admin.from("tenant_applications").update(applicationValues).eq("id", resumedApplicationId).eq("tenant_id", userId).eq("status", "draft")
+        : admin.from("tenant_applications").insert(applicationValues);
+      const { data: application, error: applicationError } = await applicationQuery
         .select("id")
         .single();
 
@@ -435,7 +470,7 @@ export async function POST(request: NextRequest) {
       }
       applicationId = application.id;
 
-      if (validatedReferral) {
+      if (validatedReferral && !resumedApplicationId) {
         const { error: referralError } = await admin
           .from("tenant_referrals")
           .insert({
@@ -481,24 +516,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const cookiesToSet: CookieToSet[] = [];
-    const authClient = createServerClient(
-      normalizeSupabaseUrl(url),
-      anonKey,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll(newCookiesToSet) {
-            newCookiesToSet.forEach(({ name, value }) => {
-              request.cookies.set(name, value);
-            });
-            cookiesToSet.push(...newCookiesToSet);
-          },
-        },
-      },
-    );
     const { error: signInError } = await authClient.auth.signInWithPassword({
       email: aliasEmail,
       password,
@@ -524,7 +541,7 @@ export async function POST(request: NextRequest) {
       hasApplication: Boolean(applicationId),
       propertyModel: property?.rental_model ?? null,
     });
-    await admin.auth.admin.deleteUser(userId);
+    if (!resumedUserId) await admin.auth.admin.deleteUser(userId);
     return NextResponse.json(
       { error: "Registration could not be prepared. Please try again." },
       { status: 500 },

@@ -5,6 +5,7 @@ import { Link } from "@/components/app-link";
 import { FormEvent, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
+import { reservationPaymentError } from "@/lib/tenancy/reservation-payment";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -138,6 +139,7 @@ export function RegistrationForm({
   const [files, setFiles] = useState<Partial<Record<UploadKey, File>>>({});
   const [rentPaid, setRentPaid] = useState("0");
   const [depositPaid, setDepositPaid] = useState("0");
+  const [bookingDeposit, setBookingDeposit] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -149,6 +151,7 @@ export function RegistrationForm({
   );
   const flexiblePayments = supportsReservations(selectedProperty?.propertyCode);
   const effectiveMode = flexiblePayments ? registrationMode : "check_in";
+  const isReservation = accountType === "tenant" && effectiveMode === "reservation";
 
   function selectFile(key: UploadKey, file: File) {
     setFiles((current) => ({ ...current, [key]: file }));
@@ -168,16 +171,20 @@ export function RegistrationForm({
     setError(null);
 
     const formData = new FormData(event.currentTarget);
+    if (isReservation) {
+      const problem = reservationPaymentError(bookingDeposit, formData.get("paymentDate"), Boolean(files.paymentSlip));
+      if (problem) { setError(problem); return; }
+    }
     const reportedRent = Number(formData.get("rentPaid") ?? 0);
     const reportedDeposit = Number(formData.get("depositPaid") ?? 0);
     const reportedTotal =
       (Number.isFinite(reportedRent) ? reportedRent : 0) +
       (Number.isFinite(reportedDeposit) ? reportedDeposit : 0);
-    if (reportedTotal > 0 && !files.paymentSlip) {
+    if (!isReservation && reportedTotal > 0 && !files.paymentSlip) {
       setError("Attach the payment slip when rent or deposit was received.");
       return;
     }
-    if (files.paymentSlip && reportedTotal <= 0) {
+    if (!isReservation && files.paymentSlip && reportedTotal <= 0) {
       setError("Enter the rent and/or deposit amount shown on the payment slip.");
       return;
     }
@@ -185,7 +192,7 @@ export function RegistrationForm({
     try {
       const uploads = Object.entries(files)
         .filter(
-          (entry): entry is [UploadKey, File] => entry[1] !== undefined,
+          (entry): entry is [UploadKey, File] => entry[1] !== undefined && (!isReservation || entry[0] === "paymentSlip"),
         )
         .map(([key, file]) => ({
           key,
@@ -199,6 +206,8 @@ export function RegistrationForm({
         body: JSON.stringify({
           accountType,
           registrationMode: effectiveMode,
+          reservationDeposit: isReservation ? bookingDeposit : undefined,
+          paymentDate: isReservation ? formData.get("paymentDate") : undefined,
           companyDetails: formData.get("companyDetails"),
           companyName: formData.get("companyName"),
           agreedDeposit: formData.get("agreedDeposit"),
@@ -217,11 +226,13 @@ export function RegistrationForm({
           uploads,
         }),
       });
-      const startResult = await startResponse.json();
+      const result = await startResponse.json();
 
       if (!startResponse.ok) {
-        throw new Error(startResult.error ?? "Registration could not start.");
+        throw new Error(result.error ?? "Registration could not start.");
       }
+      if (result.completed && result.redirectTo === "/registration-status") { window.location.assign(result.redirectTo); return; }
+      const startResult = result as { applicationId: string; uploads: SignedUpload[] };
 
       const signedUploads = startResult.uploads as SignedUpload[];
       const supabase = createClient();
@@ -241,6 +252,7 @@ export function RegistrationForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountType,
+          reservationDeposit: isReservation ? bookingDeposit : undefined,
           applicationId: startResult.applicationId,
           paymentDate: formData.get("paymentDate"),
           depositPaid: formData.get("depositPaid"),
@@ -456,7 +468,7 @@ export function RegistrationForm({
 
         {accountType === "tenant" ? (
           <>
-            <label>
+            <label hidden={isReservation}>
               <span className="text-sm font-medium text-[#17223b]">
                 Emergency contact name
               </span>
@@ -465,10 +477,10 @@ export function RegistrationForm({
                 className={inputClass}
                 name="emergencyContactName"
                 placeholder="Person to contact in an emergency"
-                required={selectedProperty?.rentalModel !== "monthly_stay"}
+                required={!isReservation && selectedProperty?.rentalModel !== "monthly_stay"}
               />
             </label>
-            <label>
+            <label hidden={isReservation}>
               <span className="text-sm font-medium text-[#17223b]">
                 Emergency contact number
               </span>
@@ -478,13 +490,13 @@ export function RegistrationForm({
                 inputMode="tel"
                 name="emergencyContactNumber"
                 placeholder="012-345 6789 or +country code"
-                required={selectedProperty?.rentalModel !== "monthly_stay"}
+                required={!isReservation && selectedProperty?.rentalModel !== "monthly_stay"}
                 type="tel"
               />
             </label>
             <label>
               <span className="text-sm font-medium text-[#17223b]">
-                Preferred move-in date
+                {isReservation ? "Expected check-in date" : "Preferred move-in date"}
               </span>
               <input
                 className={inputClass}
@@ -501,7 +513,7 @@ export function RegistrationForm({
                 <input name="rentalPeriod" type="hidden" value="1" />
               </div>
             ) : (
-              <label>
+              <label hidden={isReservation}>
                 <span className="text-sm font-medium text-[#17223b]">
                   Rental period
                 </span>
@@ -509,7 +521,7 @@ export function RegistrationForm({
                   className={inputClass}
                   defaultValue=""
                   name="rentalPeriod"
-                  required
+                  required={!isReservation}
                 >
                   <option value="">Select rental period</option>
                   {(selectedProperty?.contractDurations ?? [6, 12]).map(
@@ -524,7 +536,7 @@ export function RegistrationForm({
             )}
             <fieldset className="rounded-md border border-emerald-200 bg-emerald-50/60 p-4 sm:col-span-2">
                 <legend className="px-1 text-sm font-semibold text-emerald-900">
-                  Agreed room terms
+                  {isReservation ? "Room terms for later check-in — not money received now" : "Agreed room terms"}
                 </legend>
                 <p className="mb-3 text-xs leading-5 text-emerald-900/80">
                   For staff-assisted registrations: enter the actual price agreed
@@ -600,7 +612,7 @@ export function RegistrationForm({
         )}
       </div>
 
-      <fieldset className="rounded-md border border-[#d7dde5] p-4">
+      {!isReservation ? <fieldset className="rounded-md border border-[#d7dde5] p-4">
         <legend className="px-1 text-sm font-semibold text-[#07142f]">
           Identity photos
         </legend>
@@ -632,11 +644,11 @@ export function RegistrationForm({
         <p className="mt-3 text-xs leading-5 text-[#7b879c]">
           Make sure the full document is visible, sharp and well lit.
         </p>
-      </fieldset>
+      </fieldset> : <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Reservation only: upload one deposit slip below. IC photos and remaining check-in details can be added when the tenant arrives. No tenancy or rent invoice starts now.</p>}
 
       {accountType === "tenant" ? (
         <>
-          {selectedProperty?.isCommercial ? (
+          {!isReservation && selectedProperty?.isCommercial ? (
             <fieldset className="rounded-md border border-[#e2c985] bg-[#fffaf0] p-4">
               <legend className="px-1 text-sm font-semibold text-[#7d5b18]">
                 Commercial property document
@@ -652,7 +664,14 @@ export function RegistrationForm({
               />
             </fieldset>
           ) : null}
-          <fieldset className="rounded-md border border-[#d7dde5] p-4">
+          {isReservation ? <fieldset className="rounded-md border border-amber-200 bg-amber-50/50 p-4">
+            <legend className="px-1 font-semibold">Reservation deposit — one slip only</legend>
+            <label className="mb-3 block text-sm">Reservation deposit received (RM)<input className={inputClass} name="reservationDeposit" type="number" min="0.01" step="0.01" required value={bookingDeposit} onChange={(event) => setBookingDeposit(event.target.value)} placeholder="e.g. 50.00" /></label>
+            <label className="mb-3 block text-sm">Payment date<input className={inputClass} name="paymentDate" type="date" required /></label>
+            <FilePicker file={files.paymentSlip} label="Reservation deposit slip" onSelect={(file) => selectFile("paymentSlip", file)} required />
+            <label className="mt-3 block text-sm">Notes (optional)<input className={inputClass} name="paymentNote" /></label>
+            <p className="mt-3 text-xs leading-5 text-slate-600">This is the room-holding payment, not another charge. Keep the same reservation when checking in; your main account verifies the slip and allocates it against the check-in balance.</p>
+          </fieldset> : <fieldset className="rounded-md border border-[#d7dde5] p-4">
             <legend className="px-1 text-sm font-semibold text-[#07142f]">
               Check-in / reservation payment declaration
             </legend>
@@ -708,7 +727,7 @@ export function RegistrationForm({
                 ? "First-month payment is required now. Upload the online transfer receipt; check-in activates only after Admin verification."
                 : "Upload the receipt or transfer screenshot for any money received. It remains pending until an Admin verifies it."}
             </p>
-          </fieldset>
+          </fieldset>}
         </>
       ) : (
         <fieldset className="rounded-md border border-[#d7dde5] p-4">
@@ -743,7 +762,7 @@ export function RegistrationForm({
         disabled={isLoading}
         type="submit"
       >
-        {isLoading ? "Uploading registration..." : "Submit registration"}
+        {isLoading ? "Uploading registration..." : isReservation ? "Submit reservation" : "Submit registration"}
       </button>
 
       <p className="text-center text-sm text-gray-600">

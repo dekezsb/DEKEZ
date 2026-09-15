@@ -72,6 +72,16 @@ export default async function ReservationsPage({ searchParams }: { searchParams:
           <input name="applicationId" type="hidden" value={application.id} />
           <label>Actual check-in date<input className="block rounded border p-2" name="checkInDate" type="date" required defaultValue={malaysiaDateString()} /></label>
           <label>Contract end (if applicable)<input className="block rounded border p-2" name="contractEnd" type="date" defaultValue={application.proposed_end_date ?? ""} /></label>
+          <details className="w-full rounded border p-3"><summary className="cursor-pointer">Add IC / passport photos and emergency contact for check-in</summary>
+            <p className="my-2 text-sm text-slate-600">These are check-in documents, not additional deposit slips. Existing documents stay attached.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label>IC front<input className="block w-full text-sm" name="icFront" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+              <label>IC back<input className="block w-full text-sm" name="icBack" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+              <label>Passport photo page (instead of IC)<input className="block w-full text-sm" name="passportPhoto" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+              <label>Emergency contact name<input className="block w-full rounded border p-2" name="emergencyContactName" /></label>
+              <label>Emergency contact number<input className="block w-full rounded border p-2" name="emergencyContactNumber" type="tel" /></label>
+            </div>
+          </details>
           <button className="rounded bg-[#b98a2c] px-4 py-2 text-white">Submit check-in for approval</button>
         </form></details></> : null}
         {role === "super_admin" && canManage ? <details><summary className="cursor-pointer font-semibold text-red-700">Main account — cancel reservation / release room</summary><form action={cancelReservation} className="mt-3 space-y-3 rounded border border-red-200 p-3">

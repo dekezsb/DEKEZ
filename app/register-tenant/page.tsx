@@ -15,10 +15,12 @@ type PageProps = {
     property?: string;
     room?: string;
     submitted?: string;
+    reserved?: string;
   }>;
 };
 
 const errorMessages: Record<string, string> = {
+  reservation_payment: "Enter the reservation deposit received, its payment date and one valid slip. If the room was just reserved, refresh and open Reservations before retrying.",
   missing: "Complete all required tenant, room and contract fields.",
   dates: "Contract end date cannot be earlier than the contract start date.",
   document: "Upload both IC sides, or upload the passport photo page.",
@@ -99,6 +101,7 @@ export default async function RegisterTenantPage({ searchParams }: PageProps) {
           </Button>
         </div>
       ) : null}
+      {params.reserved === "1" ? <p className="rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-900">Reservation submitted with one deposit slip. The room is held; no check-in or rent invoice has been started. <Link className="underline" href="/reservations">Open Reservations</Link></p> : null}
 
       <Button asChild variant="outline"><Link href="/reservations">Reservations — add instalments or request check-in</Link></Button>
 
