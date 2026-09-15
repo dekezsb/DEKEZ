@@ -8,6 +8,7 @@ import {
 } from "@/lib/tenancy/property-settings";
 import { calculateTermEndDate } from "@/lib/e-tenancy";
 import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
+import { depositBelongsToOccupant } from "@/lib/payments/current-occupant-deposit";
 
 type DataClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -181,7 +182,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .not("status", "in", "(draft,cancelled,waived)"),
       supabase
         .from("payments")
-        .select("room_id, amount")
+        .select("room_id, amount, tenancy_id, tenant_record_id")
         .eq("property_id", propertyId)
         .in("category", [
           "deposit",
@@ -192,7 +193,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .eq("status", "confirmed"),
       supabase
         .from("payment_submissions")
-        .select("room_id, amount")
+        .select("room_id, amount, tenancy_id, tenant_record_id")
         .eq("property_id", propertyId)
         .in("payment_type", [
           "deposit",
@@ -245,8 +246,15 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   const agreementByTenancy = new Map<string, (typeof agreements)[number]>();
   const verifiedDepositByRoom = new Map<string, number>();
   const verifiedSubmissionDepositByRoom = new Map<string, number>();
+  const occupantByRoom = new Map(rooms.filter((room) => room.status === "occupied").map((room) => [room.id, {
+    roomId: room.id,
+    tenancyId: room.current_tenancy_id ?? tenancyByRoom.get(room.id)?.id ?? tenantRecordByRoom.get(room.id)?.tenancy_id ?? null,
+    tenantRecordId: tenantRecordByRoom.get(room.id)?.id ?? null,
+  }]));
   for (const payment of depositPayments) {
     if (!payment.room_id) continue;
+    const occupant = occupantByRoom.get(payment.room_id);
+    if (!occupant || !depositBelongsToOccupant(payment, occupant)) continue;
     verifiedDepositByRoom.set(
       payment.room_id,
       (verifiedDepositByRoom.get(payment.room_id) ?? 0) + Number(payment.amount ?? 0),
@@ -254,6 +262,8 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
   }
   for (const submission of depositSubmissions) {
     if (!submission.room_id) continue;
+    const occupant = occupantByRoom.get(submission.room_id);
+    if (!occupant || !depositBelongsToOccupant(submission, occupant)) continue;
     verifiedSubmissionDepositByRoom.set(
       submission.room_id,
       (verifiedSubmissionDepositByRoom.get(submission.room_id) ?? 0) + Number(submission.amount ?? 0),
