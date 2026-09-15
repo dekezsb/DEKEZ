@@ -9,6 +9,7 @@ import {
   DoorOpen,
   Droplets,
   Home,
+  LayoutGrid,
   ReceiptText,
   Upload,
   Wrench,
@@ -279,6 +280,12 @@ async function ManagementDashboard({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ModuleCard
+          description="See vacant, occupied, reserved and maintenance rooms at a glance."
+          href="/room-availability"
+          icon={LayoutGrid}
+          title="Room Availability"
+        />
         <ModuleCard
           description={portalText(locale, "Enter tenant payments and attach bank-in slips for Admin verification.")}
           href="/rent-due-tracker"
@@ -632,6 +639,7 @@ async function MaintenanceDashboard() {
         <ModuleCard title="Assigned Jobs" description="Open jobs assigned to your staff account only." href="/maintenance" icon={ClipboardList} badge={summary.newAssignedJobs} />
         <ModuleCard title="Work In Progress" description="Update ongoing job status and work notes." href="/maintenance" icon={Wrench} badge={summary.inProgressJobs} />
         <ModuleCard title="Completed Jobs" description="Review completed maintenance and cleaning work." href="/maintenance" icon={ClipboardCheck} badge={summary.completedJobs} />
+        <ModuleCard title="Room Availability" description="Check whether a room is vacant, occupied, reserved or under maintenance." href="/room-availability" icon={LayoutGrid} />
         <ModuleCard title="Upload Before Photos" description="Attach before-work photos to a maintenance ticket." href="/maintenance" icon={Upload} />
         <ModuleCard title="Upload After Photos" description="Attach after-work photos before marking completed." href="/maintenance" icon={Upload} />
         <ModuleCard title="Submit Claim" description="Upload a repair bill for Admin verification." href="/maintenance#claim-bills" icon={ReceiptText} />

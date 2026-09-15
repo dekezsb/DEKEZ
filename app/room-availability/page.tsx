@@ -7,6 +7,7 @@ import {
   Home,
   WalletCards,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { Link } from "@/components/app-link";
 import { QuickCheckoutDialog } from "@/app/properties/[id]/quick-checkout-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -72,10 +73,14 @@ function isOccupied(room: RoomAvailabilityItem) {
 
 function RoomCard({
   canCheckout,
+  canOpenRoom,
   room,
+  showTenancyDetails,
 }: {
   canCheckout: boolean;
+  canOpenRoom: boolean;
   room: RoomAvailabilityItem;
+  showTenancyDetails: boolean;
 }) {
   const occupied = isOccupied(room);
 
@@ -101,7 +106,7 @@ function RoomCard({
         )}
       </div>
 
-      {occupied ? (
+      {occupied && showTenancyDetails ? (
         <div className="mt-4 flex-1 space-y-3 text-sm">
           <p className="line-clamp-2 font-semibold" title={room.tenantName ?? "Tenant"}>
             {room.tenantName ?? "Tenant name unavailable"}
@@ -124,6 +129,13 @@ function RoomCard({
             TA end: {formatMalaysiaDate(room.contractEnd)}
           </p>
         </div>
+      ) : occupied ? (
+        <div className="mt-4 flex-1 text-sm">
+          <p className="font-semibold">Currently occupied</p>
+          <p className="mt-2 opacity-75">
+            Tenant and tenancy details are available only to property management.
+          </p>
+        </div>
       ) : (
         <div className="mt-4 flex-1 text-sm">
           <p className="opacity-75">
@@ -134,46 +146,70 @@ function RoomCard({
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2 border-t border-current/15 pt-3">
-        {room.availabilityStatus === "vacant" && canCheckout ? (
-          <Button asChild className="bg-[#b8892c] text-white hover:bg-[#9d7422]" size="sm">
-            <Link href={`/register-tenant?property=${room.propertyId}&room=${room.id}`}>
-              Register Tenant
-            </Link>
-          </Button>
-        ) : null}
-        {occupied && canCheckout && room.tenancyId && room.tenantName ? (
-          <QuickCheckoutDialog
-            checkoutDate={malaysiaToday()}
-            propertyId={room.propertyId}
-            returnTo="/room-availability"
-            roomId={room.id}
-            roomNumber={room.roomNumber}
-            tenancyId={room.tenancyId}
-            tenantName={room.tenantName}
-          />
-        ) : null}
-        <Button asChild size="sm" variant="outline">
-          <Link href={`/properties/${room.propertyId}/rooms/${room.id}`}>Open Room</Link>
-        </Button>
-      </div>
+      {canCheckout || canOpenRoom ? (
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-current/15 pt-3">
+          {room.availabilityStatus === "vacant" && canCheckout ? (
+            <Button asChild className="bg-[#b8892c] text-white hover:bg-[#9d7422]" size="sm">
+              <Link href={`/register-tenant?property=${room.propertyId}&room=${room.id}`}>
+                Register Tenant
+              </Link>
+            </Button>
+          ) : null}
+          {occupied && canCheckout && room.tenancyId && room.tenantName ? (
+            <QuickCheckoutDialog
+              checkoutDate={malaysiaToday()}
+              propertyId={room.propertyId}
+              returnTo="/room-availability"
+              roomId={room.id}
+              roomNumber={room.roomNumber}
+              tenancyId={room.tenancyId}
+              tenantName={room.tenantName}
+            />
+          ) : null}
+          {canOpenRoom ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/properties/${room.propertyId}/rooms/${room.id}`}>Open Room</Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
 
 export default async function RoomAvailabilityPage({ searchParams }: PageProps) {
-  await requireRole(["super_admin", "owner", "admin"], {
-    module: "properties",
-    level: "view",
-  });
-  const [{ access, role }, map, query] = await Promise.all([
-    getCurrentUserAccess(),
+  const role = await requireRole([
+    "super_admin",
+    "owner",
+    "admin",
+    "technician",
+    "maintenance_staff",
+    "cleaning_staff",
+  ]);
+  const { access } = await getCurrentUserAccess();
+  const isMaintenanceTeam = [
+    "technician",
+    "maintenance_staff",
+    "cleaning_staff",
+  ].includes(role);
+  const canOpenRoom = hasModuleAccess(access, "properties", "view");
+  // Operational Admin accounts can have Properties explicitly disabled.
+  // Maintenance access grants the map only, not room editing or tenant details.
+  const maintenanceOnly = isMaintenanceTeam || (role === "admin" && !canOpenRoom);
+  const requiredModule = maintenanceOnly ? "maintenance" : "properties";
+
+  if (!hasModuleAccess(access, requiredModule, "view")) {
+    redirect("/dashboard?error=access_denied");
+  }
+
+  const [map, query] = await Promise.all([
     getRoomAvailabilityMap(),
     searchParams,
   ]);
   const canCheckout =
     (role === "super_admin" || role === "admin") &&
     hasModuleAccess(access, "properties", "manage");
+  const showTenancyDetails = !maintenanceOnly;
 
   return (
     <section className="space-y-7">
@@ -183,9 +219,9 @@ export default async function RoomAvailabilityPage({ searchParams }: PageProps) 
         </p>
         <h1 className="mt-2 text-3xl font-semibold text-[#0b1733]">Room Availability Map</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          See every room at a glance. This page shows availability, check-in dates,
-          tenancy-agreement status and deposit balances only—rent payment status is
-          intentionally not shown here.
+          {maintenanceOnly
+            ? "See every room at a glance before starting work. Room status is read-only for the maintenance team."
+            : "See every room at a glance. This page shows availability, check-in dates, tenancy-agreement status and deposit balances only—rent payment status is intentionally not shown here."}
         </p>
       </div>
 
@@ -252,7 +288,13 @@ export default async function RoomAvailabilityPage({ searchParams }: PageProps) 
                 {property.rooms.length ? (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                     {property.rooms.map((room) => (
-                      <RoomCard canCheckout={canCheckout} key={room.id} room={room} />
+                      <RoomCard
+                        canCheckout={canCheckout}
+                        canOpenRoom={canOpenRoom}
+                        key={room.id}
+                        room={room}
+                        showTenancyDetails={showTenancyDetails}
+                      />
                     ))}
                   </div>
                 ) : (
