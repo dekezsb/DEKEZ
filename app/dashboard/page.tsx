@@ -484,11 +484,12 @@ async function AdminDashboard({
 
   return (
     <section className="space-y-6">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button asChild className="bg-[#b98a2c] text-white hover:bg-[#9d7424]">
           <Link href="/register-tenant">+ Register / reserve tenant</Link>
         </Button>
-        <Button asChild className="ml-2" variant="outline"><Link href="/reservations">Reservations / instalments</Link></Button>
+        <Button asChild variant="outline"><Link href="/reservations">Reservations</Link></Button>
+        <Button asChild variant="outline"><Link href="/tenant-movements">Monthly Check-ins & Check-outs</Link></Button>
       </div>
 
       <Card className="mx-auto max-w-4xl rounded-xl border-[#d7dde5] bg-white shadow-sm">

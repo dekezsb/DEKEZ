@@ -44,6 +44,8 @@ const adminNavigation: NavigationItem[] = [
   { label: "Admin Settings", href: "/admin-setup", icon: Settings, module: "admin_setup" },
   { label: "Properties", href: "/properties", icon: Building2, module: "properties" },
   { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "properties" },
+  { label: "Reservations", href: "/reservations", icon: CalendarClock, module: "properties" },
+  { label: "Monthly Check-ins & Check-outs", href: "/tenant-movements", icon: CalendarClock, module: "properties" },
   { label: "Smart Devices", href: "/smart-devices", icon: LockKeyhole, module: "properties" },
   { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
   { label: "Referral Rewards", href: "/referrals", icon: Gift, module: "verification" },
@@ -64,6 +66,8 @@ const managementNavigation: NavigationItem[] = [
   { label: "Verification", href: "/verification", icon: ShieldCheck, module: "verification" },
   { label: "Claims", href: "/claims", icon: ReceiptText, module: "claims" },
   { label: "Profile", href: "/staff/profile", icon: CircleUserRound, module: "dashboard" },
+  { label: "Reservations", href: "/reservations", icon: CalendarClock, module: "properties" },
+  { label: "Monthly Check-ins & Check-outs", href: "/tenant-movements", icon: CalendarClock, module: "properties" },
 ];
 
 export const roleLabels: Record<AppRole, string> = {
@@ -139,6 +143,7 @@ export const protectedRoutes = [
   "/admin-setup",
   "/register-tenant",
   "/reservations",
+  "/tenant-movements",
   "/properties",
   "/room-availability",
   "/smart-devices",
