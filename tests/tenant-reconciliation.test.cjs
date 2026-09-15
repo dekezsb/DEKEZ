@@ -33,7 +33,7 @@ test('suggestions use exact amount with date, reference, identity and document i
 test('same amount / date for two tenants is manual review, not an automatic match',()=>{
   const result=rankExistingPayments(bank(),[payment(),payment({id:'p2',tenant:'Another Tenant'})]);
   assert.ok(result.every(s=>s.status==='MANUAL_REVIEW'&&s.confidence==='Manual Review'));
-  const resolved=rankExistingPayments(bank({reference:'BANK-1234'}),[payment(),payment({id:'p2',tenant:'Another Tenant',reference:'OTHER-REF'})]);
+  const resolved=rankExistingPayments(bank({reference:'BANK-1234',description:'Example Tenant'}),[payment(),payment({id:'p2',tenant:'Another Tenant',reference:'OTHER-REF'})]);
   assert.equal(resolved[0].payment.id,'payment-1');assert.equal(resolved[0].confidence,'Exact Match');
 });
 test('amount differences, duplicate references and conflicting room references require review',()=>{
@@ -48,7 +48,7 @@ test('already linked, legacy-linked, reversed and unconfirmed masters cannot be 
 });
 test('clear matches with a slip or receipt are ready without a separate selection click',()=>{
   for(const p of [payment({receipt:''}),payment({slipUrl:null})]){
-    const b=bank();assert.equal(directReconciliationPayment(b,rankExistingPayments(b,[p])).id,p.id);
+    const b=bank({description:'Transfer Example Tenant'});assert.equal(directReconciliationPayment(b,rankExistingPayments(b,[p])).id,p.id);
     const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[p],banks:[b],locked:false,canUnmatch:true}));
     assert.match(html,/Ready to reconcile/);assert.doesNotMatch(html,/Select Suggested Match/);
     const button=html.match(/<button\b[^>]*>Reconcile<\/button>/)?.[0];assert.ok(button);assert.doesNotMatch(button,/\sdisabled(?:=|>)/);
@@ -73,8 +73,44 @@ test('duplicate bank detection includes account, amount, date and reference; amo
   const result=flagDuplicateBanks([bank({id:'used',used:true,bankAccountId:'a',reference:'REF123'}),bank({bankAccountId:'a',reference:'REF123'}),bank({id:'other-account',bankAccountId:'b',reference:'REF123'}),bank({id:'different',bankAccountId:'a',reference:'REF999',description:'Different'})]);
   assert.equal(result[1].duplicate,true);assert.equal(result[2].duplicate,false);assert.equal(result[3].duplicate,false);
 });
+
+test('non-QR full tenant name selects the correct existing slip among equal amounts',()=>{
+  const b=bank({description:'DUITNOW TRSF CR · mAsLy   PATILOD · Pindahan dana'});
+  const p=payment({tenant:'MASLY PATILOD'});
+  const ranked=rankExistingPayments(b,[payment({id:'other',tenant:'OTHER TENANT'}),p]);
+  assert.equal(directReconciliationPayment(b,ranked)?.id,p.id);
+  const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[p],banks:[b],locked:false,canUnmatch:true}));
+  assert.match(html,/Tenant name matches bank description/);
+  assert.match(html,/Open original payment slip/);
+  assert.match(html,/https:\/\/example.invalid\/slip/);
+});
+
+test('unnamed transfers never offer amount/date-only or reference-only direct matching',()=>{
+  for(const b of [bank(),bank({reference:'BANK-1234'}),bank({description:'INV-1001 REC-1001'})]){
+    const ranked=rankExistingPayments(b,[payment()]);
+    assert.equal(ranked[0].status,'MANUAL_REVIEW');
+    assert.equal(directReconciliationPayment(b,ranked),null);
+    const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[payment()],banks:[b],locked:false,canUnmatch:true}));
+    const workingTable=html.split('</table>')[0];
+    assert.match(workingTable,/No matching receipt selected/);
+    assert.doesNotMatch(workingTable,/Example Tenant/);
+    assert.match(workingTable,/>Manual Match<\/button>/);
+  }
+});
+
+test('partial names and same-name receipts remain manual, while a correct QR room remains supported',()=>{
+  for(const description of ['JOANN LEE','ANN LEELA','ANN']){
+    assert.equal(directReconciliationPayment(bank({description}),rankExistingPayments(bank({description}),[payment({tenant:'ANN LEE'})])),null);
+  }
+  const b=bank({description:'Example Tenant'});
+  assert.equal(directReconciliationPayment(b,rankExistingPayments(b,[payment(),payment({id:'second'})])),null);
+  const qr=bank({description:'DUITNOW QR CR QR REF 123 SLS B4'});
+  assert.equal(directReconciliationPayment(qr,rankExistingPayments(qr,[payment()]))?.id,'payment-1');
+  const conflict=bank({description:'Example Tenant SLS B7'});
+  assert.equal(directReconciliationPayment(conflict,rankExistingPayments(conflict,[payment()])),null);
+});
 test('compact working UI displays original receipt, slip, AR and bank details',()=>{
-  const render=(admin)=>renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[payment()],banks:[bank()],locked:false,canUnmatch:admin}));
+  const render=(admin)=>renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[payment()],banks:[bank({description:'Example Tenant'})],locked:false,canUnmatch:admin}));
   const html=render(true);
   for(const value of ['Example Tenant','INV-1001','REC-1001','BANK-1234','View Receipt','View Slip','View Bank Transaction','AR reference']) assert.ok(html.includes(value),value);
   assert.ok(!render(false).includes('>Unmatch</button>'));
@@ -128,7 +164,7 @@ test('refresh suggestions writes only internal reconciliation state, never tenan
   const rows={payments:[{id:'p1',company_id:'c',amount:380,payment_date:'2026-09-07',status:'confirmed',reference_number:'R123',tenancies:{tenants:{full_name:'Example Tenant'}},receipts:[]}],accounting_payment_reconciliations:[],bank_reconciliation_matches:[],payment_submissions:[],bank_statement_lines:[{id:'b1',amount:380,transaction_date:'2026-09-07',status:'unmatched',description:'R123',reference_number:'R123',bank_reconciliation_matches:[]}]};
   const db=fakeDb(rows),before=JSON.stringify(rows);await refreshPaymentSuggestions(db,'c');
   assert.ok(db.writes.length>0);assert.ok(db.writes.every(w=>w.table==='accounting_payment_reconciliations'));
-  assert.ok(db.writes.some(w=>w.data.reconciliation_status==='MATCH_SUGGESTED'));
+  assert.ok(db.writes.some(w=>w.data.reconciliation_status==='MANUAL_REVIEW'),'reference and amount alone must remain manual');
   assert.equal(JSON.stringify(rows),before);
 });
 test('reports use a separate private accounting connection only for reconciliation states',async()=>{
