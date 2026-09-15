@@ -1,7 +1,7 @@
 type DepositSource = {
   room_id: string | null;
   tenancy_id: string | null;
-  tenant_record_id: string | null;
+  tenant_record_id?: string | null;
 };
 
 // A room can be reused by many tenants. Never use room identity alone as

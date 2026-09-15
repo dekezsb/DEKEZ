@@ -28,5 +28,6 @@ test('both canonical deposits and verified-slip fallback are filtered before roo
   const source=fs.readFileSync(require('node:path').join(__dirname,'../lib/data/property-details.ts'),'utf8');
   assert.match(source,/depositBelongsToOccupant\(payment, occupant\)/);
   assert.match(source,/depositBelongsToOccupant\(submission, occupant\)/);
+  assert.match(source,/from\("payments"\)\s*\.select\("room_id, amount, tenancy_id"\)/);
   assert.match(source,/verifiedDepositByRoom.get\(room.id\) \?\?\s*verifiedSubmissionDepositByRoom.get\(room.id\)/);
 });

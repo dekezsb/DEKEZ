@@ -182,7 +182,7 @@ export async function getPropertyDetails(propertyId: string): Promise<PropertyDe
         .not("status", "in", "(draft,cancelled,waived)"),
       supabase
         .from("payments")
-        .select("room_id, amount, tenancy_id, tenant_record_id")
+        .select("room_id, amount, tenancy_id")
         .eq("property_id", propertyId)
         .in("category", [
           "deposit",
