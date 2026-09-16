@@ -16,6 +16,7 @@ import {
   bankTenantNameMatchScore,
 } from "@/lib/accounting/bank-description";
 import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-description";
+import { refreshPaymentSuggestions } from "@/lib/accounting/tenant-reconciliation-data";
 import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -1567,6 +1568,78 @@ export async function createTenantPaymentFromBankLine(formData: FormData) {
     posting_account_key: "rental_income",
     payment_matched: "1",
   }));
+}
+
+export async function refreshExistingPaymentSuggestions() {
+  const { company, supabase } = await accountingContext();
+  try {
+    await refreshPaymentSuggestions(supabase, company.id);
+    revalidatePath("/reports");
+    return { ok: true as const };
+  } catch {
+    return {
+      ok: false as const,
+      error: "Could not refresh suggestions. No payments or receipts were changed. Please retry.",
+    };
+  }
+}
+
+export async function reconcileExistingPayment(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const { error } = await supabase.rpc("reconcile_existing_tenant_payment", {
+    p_company: company.id,
+    p_line: textValue(formData, "lineId"),
+    p_payment: textValue(formData, "paymentId"),
+    p_actor: user.id,
+  });
+  if (error) {
+    return {
+      ok: false as const,
+      error: error.message.includes("duplicate")
+        ? "Possible duplicate transaction. Please review."
+        : "Cannot reconcile this pair. Check the existing payment, bank amount and statement month. Nothing was changed.",
+    };
+  }
+  revalidatePath("/reports");
+  return { ok: true as const };
+}
+
+export async function unreconcileExistingPayment(formData: FormData) {
+  await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
+  const { user, company, supabase } = await accountingContext();
+  const { error } = await supabase.rpc("unreconcile_existing_tenant_payment", {
+    p_company: company.id,
+    p_payment: textValue(formData, "paymentId"),
+    p_actor: user.id,
+    p_reason: textValue(formData, "reason"),
+  });
+  if (error) {
+    return {
+      ok: false as const,
+      error: "Unable to unmatch. An authorized admin and a reason are required.",
+    };
+  }
+  revalidatePath("/reports");
+  return { ok: true as const };
+}
+
+export async function unreconcileLegacyTenantBank(formData: FormData) {
+  await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
+  const { user, company, supabase } = await accountingContext();
+  const { error } = await supabase.rpc("unreconcile_legacy_tenant_bank", {
+    p_company: company.id,
+    p_line: textValue(formData, "lineId"),
+    p_actor: user.id,
+    p_reason: textValue(formData, "reason"),
+  });
+  if (error) {
+    return {
+      ok: false as const,
+      error: "Unable to unmatch these legacy links. Admin review and a reason are required.",
+    };
+  }
+  revalidatePath("/reports");
+  return { ok: true as const };
 }
 
 export async function finalizeBankReconciliation(formData: FormData) {

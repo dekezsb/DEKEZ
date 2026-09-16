@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
+import { loadAccountingBankCredits, loadExistingPayments } from "@/lib/accounting/tenant-reconciliation-data";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -45,6 +47,7 @@ import { recurringDescriptionForMonth } from "@/lib/accounting/recurring-descrip
 import { getProfitLossReport, previousPeriod } from "@/lib/accounting/report-data";
 import { requireRole } from "@/lib/auth/session";
 import { getFirstCompany, getProperties } from "@/lib/data/organization";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   autoMatchStatement,
@@ -266,7 +269,7 @@ const errorMessages: Record<string, string> = {
 };
 
 export default async function ReportsPage({ searchParams }: ReportsPageProps) {
-  await requireRole(["super_admin", "owner", "admin"], { module: "reports", level: "view" });
+  const accountingRole = await requireRole(["super_admin", "owner", "admin"], { module: "reports", level: "view" });
   const params = await searchParams;
   const company = await getFirstCompany();
   if (!company) return <p className="text-sm text-gray-600">Set up a company before opening Accounting.</p>;
@@ -670,6 +673,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         .limit(1000)).data ?? []
     : [];
   const lineIds = statementLines.map((line) => line.id);
+  const [existingTenantPayments, accountingBankCredits] = tab === "bank" && bankFlow === "credit"
+    ? await Promise.all([
+        loadExistingPayments(supabase, company.id, true, createAdminClient()),
+        loadAccountingBankCredits(supabase, company.id),
+      ])
+    : [[], []];
+  const statementMonthPayments = existingTenantPayments.filter((payment) =>
+    payment.date.slice(0, 7) === statementRentalMonth
+    && (!payment.invoiceMonth || payment.invoiceMonth.slice(0, 7) === statementRentalMonth),
+  );
   const matches = lineIds.length
     ? (await supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds)).data ?? []
     : [];
@@ -1127,6 +1140,29 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 </Link>
               </div>
 
+              {bankFlow === "credit" ? (
+                <>
+                  <div className="flex justify-end">
+                    {selectedStatement.status === "in_progress" ? (
+                      <form action={finalizeBankReconciliation}>
+                        <input name="statementId" type="hidden" value={selectedStatement.id} />
+                        <Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit">
+                          Finalise whole statement
+                        </Button>
+                      </form>
+                    ) : (
+                      <Badge>Reconciled and locked</Badge>
+                    )}
+                  </div>
+                  <TenantPaymentReconciliation
+                    banks={accountingBankCredits.filter((line) => line.statementId === selectedStatement.id)}
+                    canUnmatch={["super_admin", "admin"].includes(accountingRole)}
+                    locked={selectedStatement.status !== "in_progress"}
+                    payments={statementMonthPayments}
+                    statementMonth={rentalMonthLabel(statementRentalMonth)}
+                  />
+                </>
+              ) : (
               <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -1402,6 +1438,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                   {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All {bankFlow === "credit" ? "credits" : "debits"} have been matched or explained.</div> : null}
                 </CardContent>
               </Card>
+              )}
             </>
           ) : <Card><CardContent className="pt-5"><p className="text-sm text-gray-600">Add a bank account and import a CSV statement to start reconciling.</p></CardContent></Card>}
         </div>
