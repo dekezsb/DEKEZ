@@ -32,7 +32,8 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   const navigation: NavigationItem[] =
     role && access
       ? roleNavigation[role].filter((item) =>
-          hasModuleAccess(access, item.module),
+          hasModuleAccess(access, item.module) ||
+          item.anyOfModules?.some((module) => hasModuleAccess(access, module)),
         )
       : [];
   const currentPage =
@@ -372,8 +373,7 @@ const navigationTranslationKeys: Record<string, TranslationKey> = {
   "Rent Due Tracker": "nav.rentDueTracker",
   "Rental Invoices": "nav.rentalInvoices",
   "Tenancy Agreements": "nav.tenancyAgreements",
-  "Utility Bills": "nav.utilityBills",
-  "Expense Bills": "nav.expenseBills",
+  "AP Payment Vouchers": "nav.apPaymentVouchers",
   Maintenance: "nav.maintenance",
   Reports: "nav.reports",
   Payments: "nav.payments",

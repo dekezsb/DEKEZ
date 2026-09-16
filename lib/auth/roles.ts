@@ -3,7 +3,6 @@ import {
   Building2,
   CalendarClock,
   CircleUserRound,
-  Droplets,
   CreditCard,
   FileSignature,
   FileText,
@@ -11,6 +10,7 @@ import {
   House,
   LayoutDashboard,
   LayoutGrid,
+  Landmark,
   LockKeyhole,
   ReceiptText,
   ShieldCheck,
@@ -37,6 +37,7 @@ export type NavigationItem = {
   href: string;
   icon: LucideIcon;
   module: AccessModule;
+  anyOfModules?: AccessModule[];
 };
 
 const adminNavigation: NavigationItem[] = [
@@ -50,8 +51,13 @@ const adminNavigation: NavigationItem[] = [
   { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
   { label: "Rental Invoices", href: "/rental-invoices", icon: FileText, module: "rent_due_tracker" },
   { label: "Tenancy Agreements", href: "/tenancy-agreements", icon: FileSignature, module: "tenancy_agreements" },
-  { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
-  { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+  {
+    label: "AP Payment Vouchers",
+    href: "/ap-payment-vouchers",
+    icon: Landmark,
+    module: "expenses",
+    anyOfModules: ["utility_bills", "expenses"],
+  },
   { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
   { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
 ];
@@ -98,8 +104,13 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
     { label: "Rental Invoices", href: "/rental-invoices", icon: FileText, module: "rent_due_tracker" },
     { label: "Tenancy Agreements", href: "/tenancy-agreements", icon: FileSignature, module: "tenancy_agreements" },
-    { label: "Utility Bills", href: "/utility-bills", icon: Droplets, module: "utility_bills" },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    {
+      label: "AP Payment Vouchers",
+      href: "/ap-payment-vouchers",
+      icon: Landmark,
+      module: "expenses",
+      anyOfModules: ["utility_bills", "expenses"],
+    },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
     { label: "Settings", href: "/settings", icon: Settings, module: "settings" },
@@ -110,20 +121,20 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     { label: "Tenant Check-in", href: "/register-tenant", icon: CircleUserRound, module: "maintenance" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "AP Payment Vouchers", href: "/ap-payment-vouchers", icon: Landmark, module: "expenses" },
   ],
   maintenance_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Tenant Check-in", href: "/register-tenant", icon: CircleUserRound, module: "maintenance" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "AP Payment Vouchers", href: "/ap-payment-vouchers", icon: Landmark, module: "expenses" },
   ],
   cleaning_staff: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
     { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
-    { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
+    { label: "AP Payment Vouchers", href: "/ap-payment-vouchers", icon: Landmark, module: "expenses" },
   ],
   tenant: [
     { label: "Home", href: "/dashboard", icon: House, module: "dashboard" },
@@ -155,6 +166,7 @@ export const protectedRoutes = [
   "/onboarding",
   "/e-tenancy",
   "/tenancy-agreements",
+  "/ap-payment-vouchers",
   "/utility-bills",
   "/expenses",
   "/maintenance",
