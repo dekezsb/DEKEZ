@@ -1,6 +1,7 @@
 import { getProperties, getRooms, getTenantRecords } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { createTenantDepositLookup } from "@/lib/payments/current-occupant-deposit";
 
 type DataClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -578,58 +579,20 @@ export async function getRentDueMap(
     }
   }
 
-  const addAmount = (
-    map: Map<string, number>,
-    key: string | null,
-    amount: number | string,
-  ) => {
-    if (!key) return;
-    map.set(key, (map.get(key) ?? 0) + Number(amount ?? 0));
-  };
-  const depositPaymentsByTenancy = new Map<string, number>();
-  const depositPaymentsByRoom = new Map<string, number>();
-  const depositSubmissionsByTenancy = new Map<string, number>();
-  const depositSubmissionsByRecord = new Map<string, number>();
-  const depositSubmissionsByRoom = new Map<string, number>();
-
-  for (const payment of (depositPaymentsResult.data ?? []) as RawDepositPayment[]) {
-    addAmount(depositPaymentsByTenancy, payment.tenancy_id, payment.amount);
-    addAmount(depositPaymentsByRoom, payment.room_id, payment.amount);
-  }
-  for (const submission of (depositSubmissionsResult.data ?? []) as RawDepositSubmission[]) {
-    addAmount(depositSubmissionsByTenancy, submission.tenancy_id, submission.amount);
-    addAmount(depositSubmissionsByRecord, submission.tenant_record_id, submission.amount);
-    addAmount(depositSubmissionsByRoom, submission.room_id, submission.amount);
-  }
+  const depositReceivedFor = createTenantDepositLookup(
+    (depositPaymentsResult.data ?? []) as RawDepositPayment[],
+    (depositSubmissionsResult.data ?? []) as RawDepositSubmission[],
+  );
 
   const depositOutstandingFor = (
     tenancy: RawTenancy | null | undefined,
     tenantRecord: (typeof tenantRecords)[number] | null | undefined,
-    roomId: string,
     paidThroughInvoice = 0,
   ) => {
     const required = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
     if (required <= 0) return 0;
 
-    const canonicalReceived = tenancy
-      ? depositPaymentsByTenancy.get(tenancy.id)
-        ?? depositPaymentsByRoom.get(roomId)
-        ?? 0
-      : depositPaymentsByRoom.get(roomId) ?? 0;
-    const submittedReceived = tenancy
-      ? depositSubmissionsByTenancy.get(tenancy.id)
-        ?? (tenantRecord
-          ? depositSubmissionsByRecord.get(tenantRecord.id)
-          : undefined)
-        ?? depositSubmissionsByRoom.get(roomId)
-        ?? 0
-      : (tenantRecord
-        ? depositSubmissionsByRecord.get(tenantRecord.id)
-        : undefined)
-        ?? depositSubmissionsByRoom.get(roomId)
-        ?? 0;
-    const separatelyRecorded =
-      canonicalReceived > 0 ? canonicalReceived : submittedReceived;
+    const separatelyRecorded = depositReceivedFor(tenancy?.id ?? null, tenantRecord?.id ?? null);
     const received = Math.max(separatelyRecorded, paidThroughInvoice);
 
     return Math.max(required - received, 0);
@@ -704,7 +667,6 @@ export async function getRentDueMap(
     const depositOutstanding = depositOutstandingFor(
       tenancy,
       tenantRecord,
-      bill.room_id,
       depositPaidThroughInvoice,
     );
 
@@ -792,12 +754,10 @@ export async function getRentDueMap(
       depositOutstanding: depositOutstandingFor(
         tenancy,
         tenantRecord,
-        tenancy.room_id,
       ),
       totalOutstanding: depositOutstandingFor(
         tenancy,
         tenantRecord,
-        tenancy.room_id,
       ),
       creditAmount: 0,
       dueDate: matchingPayments[0].payment_date,

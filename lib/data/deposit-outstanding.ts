@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getProperties, getRooms } from "./organization";
+import { createTenantDepositLookup } from "@/lib/payments/current-occupant-deposit";
 
 type DataClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -33,11 +34,6 @@ export type DepositOutstandingSummary = {
   totalOutstanding: number;
   rows: DepositOutstandingRow[];
 };
-
-function addAmount(map: Map<string, number>, key: string | null, amount: unknown) {
-  if (!key) return;
-  map.set(key, (map.get(key) ?? 0) + Number(amount ?? 0));
-}
 
 export async function getDepositOutstandingSummary(): Promise<DepositOutstandingSummary> {
   const [properties, rooms] = await Promise.all([getProperties(), getRooms()]);
@@ -114,21 +110,10 @@ export async function getDepositOutstandingSummary(): Promise<DepositOutstanding
   const tenancyByRoom = new Map(
     tenancies.map((tenancy) => [tenancy.room_id, tenancy]),
   );
-  const paymentsByTenancy = new Map<string, number>();
-  const paymentsByRoom = new Map<string, number>();
-  const submissionsByTenancy = new Map<string, number>();
-  const submissionsByRecord = new Map<string, number>();
-  const submissionsByRoom = new Map<string, number>();
-
-  for (const payment of paymentsResult.data ?? []) {
-    addAmount(paymentsByTenancy, payment.tenancy_id, payment.amount);
-    addAmount(paymentsByRoom, payment.room_id, payment.amount);
-  }
-  for (const submission of submissionsResult.data ?? []) {
-    addAmount(submissionsByTenancy, submission.tenancy_id, submission.amount);
-    addAmount(submissionsByRecord, submission.tenant_record_id, submission.amount);
-    addAmount(submissionsByRoom, submission.room_id, submission.amount);
-  }
+  const depositReceivedFor = createTenantDepositLookup(
+    paymentsResult.data ?? [],
+    submissionsResult.data ?? [],
+  );
 
   const rows: DepositOutstandingRow[] = [];
 
@@ -143,25 +128,10 @@ export async function getDepositOutstandingSummary(): Promise<DepositOutstanding
     const deposit = Number(tenancy?.deposit ?? tenantRecord?.deposit ?? 0);
     if (deposit <= 0) continue;
 
-    const canonicalReceived = tenancy
-      ? paymentsByTenancy.get(tenancy.id) ?? paymentsByRoom.get(room.id) ?? 0
-      : paymentsByRoom.get(room.id) ?? 0;
-    const submittedReceived = tenancy
-      ? submissionsByTenancy.get(tenancy.id) ??
-        (tenantRecord
-          ? submissionsByRecord.get(tenantRecord.id)
-          : undefined) ??
-        submissionsByRoom.get(room.id) ??
-        0
-      : (tenantRecord
-          ? submissionsByRecord.get(tenantRecord.id)
-          : undefined) ??
-        submissionsByRoom.get(room.id) ??
-        0;
-    // Verified submissions are normally copied into payments. Prefer the
-    // canonical payment total when present so one receipt is not counted twice.
-    const depositReceived =
-      canonicalReceived > 0 ? canonicalReceived : submittedReceived;
+    const depositReceived = depositReceivedFor(
+      tenancy?.id ?? tenantRecord?.tenancy_id ?? null,
+      tenantRecord?.id ?? null,
+    );
     const depositOutstanding = Math.max(deposit - depositReceived, 0);
 
     if (depositOutstanding <= 0.005) continue;
