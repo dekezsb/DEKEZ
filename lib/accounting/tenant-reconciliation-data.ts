@@ -7,7 +7,7 @@ export async function loadExistingPayments(db: SupabaseClient, companyId: string
     allReportRows(db.from('payments').select('id,amount,payment_date,reference_number,status,reversed_at,rent_bill_id,payment_submission_id,properties(name),rooms(room_number),tenancies(tenants(full_name)),rent_bills(invoice_number,bill_month),receipts(receipt_number),payment_submissions(receipt_url)').eq('company_id',companyId)),
     // This table deliberately has no tenant-facing grants. The reports page supplies
     // its server-only client after checking report access; all other reads retain RLS.
-    allReportRows(internalAccountingDb.from('accounting_payment_reconciliations').select('*').eq('company_id',companyId)),
+    allReportRows(internalAccountingDb.from('accounting_payment_reconciliations').select('*').eq('company_id',companyId), 'payment_record_id'),
     allReportRows(db.from('bank_reconciliation_matches').select('id,source_id,source_type,statement_line_id').in('source_type',['payment','rent_bill'])),
     allReportRows(db.from('payment_submissions').select('id,amount,payment_date,reference_number,verification_status,receipt_url,rent_bill_id,properties!inner(name,company_id),rooms(room_number),tenancies(tenants(full_name)),tenant_applications(full_name),rent_bills(invoice_number,bill_month)').eq('properties.company_id',companyId)),
   ]);
