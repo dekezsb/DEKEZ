@@ -1166,10 +1166,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <CardTitle className={bankFlow === "credit" ? "text-emerald-900" : "text-red-900"}>{bankFlow === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>
-                    <CardDescription>{bankFlow === "credit" ? `${creditLines.length} incoming receipts need attention. Rental suggestions are limited to the ${rentalMonthLabel(statementRentalMonth)} invoice month.` : `${debitLines.length} outgoing payments need attention. Allocate each debit to one recorded payment, several bills/claims, or an accounting category.`}</CardDescription>
+                    <CardTitle className="text-red-900">Debit / Money Out allocation</CardTitle>
+                    <CardDescription>{`${debitLines.length} outgoing payments need attention. Allocate each debit to one recorded payment, several bills/claims, or an accounting category.`}</CardDescription>
                   </div>
-                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><input name="bankFlow" type="hidden" value={bankFlow} /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe {bankFlow === "credit" ? "credits" : "debits"}</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
+                  {selectedStatement.status === "in_progress" ? <div className="flex flex-wrap gap-2"><form action={autoMatchStatement}><input name="statementId" type="hidden" value={selectedStatement.id} /><input name="bankFlow" type="hidden" value="debit" /><Button type="submit" variant="outline"><Sparkles className="h-4 w-4" />Auto-link safe debits</Button></form><form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id} /><Button disabled={unmatchedCount > 0 || Math.abs(statementDifference) > 0.005} type="submit"><BadgeCheck className="h-4 w-4" />Finalise whole statement</Button></form></div> : <Badge className="bg-emerald-100 text-emerald-800">Reconciled and locked</Badge>}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {params.already_reconciled ? (
@@ -1435,7 +1435,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                     );
                   })}
                   </CompactReconciliationList>
-                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All {bankFlow === "credit" ? "credits" : "debits"} have been matched or explained.</div> : null}
+                  {!reviewLines.length ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-medium text-emerald-800">All debits have been matched or explained.</div> : null}
                 </CardContent>
               </Card>
               )}
