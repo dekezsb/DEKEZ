@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Annual reports can exceed the API's row cap. Fetch every page in stable order.
-async function allReportRows<T>(query: PromiseLike<{ data: T[] | null; error: unknown }> & {
+export async function allReportRows<T>(query: PromiseLike<{ data: T[] | null; error: unknown }> & {
   order(column: string): unknown;
   range(from: number, to: number): PromiseLike<{ data: T[] | null; error: unknown }>;
 }) {
