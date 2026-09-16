@@ -7,8 +7,14 @@ export type ExistingPayment = {
   duplicate?: boolean; submissionOnly?: boolean;
 };
 export type StatementTransaction = { id: string; amount: number; date: string; reference: string; description: string; used: boolean; completed?: boolean; duplicate?: boolean; bankAccountId?: string; statementId?: string; legacyPaymentLinks?: {sourceType:string;sourceId:string;amount:number}[] };
+export type BankPropertyRoomHint = { propertyCode: string; roomCode: string };
 const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 const contains = (haystack: string, needle: string) => normalized(needle).length >= 4 && normalized(haystack).includes(normalized(needle));
+const normalizedRoomCode = (value: string) => value.toUpperCase().replace(/^ROOM\s*/, '').replace(/\s+/g, '').replace(/^0+(?=\d)/, '');
+export function bankPropertyRoomHint(bank: Pick<StatementTransaction, 'reference' | 'description'>): BankPropertyRoomHint | null {
+  const match = `${bank.reference} ${bank.description}`.toUpperCase().match(/\b(PTT|DGG|BDS|BVH|INS|HLT|KLB|SLY|MGT|SLS)\s*[-–—]?\s*(?:ROOM\s*)?([A-Z]?\d+[A-Z]?)\b/);
+  return match ? { propertyCode: match[1], roomCode: normalizedRoomCode(match[2]) } : null;
+}
 // Preserve word boundaries: ANN LEE must not match JOANN LEE or ANN LEELA.
 const nameWords = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const containsTenantName = (text: string, name: string) => {
@@ -27,9 +33,8 @@ export function rankExistingPayments(bank: StatementTransaction, payments: Exist
     const name = containsTenantName(text, payment.tenant);
     const document = contains(text, payment.invoice) || payment.receipt.split(',').some(receipt=>contains(text,receipt));
     const priority = sameStatementMonth && (same && days <= 3 ? 1 : same && ref ? 2 : same && name ? 3 : document ? 4 : days <= 3 && Math.abs(bank.amount-payment.amount)<=5 ? 5 : 0);
-    const location = text.toUpperCase().match(/\b(PTT|DGG|BDS|BVH|INS|HLT|KLB|SLY|MGT|SLS)\s*(?:ROOM\s*)?([A-Z]?\d+)\b/);
-    const room = payment.room.toUpperCase().replace(/^ROOM\s*/, '').replace(/^0+(?=\d)/, '');
-    const locationConflict = Boolean(location && (!payment.property.toUpperCase().includes(location[1]) || location[2].replace(/^0+(?=\d)/, '') !== room));
+    const location = bankPropertyRoomHint(bank);
+    const locationConflict = Boolean(location && (!payment.property.toUpperCase().includes(location.propertyCode) || normalizedRoomCode(payment.room) !== location.roomCode));
     const locationMatch=Boolean(location&&!locationConflict);
     const missingIdentity=!name&&!locationMatch;
     return priority ? [{payment,priority,identity:ref || name || document || locationMatch, exactAmount:same,locationConflict,missingIdentity,
