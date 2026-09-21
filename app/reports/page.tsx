@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
+import { loadWorkingStatementIds, workingStatements, selectedWorkingStatement } from "@/lib/accounting/statement-work-queue";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -301,7 +302,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
 
 
-  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult, manualBalanceTransactionsResult] = await Promise.all([
+  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult, manualBalanceTransactionsResult, workingStatementIds] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
@@ -314,12 +315,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     allReportRows(supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate)),
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
     allReportRows(supabase.from("bank_manual_transactions").select("id, amount, offset_account_id, property_id, transaction_date, reference_number, description").eq("company_id", company.id).lte("transaction_date", endDate)),
+    loadWorkingStatementIds(supabase, company.id),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
   if (tab === "balance-sheet" && [bankAccountsResult, statementsResult, accountsResult, journalEntriesResult, depositPaymentsResult, liabilitiesResult].some((result) => result.error)) throw new Error("Unable to load all Balance Sheet sources. Please retry; partial balances are not shown.");
   if (manualBalanceTransactionsResult.error) throw new Error("Unable to load bank voucher balances. Please retry.");
   const statementImports = statementsResult.data ?? [];
+  if (statementsResult.error) throw new Error("Unable to load bank statements. Please retry.");
+  const workingStatementImports = workingStatements(statementImports, workingStatementIds);
   const accounts = accountsResult.data ?? [];
   const journalEntries = journalEntriesResult.data ?? [];
   const journalEntryIds = journalEntries.map((entry) => entry.id);
@@ -330,8 +334,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     `${rule.bank_account_id ?? ""}:${rule.direction}:${rule.bank_description_key}`,
     rule,
   ]));
-  const selectedStatementId = statementImports.some((item) => item.id === params.statement) ? params.statement ?? "" : statementImports[0]?.id ?? "";
-  const selectedStatement = statementImports.find((item) => item.id === selectedStatementId) ?? null;
+  // An old bookmark must not bring a finished statement back into the workspace.
+  // Other accounting reports retain the complete statement list and balances.
+  const selectedStatement = selectedWorkingStatement(tab === "bank" ? workingStatementImports : statementImports, params.statement);
+  const selectedStatementId = selectedStatement?.id ?? "";
   const statementRentalMonth = selectedStatement?.period_start?.slice(0, 7) ?? selectedMonth;
 
   const { data: companyExpenses } = await supabase.from("expenses").select("id").eq("company_id", company.id);
@@ -696,9 +702,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     journalLinesByEntry.set(line.journal_entry_id, entryLines);
   }
 
-  const statementLines = selectedStatementId
-    ? (await allReportRows(supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date"))).data ?? []
-    : [];
+  const statementLinesResult = selectedStatementId
+    ? await allReportRows(supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date"))
+    : { data: [], error: null };
+  if (statementLinesResult.error) throw new Error("Unable to load remaining statement transactions. Please retry.");
+  const statementLines = statementLinesResult.data;
   const otherBankAccountIds = bankAccounts
     .filter((account) => account.id !== selectedStatement?.bank_account_id)
     .map((account) => account.id);
@@ -803,7 +811,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const reviewLines = prioritizedFlowLines
     .map((item) => item.line);
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
-  const unreconciledTotal = statementImports.filter((item) => item.status === "in_progress").length;
+  const unreconciledTotal = workingStatementImports.length;
   const adjustmentAccounts = accounts.filter((account) => account.id !== statementAccount?.accounting_account_id);
   const adjustmentAccountGroups = ["expense", "asset", "liability", "equity", "income"].map((type) => ({
     type,
@@ -1174,8 +1182,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </CardContent></Card>
           </div>
 
-          {statementImports.length ? <Card><CardHeader><CardTitle>Statements</CardTitle><CardDescription>Select a statement to match and reconcile.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">
-            {statementImports.map((statement) => { const account = bankAccounts.find((item) => item.id === statement.bank_account_id); return <Button asChild key={statement.id} variant={statement.id === selectedStatementId ? "default" : "outline"}><Link href={tabHref("bank", selectedMonth, selectedPropertyId, statement.id)}>{account?.bank_name ?? "Bank"} · {dateLabel(statement.period_end)} <Badge className={statusClasses[statement.status] ?? ""}>{statement.status.replaceAll("_", " ")}</Badge></Link></Button>; })}
+          {workingStatementImports.length ? <Card><CardHeader><CardTitle>Statements</CardTitle><CardDescription>Only statements with money in or money out still to reconcile. Finished items leave this workspace automatically.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">
+            {workingStatementImports.map((statement) => { const account = bankAccounts.find((item) => item.id === statement.bank_account_id); return <Button asChild key={statement.id} variant={statement.id === selectedStatementId ? "default" : "outline"}><Link href={tabHref("bank", selectedMonth, selectedPropertyId, statement.id)}>{account?.bank_name ?? "Bank"} · {dateLabel(statement.period_end)} <Badge className={statusClasses[statement.status] ?? ""}>{statement.status.replaceAll("_", " ")}</Badge></Link></Button>; })}
           </CardContent></Card> : null}
 
           {selectedStatement ? (
@@ -1510,7 +1518,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 </CardContent>
               </Card>}
             </>
-          ) : <Card><CardContent className="pt-5"><p className="text-sm text-gray-600">Add a bank account and import a CSV statement to start reconciling.</p></CardContent></Card>}
+          ) : <Card><CardContent className="pt-5"><p className="text-sm text-gray-600">{statementImports.length ? "No bank transactions left to reconcile. Completed records remain in the ledger." : "Add a bank account and import a CSV statement to start reconciling."}</p></CardContent></Card>}
         </div>
       ) : null}
 
