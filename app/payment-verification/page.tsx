@@ -368,12 +368,32 @@ export async function PaymentVerificationContent({
             const summaryTone = isCheckInFolder ? "bg-emerald-100/70" : "bg-sky-100/70";
             return <details key={key} className={`rounded-xl border ${folderTone}`} open={groups.length === 1}>
               <summary className={`cursor-pointer rounded-xl p-4 ${summaryTone}`}>
-                <span className="font-semibold">{first.tenantName} · {first.propertyName} / {first.roomName}</span>
-                <span className={`ml-2 inline-flex rounded px-2 py-0.5 text-xs font-semibold ${isCheckInFolder ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
-                  {isCheckInFolder ? "NEW TENANT CHECK-IN" : "MONTHLY RENTAL"}
-                </span>
-                <span className="mt-1 block text-sm">{key.startsWith("deposit:") ? "Deposit folder — all months" : `Rental folder — ${first.billMonth.slice(0, 7)}`} · {rows.length} slips · {pending.length} awaiting verification</span>
-                <span className="mt-1 block text-sm">Verified slips: {money(verified.reduce((n, s) => n + Number(s.amount), 0))} · Pending slips: {money(pending.reduce((n, s) => n + Number(s.amount), 0))}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-base font-semibold text-gray-950">{first.tenantName}</span>
+                  <span className="text-sm text-gray-600">{first.propertyName} / {first.roomName}</span>
+                  <span className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${isCheckInFolder ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
+                    {isCheckInFolder ? "NEW TENANT CHECK-IN" : "MONTHLY RENTAL"}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-gray-600">{key.startsWith("deposit:") ? "Deposit folder — all months" : `Rental folder — ${first.billMonth.slice(0, 7)}`}</p>
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Slips</p>
+                    <p className="text-sm font-semibold text-gray-950">{rows.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Awaiting</p>
+                    <p className="text-sm font-semibold text-gray-950">{pending.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Verified</p>
+                    <p className="text-sm font-semibold text-gray-950">{money(verified.reduce((n, s) => n + Number(s.amount), 0))}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pending</p>
+                    <p className="text-sm font-semibold text-gray-950">{money(pending.reduce((n, s) => n + Number(s.amount), 0))}</p>
+                  </div>
+                </div>
               </summary>
               <div className="p-4">
                 <p className="mb-3 text-sm text-gray-600">Check each transfer against your bank. Earlier verified slips remain visible and are already counted. Combined rent/deposit slips show the full transfer amount; use their allocation details when reviewing.</p>
@@ -383,12 +403,18 @@ export async function PaymentVerificationContent({
                     ? "border-emerald-200 bg-emerald-50/70"
                     : "border-sky-200 bg-sky-50/70";
                   return <article key={submission.id} className={`rounded-lg border p-3 ${submission.verification_status === "verified" ? "border-green-300 bg-green-50" : itemTone}`}>
-                    <h3 className="font-semibold">Slip {index + 1} · {row.amountSubmitted}</h3>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-semibold text-gray-950">Slip {index + 1}</h3>
+                      <span className="text-base font-semibold text-gray-950">{row.amountSubmitted}</span>
+                    </div>
                     <p className={`mt-1 inline-flex rounded px-2 py-0.5 text-xs font-semibold ${row.isCheckIn ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
                       {row.isCheckIn ? "Check-in payment" : "Monthly rental payment"}
                     </p>
-                    <p className="text-sm">{formatMalaysiaDate(submission.payment_date)} · {submission.payment_type.replaceAll("_", " ")}</p>
-                    <p className="break-words text-sm">Bank reference: {submission.reference_number || "Not entered"}</p>
+                    <dl className="mt-2 space-y-1 text-sm text-gray-700">
+                      <div className="flex justify-between gap-2"><dt className="text-gray-500">Date</dt><dd>{formatMalaysiaDate(submission.payment_date)}</dd></div>
+                      <div className="flex justify-between gap-2"><dt className="text-gray-500">Type</dt><dd className="capitalize">{submission.payment_type.replaceAll("_", " ")}</dd></div>
+                      <div className="flex justify-between gap-2"><dt className="shrink-0 text-gray-500">Bank ref.</dt><dd className="break-words text-right">{submission.reference_number || "Not entered"}</dd></div>
+                    </dl>
                     {row.checkInSummary ? (
                       <div className="my-2 rounded border border-emerald-200 bg-white/70 p-2 text-xs text-emerald-950">
                         <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
