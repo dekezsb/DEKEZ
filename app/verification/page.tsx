@@ -108,6 +108,10 @@ const views: {
 ];
 
 const errorMessages: Record<string, string> = {
+  booking_allocation:
+    "Choose either Monthly Rent or Deposit for the full booking-fee amount. Do not add an extra charge.",
+  booking_review:
+    "The booking fee could not be verified. No balance was changed. Refresh once and try again; the error has been recorded for review.",
   identity_first:
     "Approve the tenant check-in first. Bank payment verification is a separate step and does not block check-in approval.",
   user_missing:

@@ -327,6 +327,8 @@ export async function reviewPaymentSubmission(formData: FormData) {
     effectiveBillMonth = targetBill?.bill_month ?? normalizedBillMonth;
   }
 
+  const receiptAmountForVerification = effectiveAmount;
+
   let verifiedExtraCharge: {
     amount: number;
     category: ExtraChargeCategory;
@@ -484,6 +486,86 @@ export async function reviewPaymentSubmission(formData: FormData) {
         description: extraChargeDescription,
       };
     }
+  }
+
+  if (
+    decision === "verified" &&
+    currentSubmission.payment_type === "booking_fee"
+  ) {
+    const bookingAllocationIsValid =
+      role === "super_admin" &&
+      effectiveTenancyId &&
+      effectiveRentBillId &&
+      effectivePaymentDate &&
+      verifiedAllocation &&
+      verifiedAllocation.extra <= 0.005 &&
+      verifiedAllocation.credit <= 0.005 &&
+      Math.abs(
+        verifiedAllocation.rent +
+          verifiedAllocation.deposit -
+          receiptAmountForVerification,
+      ) <= 0.005 &&
+      (
+        (effectivePaymentType === "monthly_rent" &&
+          verifiedAllocation.rent > 0.005 &&
+          verifiedAllocation.deposit <= 0.005) ||
+        (effectivePaymentType === "deposit" &&
+          verifiedAllocation.deposit > 0.005 &&
+          verifiedAllocation.rent <= 0.005)
+      );
+
+    if (!bookingAllocationIsValid) {
+      redirect(withResult(returnTo, "error=booking_allocation"));
+    }
+
+    const { error: bookingError } = await supabase.rpc(
+      "verify_booking_fee_allocation",
+      {
+        p_submission: currentSubmission.id,
+        p_actor: user.id,
+        p_allocation: effectivePaymentType,
+        p_amount: receiptAmountForVerification,
+        p_payment_date: effectivePaymentDate,
+      },
+    );
+
+    if (bookingError) {
+      console.error("Booking fee verification failed.", {
+        submissionId: currentSubmission.id,
+        code: bookingError.code,
+        message: bookingError.message,
+      });
+      redirect(withResult(returnTo, "error=booking_review"));
+    }
+
+    if (effectivePaymentType === "monthly_rent" && effectiveTenancyId) {
+      await extendFingerprintAccessAfterPayment({
+        tenancyId: effectiveTenancyId,
+        paymentSubmissionId: currentSubmission.id,
+        performedBy: user.id,
+      }).catch((fingerprintError) => {
+        console.error("Booking payment could not update TTLock fingerprint access.", {
+          tenancyId: effectiveTenancyId,
+          paymentSubmissionId: currentSubmission.id,
+          error: fingerprintError,
+        });
+      });
+    }
+
+    for (const path of [
+      "/payment-verification",
+      "/verification",
+      "/rent-due-tracker",
+      "/payments",
+      "/dashboard",
+      "/e-tenancy",
+      "/tenancy-agreements",
+      "/onboarding",
+    ]) {
+      revalidatePath(path);
+    }
+    revalidatePath(`/invoices/${effectiveRentBillId}`);
+    redirect(withResult(returnTo, "reviewed=1"));
   }
 
   const { data: submission, error } = await supabase
