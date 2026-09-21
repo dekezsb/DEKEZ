@@ -7,15 +7,43 @@ export const PAYMENT_PURPOSES = [
 
 export type PaymentPurpose = (typeof PAYMENT_PURPOSES)[number];
 
+export function isBookingFeePayment(value: string) {
+  return value === "booking_fee";
+}
+
 export function isPaymentPurpose(value: string): value is PaymentPurpose {
   return PAYMENT_PURPOSES.includes(value as PaymentPurpose);
 }
 
 export function paymentPurposeLabel(value: string) {
+  if (isBookingFeePayment(value)) return "Booking fee";
   if (value === "deposit") return "Deposit";
   if (value === "rent_and_deposit") return "Rent + Deposit";
   if (value === "other") return "Other / Extra Charge";
   return "Monthly Rent";
+}
+
+export function verificationPaymentPurpose(value: string): PaymentPurpose {
+  return isPaymentPurpose(value) ? value : "monthly_rent";
+}
+
+export function paymentPurposeChangeNeedsReason(
+  originalPurpose: string,
+  selectedPurpose: string,
+) {
+  return (
+    !isBookingFeePayment(originalPurpose) &&
+    selectedPurpose !== originalPurpose
+  );
+}
+
+export function persistedPaymentPurpose(
+  originalPurpose: string,
+  allocatedPurpose: string,
+) {
+  return isBookingFeePayment(originalPurpose)
+    ? originalPurpose
+    : allocatedPurpose;
 }
 
 export function paymentPurposeTotal(

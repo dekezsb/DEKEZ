@@ -16,6 +16,9 @@ import {
 import {
   allocatePaymentPurpose,
   isPaymentPurpose,
+  paymentPurposeChangeNeedsReason,
+  paymentPurposeLabel,
+  persistedPaymentPurpose,
 } from "@/lib/payments/payment-purpose";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -189,10 +192,20 @@ export async function reviewPaymentSubmission(formData: FormData) {
   let effectiveBillMonth = currentSubmission.bill_month;
   let effectiveRentBillId = currentSubmission.rent_bill_id;
   let effectiveAmount = Number(currentSubmission.amount ?? 0);
-  const purposeWasCorrected =
+  const paymentPurposeWasSelected =
     decision === "verified" &&
     paymentPurposeOverride &&
     paymentPurposeOverride !== effectivePaymentType;
+  const purposeWasCorrected =
+    paymentPurposeWasSelected &&
+    paymentPurposeChangeNeedsReason(
+      currentSubmission.payment_type,
+      paymentPurposeOverride,
+    );
+  const bookingFeeWasAllocated =
+    decision === "verified" &&
+    currentSubmission.payment_type === "booking_fee" &&
+    isPaymentPurpose(paymentPurposeOverride);
   const paymentDateWasCorrected =
     decision === "verified" &&
     paymentDateOverride &&
@@ -241,7 +254,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     }
   }
 
-  if (purposeWasCorrected) {
+  if (paymentPurposeWasSelected) {
     if (!isPaymentPurpose(paymentPurposeOverride)) {
       redirect(withResult(returnTo, "error=purpose_correction"));
     }
@@ -476,7 +489,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const { data: submission, error } = await supabase
     .from("payment_submissions")
     .update({
-      payment_type: effectivePaymentType,
+      payment_type: persistedPaymentPurpose(
+        currentSubmission.payment_type,
+        effectivePaymentType,
+      ),
       payment_date: effectivePaymentDate,
       tenancy_id: effectiveTenancyId,
       bill_month: effectiveBillMonth,
@@ -503,7 +519,9 @@ export async function reviewPaymentSubmission(formData: FormData) {
     performed_by: user.id,
     old_status: currentSubmission.verification_status,
     new_status: decision,
-    reason: paymentDetailsWereCorrected
+    reason: bookingFeeWasAllocated
+      ? `Booking fee allocated to ${paymentPurposeLabel(effectivePaymentType)}. Original booking-fee type retained.${notes ? ` ${notes}` : ""}`
+      : paymentDetailsWereCorrected
       ? [
           purposeWasCorrected
             ? `Purpose: ${currentSubmission.payment_type} to ${effectivePaymentType}.`

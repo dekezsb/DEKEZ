@@ -7,9 +7,12 @@ import { formatMalaysiaDateTime } from "@/lib/date-format";
 import { EXTRA_CHARGE_OPTIONS } from "@/lib/payments/extra-charges";
 import {
   allocatePaymentPurpose,
+  isBookingFeePayment,
   isPaymentPurpose,
   PAYMENT_PURPOSES,
+  paymentPurposeChangeNeedsReason,
   paymentPurposeLabel,
+  verificationPaymentPurpose,
 } from "@/lib/payments/payment-purpose";
 import { statusBadgeClass } from "@/lib/status-styles";
 import {
@@ -80,7 +83,10 @@ export function PaymentRecordActions({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
-  const [selectedPurpose, setSelectedPurpose] = useState(paymentPurpose);
+  const isBookingFee = isBookingFeePayment(paymentPurpose);
+  const [selectedPurpose, setSelectedPurpose] = useState(
+    verificationPaymentPurpose(paymentPurpose),
+  );
   const [correctedPaymentDate, setCorrectedPaymentDate] = useState(paymentDate);
   const originalBillingMonth = billMonth === "-" ? "" : billMonth.slice(0, 7);
   const [correctedBillingMonth, setCorrectedBillingMonth] =
@@ -121,7 +127,7 @@ export function PaymentRecordActions({
     0,
   );
   const hasCorrection =
-    selectedPurpose !== paymentPurpose ||
+    paymentPurposeChangeNeedsReason(paymentPurpose, selectedPurpose) ||
     correctedPaymentDate !== paymentDate ||
     correctedBillingMonth !== originalBillingMonth ||
     Math.abs(correctedAmountValue - amountSubmittedValue) > 0.005;
@@ -176,7 +182,7 @@ export function PaymentRecordActions({
               <p>Room: <span className="font-medium text-gray-950">{roomName}</span></p>
               <p>Bill month: <span className="font-medium text-gray-950">{billMonth}</span></p>
               <p>Amount submitted: <span className="font-medium text-gray-950">{amountSubmitted}</span></p>
-              <p>Submitted for: <span className="font-medium text-gray-950">{paymentPurposeLabel(paymentPurpose)}</span></p>
+              <p>Original payment: <span className="font-medium text-gray-950">{paymentPurposeLabel(paymentPurpose)}</span></p>
               <p>Reference: <span className="font-medium text-gray-950">{referenceNumber || "-"}</span></p>
             </div>
             {hasExtraAmount ? (
@@ -221,11 +227,12 @@ export function PaymentRecordActions({
               {canCorrectPurpose ? (
                 <div className="rounded-md border border-[#d7dde5] bg-gray-50 p-4">
                   <p className="font-semibold text-gray-950">
-                    Correct payment details
+                    {isBookingFee ? "Allocate booking fee" : "Correct payment details"}
                   </p>
                   <p className="mt-1 text-sm text-gray-600">
-                    Super Admin may correct details selected wrongly by the
-                    tenant before verification.
+                    {isBookingFee
+                      ? "The original record stays Booking fee. Choose whether it reduces rent or deposit."
+                      : "Super Admin may correct details selected wrongly by the tenant before verification."}
                   </p>
                   <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <label className="block">
@@ -242,18 +249,22 @@ export function PaymentRecordActions({
                         onChange={(event) => {
                           const nextAmount = event.target.value;
                           setCorrectedAmount(nextAmount);
-                          if (selectedPurpose === "other") {
-                            setRentalAmount("0");
-                            setDepositAmount("0");
-                            setExtraChargeAmount(nextAmount);
-                          }
+                          const allocation = allocatePaymentPurpose({
+                            purpose: selectedPurpose,
+                            amount: Math.max(Number(nextAmount) || 0, 0),
+                            rentOutstanding,
+                            depositOutstanding,
+                          });
+                          setRentalAmount(allocation.rent.toFixed(2));
+                          setDepositAmount(allocation.deposit.toFixed(2));
+                          setExtraChargeAmount(allocation.extra.toFixed(2));
                         }}
                         required
                       />
                     </label>
                     <label className="block">
                       <span className="text-sm font-medium text-gray-800">
-                        Payment for
+                        {isBookingFee ? "Credit booking fee to" : "Payment for"}
                       </span>
                       <select
                         className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
@@ -261,15 +272,24 @@ export function PaymentRecordActions({
                         value={selectedPurpose}
                         onChange={(event) => {
                           const nextPurpose = event.target.value;
+                          if (!isPaymentPurpose(nextPurpose)) return;
                           setSelectedPurpose(nextPurpose);
-                          if (nextPurpose === "other") {
-                            setRentalAmount("0");
-                            setDepositAmount("0");
-                            setExtraChargeAmount(correctedAmount);
-                          }
+                          const allocation = allocatePaymentPurpose({
+                            purpose: nextPurpose,
+                            amount: correctedAmountValue,
+                            rentOutstanding,
+                            depositOutstanding,
+                          });
+                          setRentalAmount(allocation.rent.toFixed(2));
+                          setDepositAmount(allocation.deposit.toFixed(2));
+                          setExtraChargeAmount(allocation.extra.toFixed(2));
                         }}
                       >
-                        {PAYMENT_PURPOSES.map((purpose) => (
+                        {PAYMENT_PURPOSES.filter((purpose) =>
+                          !isBookingFee ||
+                          purpose === "monthly_rent" ||
+                          (purpose === "deposit" && depositOutstanding > 0.005),
+                        ).map((purpose) => (
                           <option key={purpose} value={purpose}>
                             {paymentPurposeLabel(purpose)}
                           </option>
