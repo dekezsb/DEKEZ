@@ -215,11 +215,11 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#f2f4f7] text-[#17130d]">
+    <div className="min-h-screen bg-[#f4f5f8] text-[#17130d]">
       <PortalLiveSync />
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#090806] text-[#f8f0df] transition-transform lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#0b0a07] text-[#f8f0df] shadow-2xl transition-transform lg:translate-x-0 lg:shadow-none",
           isOpen && "translate-x-0",
         )}
       >
@@ -228,7 +228,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
             <Link href="/dashboard" className="flex items-center gap-3">
               <BrandLogo className="rounded-md" priority size={58} />
               <span>
-                <span className="block text-lg font-bold text-[#c99a3e]">DEKEZ</span>
+                <span className="block text-lg font-bold tracking-tight text-[#c99a3e]">DEKEZ</span>
                 <span className="block text-xs text-[#d7c6a8]">
                   {role ? t(roleTranslationKeys[role]) : "Rental SaaS"}
                 </span>
@@ -245,7 +245,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
             </Button>
           </div>
 
-          <nav className="flex flex-1 flex-col gap-1 px-4 py-3">
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-4">
             {navigation.map((item) => {
               const Icon = item.icon;
               const isActive = pathname.startsWith(item.href);
@@ -253,24 +253,34 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
               return (
                 <Link
                   className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition",
+                    "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-[#2a2110] text-[#c99a3e]"
-                      : "text-[#d9d1c2] hover:bg-[#18130b] hover:text-[#f8f0df]",
+                      ? "bg-[#241d0e] text-[#e2b559]"
+                      : "text-[#c9beac] hover:bg-[#15120c] hover:text-[#f8f0df]",
                   )}
                   href={item.href}
                   key={item.href}
                   onClick={() => setIsOpen(false)}
                 >
-                  <Icon className="h-4 w-4" />
-                  {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
+                  {isActive ? (
+                    <span className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-[#c99a3e]" />
+                  ) : null}
+                  <Icon
+                    className={cn(
+                      "h-4 w-4 shrink-0 transition-colors",
+                      isActive ? "text-[#c99a3e]" : "text-[#8a806e] group-hover:text-[#e2b559]",
+                    )}
+                  />
+                  <span className="truncate">
+                    {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
+                  </span>
                 </Link>
               );
             })}
           </nav>
 
           <div className="border-t border-[#1b1711] p-4">
-            <div className="rounded-md bg-[#15120d] p-4">
+            <div className="rounded-lg bg-[#15120d] p-4">
               <p className="text-sm font-semibold text-[#c99a3e]">DEKEZ</p>
               <p className="mt-1 text-xs leading-5 text-[#a99c85]">
                 {t("portal.rental")}
@@ -290,7 +300,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
       ) : null}
 
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 border-b border-[#d7dde5] bg-white/95 backdrop-blur">
+        <header className="sticky top-0 z-20 border-b border-[#e1e5eb] bg-white/90 shadow-[0_1px_2px_rgba(17,19,23,0.04)] backdrop-blur">
           <div className="flex h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
               <Button
@@ -303,10 +313,10 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                 <Menu className="h-5 w-5" />
               </Button>
               <div>
-                <p className="text-xs font-medium uppercase text-gray-500">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
                   {t("common.currentPage")}
                 </p>
-                <p className="text-lg font-semibold">{currentPageLabel}</p>
+                <p className="text-lg font-semibold text-gray-950">{currentPageLabel}</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -316,7 +326,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                 <p className="text-xs text-[#8a641d]">{role ? t(roleTranslationKeys[role]) : "DEKEZ"}</p>
               </div>
               <form action="/logout" method="post">
-                <Button className="border-[#cfd8e5] px-5" type="submit" variant="outline">
+                <Button className="border-[#d7dde5] px-5" type="submit" variant="outline">
                   {t("common.logout")}
                 </Button>
               </form>

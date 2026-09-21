@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f2f4f7;
+  --background: #f4f5f8;
   --foreground: #17130d;
   --muted: #6b7280;
   --panel: #ffffff;
-  --line: #d7dde5;
+  --line: #dde2ea;
   --brand: #b8892c;
   --brand-strong: #8a641d;
   --brand-soft: #f6edd9;
@@ -18,6 +18,32 @@
 html,
 body {
   min-height: 100%;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+/* Quieter scrollbars for the dense admin tables/lists */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c7ccd6 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #c7ccd6;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .tenant-portal-bg {
@@ -48,7 +74,15 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family:
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 ::selection {
