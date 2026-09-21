@@ -106,6 +106,7 @@ const errorMessages: Record<string, string> = {
   purpose_correction:
     "Check the corrected payment details and explain why they are being changed.",
   correction_date: "Choose a valid payment date.",
+  bank_reference: "Enter a bank transaction reference of at most 120 characters, on one line. Keep starting zeroes.",
   correction_month: "Choose a valid billing month.",
   correction_amount: "Enter a valid payment amount greater than RM 0.00.",
   extra_amount:

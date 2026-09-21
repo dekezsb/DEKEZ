@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
+import { verificationBankReference } from "@/lib/payments/bank-reference";
 import {
   getVerifiedDepositPaymentMaps,
   verifiedDepositPaid,
@@ -137,7 +138,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month")
+    .select("id, verification_status, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month, reference_number")
     .eq("id", submissionId)
     .single();
 
@@ -147,6 +148,13 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (currentSubmission.verification_status === "verified") {
     redirect(withResult(returnTo, "error=already_verified"));
+  }
+
+  let effectiveReference: string | null;
+  try {
+    effectiveReference = verificationBankReference(formData, decision, currentSubmission.reference_number);
+  } catch {
+    redirect(withResult(returnTo, "error=bank_reference"));
   }
 
   if (decision === "verified" && currentSubmission.tenant_application_id) {
@@ -519,13 +527,14 @@ export async function reviewPaymentSubmission(formData: FormData) {
     }
 
     const { error: bookingError } = await supabase.rpc(
-      "verify_booking_fee_allocation",
+      "verify_booking_fee_allocation_with_reference",
       {
         p_submission: currentSubmission.id,
         p_actor: user.id,
         p_allocation: effectivePaymentType,
         p_amount: receiptAmountForVerification,
         p_payment_date: effectivePaymentDate,
+        p_bank_reference: effectiveReference,
       },
     );
 
@@ -580,6 +589,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       bill_month: effectiveBillMonth,
       rent_bill_id: effectiveRentBillId,
       amount: effectiveAmount,
+      reference_number: effectiveReference,
       verification_status: decision,
       verified_by: decision === "verified" ? user.id : null,
       verified_at: decision === "verified" ? new Date().toISOString() : null,
@@ -601,7 +611,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     performed_by: user.id,
     old_status: currentSubmission.verification_status,
     new_status: decision,
-    reason: bookingFeeWasAllocated
+    reason: [bookingFeeWasAllocated
       ? `Booking fee allocated to ${paymentPurposeLabel(effectivePaymentType)}. Original booking-fee type retained.${notes ? ` ${notes}` : ""}`
       : paymentDetailsWereCorrected
       ? [
@@ -622,6 +632,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
           .filter(Boolean)
           .join(" ")
       : notes || null,
+      effectiveReference !== currentSubmission.reference_number
+        ? `Bank reference: ${currentSubmission.reference_number || "(none)"} to ${effectiveReference}.`
+        : null,
+    ].filter(Boolean).join(" ") || null,
   });
 
   if (decision === "verified") {

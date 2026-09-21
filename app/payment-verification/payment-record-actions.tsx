@@ -219,11 +219,18 @@ export function PaymentRecordActions({
                 </p>
               </div>
             ) : null}
-            <ReceiptPreview receiptUrl={receiptUrl} receiptIsImage={receiptIsImage} />
             <form action={reviewPaymentSubmission} className="mt-5 space-y-4">
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="verified" />
               <input name="returnTo" type="hidden" value={returnTo} />
+              <label className="block rounded-md border border-[#d7dde5] bg-blue-50 p-4">
+                <span className="text-sm font-semibold text-gray-950">Bank transaction reference / code</span>
+                <input name="bankReference" type="text" defaultValue={referenceNumber || ""} maxLength={120}
+                  autoComplete="off" placeholder="Enter the bank transfer / QR reference"
+                  className="mt-2 block w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2" />
+                <span className="mt-2 block text-sm text-gray-600">Copy the transaction code from the bank or slip. It is saved with this payment for reconciliation. Keep any starting zeroes. If no code is available, leave it blank for manual matching.</span>
+              </label>
+              <ReceiptPreview receiptUrl={receiptUrl} receiptIsImage={receiptIsImage} />
               {canCorrectPurpose ? (
                 <div className="rounded-md border border-[#d7dde5] bg-gray-50 p-4">
                   <p className="font-semibold text-gray-950">

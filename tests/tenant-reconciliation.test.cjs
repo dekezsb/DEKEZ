@@ -86,8 +86,8 @@ test('non-QR full tenant name selects the correct existing slip among equal amou
   assert.match(html,/https:\/\/example.invalid\/slip/);
 });
 
-test('unnamed transfers never offer amount/date-only or reference-only direct matching',()=>{
-  for(const b of [bank(),bank({reference:'BANK-1234'}),bank({description:'INV-1001 REC-1001'})]){
+test('unnamed transfers without an exact bank code never offer amount/date-only direct matching',()=>{
+  for(const b of [bank(),bank({reference:'PREFIXBANK-1234X'}),bank({description:'INV-1001 REC-1001'})]){
     const ranked=rankExistingPayments(b,[payment()]);
     assert.equal(ranked[0].status,'MANUAL_REVIEW');
     assert.equal(directReconciliationPayment(b,ranked),null);
@@ -165,7 +165,7 @@ test('refresh suggestions writes only internal reconciliation state, never tenan
   const rows={payments:[{id:'p1',company_id:'c',amount:380,payment_date:'2026-09-07',status:'confirmed',reference_number:'R123',tenancies:{tenants:{full_name:'Example Tenant'}},receipts:[]}],accounting_payment_reconciliations:[],bank_reconciliation_matches:[],payment_submissions:[],bank_statement_lines:[{id:'b1',amount:380,transaction_date:'2026-09-07',status:'unmatched',description:'R123',reference_number:'R123',bank_reconciliation_matches:[]}]};
   const db=fakeDb(rows),before=JSON.stringify(rows);await refreshPaymentSuggestions(db,'c');
   assert.ok(db.writes.length>0);assert.ok(db.writes.every(w=>w.table==='accounting_payment_reconciliations'));
-  assert.ok(db.writes.some(w=>w.data.reconciliation_status==='MANUAL_REVIEW'),'reference and amount alone must remain manual');
+  assert.ok(db.writes.some(w=>w.data.reconciliation_status==='MATCH_SUGGESTED'),'an exact saved bank code suggests a match, never reconciles automatically');
   assert.equal(JSON.stringify(rows),before);
 });
 test('reports use a separate private accounting connection only for reconciliation states',async()=>{
