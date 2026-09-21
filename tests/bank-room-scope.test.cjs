@@ -62,3 +62,16 @@ test('month and code are loaded, paid invoices are passed to UI, and no posting 
   const page=fs.readFileSync(path.join(root,'app/reports/page.tsx'),'utf8');assert.match(page,/invoices=\{allInvoiceOptions\}/);
   assert.match(page,/legacyTenantNames\.get\(bill\.tenancy_id\)/);assert.equal(mutations,0);
 });
+
+test('bank property and room populate property and invoice columns for every property, even without a selectable payment',()=>{
+  for(const code of ['PTT','DGG','BDS','BVH','INS','HLT','KLB','SLY','MGT','SLS']) {
+    const bank=b({reference:'164195',description:`DUITNOW TRSF CR · PAYER NAME               ${code} B1`,date:'2026-09-02'});
+    const invoice=inv({id:'september-b1',invoiceNumber:'DINV-2026-0907',propertyCode:code,roomCode:'Room B1',rentOutstanding:0});
+    const html=render([bank],[],[invoice]);
+    const row=html.slice(html.indexOf('<tbody>'),html.indexOf('</tbody>'));
+    const cells=[...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map(x=>x[1]);
+    assert.match(cells[1],new RegExp(`${code}<br/>Room B1`));
+    assert.match(cells[2],/href="\/invoices\/september-b1"/);assert.match(cells[2],/DINV-2026-0907/);
+    assert.match(html,/Filter reconciliation by confidence/);assert.equal(mutations,0);
+  }
+});
