@@ -5,7 +5,7 @@ import { bankRoomScope, paymentInBankScope, roomInvoicesForBank, type RoomInvoic
 import { existingPaymentChoices, canAllocateExistingPayment, remainingPaymentAmount, remainingBankAmount, allocationAmount } from '@/lib/accounting/payment-allocation';
 import { CONFIDENCE_FILTERS, reconciliationViewGroup, reconciliationViewPriority, type ConfidenceFilter } from '@/lib/accounting/reconciliation-view';
 import { rankExistingPayments, directReconciliationPayment, type ExistingPayment, type StatementTransaction } from '@/lib/accounting/tenant-reconciliation';
-import { reconcileExistingPayment, unreconcileExistingPayment, refreshExistingPaymentSuggestions, unreconcileLegacyTenantBank } from '@/app/reports/actions';
+import { reconcileExistingPayment, unreconcileExistingPayment, refreshExistingPaymentSuggestions, unreconcileLegacyTenantBank, applyBankToRoomInvoice } from '@/app/reports/actions';
 const money = (n:number) => `RM ${n.toFixed(2)}`;
 export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatch, invoices = [] }: {payments:ExistingPayment[];banks:StatementTransaction[];locked:boolean;canUnmatch:boolean;invoices?:RoomInvoiceOption[]}) {
   const [search,setSearch]=useState('');
@@ -75,6 +75,20 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
       } catch { setMessage('Unable to confirm the result. Refresh this page before retrying. Duplicate protection remains active.'); }
     });
   }
+  // Only when the bank line's own reference/description names exactly one room (no conflict),
+  // that room has exactly one still-open invoice for the same month, no confirmed payment is
+  // already available to link, and the bank amount fits the invoice balance. The database
+  // function re-checks all of this itself before creating anything.
+  function runDirect(bankId:string,billId:string) {
+    start(async()=>{
+      try {
+        const data=new FormData();data.set('lineId',bankId);data.set('billId',billId);
+        const result=await applyBankToRoomInvoice(data);
+        setMessage(result.ok ? 'RECONCILED — bank payment applied directly to this room’s invoice. A new confirmed payment was created from the bank evidence.' : result.error);
+        if(result.ok) router.refresh();
+      } catch { setMessage('Unable to confirm the result. Refresh this page before retrying. Duplicate protection remains active.'); }
+    });
+  }
   return <section className="space-y-3 rounded-lg border bg-white p-4" id="bank-transactions">
     <h2 className="text-lg font-semibold">Tenant payments ↔ Bank statement</h2>
     <p className="text-sm font-medium">{workingBanks.length} bank transactions still in process. Completed items leave this page; view completed accounting entries in the ledger.</p>
@@ -124,6 +138,13 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
       const allocatable=canAllocateExistingPayment(bank,chosenPayment);
       const duplicate=bank.duplicate||payment?.duplicate;
       const status=linked?'RECONCILED':bank.used||duplicate||roomConflict?'MANUAL_REVIEW':payment ? suggestion?.status ?? 'MANUAL_REVIEW' : ranked[0]?.status ?? 'UNMATCHED BANK TRANSACTION';
+      // No confirmed payment exists to link (the case above never applies), but the bank line's
+      // own reference names exactly one room with exactly one open invoice for the same month
+      // and the amount fits — offer to apply the bank evidence straight to that invoice.
+      const unpaidRoomInvoices=roomInvoices.filter(invoice=>invoice.rentOutstanding>0.005);
+      const directInvoice=bankLocation&&!roomConflict&&!linked&&!bank.used&&!duplicate&&!roomPayments.length
+        &&unpaidRoomInvoices.length===1&&remainingBankAmount(bank)<=unpaidRoomInvoices[0].rentOutstanding+0.005
+        ?unpaidRoomInvoices[0]:null;
       return <tr key={bank.id} className={`border-t ${linked?'bg-emerald-50':''}`}>
         <td className="min-w-64 p-2">{linked ? linked.tenant : <><strong className="block">{payment?.tenant??'No matching receipt selected'}</strong>{readyPayment&&!selected[bank.id]?<span className="block text-emerald-700">Ready to reconcile</span>:null}
           {bankLocation?<p className="mt-1 font-semibold text-blue-900">Matching only {bankLocation.propertyCode} / Room {bankLocation.roomCode} · {bank.date.slice(0,7)}</p>:null}
@@ -134,7 +155,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
           {payment?.allocationParts && new Set(payment.allocationParts.map(p=>p.invoiceId)).size>1?<details className="mt-1"><summary>Existing invoice allocations</summary>{payment.allocationParts.map(part=><p key={part.id}>{part.invoice||'No linked invoice'} · {money(part.amount)} · {money(part.remaining)} left to reconcile</p>)}</details>:null}
           {payment&&(payment.reconciledAmount??0)>0?<p>Already reconciled: {money(payment.reconciledAmount!)} · Still to reconcile: {money(remainingPaymentAmount(payment))}</p>:null}
           {allocatable&&chosenPayment?<p className="mt-1 font-semibold text-emerald-800">Reconcile {money(allocationAmount(bank,chosenPayment))} now<br/>Payment remaining after: {money(remainingPaymentAmount(chosenPayment)-allocationAmount(bank,chosenPayment))}<br/>Bank remaining after: {money(remainingBankAmount(bank)-allocationAmount(bank,chosenPayment))}</p>:null}
-          {bankLocation?<div className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-xs"><strong>This room’s {bank.date.slice(0,7)} invoice{roomInvoices.length===1?'':'s'}</strong>{roomInvoices.map(invoice=><p key={invoice.id} className="mt-1"><a href={`/invoices/${invoice.id}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">{invoice.invoiceNumber||'View invoice'}</a> · {invoice.tenantName}<br/>Rent / charges balance: {money(invoice.rentOutstanding)}</p>)}{!roomInvoices.length?<p>No invoice found for this room and bank month. Other rooms will not be substituted.</p>:null}{!roomPayments.length?<p className="mt-1">No available confirmed payment for this room and month. The invoice is shown for reference; no new payment or receipt was created.</p>:null}</div>:null}
+          {bankLocation?<div className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-xs"><strong>This room’s {bank.date.slice(0,7)} invoice{roomInvoices.length===1?'':'s'}</strong>{roomInvoices.map(invoice=><p key={invoice.id} className="mt-1"><a href={`/invoices/${invoice.id}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">{invoice.invoiceNumber||'View invoice'}</a> · {invoice.tenantName}<br/>Rent / charges balance: {money(invoice.rentOutstanding)}</p>)}{!roomInvoices.length?<p>No invoice found for this room and bank month. Other rooms will not be substituted.</p>:null}{!roomPayments.length?<p className="mt-1">No available confirmed payment for this room and month. The invoice is shown for reference; no new payment or receipt was created.</p>:null}{directInvoice?<div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-300 bg-emerald-50 p-2"><span className="text-emerald-900">Bank reference clearly matches this room — apply {money(remainingBankAmount(bank))} straight to this invoice?</span><button type="button" disabled={locked||pending} className="whitespace-nowrap rounded bg-emerald-700 px-3 py-1.5 text-white disabled:opacity-40" onClick={()=>runDirect(bank.id,directInvoice.id)}>Match &amp; Reconcile</button></div>:null}</div>:null}
         </>}</td>
         <td className="p-2">{bankLocation?.propertyCode??payment?.property??'—'}<br/>{bankLocation?`Room ${bankLocation.roomCode}`:payment?.room}</td><td className="p-2">{payment?.invoice|| (roomInvoices.length ? roomInvoices.map(invoice=><a key={invoice.id} href={`/invoices/${invoice.id}`} target="_blank" rel="noreferrer" className="block text-blue-700 underline">{invoice.invoiceNumber||'View invoice'}</a>) : '—')}<br/>{payment?.receipt||'No receipt number'}</td>
         <td className="p-2 whitespace-nowrap">{payment?money(payment.amount):'—'}<br/>{payment?.date}</td><td className="max-w-48 break-words p-2">{payment?.reference||'—'}<details><summary>AR reference</summary>{payment?.arReference||'Select payment'}</details></td>
