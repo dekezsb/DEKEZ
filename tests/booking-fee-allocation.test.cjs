@@ -52,3 +52,15 @@ test("ordinary purpose changes still need a correction reason", () => {
     "deposit",
   );
 });
+
+test("legacy rent and deposit labels keep their correct allocation side", () => {
+  assert.equal(verificationPaymentPurpose("first_month_rental"), "monthly_rent");
+  for (const purpose of [
+    "rental_deposit",
+    "security_deposit",
+    "utility_deposit",
+  ]) {
+    assert.equal(verificationPaymentPurpose(purpose), "deposit");
+    assert.equal(paymentPurposeChangeNeedsReason(purpose, "deposit"), false);
+  }
+});

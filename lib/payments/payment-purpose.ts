@@ -24,7 +24,14 @@ export function paymentPurposeLabel(value: string) {
 }
 
 export function verificationPaymentPurpose(value: string): PaymentPurpose {
-  return isPaymentPurpose(value) ? value : "monthly_rent";
+  if (isPaymentPurpose(value)) return value;
+  if (value === "first_month_rental") return "monthly_rent";
+  if (
+    ["rental_deposit", "security_deposit", "utility_deposit"].includes(value)
+  ) {
+    return "deposit";
+  }
+  return "monthly_rent";
 }
 
 export function paymentPurposeChangeNeedsReason(
@@ -33,7 +40,7 @@ export function paymentPurposeChangeNeedsReason(
 ) {
   return (
     !isBookingFeePayment(originalPurpose) &&
-    selectedPurpose !== originalPurpose
+    selectedPurpose !== verificationPaymentPurpose(originalPurpose)
   );
 }
 
