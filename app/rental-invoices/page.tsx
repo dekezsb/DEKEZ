@@ -204,7 +204,7 @@ export default async function RentalInvoicesPage({
               name="status"
             >
               {statuses.map((status) => (
-                <option key={status} value={status}>
+                <option className="capitalize" key={status} value={status}>
                   {status === "all"
                     ? "All statuses"
                     : status.replaceAll("_", " ")}
@@ -271,7 +271,7 @@ export default async function RentalInvoicesPage({
                           {money.format(invoice.outstanding)}
                         </TableCell>
                         <TableCell>
-                          <Badge className={statusBadgeClass(invoice.invoiceStatus)}>
+                          <Badge className={`capitalize ${statusBadgeClass(invoice.invoiceStatus)}`}>
                             {invoice.invoiceStatus.replaceAll("_", " ")}
                           </Badge>
                         </TableCell>
@@ -338,7 +338,7 @@ export default async function RentalInvoicesPage({
                           {invoice.roomName}
                         </p>
                       </div>
-                      <Badge className={statusBadgeClass(invoice.invoiceStatus)}>
+                      <Badge className={`capitalize ${statusBadgeClass(invoice.invoiceStatus)}`}>
                         {invoice.invoiceStatus.replaceAll("_", " ")}
                       </Badge>
                     </div>

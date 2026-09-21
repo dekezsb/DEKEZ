@@ -23,6 +23,36 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   // Filter the display only: keep the full data for duplicate checks and matching locks.
   const workingBanks=banks.filter(b=>!b.completed&&(b.remainingAmount!==undefined?b.remainingAmount>0:!paymentByBank.has(b.id)));
   const workingPayments=choices.filter(p=>!p.bankId&&!p.legacyMatched&&p.reconciliationStatus!=='RECONCILED');
+  // Only bank lines with an unambiguous room number/code match, an exact-amount verified payment,
+  // and no conflict or duplicate flag are offered here — the same "Ready to reconcile" cases the
+  // table already allows a single Reconcile click on. Anything less exact stays below for manual review.
+  const bulkReady=useMemo(()=>workingBanks.flatMap(bank=>{
+    const {hint:bankLocation,conflict:roomConflict}=bankRoomScope(bank);
+    if(!bankLocation||roomConflict||bank.used||bank.duplicate) return [];
+    const ranked=suggestions.get(bank.id)??[];
+    const readyPayment=directReconciliationPayment(bank,ranked);
+    if(!readyPayment||!canAllocateExistingPayment(bank,readyPayment)) return [];
+    // Bulk-reconcile only exact-amount matches; anything needing partial allocation stays
+    // in the table below for a manual Reconcile click and review.
+    const exactAmount=Math.round(remainingPaymentAmount(readyPayment)*100)===Math.round(remainingBankAmount(bank)*100);
+    if(!exactAmount) return [];
+    return [{bank,payment:readyPayment}];
+  }),[workingBanks,suggestions]);
+  const [bulkPending,startBulk]=useTransition();
+  function runBulkReconcile() {
+    startBulk(async()=>{
+      let succeeded=0,failed=0;
+      for(const {bank,payment} of bulkReady) {
+        try {
+          const data=new FormData();data.set('lineId',bank.id);data.set('paymentId',payment.id);
+          const result=await reconcileExistingPayment(data);
+          if(result.ok) succeeded+=1; else failed+=1;
+        } catch { failed+=1; }
+      }
+      setMessage(`Reconciled ${succeeded} of ${bulkReady.length} room-matched payment${bulkReady.length===1?'':'s'}.${failed?` ${failed} could not be reconciled and remain for manual review — nothing else changed.`:''}`);
+      router.refresh();
+    });
+  }
   const matchesSearch=(value:string)=>value.toLowerCase().includes(search.toLowerCase());
   const searchedRows=workingBanks.filter(b=>matchesSearch(`${b.description} ${b.reference}`)||(suggestions.get(b.id)??[]).some(s=>matchesSearch(`${s.payment.tenant} ${s.payment.property} ${s.payment.room} ${s.payment.invoice} ${s.payment.receipt}`))||roomInvoicesForBank(b,invoices).some(i=>matchesSearch(`${i.tenantName} ${i.invoiceNumber} ${i.propertyCode} ${i.roomCode}`))).map(bank=>{
     const ranked=suggestions.get(bank.id)??[];
@@ -53,6 +83,20 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
     <p className="text-sm text-slate-600">Transfers can match the bank transaction reference saved during verification, tenant name or QR property / room. Without one of these, use Manual Match; amount and date alone never identify a tenant.</p>
     <p className="text-sm text-blue-900">When the bank identifies a property and room, only that room’s payments and invoices for the bank month are shown. Paid invoices remain visible; invoice balance does not decide whether an existing payment can be reconciled.</p>
     <p className="text-sm text-blue-900">Rent, deposit and other allocations from one verified slip are matched together. Select the verified slip to reconcile the smaller of the payment balance and bank balance. Any remainder stays available. Invoice outstanding is not used, and no payment is recorded again.</p>
+    {bulkReady.length ? <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-emerald-950">Ready to reconcile by room match ({bulkReady.length})</h3>
+          <p className="text-sm text-emerald-800">These bank lines show a clear property/room code, match an existing verified payment for the exact amount, and have no conflict or duplicate flag. Everything else stays in the list below for you to match by hand.</p>
+        </div>
+        <button type="button" disabled={locked||pending||bulkPending} className="whitespace-nowrap rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={runBulkReconcile}>{bulkPending?'Reconciling…':`Reconcile all ${bulkReady.length} now`}</button>
+      </div>
+      <div className="max-h-64 overflow-auto rounded border bg-white">
+        <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr>{['Tenant','Property / Room','Bank amount / date','Bank reference'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead>
+          <tbody>{bulkReady.map(({bank,payment})=><tr key={bank.id} className="border-t"><td className="p-2">{payment.tenant}</td><td className="p-2">{payment.property} / {payment.room}</td><td className="p-2 whitespace-nowrap">{money(bank.amount)} · {bank.date}</td><td className="p-2">{bank.reference||bank.description.slice(0,50)}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </div> : null}
     <button type="button" disabled={pending||locked} className="rounded border px-3 py-2 text-sm disabled:opacity-40" onClick={()=>start(async()=>{try{const result=await refreshExistingPaymentSuggestions();setMessage(result.ok?'Suggestions refreshed. No payments or receipts changed.':result.error);if(result.ok)router.refresh();}catch{setMessage('Unable to refresh suggestions. Please retry.');}})}>Refresh match suggestions</button>
     <input aria-label="Search reconciliation" className="w-full rounded border p-2" placeholder="Search tenant, property, room, invoice, receipt or bank reference" value={search} onChange={e=>setSearch(e.target.value)}/>
     {message ? <p role="status" className="rounded bg-blue-50 p-2 text-sm">{message}</p>:null}
