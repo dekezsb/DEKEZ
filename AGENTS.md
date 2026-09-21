@@ -6,6 +6,7 @@ Before a release, retrieve current production/main source and compare it with th
 
 Standing requirements:
 - Keep reconciliation confidence filters (All, Exact / High, Possible, Manual Review, Unmatched), counts, search and highest-confidence-first ordering.
+- A bank property/room reference must constrain the actual payment dropdown to that property, room and bank month, not merely add a warning. Show the room's same-month invoices (including paid invoices) on the row. Never fall back to all tenants when no exact-room record exists. Keep `tests/bank-room-scope.test.cjs` in the release gate.
 - Completed reconciliation items leave the working queue. Completed records remain in the ledger, not a duplicate history page. Hide completed statements only when both money-in and money-out work is done.
 - Keep existing tenant uploads, receipts, payment statuses and outstanding logic unchanged during accounting-only work. Existing verified payments remain the master records; never duplicate receipts, payments or AR postings.
 - Keep all chart account types available in every payment voucher line, including assets and liabilities.

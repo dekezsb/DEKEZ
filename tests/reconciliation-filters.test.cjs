@@ -26,7 +26,7 @@ const { rankExistingPayments } = require('../lib/accounting/tenant-reconciliatio
 const p = (id, amount) => ({ id, amount, tenant: `Tenant ${id}`, property: 'DGG', room: '1', date: '2026-08-01', reference: '', invoice: '', invoiceId: null, receipt: `receipt-${id}`, arReference: '', slipUrl: null, eligible: true, tenantStatus: 'paid', reconciliationStatus: 'PENDING', bankId: null, legacyMatched: false });
 const b = (id, amount, description, date = '2026-08-01') => ({ id, amount, description, date, reference: '', used: false });
 const payments = [p('Alice', 100), p('Betty', 200), p('Cathy', 300)];
-const banks = [b('unmatched', 999, 'No identity', '2026-08-30'), b('review', 300, 'DGG 2 Tenant Cathy'), b('high', 200, 'Tenant Betty', '2026-08-10'), b('exact', 100, 'Tenant Alice'), { ...b('completed', 100, 'Completed hidden'), completed: true }];
+const banks = [b('unmatched', 999, 'No identity', '2026-08-30'), b('review', 301, 'DGG 1 Tenant Cathy'), b('high', 200, 'Tenant Betty', '2026-08-10'), b('exact', 100, 'Tenant Alice'), { ...b('completed', 100, 'Completed hidden'), completed: true }];
 function render(filter = 'all', search = '', selected = {}) {
   const original = React.useState; let index = 0;
   React.useState = initial => original([search, filter, selected][index++] ?? initial);

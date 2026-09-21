@@ -495,17 +495,20 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const tenancyIds = Array.from(new Set(openBills.map((bill) => bill.tenancy_id as string).filter(Boolean)));
   const tenantRecordIds = Array.from(new Set(openBills.map((bill) => bill.tenant_record_id as string).filter(Boolean)));
   const roomIds = Array.from(new Set(openBills.map((bill) => bill.room_id as string).filter(Boolean)));
-  const [itemsResult, depositsResult, tenantsResult, roomsResult] = await Promise.all([
+  const [itemsResult, depositsResult, tenantsResult, roomsResult, legacyTenantsResult] = await Promise.all([
     billIds.length ? supabase.from("rental_invoice_line_items").select("rent_bill_id, amount").in("rent_bill_id", billIds) : Promise.resolve({ data: [] }),
     tenancyIds.length ? supabase.from("payments").select("tenancy_id, amount").in("tenancy_id", tenancyIds).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null) : Promise.resolve({ data: [] }),
     tenantRecordIds.length ? supabase.from("tenant_records").select("id, full_name").in("id", tenantRecordIds) : Promise.resolve({ data: [] }),
     roomIds.length ? supabase.from("rooms").select("id, name, room_number").in("id", roomIds) : Promise.resolve({ data: [] }),
+    tenancyIds.length ? allReportRows(supabase.from("tenancies").select("id, tenants(full_name)").in("id", tenancyIds)) : Promise.resolve({ data: [], error: null }),
   ]);
+  if (legacyTenantsResult.error) throw new Error("Unable to load invoice tenant names");
   const itemTotals = new Map<string, number>();
   for (const item of itemsResult.data ?? []) itemTotals.set(item.rent_bill_id, (itemTotals.get(item.rent_bill_id) ?? 0) + Number(item.amount ?? 0));
   const depositPaid = new Map<string, number>();
   for (const payment of depositsResult.data ?? []) depositPaid.set(payment.tenancy_id, (depositPaid.get(payment.tenancy_id) ?? 0) + Number(payment.amount ?? 0));
   const tenantNames = new Map((tenantsResult.data ?? []).map((item) => [item.id, item.full_name]));
+  const legacyTenantNames = new Map<string, string>((legacyTenantsResult.data ?? []).map((item: any) => [item.id, (Array.isArray(item.tenants) ? item.tenants[0] : item.tenants)?.full_name ?? ""]));
   const roomNames = new Map((roomsResult.data ?? []).map((item) => [item.id, item.name || `Room ${item.room_number}`]));
   const propertyNames = new Map(properties.map((item) => [item.id, item.name]));
   const allInvoiceOptions = openBills.map((bill) => {
@@ -518,7 +521,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       status: String(bill.status),
       billMonth: String(bill.bill_month),
       dueDate: String(bill.due_date),
-      tenantName: tenantNames.get(bill.tenant_record_id) || `Tenant ${String(bill.tenant_id ?? "").slice(0, 8)}`,
+      tenantName: tenantNames.get(bill.tenant_record_id) || legacyTenantNames.get(bill.tenancy_id) || `Tenant ${String(bill.tenant_id ?? "").slice(0, 8)}`,
       propertyName: propertyNames.get(bill.property_id) ?? "Property",
       roomName: roomNames.get(bill.room_id) ?? "Room",
       propertyCode: propertyCode(propertyNames.get(bill.property_id) ?? ""),
@@ -1227,6 +1230,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
               {bankFlow === "credit" ? <><div className="flex justify-end">{selectedStatement.status === "in_progress" ? <form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id}/><Button disabled={unmatchedCount>0||Math.abs(statementDifference)>0.005} type="submit">Finalise whole statement</Button></form> : <Badge>Reconciled and locked</Badge>}</div><TenantPaymentReconciliation
                 payments={existingTenantPayments}
+                invoices={allInvoiceOptions}
                 banks={accountingBankCredits.filter(line=>line.statementId===selectedStatement.id)}
                 locked={selectedStatement.status!=="in_progress"}
                 canUnmatch={["super_admin","admin"].includes(accountingRole)}

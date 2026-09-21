@@ -4,12 +4,12 @@ import { flagDuplicateBanks, rankExistingPayments, type ExistingPayment, type St
 const one = (value: any): any => Array.isArray(value) ? value[0] : value;
 export async function loadExistingPayments(db: SupabaseClient, companyId: string, includeSlips = true, internalAccountingDb: SupabaseClient = db): Promise<ExistingPayment[]> {
   const [payments, states, matches, submissions] = await Promise.all([
-    allReportRows(db.from('payments').select('id,amount,payment_date,reference_number,status,reversed_at,rent_bill_id,payment_submission_id,properties(name),rooms(room_number),tenancies(tenants(full_name)),rent_bills(invoice_number),receipts(receipt_number),payment_submissions(receipt_url)').eq('company_id',companyId)),
+    allReportRows(db.from('payments').select('id,amount,payment_date,reference_number,status,reversed_at,rent_bill_id,payment_submission_id,properties(name,property_code),rooms(room_number),tenancies(tenants(full_name)),rent_bills(invoice_number,bill_month),receipts(receipt_number),payment_submissions(receipt_url)').eq('company_id',companyId)),
     // This table deliberately has no tenant-facing grants. The reports page supplies
     // its server-only client after checking report access; all other reads retain RLS.
     allReportRows(internalAccountingDb.from('accounting_payment_reconciliations').select('*').eq('company_id',companyId),'payment_record_id'),
     allReportRows(db.from('bank_reconciliation_matches').select('id,source_id,source_type,statement_line_id').in('source_type',['payment','rent_bill'])),
-    allReportRows(db.from('payment_submissions').select('id,amount,payment_date,reference_number,verification_status,receipt_url,rent_bill_id,properties!inner(name,company_id),rooms(room_number),tenancies(tenants(full_name)),tenant_applications(full_name),rent_bills(invoice_number)').eq('properties.company_id',companyId)),
+    allReportRows(db.from('payment_submissions').select('id,amount,payment_date,reference_number,verification_status,receipt_url,rent_bill_id,properties!inner(name,property_code,company_id),rooms(room_number),tenancies(tenants(full_name)),tenant_applications(full_name),rent_bills(invoice_number,bill_month)').eq('properties.company_id',companyId)),
   ]);
   for(const [index,result] of [payments,states,matches,submissions].entries()) if(result.error) {
     const error=result.error as {code?:string;message?:string};
@@ -30,7 +30,7 @@ export async function loadExistingPayments(db: SupabaseClient, companyId: string
     const legacy = matches.data.some(m => (m.source_type==='payment' && m.source_id===p.id) || (m.source_type==='rent_bill' && m.source_id===p.rent_bill_id));
     const path = one(p.payment_submissions)?.receipt_url;
     return {id:p.id,tenant:one(one(p.tenancies)?.tenants)?.full_name ?? 'Unlinked tenant',property:one(p.properties)?.name ?? 'Unallocated',room:one(p.rooms)?.room_number ?? '—',
-      invoice:one(p.rent_bills)?.invoice_number ?? '',invoiceId:p.rent_bill_id,receipt:(p.receipts ?? []).map((r:any)=>r.receipt_number).join(', '),
+      propertyCode:one(p.properties)?.property_code ?? '',invoice:one(p.rent_bills)?.invoice_number ?? '',invoiceId:p.rent_bill_id,invoiceMonth:one(p.rent_bills)?.bill_month ?? null,receipt:(p.receipts ?? []).map((r:any)=>r.receipt_number).join(', '),
       amount:Number(p.amount),date:p.payment_date ?? '',reference:p.reference_number ?? '',
       arReference:p.rent_bill_id ? `Existing invoice ${one(p.rent_bills)?.invoice_number ?? p.rent_bill_id} / payment ${p.id}` : 'No linked AR invoice',
       slipUrl:slipUrls.get(path) ?? null,eligible:p.status==='confirmed' && !p.reversed_at && Number(p.amount)>0,
@@ -39,7 +39,7 @@ export async function loadExistingPayments(db: SupabaseClient, companyId: string
   });
   for(const s of submissions.data.filter(s=>!linkedSubmissionIds.has(s.id))) records.push({
     id:`submission:${s.id}`,submissionOnly:true,tenant:one(one(s.tenancies)?.tenants)?.full_name ?? one(s.tenant_applications)?.full_name ?? 'Unlinked tenant',
-    property:one(s.properties)?.name ?? 'Unallocated',room:one(s.rooms)?.room_number ?? '—',invoice:one(s.rent_bills)?.invoice_number ?? '',invoiceId:s.rent_bill_id,
+    property:one(s.properties)?.name ?? 'Unallocated',propertyCode:one(s.properties)?.property_code ?? '',room:one(s.rooms)?.room_number ?? '—',invoice:one(s.rent_bills)?.invoice_number ?? '',invoiceId:s.rent_bill_id,invoiceMonth:one(s.rent_bills)?.bill_month ?? null,
     receipt:'Awaiting existing payment record',amount:Number(s.amount),date:s.payment_date??'',reference:s.reference_number??'',arReference:'Submission only — normal payment verification remains unchanged',
     slipUrl:slipUrls.get(s.receipt_url)??null,eligible:false,tenantStatus:s.verification_status,reconciliationStatus:'PENDING',bankId:null,legacyMatched:false,
   });

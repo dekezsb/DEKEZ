@@ -24,9 +24,9 @@ const bank=(extra={})=>({id:'bank-1',amount:380,date:'2026-09-08',reference:'',d
 
 test('suggestions use exact amount with date, reference, identity and document in priority order',()=>{
   assert.equal(rankExistingPayments(bank(),[payment()])[0].priority,1);
-  assert.equal(rankExistingPayments(bank({date:'2026-08-01',reference:'BANK-1234'}),[payment()])[0].priority,2);
-  assert.equal(rankExistingPayments(bank({date:'2026-08-01',description:'Example Tenant'}),[payment()])[0].priority,3);
-  assert.equal(rankExistingPayments(bank({date:'2026-08-01',description:'INV-1001'}),[payment()])[0].priority,4);
+  assert.equal(rankExistingPayments(bank({date:'2026-09-01',reference:'BANK-1234'}),[payment()])[0].priority,2);
+  assert.equal(rankExistingPayments(bank({date:'2026-09-01',description:'Example Tenant'}),[payment()])[0].priority,3);
+  assert.equal(rankExistingPayments(bank({date:'2026-09-01',description:'INV-1001'}),[payment()])[0].priority,4);
   assert.equal(rankExistingPayments(bank({amount:378}),[payment()])[0].priority,5);
   assert.equal(rankExistingPayments(bank({date:'2026-01-01'}),[payment()]).length,0,'amount alone is never sufficient');
 });
@@ -38,7 +38,7 @@ test('same amount / date for two tenants is manual review, not an automatic matc
 });
 test('amount differences, duplicate references and conflicting room references require review',()=>{
   assert.equal(rankExistingPayments(bank({amount:379}),[payment()])[0].status,'MANUAL_REVIEW');
-  assert.equal(rankExistingPayments(bank({description:'SLS B7'}),[payment()])[0].locationConflict,true);
+  assert.equal(rankExistingPayments(bank({description:'SLS B7'}),[payment()]).length,0,'wrong-room candidates must be excluded, not just warned about');
   assert.equal(rankExistingPayments(bank({duplicate:true}),[payment()])[0].status,'MANUAL_REVIEW');
   assert.equal(rankExistingPayments(bank(),[payment({duplicate:true})])[0].status,'MANUAL_REVIEW');
 });
@@ -66,7 +66,8 @@ test('missing proof, ambiguous identities, mismatched rooms and duplicates still
     assert.equal(directReconciliationPayment(b,rankExistingPayments(b,payments)),null);
     const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments,banks:[b],locked:false,canUnmatch:true}));
     assert.match(html.match(/<button\b[^>]*>Reconcile<\/button>/)?.[0]??'',/\sdisabled(?:=|>)/);
-    assert.match(html,/>Manual Match<\/button>/);
+    if (b.description==='SLS B7') assert.match(html,/Matching only SLS \/ Room B7/);
+    else assert.match(html,/>Manual Match<\/button>/);
   }
 });
 test('duplicate bank detection includes account, amount, date and reference; amount alone does not block',()=>{
