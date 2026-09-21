@@ -52,7 +52,7 @@ test('paid invoices and invoice-only rooms remain visible without inventing anot
 test('split amounts stay in the correct room for review and duplicate receipts never become ready',()=>{
   const partial=b({amount:100}),master=p({amount:400});
   const ranked=rankExistingPayments(partial,[master]);assert.equal(ranked[0].payment.id,'right');assert.equal(ranked[0].status,'MANUAL_REVIEW');
-  assert.equal(directReconciliationPayment(partial,ranked),null);
+  assert.equal(directReconciliationPayment(partial,ranked)?.id,'right','unique identified verified slip permits reviewed partial allocation');
   const duplicates=[p(),p({id:'duplicate'})];assert.equal(directReconciliationPayment(b(),rankExistingPayments(b(),duplicates)),null);
   assert.equal(rankExistingPayments(b(),[p({bankId:'already'}),p({legacyMatched:true}),p({eligible:false})]).length,0);
 });

@@ -1540,11 +1540,11 @@ export async function refreshExistingPaymentSuggestions() {
 
 export async function reconcileExistingPayment(formData: FormData) {
   const { user, company, supabase } = await accountingContext();
-  const { error } = await supabase.rpc("reconcile_existing_tenant_payment", {
+  const { error } = await supabase.rpc("reconcile_existing_payment_allocation", {
     p_company: company.id, p_line: textValue(formData, "lineId"),
     p_payment: textValue(formData, "paymentId"), p_actor: user.id,
   });
-  if (error) return { ok: false as const, error: error.message.includes("duplicate") ? "Possible duplicate transaction. Please review." : "Cannot reconcile this pair. Check the existing payment, bank amount and statement status. Nothing was changed." };
+  if (error) return { ok: false as const, error: error.message.includes("duplicate") ? "Possible duplicate transaction. Please review." : "Cannot reconcile: check the verified slip’s remaining amount, room and month. Nothing was changed." };
   revalidatePath("/reports");
   return { ok: true as const };
 }
@@ -1552,7 +1552,12 @@ export async function reconcileExistingPayment(formData: FormData) {
 export async function unreconcileExistingPayment(formData: FormData) {
   await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
   const { user, company, supabase } = await accountingContext();
-  const { error } = await supabase.rpc("unreconcile_existing_tenant_payment", {
+  const lineId=textValue(formData,"lineId");
+  const {data:modern,error:readError}=await supabase.from('bank_reconciliation_matches').select('id').eq('statement_line_id',lineId).eq('existing_payment_link',true).limit(1);
+  if(readError) return {ok:false as const,error:'Unable to read the bank links. Nothing was changed.'};
+  const { error } = modern?.length ? await supabase.rpc('unreconcile_existing_payment_bank',{
+    p_company:company.id,p_line:lineId,p_actor:user.id,p_reason:textValue(formData,'reason'),
+  }) : await supabase.rpc("unreconcile_existing_tenant_payment", {
     p_company: company.id, p_payment: textValue(formData, "paymentId"),
     p_actor: user.id, p_reason: textValue(formData, "reason"),
   });
@@ -1564,7 +1569,9 @@ export async function unreconcileExistingPayment(formData: FormData) {
 export async function unreconcileLegacyTenantBank(formData: FormData) {
   await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
   const { user, company, supabase } = await accountingContext();
-  const { error } = await supabase.rpc("unreconcile_legacy_tenant_bank", {
+  const {data:modern,error:readError}=await supabase.from('bank_reconciliation_matches').select('id').eq('statement_line_id',textValue(formData,'lineId')).eq('existing_payment_link',true).limit(1);
+  if(readError) return {ok:false as const,error:'Unable to read the bank links. Nothing was changed.'};
+  const { error } = await supabase.rpc(modern?.length?'unreconcile_existing_payment_bank':"unreconcile_legacy_tenant_bank", {
     p_company: company.id, p_line: textValue(formData, "lineId"), p_actor: user.id, p_reason: textValue(formData, "reason"),
   });
   if (error) return { ok: false as const, error: "Unable to unmatch these legacy links. Admin review and a reason are required." };

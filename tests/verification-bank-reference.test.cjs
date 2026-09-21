@@ -91,9 +91,10 @@ test('exact bank reference suggests a ready match without tenant name, but never
   assert.equal(ranked[0].payment.id, 'p'); assert.equal(ranked[0].confidence, 'Exact Match');
   assert.equal(directReconciliationPayment(bank(), ranked).id, 'p'); assert.equal(ranked[1].status, 'MANUAL_REVIEW');
 });
-test('bank codes never bypass room/month, amount, duplicate or already reconciled protections', () => {
+test('bank codes allow reviewed partial allocation but never bypass room/month, duplicate or already reconciled protections', () => {
   for (const extra of [{ description: 'DGG 17' }, { date: '2026-08-20' }]) assert.equal(rankExistingPayments(bank(extra), [payment()]).length, 0);
-  for (const extra of [{ amount: 101 }, { duplicate: true }, { used: true }]) assert.equal(directReconciliationPayment(bank(extra), rankExistingPayments(bank(extra), [payment()])), null);
+  assert.equal(directReconciliationPayment(bank({amount:101}),rankExistingPayments(bank({amount:101}),[payment()]))?.id,'p','unequal totals are not a reconciliation blocker');
+  for (const extra of [{ duplicate: true }, { used: true }]) assert.equal(directReconciliationPayment(bank(extra), rankExistingPayments(bank(extra), [payment()])), null);
   for (const extra of [{ duplicate: true }, { bankId: 'used' }, { legacyMatched: true }]) assert.equal(directReconciliationPayment(bank(), rankExistingPayments(bank(), [payment(extra)])), null);
   const duplicate = rankExistingPayments(bank(), [payment(), payment({ id: 'p2' })]);
   assert.ok(duplicate.every(x => x.status === 'MANUAL_REVIEW'));

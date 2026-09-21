@@ -63,6 +63,6 @@ test('page buttons, selected statement and pending count use working queue; full
   assert.match(page, /No bank transactions left to reconcile\. Completed records remain in the ledger\./);
   assert.match(page, /if \(statementLinesResult\.error\) throw new Error/);
   const component = fs.readFileSync(path.join(root, 'components/accounting/tenant-payment-reconciliation.tsx'), 'utf8');
-  assert.match(component, /if\(result\.ok\) router\.refresh\(\)/);
+  assert.match(component, /if\(result\.ok\) \{[\s\S]*?router\.refresh\(\)/);
   assert.match(fs.readFileSync(path.join(root, 'package.json'), 'utf8'), /tests\/statement-work-queue\.test\.cjs/);
 });

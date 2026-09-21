@@ -15,7 +15,7 @@ type Ranked = ReturnType<typeof rankExistingPayments>;
 export function reconciliationViewGroup(bank: StatementTransaction, ranked: Ranked, selected?: ExistingPayment): Exclude<ConfidenceFilter, 'all'> {
   const suggestion = selected ? ranked.find(item => item.payment.id === selected.id) : ranked[0];
   if (bank.used || bank.duplicate || bankRoomScope(bank).conflict || selected?.duplicate || selected?.bankId || selected?.legacyMatched
-    || (selected && (!selected.eligible || Math.round(selected.amount * 100) !== Math.round(bank.amount * 100)))) return 'review';
+    || (selected && (!selected.eligible || Math.round((selected.remainingAmount??selected.amount) * 100) !== Math.round((bank.remainingAmount??bank.amount) * 100)))) return 'review';
   if (!suggestion) return selected ? 'review' : 'unmatched';
   if (suggestion.status === 'MANUAL_REVIEW') return 'review';
   if (['Exact Match', 'High Confidence'].includes(suggestion.confidence)) return 'high';

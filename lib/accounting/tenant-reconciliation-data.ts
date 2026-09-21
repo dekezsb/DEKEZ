@@ -4,11 +4,11 @@ import { flagDuplicateBanks, rankExistingPayments, type ExistingPayment, type St
 const one = (value: any): any => Array.isArray(value) ? value[0] : value;
 export async function loadExistingPayments(db: SupabaseClient, companyId: string, includeSlips = true, internalAccountingDb: SupabaseClient = db): Promise<ExistingPayment[]> {
   const [payments, states, matches, submissions] = await Promise.all([
-    allReportRows(db.from('payments').select('id,amount,payment_date,reference_number,status,reversed_at,rent_bill_id,payment_submission_id,properties(name,property_code),rooms(room_number),tenancies(tenants(full_name)),rent_bills(invoice_number,bill_month),receipts(receipt_number),payment_submissions(receipt_url)').eq('company_id',companyId)),
+    allReportRows(db.from('payments').select('id,amount,payment_date,reference_number,status,reversed_at,rent_bill_id,payment_submission_id,tenancy_id,properties(name,property_code),rooms(room_number),tenancies(tenants(full_name)),rent_bills(invoice_number,bill_month),receipts(receipt_number),payment_submissions(receipt_url,verification_status)').eq('company_id',companyId)),
     // This table deliberately has no tenant-facing grants. The reports page supplies
     // its server-only client after checking report access; all other reads retain RLS.
     allReportRows(internalAccountingDb.from('accounting_payment_reconciliations').select('*').eq('company_id',companyId),'payment_record_id'),
-    allReportRows(db.from('bank_reconciliation_matches').select('id,source_id,source_type,statement_line_id').in('source_type',['payment','rent_bill'])),
+    allReportRows(db.from('bank_reconciliation_matches').select('id,source_id,source_type,statement_line_id,matched_amount,existing_payment_link').in('source_type',['payment','rent_bill'])),
     allReportRows(db.from('payment_submissions').select('id,amount,payment_date,reference_number,verification_status,receipt_url,rent_bill_id,properties!inner(name,property_code,company_id),rooms(room_number),tenancies(tenants(full_name)),tenant_applications(full_name),rent_bills(invoice_number,bill_month)').eq('properties.company_id',companyId)),
   ]);
   for(const [index,result] of [payments,states,matches,submissions].entries()) if(result.error) {
@@ -27,14 +27,17 @@ export async function loadExistingPayments(db: SupabaseClient, companyId: string
   }
   const records:ExistingPayment[] = payments.data.map((p:any) => {
     const state:any = stateMap.get(p.id);
-    const legacy = matches.data.some(m => (m.source_type==='payment' && m.source_id===p.id) || (m.source_type==='rent_bill' && m.source_id===p.rent_bill_id));
+    const legacy = matches.data.some(m => !m.existing_payment_link && ((m.source_type==='payment' && m.source_id===p.id) || (m.source_type==='rent_bill' && m.source_id===p.rent_bill_id)));
+    const reconciledAmount=matches.data.filter(m=>m.source_type==='payment'&&m.source_id===p.id).reduce((sum,m)=>sum+Number(m.matched_amount??0),0);
     const path = one(p.payment_submissions)?.receipt_url;
     return {id:p.id,tenant:one(one(p.tenancies)?.tenants)?.full_name ?? 'Unlinked tenant',property:one(p.properties)?.name ?? 'Unallocated',room:one(p.rooms)?.room_number ?? '—',
       propertyCode:one(p.properties)?.property_code ?? '',invoice:one(p.rent_bills)?.invoice_number ?? '',invoiceId:p.rent_bill_id,invoiceMonth:one(p.rent_bills)?.bill_month ?? null,receipt:(p.receipts ?? []).map((r:any)=>r.receipt_number).join(', '),
       amount:Number(p.amount),date:p.payment_date ?? '',reference:p.reference_number ?? '',
+      submissionId:p.payment_submission_id,slipVerified:one(p.payment_submissions)?.verification_status==='verified',tenancyId:p.tenancy_id,
+      reconciledAmount,remainingAmount:Math.max(0,Math.round((Number(p.amount)-reconciledAmount)*100)/100),
       arReference:p.rent_bill_id ? `Existing invoice ${one(p.rent_bills)?.invoice_number ?? p.rent_bill_id} / payment ${p.id}` : 'No linked AR invoice',
       slipUrl:slipUrls.get(path) ?? null,eligible:p.status==='confirmed' && !p.reversed_at && Number(p.amount)>0,
-      duplicate:Boolean(p.reference_number?.trim() && payments.data.some(other=>other.id!==p.id && matchedPaymentIds.has(other.id) && Number(other.amount)===Number(p.amount) && other.payment_date===p.payment_date && other.reference_number===p.reference_number)),
+      duplicate:Boolean(p.reference_number?.trim() && payments.data.some(other=>other.id!==p.id && !(p.payment_submission_id&&other.payment_submission_id===p.payment_submission_id) && matchedPaymentIds.has(other.id) && Number(other.amount)===Number(p.amount) && other.payment_date===p.payment_date && other.reference_number===p.reference_number)),
       tenantStatus:p.status,reconciliationStatus:state?.reconciliation_status ?? (legacy?'MANUAL_REVIEW':'PENDING'),bankId:state?.bank_transaction_id ?? null,legacyMatched:legacy && !state?.bank_transaction_id};
   });
   for(const s of submissions.data.filter(s=>!linkedSubmissionIds.has(s.id))) records.push({
@@ -47,9 +50,16 @@ export async function loadExistingPayments(db: SupabaseClient, companyId: string
 }
 
 export async function loadAccountingBankCredits(db:SupabaseClient,companyId:string):Promise<StatementTransaction[]> {
-  const result=await allReportRows(db.from('bank_statement_lines').select('id,bank_account_id,statement_import_id,amount,transaction_date,reference_number,description,status,bank_statement_imports!inner(company_id,status),bank_reconciliation_matches(id,source_type,source_id,matched_amount)').eq('bank_statement_imports.company_id',companyId).neq('bank_statement_imports.status','void').gt('amount',0));
+  const result=await allReportRows(db.from('bank_statement_lines').select('id,bank_account_id,statement_import_id,amount,transaction_date,reference_number,description,status,bank_statement_imports!inner(company_id,status),bank_reconciliation_matches(id,source_type,source_id,matched_amount,existing_payment_link)').eq('bank_statement_imports.company_id',companyId).neq('bank_statement_imports.status','void').gt('amount',0));
   if(result.error) throw new Error('Unable to load bank transactions. No records changed.');
-  return flagDuplicateBanks(result.data.map(b=>({id:b.id,bankAccountId:b.bank_account_id,statementId:b.statement_import_id,amount:Number(b.amount),date:b.transaction_date,reference:b.reference_number??'',description:b.description??'',completed:['matched','adjusted','ignored'].includes(b.status),used:b.status!=='unmatched'||Boolean(b.bank_reconciliation_matches?.length),legacyPaymentLinks:b.bank_reconciliation_matches?.length&&b.bank_reconciliation_matches.every(m=>['payment','rent_bill'].includes(m.source_type))?b.bank_reconciliation_matches.map(m=>({sourceType:m.source_type,sourceId:m.source_id,amount:Number(m.matched_amount)})):[]})));
+  return flagDuplicateBanks(result.data.map(b=>{
+    const matches=b.bank_reconciliation_matches??[];
+    const allocatedAmount=matches.reduce((n,m)=>n+Number(m.matched_amount),0);
+    const remainingAmount=Math.max(0,Math.round((Number(b.amount)-allocatedAmount)*100)/100);
+    const legacy=matches.some(m=>!m.existing_payment_link||m.source_type!=='payment');
+    const completed=['matched','adjusted','ignored'].includes(b.status)||remainingAmount===0;
+    return {id:b.id,bankAccountId:b.bank_account_id,statementId:b.statement_import_id,amount:Number(b.amount),allocatedAmount,remainingAmount,date:b.transaction_date,reference:b.reference_number??'',description:b.description??'',completed,used:completed||legacy,legacyPaymentLinks:legacy&&matches.every(m=>['payment','rent_bill'].includes(m.source_type))?matches.map(m=>({sourceType:m.source_type,sourceId:m.source_id,amount:Number(m.matched_amount)})):[]};
+  }));
 }
 
 // Only internal accounting states are written. Never touch payment or receipt rows.
@@ -65,7 +75,7 @@ export async function refreshPaymentSuggestions(db:SupabaseClient,companyId:stri
       states.set(id,candidate.status==='MANUAL_REVIEW'||states.get(id)==='MANUAL_REVIEW'?'MANUAL_REVIEW':'MATCH_SUGGESTED');
     }
   }
-  const unlocked=payments.filter(p=>!p.submissionOnly&&!p.bankId&&!p.legacyMatched);
+  const unlocked=payments.filter(p=>!p.submissionOnly&&!p.bankId&&!p.legacyMatched&&(p.remainingAmount??p.amount)>0&&p.reconciliationStatus!=='RECONCILED');
   if(!unlocked.length) return;
   const seeded=await db.from('accounting_payment_reconciliations').upsert(unlocked.map(p=>({payment_record_id:p.id,company_id:companyId})),{onConflict:'payment_record_id',ignoreDuplicates:true});
   if(seeded.error) throw new Error('Unable to refresh internal statuses. Payments unchanged.');
