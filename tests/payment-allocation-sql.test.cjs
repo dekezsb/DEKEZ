@@ -2,6 +2,7 @@
 const {PGlite}=require('@electric-sql/pglite');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const migration=fs.readFileSync(path.join(__dirname,'../supabase/migrations/20260921092807_existing_payment_split_reconciliation.sql'),'utf8');
+const multiInvoiceMigration=fs.readFileSync(path.join(__dirname,'../supabase/migrations/20260921095701_verified_slip_multiple_invoice_links.sql'),'utf8');
 const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
 let db;
 test.before(async()=>{
@@ -24,6 +25,7 @@ test.before(async()=>{
     create table accounting_audit_logs(company_id uuid,entity_type text,entity_id uuid,action text,after_data jsonb,before_data jsonb,performed_by uuid,reason text);
   `);
   await db.exec(migration);
+  await db.exec(multiInvoiceMigration);
   await db.exec(`create trigger guard_existing_payment_bank_match before insert or update on bank_reconciliation_matches for each row execute function guard_existing_payment_bank_match();`);
 });
 test.after(async()=>{await db?.close()});
@@ -125,7 +127,41 @@ test('RM480 verified against RM300 bank leaves RM180 verified for the next bank'
   assert.equal((await rows('select reconciliation_status from accounting_payment_reconciliations'))[0].reconciliation_status,'RECONCILED');
 });
 test('new functions are private invoker RPCs; no financial master mutations in migration',async()=>{
-  assert.doesNotMatch(migration,/(?:insert into|update|delete from)\s+(?:public\.)?(?:payments|receipts|rent_bills|accounting_journal_entries|accounting_journal_lines)\b/i);
+  assert.doesNotMatch(migration+multiInvoiceMigration,/(?:insert into|update|delete from)\s+(?:public\.)?(?:payments|receipts|rent_bills|accounting_journal_entries|accounting_journal_lines)\b/i);
   const permissions=await rows(`select has_function_privilege('anon','reconcile_existing_payment_allocation(uuid,uuid,uuid,uuid)','EXECUTE') as anon,has_function_privilege('authenticated','reconcile_existing_payment_allocation(uuid,uuid,uuid,uuid)','EXECUTE') as authenticated,has_function_privilege('service_role','reconcile_existing_payment_allocation(uuid,uuid,uuid,uuid)','EXECUTE') as service`);
   assert.deepEqual(permissions[0],{anon:false,authenticated:false,service:true});
+});
+
+test('same verified slip covers two paid invoices without changing either invoice or payment',async()=>{
+  await fixture();await bank(30,300);await bank(31,180,'next','Next MGT 15');
+  await db.exec(`insert into rent_bills values('${id(60)}','2026-09-01',100,100);update rent_bills set amount=380,paid_amount=380 where id='${id(12)}';update payments set rent_bill_id='${id(60)}' where id='${id(21)}';`);
+  const invoices=await rows('select * from rent_bills order by id');
+  const payments=await rows('select * from payments order by id');
+  await reconcile(30);
+  assert.equal(Number((await rows('select sum(matched_amount) as total from bank_reconciliation_matches'))[0].total),300);
+  await reconcile(31);
+  assert.deepEqual((await rows('select source_id,sum(matched_amount) as total from bank_reconciliation_matches group by source_id order by source_id')).map(x=>Number(x.total)),[380,100]);
+  assert.deepEqual(await rows('select * from payments order by id'),payments);
+  assert.deepEqual(await rows('select * from rent_bills order by id'),invoices);
+  assert.equal((await rows('select * from receipts')).length,0);
+  assert.ok((await rows('select status from bank_statement_lines')).every(x=>x.status==='matched'));
+});
+
+test('single RM480 bank combines verified allocations to two already-paid invoices',async()=>{
+  await fixture();await bank(30,480);
+  await db.exec(`insert into rent_bills values('${id(60)}','2026-09-01',100,100);update payments set rent_bill_id='${id(60)}' where id='${id(21)}';`);
+  await reconcile();
+  assert.deepEqual((await rows('select matched_amount from bank_reconciliation_matches order by source_id')).map(x=>Number(x.matched_amount)),[380,100]);
+});
+
+test('different-invoice child keeps month and historical duplicate protections before any partial write',async()=>{
+  await fixture();await bank(30,100);
+  await db.exec(`insert into rent_bills values('${id(60)}','2026-08-01',100,100);update payments set rent_bill_id='${id(60)}' where id='${id(21)}';`);
+  await assert.rejects(reconcile(),/same bank month/);
+  assert.equal((await rows('select * from bank_reconciliation_matches')).length,0);
+  await db.exec(`update rent_bills set bill_month='2026-09-01' where id='${id(60)}';`);
+  await bank(31,100,'legacy','Legacy MGT 15');
+  await db.exec(`insert into bank_reconciliation_matches(statement_line_id,source_type,source_id,matched_amount,match_method)values('${id(31)}','rent_bill','${id(60)}',100,'manual');`);
+  await assert.rejects(reconcile(),/duplicate/);
+  assert.equal((await rows(`select * from bank_reconciliation_matches where statement_line_id='${id(30)}'`)).length,0);
 });

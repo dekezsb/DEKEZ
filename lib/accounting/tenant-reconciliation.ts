@@ -7,7 +7,7 @@ export type ExistingPayment = {
   bankId: string | null; legacyMatched: boolean;
   duplicate?: boolean; submissionOnly?: boolean; invoiceMonth?: string | null; propertyCode?: string;
   submissionId?: string | null; slipVerified?: boolean; tenancyId?: string | null;
-  reconciledAmount?: number; remainingAmount?: number; allocationParts?: {id:string;amount:number;remaining:number}[];
+  reconciledAmount?: number; remainingAmount?: number; allocationParts?: {id:string;amount:number;remaining:number;invoiceId?:string|null;invoice?:string;invoiceMonth?:string|null}[];
 };
 export type StatementTransaction = { id: string; amount: number; allocatedAmount?:number; remainingAmount?:number; date: string; reference: string; description: string; used: boolean; completed?: boolean; duplicate?: boolean; bankAccountId?: string; statementId?: string; legacyPaymentLinks?: {sourceType:string;sourceId:string;amount:number}[] };
 const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');

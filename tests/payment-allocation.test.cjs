@@ -33,6 +33,27 @@ test('partial bank transfer consumes only remaining verified amount irrespective
   assert.equal(canAllocateExistingPayment(bank({amount:50}),master),true,'small amount is reconciliation, not a new electricity charge');
   assert.equal(existingPaymentChoices([p({remainingAmount:0,reconciliationStatus:'RECONCILED'})]).length,0);
 });
+
+test('one verified slip across different paid invoices is one usable group with both invoice details',()=>{
+  const parts=[p(),p({id:'b',amount:100,invoiceId:'inv-b',invoice:'DINV-B',arReference:'inv-b'})];
+  const before=JSON.stringify(parts),[choice]=existingPaymentChoices(parts);
+  assert.equal(choice.amount,480);assert.equal(choice.eligible,true);
+  assert.equal(canAllocateExistingPayment(bank(),choice),true);
+  assert.deepEqual(choice.allocationParts.map(x=>x.invoiceId),['inv','inv-b']);
+  const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:parts,banks:[bank()],locked:false,canUnmatch:true}));
+  assert.match(html,/Existing invoice allocations/);assert.match(html,/DINV-2026-0919/);assert.match(html,/DINV-B/);
+  assert.doesNotMatch(html.match(/<button\b[^>]*>Reconcile<\/button>/)[0],/\sdisabled(?:=|>)/);
+  assert.equal(JSON.stringify(parts),before);
+});
+
+test('multi-invoice group checks every child month and retains the unpaid reconciliation remainder',()=>{
+  const [invalid]=existingPaymentChoices([p(),p({id:'b',amount:100,invoiceId:'inv-b',invoiceMonth:'2026-08-01'})]);
+  assert.equal(canAllocateExistingPayment(bank(),invalid),false);
+  const [partial]=existingPaymentChoices([p({remainingAmount:0,reconciliationStatus:'RECONCILED',bankId:'prior'}),p({id:'b',amount:100,invoiceId:'inv-b',remainingAmount:80})]);
+  assert.equal(partial.remainingAmount,80);assert.equal(partial.amount,480);
+  assert.equal(canAllocateExistingPayment(bank({amount:100}),partial),true);
+  assert.equal(allocationAmount(bank({amount:100}),partial),80);
+});
 test('one exhausted portion does not hide the remaining portion of the same slip',()=>{
   const choices=existingPaymentChoices([p({remainingAmount:0,reconciledAmount:380,bankId:'prior',reconciliationStatus:'RECONCILED'}),p({id:'b',amount:100,remainingAmount:100})]);
   assert.equal(choices.length,1);assert.equal(choices[0].remainingAmount,100);assert.equal(choices[0].bankId,null);

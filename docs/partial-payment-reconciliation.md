@@ -32,3 +32,24 @@ Internal payment status is RECONCILED only after its verified amount is fully al
 ## Regression coverage
 
 Release tests execute the actual SQL in disposable PostgreSQL fixtures: both directions of partial matching, combined slips, zero invoice outstanding, duplicate/retry/concurrent requests, wrong room/month/actor, over-allocation guards, atomic rollback, authorized bank-scoped unmatch, private RPC permissions and unchanged financial masters. No production payment is reconciled as a test.
+
+## Follow-up audit: one slip, different existing invoices
+
+The MIN allocation, paid-invoice eligibility, partial bank visibility and non-duplicating posting behaviour were already present on main `5bc6016` and verified against the live RPC. One remaining restriction required every portion of a verified submission to share `invoiceId` (frontend) / `rent_bill_id` (RPC). That contradicted the master SOP's Invoice A + Invoice B example. A read-only production check found no existing verified multi-invoice submission groups at audit time; no historical repair is needed.
+
+The minimal follow-up removes invoice-ID equality only. All portions still belong to the same verified submission, tenant, room and payment date. Existing bank-month scope applies to every child invoice. The UI retains original invoice identifiers and shows each existing allocation; it does not create or restructure any invoice. Legacy invoice-link duplicate checks cover every child, including before a partial allocation.
+
+Changed files:
+- `lib/accounting/payment-allocation.ts`: group by verified parent slip, retain every invoice/reference.
+- `lib/accounting/tenant-reconciliation.ts`: include original invoice details in display allocations.
+- `lib/accounting/bank-room-scope.ts`: check every child invoice's month.
+- `components/accounting/tenant-payment-reconciliation.tsx`: display existing cross-invoice allocations.
+- `supabase/migrations/20260921095701_verified_slip_multiple_invoice_links.sql`: replace the existing allocation RPC only.
+- `tests/payment-allocation.test.cjs` and `tests/payment-allocation-sql.test.cjs`: five additional regression tests.
+- `AGENTS.md` and this report: retain the standing rule and evidence.
+
+Database impact: function-body migration only; no new/removed tables, columns, indexes or permissions. No payment, receipt, invoice or journal data migration. Existing links/statuses are unchanged by deployment. Rollback uses the preceding RPC definition and application commit without deleting allocations or rewriting balances; forward correction is preferred if multi-invoice groups have subsequently been used.
+
+Test results: PASS — all 102 release tests; PASS — TypeScript. New coverage includes a single RM480 bank against two paid invoices, RM300 + RM180 against that same slip, unchanged financial masters, child-month validation, legacy duplicate protection and UI visibility. Existing RM500 → RM380 + RM120, concurrency, rollback and completed-queue tests remain passing.
+
+Limitations retained deliberately: existing room/month rules and uncertain historical allocation locks are not removed. No production financial action is submitted as a test. Multi-invoice fixtures are synthetic because the read-only production check found no such groups.

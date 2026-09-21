@@ -19,3 +19,5 @@ Standing requirements:
 - Keep one room/month invoice containing the existing rent, deposit, electricity top-up and other charge lines. Reconciliation must never create a second invoice, payment, receipt, charge or AR posting, reopen a paid invoice, or alter tenant outstanding.
 
 Release reports must distinguish tested/restored features from outstanding integration work. No real financial submissions during UI verification.
+
+One verified parent slip may have existing allocations to different invoices. Group by the verified submission, not invoice equality; display all linked invoice allocations. Preserve existing tenant/room/month and duplicate protections. Do not restructure invoices or create new ones to reconcile such a group.

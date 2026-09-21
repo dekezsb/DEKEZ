@@ -20,16 +20,18 @@ export function existingPaymentChoices(payments:ExistingPayment[]):ExistingPayme
     const sorted=[...parts].sort((a,b)=>a.id.localeCompare(b.id));
     const first=sorted[0];
     const consistent=Boolean(first.tenancyId) && sorted.every(p=>p.tenancyId===first.tenancyId
-      && p.invoiceId===first.invoiceId && p.propertyCode===first.propertyCode && p.room===first.room
+      && p.propertyCode===first.propertyCode && p.room===first.room
       && p.date===first.date && p.eligible && !p.legacyMatched && !p.duplicate);
     if(!consistent) { singles.push(...parts.map(p=>({...p,eligible:false})));continue; }
     const remaining=sorted.reduce((n,p)=>n+cents(remainingPaymentAmount(p)),0)/100;
     const amount=sorted.reduce((n,p)=>n+cents(p.amount),0)/100;
     singles.push({...first,amount,remainingAmount:remaining,reconciledAmount:amount-remaining,
+      invoice:[...new Set(sorted.map(p=>p.invoice).filter(Boolean))].join(', '),
+      arReference:[...new Set(sorted.map(p=>p.arReference).filter(Boolean))].join('; '),
       bankId:remaining>0?null:first.bankId,legacyMatched:false,
       reconciliationStatus:remaining===0?'RECONCILED':first.reconciliationStatus==='RECONCILED'?'PENDING':first.reconciliationStatus,
       receipt:[...new Set(sorted.map(p=>p.receipt).filter(Boolean))].join(', '),
-      allocationParts:sorted.map(p=>({id:p.id,amount:p.amount,remaining:remainingPaymentAmount(p)}))});
+      allocationParts:sorted.map(p=>({id:p.id,amount:p.amount,remaining:remainingPaymentAmount(p),invoiceId:p.invoiceId,invoice:p.invoice,invoiceMonth:p.invoiceMonth}))});
   }
   return singles.filter(p=>remainingPaymentAmount(p)>0 && p.reconciliationStatus!=='RECONCILED');
 }

@@ -16,11 +16,12 @@ export function bankRoomScope(bank: Pick<Bank, 'reference' | 'description'>) {
   return { hint: locations.size === 1 ? [...locations.values()][0] : null, conflict: locations.size > 1 };
 }
 
-export function paymentInBankScope(bank: Bank, payment: { property: string; propertyCode?: string; room: string; date: string; invoiceMonth?: string | null }) {
+export function paymentInBankScope(bank: Bank, payment: { property: string; propertyCode?: string; room: string; date: string; invoiceMonth?: string | null; allocationParts?: {invoiceMonth?:string|null}[] }) {
   const { hint, conflict } = bankRoomScope(bank);
   if (conflict || !/^\d{4}-\d{2}-\d{2}$/.test(bank.date)) return false;
   const month = bank.date.slice(0, 7);
   if (payment.date.slice(0, 7) !== month || (payment.invoiceMonth && payment.invoiceMonth.slice(0, 7) !== month)) return false;
+  if (payment.allocationParts?.some(part=>part.invoiceMonth && part.invoiceMonth.slice(0,7)!==month)) return false;
   return !hint || ((payment.propertyCode?.trim().toUpperCase() || propertyCode(payment.property)) === hint.propertyCode
     && normalizeRoomCode(payment.room) === hint.roomCode);
 }
