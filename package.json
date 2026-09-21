@@ -4,6 +4,8 @@
   "description": "DEKEZ Rental Management SaaS foundation.",
   "scripts": {
     "dev": "next dev",
+    "test:release-regressions": "node --test tests/reconciliation-filters.test.cjs tests/tenant-reconciliation.test.cjs tests/payment-voucher-ui.test.cjs tests/booking-fee-allocation.test.cjs tests/booking-fee-verification.test.cjs tests/single-slip-reservation.test.cjs tests/tenant-movements.test.cjs tests/room-availability-access.test.cjs tests/balance-sheet-ui.test.cjs",
+    "prebuild": "npm run test:release-regressions",
     "build": "next build",
     "start": "next start"
   },

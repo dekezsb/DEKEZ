@@ -1,11 +1,13 @@
 'use client';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { CONFIDENCE_FILTERS, reconciliationViewGroup, reconciliationViewPriority, type ConfidenceFilter } from '@/lib/accounting/reconciliation-view';
 import { rankExistingPayments, directReconciliationPayment, type ExistingPayment, type StatementTransaction } from '@/lib/accounting/tenant-reconciliation';
 import { reconcileExistingPayment, unreconcileExistingPayment, refreshExistingPaymentSuggestions, unreconcileLegacyTenantBank } from '@/app/reports/actions';
 const money = (n:number) => `RM ${n.toFixed(2)}`;
 export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatch }: {payments:ExistingPayment[];banks:StatementTransaction[];locked:boolean;canUnmatch:boolean}) {
   const [search,setSearch]=useState('');
+  const [confidenceFilter,setConfidenceFilter]=useState<ConfidenceFilter>('all');
   const [selected,setSelected]=useState<Record<string,string>>({});
   const [activeBank,setActiveBank]=useState<string|null>(null);
   const [message,setMessage]=useState('');
@@ -19,7 +21,15 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   const workingBanks=banks.filter(b=>!b.completed&&!paymentByBank.has(b.id));
   const workingPayments=payments.filter(p=>!p.bankId&&!p.legacyMatched&&p.reconciliationStatus!=='RECONCILED');
   const matchesSearch=(value:string)=>value.toLowerCase().includes(search.toLowerCase());
-  const visibleBanks=workingBanks.filter(b=>matchesSearch(`${b.description} ${b.reference}`)||(suggestions.get(b.id)??[]).some(s=>matchesSearch(`${s.payment.tenant} ${s.payment.property} ${s.payment.room} ${s.payment.invoice} ${s.payment.receipt}`)));
+  const searchedRows=workingBanks.filter(b=>matchesSearch(`${b.description} ${b.reference}`)||(suggestions.get(b.id)??[]).some(s=>matchesSearch(`${s.payment.tenant} ${s.payment.property} ${s.payment.room} ${s.payment.invoice} ${s.payment.receipt}`))).map(bank=>{
+    const ranked=suggestions.get(bank.id)??[];
+    const selectedPayment=paymentById.get(selected[bank.id]);
+    const group=reconciliationViewGroup(bank,ranked,selectedPayment);
+    const confidence=(selectedPayment?ranked.find(item=>item.payment.id===selectedPayment.id):ranked[0])?.confidence;
+    return {bank,group,priority:reconciliationViewPriority(group,confidence)};
+  });
+  const visibleBanks=searchedRows.filter(row=>confidenceFilter==='all'||row.group===confidenceFilter)
+    .sort((a,b)=>a.priority-b.priority).map(row=>row.bank);
   function run(bankId:string,paymentId:string,unmatch=false) {
     const reason=unmatch ? window.prompt('Reason for unmatching this payment:') : null;
     if(unmatch && !reason) return;
@@ -41,9 +51,17 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
     <button type="button" disabled={pending||locked} className="rounded border px-3 py-2 text-sm disabled:opacity-40" onClick={()=>start(async()=>{try{const result=await refreshExistingPaymentSuggestions();setMessage(result.ok?'Suggestions refreshed. No payments or receipts changed.':result.error);if(result.ok)router.refresh();}catch{setMessage('Unable to refresh suggestions. Please retry.');}})}>Refresh match suggestions</button>
     <input aria-label="Search reconciliation" className="w-full rounded border p-2" placeholder="Search tenant, property, room, invoice, receipt or bank reference" value={search} onChange={e=>setSearch(e.target.value)}/>
     {message ? <p role="status" className="rounded bg-blue-50 p-2 text-sm">{message}</p>:null}
-    <div className="max-h-[65vh] overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 z-10 bg-slate-100"><tr>
+    <div className="max-h-[65vh] overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 z-10 bg-slate-100"><tr><th colSpan={9} className="border-b bg-white p-2 font-normal">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter reconciliation by confidence">
+        <span className="font-semibold">Confidence filter:</span>
+        {CONFIDENCE_FILTERS.map(filter=><button key={filter.value} type="button" aria-pressed={confidenceFilter===filter.value}
+          className={`rounded-full border px-3 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${confidenceFilter===filter.value?'border-emerald-700 bg-emerald-700 text-white':'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
+          onClick={()=>setConfidenceFilter(filter.value)}>{filter.label} ({filter.value==='all'?searchedRows.length:searchedRows.filter(row=>row.group===filter.value).length})</button>)}
+        <span className="text-slate-600" role="status">Showing {visibleBanks.length} of {workingBanks.length} · Highest confidence first</span>
+      </div>
+    </th></tr><tr>
       {['Existing tenant payment / receipt','Property / Room','Invoice / Receipt No.','Receipt amount / date','Payment reference / AR','Bank amount / date','Bank description / reference','Confidence / Status','Action'].map(h=><th key={h} className="p-2">{h}</th>)}
-    </tr></thead><tbody>{!visibleBanks.length?<tr><td colSpan={9} className="p-6 text-center text-slate-600">{search?'No in-process transactions match your search.':'No bank transactions left to reconcile in this statement.'}</td></tr>:null}{visibleBanks.map(bank=>{
+    </tr></thead><tbody>{!visibleBanks.length?<tr><td colSpan={9} className="p-6 text-center text-slate-600">{!workingBanks.length?'No bank transactions left to reconcile in this statement.':confidenceFilter!=='all'?'No transactions match this confidence filter. Choose All to see the other items.':'No in-process transactions match your search.'}</td></tr>:null}{visibleBanks.map(bank=>{
       const linked=paymentByBank.get(bank.id);
       const ranked=suggestions.get(bank.id)??[];
       const readyPayment=directReconciliationPayment(bank,ranked);
