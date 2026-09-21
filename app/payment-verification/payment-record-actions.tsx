@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { useFormStatus } from "react-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatMalaysiaDateTime } from "@/lib/date-format";
@@ -53,6 +55,30 @@ function statusLabel(status: string) {
     return "Rejected";
   }
   return "Pending Verification";
+}
+
+function SubmitButton({
+  children,
+  pendingLabel,
+  className,
+}: {
+  children: ReactNode;
+  pendingLabel: string;
+  className?: string;
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <Button className={className} disabled={pending} type="submit">
+      {pending ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {pendingLabel}
+        </>
+      ) : (
+        children
+      )}
+    </Button>
+  );
 }
 
 export function PaymentRecordActions({
@@ -569,7 +595,7 @@ export function PaymentRecordActions({
               ) : null}
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-                <Button type="submit">Confirm & Verify</Button>
+                <SubmitButton pendingLabel="Verifying…">Confirm & Verify</SubmitButton>
               </div>
             </form>
           </div>
@@ -595,7 +621,7 @@ export function PaymentRecordActions({
               </select>
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button type="button" variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
-                <Button className="bg-red-600 text-white hover:bg-red-700" type="submit">Reject payment</Button>
+                <SubmitButton className="bg-red-600 text-white hover:bg-red-700" pendingLabel="Rejecting…">Reject payment</SubmitButton>
               </div>
             </form>
           </div>
@@ -646,12 +672,12 @@ export function PaymentRecordActions({
                 >
                   Cancel
                 </Button>
-                <Button
+                <SubmitButton
                   className="bg-amber-600 text-white hover:bg-amber-700"
-                  type="submit"
+                  pendingLabel="Undoing…"
                 >
                   Confirm Undo
-                </Button>
+                </SubmitButton>
               </div>
             </form>
           </div>
