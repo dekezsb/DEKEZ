@@ -9,7 +9,7 @@ const resolve=Module._resolveFilename,load=Module._load;
 Module._resolveFilename=function(r,...a){return resolve.call(this,r.startsWith('@/')?path.join(root,r.slice(2)):r,...a)};
 Module._load=function(r,...a){if(r==='next/navigation')return {useRouter:()=>({refresh(){}})};if(r==='@/app/reports/actions')return {};return load.call(this,r,...a)};
 for(const ext of ['.ts','.tsx'])Module._extensions[ext]=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true,target:ts.ScriptTarget.ES2022}}).outputText,f);
-const {existingPaymentChoices,canAllocateExistingPayment,allocationAmount}=require('../lib/accounting/payment-allocation.ts');
+const {existingPaymentChoices,canAllocateExistingPayment,canBulkGroupPayments,allocationAmount}=require('../lib/accounting/payment-allocation.ts');
 const {TenantPaymentReconciliation}=require('../components/accounting/tenant-payment-reconciliation.tsx');
 const {loadExistingPayments,loadAccountingBankCredits}=require('../lib/accounting/tenant-reconciliation-data.ts');
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
@@ -92,4 +92,37 @@ test('data loader keeps trusted partial payments available and legacy partials l
   let result=await loadExistingPayments(db,'c',false);assert.equal(result[0].remainingAmount,300);assert.equal(result[0].legacyMatched,false);
   rows.bank_reconciliation_matches[0].existing_payment_link=false;
   result=await loadExistingPayments(db,'c',false);assert.equal(result[0].legacyMatched,true);
+});
+
+test('canBulkGroupPayments: same tenant + distinct amounts group; different tenants or an equal-amount pair never do',()=>{
+  assert.equal(canBulkGroupPayments([p()]),true,'a single candidate is trivially groupable');
+  assert.equal(canBulkGroupPayments([p({id:'a',amount:100}),p({id:'b',amount:350})]),true,'same tenancyId, distinct amounts');
+  assert.equal(canBulkGroupPayments([p({id:'a',tenancyId:null,amount:100}),p({id:'b',tenancyId:null,amount:350})]),true,'falls back to tenant name + property/room when tenancyId is missing');
+  assert.equal(canBulkGroupPayments([p({id:'a',tenancyId:null,amount:100}),p({id:'b',tenancyId:'other',amount:350})]),true,'only one side has a tenancyId — still falls back to name + property/room');
+  assert.equal(canBulkGroupPayments([p({id:'a',amount:100}),p({id:'b',tenancyId:'other-tenancy',amount:350})]),false,'different tenancyId is never grouped, even with the same name');
+  assert.equal(canBulkGroupPayments([p({id:'a',tenancyId:null,amount:100}),p({id:'b',tenancyId:null,tenant:'Other Tenant',amount:350})]),false,'different tenant name is never grouped');
+  assert.equal(canBulkGroupPayments([p({id:'a',tenancyId:null,amount:100}),p({id:'b',tenancyId:null,room:'16',amount:350})]),false,'different room is never grouped even with the same name');
+  assert.equal(canBulkGroupPayments([p({id:'a',amount:350}),p({id:'b',amount:350})]),false,'an equal-amount pair could be indistinguishable duplicates — never grouped');
+  assert.equal(canBulkGroupPayments([p({id:'a',amount:100}),p({id:'b',amount:200}),p({id:'c',amount:100})]),false,'any equal-amount pair blocks the whole group, not just the two that match');
+});
+
+test('bulk panel combines a same-tenant deposit and rent invoice identified on one bank line into one multi-payment item',()=>{
+  const deposit=p({id:'deposit',invoice:'',invoiceId:null,receipt:'REC-DEP',amount:100,submissionId:'slip-deposit',arReference:''});
+  const rent=p({id:'rent',invoice:'DINV-2026-0861',invoiceId:'bill-rent',receipt:'REC-RENT',amount:350,submissionId:'slip-rent'});
+  const line=bank({amount:450});
+  const html=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[deposit,rent],banks:[line],locked:false,canUnmatch:true}));
+  assert.match(html,/Ready to reconcile by room match \(1\)/,'one bank line, even though it covers two payments');
+  assert.match(html,/Reconcile all 1 now/);
+  const panel=html.slice(html.indexOf('Ready to reconcile by room match'),html.indexOf('Filter reconciliation by confidence'));
+  assert.match(panel,/RM 100\.00/);assert.match(panel,/RM 350\.00/);
+  assert.match(panel,/split across 2 payments/);
+  assert.equal((panel.match(/HO MUI FATT/g)||[]).length,2,'one preview row per payment');
+});
+
+test('bulk panel never auto-groups different tenants or an equal-amount pair identified on the same bank line',()=>{
+  const line=bank({amount:450});
+  const differentTenant=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[p({id:'a',invoiceId:'inv-a',amount:100,submissionId:'slip-a'}),p({id:'b',tenancyId:'other-tenancy',tenant:'Other Tenant',invoiceId:'inv-b',amount:350,submissionId:'slip-b'})],banks:[line],locked:false,canUnmatch:true}));
+  assert.doesNotMatch(differentTenant,/Ready to reconcile by room match/,'ambiguous across two different tenants stays manual, never auto-bulked');
+  const equalAmounts=renderToStaticMarkup(React.createElement(TenantPaymentReconciliation,{payments:[p({id:'a',invoiceId:'inv-a',amount:350,submissionId:'slip-a'}),p({id:'b',invoiceId:'inv-b',amount:350,submissionId:'slip-b'})],banks:[line],locked:false,canUnmatch:true}));
+  assert.doesNotMatch(equalAmounts,/Ready to reconcile by room match/,'an equal-amount pair could be indistinguishable duplicates, so it stays manual too');
 });
