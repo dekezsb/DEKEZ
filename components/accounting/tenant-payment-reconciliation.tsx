@@ -23,33 +23,35 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   // Filter the display only: keep the full data for duplicate checks and matching locks.
   const workingBanks=banks.filter(b=>!b.completed&&(b.remainingAmount!==undefined?b.remainingAmount>0:!paymentByBank.has(b.id)));
   const workingPayments=choices.filter(p=>!p.bankId&&!p.legacyMatched&&p.reconciliationStatus!=='RECONCILED');
-  // Only bank lines with an unambiguous room number/code match, an exact-amount verified payment,
-  // and no conflict or duplicate flag are offered here — the same "Ready to reconcile" cases the
-  // table already allows a single Reconcile click on. Anything less exact stays below for manual review.
+  // Property + Room + same month identifies the invoice straight from the bank line's own
+  // reference/description — the same rule the per-row "Match & Reconcile" button uses below.
+  // Partial payments are included; a line is excluded only when the invoice can't be confidently
+  // identified (no room hint, a room conflict, or not exactly one open invoice for the month),
+  // there's a duplicate/used flag, or the bank amount exceeds what's left on the invoice. Never
+  // offered when an existing confirmed payment is already available for that room/month — that
+  // case allocates to the existing payment instead (the table below), so nothing double-counts.
   const bulkReady=useMemo(()=>workingBanks.flatMap(bank=>{
     const {hint:bankLocation,conflict:roomConflict}=bankRoomScope(bank);
     if(!bankLocation||roomConflict||bank.used||bank.duplicate) return [];
-    const ranked=suggestions.get(bank.id)??[];
-    const readyPayment=directReconciliationPayment(bank,ranked);
-    if(!readyPayment||!canAllocateExistingPayment(bank,readyPayment)) return [];
-    // Bulk-reconcile only exact-amount matches; anything needing partial allocation stays
-    // in the table below for a manual Reconcile click and review.
-    const exactAmount=Math.round(remainingPaymentAmount(readyPayment)*100)===Math.round(remainingBankAmount(bank)*100);
-    if(!exactAmount) return [];
-    return [{bank,payment:readyPayment}];
-  }),[workingBanks,suggestions]);
+    if(available.some(p=>paymentInBankScope(bank,p))) return [];
+    const unpaidRoomInvoices=roomInvoicesForBank(bank,invoices).filter(invoice=>invoice.rentOutstanding>0.005);
+    if(unpaidRoomInvoices.length!==1) return [];
+    const invoice=unpaidRoomInvoices[0];
+    if(remainingBankAmount(bank)>invoice.rentOutstanding+0.005) return [];
+    return [{bank,invoice}];
+  }),[workingBanks,available,invoices]);
   const [bulkPending,startBulk]=useTransition();
   function runBulkReconcile() {
     startBulk(async()=>{
       let succeeded=0,failed=0;
-      for(const {bank,payment} of bulkReady) {
+      for(const {bank,invoice} of bulkReady) {
         try {
-          const data=new FormData();data.set('lineId',bank.id);data.set('paymentId',payment.id);
-          const result=await reconcileExistingPayment(data);
+          const data=new FormData();data.set('lineId',bank.id);data.set('billId',invoice.id);
+          const result=await applyBankToRoomInvoice(data);
           if(result.ok) succeeded+=1; else failed+=1;
         } catch { failed+=1; }
       }
-      setMessage(`Reconciled ${succeeded} of ${bulkReady.length} room-matched payment${bulkReady.length===1?'':'s'}.${failed?` ${failed} could not be reconciled and remain for manual review — nothing else changed.`:''}`);
+      setMessage(`Reconciled ${succeeded} of ${bulkReady.length} room-matched invoice${bulkReady.length===1?'':'s'}. Each created a new confirmed payment from its bank evidence.${failed?` ${failed} could not be reconciled and remain for manual review — nothing else changed.`:''}`);
       router.refresh();
     });
   }
@@ -101,13 +103,23 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold text-emerald-950">Ready to reconcile by room match ({bulkReady.length})</h3>
-          <p className="text-sm text-emerald-800">These bank lines show a clear property/room code, match an existing verified payment for the exact amount, and have no conflict or duplicate flag. Everything else stays in the list below for you to match by hand.</p>
+          <p className="text-sm text-emerald-800">Each bank line&rsquo;s own reference/description names exactly one property and room; that room&rsquo;s one open invoice for the same month is matched below, partial amounts included. Excluded only when the invoice can&rsquo;t be confidently identified, there&rsquo;s a duplicate/conflict flag, or the bank amount exceeds what&rsquo;s left on the invoice. Everything else stays in the list below for you to match by hand.</p>
         </div>
         <button type="button" disabled={locked||pending||bulkPending} className="whitespace-nowrap rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={runBulkReconcile}>{bulkPending?'Reconciling…':`Reconcile all ${bulkReady.length} now`}</button>
       </div>
       <div className="max-h-64 overflow-auto rounded border bg-white">
-        <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr>{['Tenant','Property / Room','Bank amount / date','Bank reference'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead>
-          <tbody>{bulkReady.map(({bank,payment})=><tr key={bank.id} className="border-t"><td className="p-2">{payment.tenant}</td><td className="p-2">{payment.property} / {payment.room}</td><td className="p-2 whitespace-nowrap">{money(bank.amount)} · {bank.date}</td><td className="p-2">{bank.reference||bank.description.slice(0,50)}</td></tr>)}</tbody>
+        <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr>{['Tenant','Property / Room','Invoice','Invoice amount','Already paid','Remaining before','Bank amount','Remaining after','Bank reference'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead>
+          <tbody>{bulkReady.map(({bank,invoice})=>{const applied=remainingBankAmount(bank);return <tr key={bank.id} className="border-t">
+            <td className="p-2">{invoice.tenantName}</td>
+            <td className="p-2">{invoice.propertyCode} / Room {invoice.roomCode}</td>
+            <td className="p-2">{invoice.invoiceNumber||'—'}</td>
+            <td className="p-2 whitespace-nowrap">{money(invoice.invoiceAmount)}</td>
+            <td className="p-2 whitespace-nowrap">{money(invoice.paidAmount)}</td>
+            <td className="p-2 whitespace-nowrap">{money(invoice.rentOutstanding)}</td>
+            <td className="p-2 whitespace-nowrap">{money(applied)} · {bank.date}</td>
+            <td className="p-2 whitespace-nowrap font-semibold">{money(Math.max(invoice.rentOutstanding-applied,0))}</td>
+            <td className="p-2">{bank.reference||bank.description.slice(0,50)}</td>
+          </tr>;})}</tbody>
         </table>
       </div>
     </div> : null}
