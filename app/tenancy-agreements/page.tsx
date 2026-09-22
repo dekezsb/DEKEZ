@@ -7,6 +7,7 @@ import { loadTenancyAgreementArchive } from "@/lib/data/tenancy-agreements";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { RegenerateMasterButton } from "./regenerate-master-button";
+import { UnsignedTenancyFollowup } from "@/components/tenancy/unsigned-followup";
 
 type PageProps = {
   searchParams: Promise<{
@@ -119,6 +120,7 @@ export default async function TenancyAgreementsPage({
         </div>
       ) : null}
 
+      <UnsignedTenancyFollowup agreements={archive.agreements} />
       <AgreementArchive
         agreements={archive.agreements}
         occupancy={params.occupancy ?? "all"}

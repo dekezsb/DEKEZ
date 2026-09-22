@@ -106,6 +106,7 @@ function expiryLabel(item: RenewalTrackerItem) {
 
 function decisionLabel(item: RenewalTrackerItem) {
   if (item.decisionStatus === "not_renew") return "Tenant not renewing";
+  if (item.agreementId && !["signed", "renewal_signed"].includes(item.agreementStatus ?? "")) return "Next TA prepared — awaiting signature";
   if (item.decisionStatus === "requested") return "Waiting for tenant reply";
   if (item.decisionStatus === "renew" && item.agreementId) {
     return ["signed", "renewal_signed"].includes(item.agreementStatus ?? "")
@@ -191,7 +192,7 @@ export function AgreementRenewalReminders({
   const definition =
     buckets.find((item) => item.bucket === activeBucket) ?? buckets[0];
   const matching = summary.items.filter((item) => item.bucket === activeBucket);
-  const visible = matching.slice(0, 8);
+  const visible = matching;
   const outstanding = summary.items.filter(
     (item) =>
       ["pending", "requested"].includes(item.decisionStatus) ||
@@ -213,8 +214,8 @@ export function AgreementRenewalReminders({
               Contract Renewal Tracker
             </h2>
             <p className="mt-1 text-sm text-[#496386]">
-              Starts 60 days before contract expiry. Ask first; prepare a renewal
-              TA only after the tenant confirms Yes.
+              Track expiry and tenant decisions here. Management prepares standby
+              TAs within 30 days of expiry; a prepared TA is not tenant consent.
             </p>
           </div>
           {!followUpOnly ? (
@@ -367,7 +368,7 @@ export function AgreementRenewalReminders({
                         ) : null}
                       </div>
 
-                      {item.decisionStatus === "renew" && item.agreementId ? (
+                      {item.agreementId ? (
                         <Button asChild size="sm" variant="outline">
                           <Link href={`/e-tenancy/${item.agreementId}`}>
                             <FileSignature className="h-4 w-4" />

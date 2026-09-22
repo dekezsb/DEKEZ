@@ -2,7 +2,11 @@
 
 New requests are additive unless the user explicitly replaces an earlier rule. Do not remove existing features to deliver another feature.
 
+TA policy confirmed 2026-09-22: prepare a missing unsigned next term within 30 days of expiry, including expired unsigned predecessors; retain the actual prior six- or twelve-month duration, asking management for non-standard durations. Current/future unsigned TA rent follows the latest confirmed rent; signed history is immutable. Never record tenant consent or send messages merely because a standby offer is prepared. Existing terms must not be duplicated. Historical signatures use the actual signing timestamp and must not roll current tenancy dates, rent or deposit backward. Keep the current-tenant never-signed list with all versions, date-based expiry and overlap warnings, and keep tests/ta-followup.test.cjs in the release gate. Identity verification authorized on 2026-09-22 was a one-time approval of existing current-tenant IC/passport files, not permission to approve future uploads automatically.
+
 Before a release, retrieve current production/main source and compare it with the working branch. Never publish a stale standalone worktree over newer production changes. Preserve both histories through reviewed integration. Run `npm run test:release-regressions` and TypeScript checks; do not delete or bypass the prebuild tests to make a release pass.
+
+TA follow-up confirmation 2026-09-22: management chose six-month next terms for INS1, INS4, KLB1, KLB13 and KLB15. Preserve their prepared terms; no duplicate generation. The 09:00 Codex follow-up was cancelled at management's request. Maintain the portal's existing authenticated renewal maintenance and live lists instead; do not recreate a Codex reminder.
 
 Standing requirements:
 - Keep the editable bank transaction reference/code in every admin verification confirmation, including booking fees and Rent + Deposit. Save it to the existing submission/payment and use exact reference tokens in matching. Preserve leading zeroes, existing values on blank/old/rejection forms, room/month constraints and duplicate guards. Keep `tests/verification-bank-reference.test.cjs` in the mandatory release gate. Booking reference saving and allocation must succeed or roll back together.

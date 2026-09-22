@@ -11,6 +11,8 @@ import { loadAgreementAppendixDocuments } from "@/lib/tenancy/agreement-appendix
 import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
+import { malaysiaToday } from "@/lib/tenancy/agreement";
+import { canApplySignedTerm, canSignAgreement, signableAgreementStatuses } from "@/lib/tenancy/signing-policy";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -59,7 +61,7 @@ export async function signAgreement(formData: FormData) {
   const { data: agreement, error: agreementError } = await supabase
     .from("tenancy_agreements")
     .select(
-      "id, rendered_content, tenancy_id, term_type, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot, version_number, is_correction",
+      "id, rendered_content, tenancy_id, term_type, agreement_type, status, term_start_date, term_end_date, monthly_rent_snapshot, version_number, is_correction, signed_at, admin_rejected_at, replacement_agreement_id",
     )
     .eq("id", agreementId)
     .maybeSingle();
@@ -76,18 +78,13 @@ export async function signAgreement(formData: FormData) {
     signingError(agreementId, "already_signed");
   }
 
-  const signableStatuses = [
-    "pending_signature",
-    "renewal_pending",
-    "renewal_sent",
-  ];
-  if (!signableStatuses.includes(agreement.status)) {
+  if (!canSignAgreement(agreement)) {
     signingError(agreementId, "agreement_unavailable");
   }
 
   const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
-    .select("id, tenant_id, property_id, room_id")
+    .select("id, tenant_id, property_id, room_id, status, checkout_date, contract_end, tenancy_end_date")
     .eq("id", agreement.tenancy_id)
     .maybeSingle();
 
@@ -96,6 +93,10 @@ export async function signAgreement(formData: FormData) {
       agreementId,
       error: tenancyError?.message,
     });
+    signingError(agreementId, "agreement_unavailable");
+  }
+
+  if (tenancy.status !== "active" || tenancy.checkout_date) {
     signingError(agreementId, "agreement_unavailable");
   }
 
@@ -275,7 +276,10 @@ export async function signAgreement(formData: FormData) {
       rendered_content: signedContent,
     })
     .eq("id", agreement.id)
-    .in("status", signableStatuses)
+    .in("status", signableAgreementStatuses)
+    .is("signed_at", null)
+    .is("admin_rejected_at", null)
+    .is("replacement_agreement_id", null)
     .select("id")
     .maybeSingle();
 
@@ -295,12 +299,18 @@ export async function signAgreement(formData: FormData) {
     signingError(agreementId, "save_failed");
   }
 
+  const applyCurrentTerm = canApplySignedTerm(
+    agreement.term_end_date, malaysiaToday(),
+    [tenancy.contract_end, tenancy.tenancy_end_date],
+  );
+  let currentTermApplied = applyCurrentTerm;
   if (
+    applyCurrentTerm &&
     agreement.term_type === "renewal" &&
     agreement.term_start_date &&
     agreement.term_end_date
   ) {
-    const { error: renewalUpdateError } = await supabase
+    const renewalUpdate = supabase
       .from("tenancies")
       .update({
         tenancy_start_date: agreement.term_start_date,
@@ -311,14 +321,23 @@ export async function signAgreement(formData: FormData) {
         renewal_status: "signed",
         updated_at: signedAt,
       })
-      .eq("id", agreement.tenancy_id);
+      .eq("id", agreement.tenancy_id)
+      .eq("status", "active")
+      .is("checkout_date", null);
+    // Compare-and-set: a concurrent newer signature must not be overwritten.
+    for (const field of ["contract_end", "tenancy_end_date"] as const) {
+      if (tenancy[field]) renewalUpdate.eq(field, tenancy[field]);
+      else renewalUpdate.is(field, null);
+    }
+    const { data: renewedTenancy, error: renewalUpdateError } = await renewalUpdate.select("id").maybeSingle();
+    currentTermApplied = !renewalUpdateError && Boolean(renewedTenancy);
 
     if (renewalUpdateError) {
       console.error("Signed renewal did not update the tenancy dates.", {
         agreementId,
         error: renewalUpdateError.message,
       });
-    } else {
+    } else if (currentTermApplied) {
       await reconcileSmartLockAccessForTenancy(agreement.tenancy_id).catch(
         (error) => {
           console.error("Renewed tenancy smart-lock access could not be extended.", {
@@ -330,7 +349,7 @@ export async function signAgreement(formData: FormData) {
     }
   }
 
-  if (property?.is_commercial) {
+  if (property?.is_commercial && applyCurrentTerm && currentTermApplied) {
     const requiredDeposit = commercialDepositSchedule(
       agreement.monthly_rent_snapshot,
     ).totalDeposit;

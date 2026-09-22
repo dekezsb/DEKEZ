@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureCurrentAgreementTerms } from "@/lib/tenancy/agreement";
 
+export const maxDuration = 300;
+
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
+  {
     const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
         { status: 401 },
@@ -15,13 +17,13 @@ export async function GET(request: Request) {
   }
 
   const supabase = createAdminClient();
-  const [{ data: tenancies }, { data: superAdmin }] = await Promise.all([
+  const [tenancyResult, adminResult] = await Promise.all([
     supabase
       .from("tenancies")
       .select("id, created_by")
       .eq("status", "active")
       .is("checkout_date", null)
-      .not("billing_status", "in", "(terminated,completed)"),
+      .or("billing_status.is.null,billing_status.not.in.(terminated,completed)"),
     supabase
       .from("profiles")
       .select("id")
@@ -29,6 +31,11 @@ export async function GET(request: Request) {
       .limit(1)
       .maybeSingle(),
   ]);
+  if (tenancyResult.error || adminResult.error) {
+    return NextResponse.json({ ok: false, error: "Unable to load renewal work" }, { status: 500 });
+  }
+  const tenancies = tenancyResult.data;
+  const superAdmin = adminResult.data;
 
   let processed = 0;
   let prepared = 0;

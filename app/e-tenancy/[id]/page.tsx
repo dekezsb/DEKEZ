@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 import { issueCorrectedCommercialAgreement } from "../../tenancy-agreements/actions";
 import { signAgreement } from "../actions";
 import { TenantSignatureForm } from "../tenant-signature-form";
+import { canSignAgreement } from "@/lib/tenancy/signing-policy";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -66,9 +67,8 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
   const room = Array.isArray(tenancy?.rooms) ? tenancy?.rooms[0] : tenancy?.rooms;
   const canSign =
     role === "tenant" &&
-    ["pending_signature", "renewal_pending", "renewal_sent"].includes(
-      agreement.status,
-    );
+    tenancy?.status === "active" && !tenancy.checkout_date &&
+    canSignAgreement(agreement);
   const backPath =
     role === "tenant" ? "/e-tenancy" : "/tenancy-agreements";
   const pdfPath = `/api/tenancy-agreements/${agreement.id}/pdf`;
@@ -206,6 +206,12 @@ export default async function AgreementDetailPage({ params, searchParams }: Page
           <CardDescription>Generated {formatMalaysiaDateTime(agreement.generated_at)}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm text-gray-600 sm:grid-cols-2">
+          {agreement.term_end_date && agreement.term_end_date < today ? (
+            <p className="rounded-md bg-amber-50 p-3 text-amber-900 sm:col-span-2">
+              Expired term. Any signature is recorded with today's actual date.
+              Signing this historical agreement does not restart the term or change current rent.
+            </p>
+          ) : null}
           <p>Start: {formatMalaysiaDate(agreement.term_start_date ?? tenancy?.tenancy_start_date)}</p>
           <p>End: {formatMalaysiaDate(agreement.term_end_date ?? tenancy?.tenancy_end_date)}</p>
           <p>Signed: {formatMalaysiaDateTime(agreement.signed_at)}</p>

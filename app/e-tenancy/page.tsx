@@ -155,6 +155,7 @@ async function TenantAgreementList() {
                             "pending_signature",
                             "renewal_pending",
                             "renewal_sent",
+                            "expired",
                           ].includes(agreement.status)
                         ? "Review and sign"
                         : "View agreement"}
