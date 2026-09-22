@@ -98,7 +98,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
     // it expands into one preview row per payment, tracking the bank's own remaining balance as it
     // is consumed across that item's rows (separately from the cross-item consumedByPayment map
     // below, which still tracks running consumption across different bank lines in this same run).
-    return bulkReady.flatMap(item=>{
+    return bulkReady.flatMap((item):{item:BulkItem;rowKey:string;tenant:string;invoiceNo:string|null;invoiceAmount:number;alreadyPaid:number;remainingBefore:number;applied:number;remainingAfter:number}[]=>{
       const {bank}=item;
       if(item.kind==='invoice') {
         const consumed=consumedByInvoice.get(item.invoice.id)??0;
