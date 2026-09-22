@@ -40,3 +40,23 @@ export function canAllocateExistingPayment(bank:StatementTransaction,p:ExistingP
   return Boolean(p && p.eligible && !p.submissionOnly && !p.bankId && !p.legacyMatched && !p.duplicate
     && !bank.used && !bank.completed && !bank.duplicate && allocationAmount(bank,p)>0 && paymentInBankScope(bank,p));
 }
+
+// One bank line legitimately identifies more than one existing confirmed payment for the SAME
+// tenant/room (for example a deposit plus a separate rent invoice paid together) — the bulk
+// auto-queue may combine those into one multi-payment allocation, applying the bank line's
+// balance to each in turn (still MIN-of-balances, still the same per-payment eligibility gate).
+// It never combines candidates just because their amounts happen to sum to the bank amount, and
+// it never combines candidates that could be indistinguishable duplicates of the same charge
+// (equal amounts) — that stays a manual decision, same as today's "duplicate receipts never
+// become ready" rule. Tenant identity prefers tenancyId when every candidate has one; otherwise
+// it requires the same tenant name AND the same property/room.
+export function canBulkGroupPayments(payments:ExistingPayment[]) {
+  if(payments.length<2) return true;
+  const amounts=payments.map(p=>cents(p.amount));
+  if(new Set(amounts).size!==amounts.length) return false;
+  const [first,...rest]=payments;
+  if(first.tenancyId && payments.every(p=>p.tenancyId)) return rest.every(p=>p.tenancyId===first.tenancyId);
+  const name=(t:string)=>t.trim().toLowerCase();
+  const location=(p:ExistingPayment)=>`${(p.propertyCode?.trim().toUpperCase()||p.property)} ${p.room}`;
+  return rest.every(p=>name(p.tenant)===name(first.tenant) && location(p)===location(first));
+}
