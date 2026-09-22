@@ -1,12 +1,15 @@
 'use client';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { bankRoomScope, paymentInBankScope, roomInvoicesForBank, type RoomInvoiceOption } from '@/lib/accounting/bank-room-scope';
+import { bankRoomScope, paymentInBankScope, roomInvoicesForBank, type RoomInvoiceOption, type BankRoom } from '@/lib/accounting/bank-room-scope';
 import { existingPaymentChoices, canAllocateExistingPayment, remainingPaymentAmount, remainingBankAmount, allocationAmount } from '@/lib/accounting/payment-allocation';
 import { CONFIDENCE_FILTERS, reconciliationViewGroup, reconciliationViewPriority, type ConfidenceFilter } from '@/lib/accounting/reconciliation-view';
 import { rankExistingPayments, directReconciliationPayment, type ExistingPayment, type StatementTransaction } from '@/lib/accounting/tenant-reconciliation';
 import { reconcileExistingPayment, unreconcileExistingPayment, refreshExistingPaymentSuggestions, unreconcileLegacyTenantBank, applyBankToRoomInvoice } from '@/app/reports/actions';
 const money = (n:number) => `RM ${n.toFixed(2)}`;
+type BulkItem =
+  | { bank: StatementTransaction; location: BankRoom; kind: 'payment'; payment: ExistingPayment }
+  | { bank: StatementTransaction; location: BankRoom; kind: 'invoice'; invoice: RoomInvoiceOption };
 export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatch, invoices = [] }: {payments:ExistingPayment[];banks:StatementTransaction[];locked:boolean;canUnmatch:boolean;invoices?:RoomInvoiceOption[]}) {
   const [search,setSearch]=useState('');
   const [confidenceFilter,setConfidenceFilter]=useState<ConfidenceFilter>('all');
@@ -34,7 +37,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   // identified (no hint or a conflict), there's more than one matching payment or invoice, a
   // duplicate/used flag is set, or the bank amount exceeds what's available to allocate. Everything
   // excluded stays in the list below for manual review.
-  const bulkReady=useMemo(()=>workingBanks.flatMap(bank=>{
+  const bulkReady=useMemo<BulkItem[]>(()=>workingBanks.flatMap((bank):BulkItem[]=>{
     const {hint:location,conflict:roomConflict}=bankRoomScope(bank);
     if(!location||roomConflict||bank.used||bank.duplicate) return [];
     const roomPayments=available.filter(p=>paymentInBankScope(bank,p));
