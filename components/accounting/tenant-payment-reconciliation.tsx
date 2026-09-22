@@ -2,13 +2,14 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { bankRoomScope, paymentInBankScope, roomInvoicesForBank, type RoomInvoiceOption, type BankRoom } from '@/lib/accounting/bank-room-scope';
-import { existingPaymentChoices, canAllocateExistingPayment, remainingPaymentAmount, remainingBankAmount, allocationAmount } from '@/lib/accounting/payment-allocation';
+import { existingPaymentChoices, canAllocateExistingPayment, canBulkGroupPayments, remainingPaymentAmount, remainingBankAmount, allocationAmount } from '@/lib/accounting/payment-allocation';
 import { CONFIDENCE_FILTERS, reconciliationViewGroup, reconciliationViewPriority, type ConfidenceFilter } from '@/lib/accounting/reconciliation-view';
 import { rankExistingPayments, directReconciliationPayment, type ExistingPayment, type StatementTransaction } from '@/lib/accounting/tenant-reconciliation';
 import { reconcileExistingPayment, unreconcileExistingPayment, refreshExistingPaymentSuggestions, unreconcileLegacyTenantBank, applyBankToRoomInvoice } from '@/app/reports/actions';
 const money = (n:number) => `RM ${n.toFixed(2)}`;
 type BulkItem =
   | { bank: StatementTransaction; location: BankRoom; kind: 'payment'; payment: ExistingPayment }
+  | { bank: StatementTransaction; location: BankRoom; kind: 'payments'; payments: ExistingPayment[] }
   | { bank: StatementTransaction; location: BankRoom; kind: 'invoice'; invoice: RoomInvoiceOption };
 export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatch, invoices = [] }: {payments:ExistingPayment[];banks:StatementTransaction[];locked:boolean;canUnmatch:boolean;invoices?:RoomInvoiceOption[]}) {
   const [search,setSearch]=useState('');
@@ -38,24 +39,42 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   // (same as the table below) applies whatever the bank amount is. A bare room number with no
   // property code is never guessed at: bank statements carry no property linkage of their own, so
   // that would risk misdirecting money to the wrong property's tenant — only a name/reference match
-  // or a full property+room code count as identified. When no confirmed payment is identified but
-  // the bank line names a property+room and that room has exactly one open invoice for the month,
-  // it's queued for the direct bank-to-invoice match instead (the exception in AGENTS.md) — the
-  // same rule the per-row "Match & Reconcile" button uses. A line is excluded whenever more than
-  // one candidate payment is identified, no room hint is available to fall back to an invoice
-  // match, or a conflict/duplicate/used flag is set. Everything excluded stays in the list below
-  // for manual review.
+  // or a full property+room code count as identified. When more than one confirmed payment is
+  // identified for the SAME tenant/room (for example a deposit and a separate rent invoice paid
+  // together), and canBulkGroupPayments confirms they're unambiguous — same tenant identity and no
+  // two candidates share an equal amount that could make them indistinguishable duplicates of one
+  // another — the bulk queue combines them into one multi-payment item: the same server-side
+  // allocation call runs once per payment, in sequence, against the same bank line (this is the
+  // already-supported "one bank to multiple payments" shape; the server recomputes the bank line's
+  // live remaining balance before each call, so this is exactly what happens if an admin picked one
+  // payment, reconciled, then picked the next). When identified candidates are for different
+  // tenants, or two candidates share an equal amount, that ambiguity is never resolved
+  // automatically — the line stays out of bulk for manual review, same as today. When no confirmed
+  // payment is identified but the bank line names a property+room and that room has exactly one
+  // open invoice for the month, it's queued for the direct bank-to-invoice match instead (the
+  // exception in AGENTS.md) — the same rule the per-row "Match & Reconcile" button uses. Everything
+  // excluded stays in the list below for manual review.
   const bulkReady=useMemo<BulkItem[]>(()=>workingBanks.flatMap((bank):BulkItem[]=>{
     const {hint:location,conflict:roomConflict}=bankRoomScope(bank);
     if(roomConflict||bank.used||bank.duplicate) return [];
     const ranked=suggestions.get(bank.id)??[];
     const identified=ranked.filter(r=>!r.missingIdentity&&!r.locationConflict);
-    if(identified.length>1) return [];
     if(identified.length===1) {
       const payment=identified[0].payment;
       if(!canAllocateExistingPayment(bank,payment)) return [];
       const matchLocation=location??{propertyCode:payment.propertyCode?.trim().toUpperCase()||payment.property,roomCode:payment.room};
       return [{bank,location:matchLocation,kind:'payment' as const,payment}];
+    }
+    if(identified.length>1) {
+      const candidates=identified.map(r=>r.payment);
+      if(!canBulkGroupPayments(candidates)) return [];
+      const allocatable=candidates.filter(payment=>canAllocateExistingPayment(bank,payment));
+      if(!allocatable.length) return [];
+      const first=allocatable[0];
+      const matchLocation=location??{propertyCode:first.propertyCode?.trim().toUpperCase()||first.property,roomCode:first.room};
+      return allocatable.length===1
+        ? [{bank,location:matchLocation,kind:'payment' as const,payment:first}]
+        : [{bank,location:matchLocation,kind:'payments' as const,payments:allocatable}];
     }
     if(!location) return [];
     const unpaidRoomInvoices=roomInvoicesForBank(bank,invoices).filter(invoice=>invoice.rentOutstanding>0.005);
@@ -75,36 +94,61 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   const bulkPreview=useMemo(()=>{
     const consumedByPayment=new Map<string,number>();
     const consumedByInvoice=new Map<string,number>();
-    return bulkReady.map(item=>{
+    // A 'payments' item applies one bank line's balance to more than one payment in sequence, so
+    // it expands into one preview row per payment, tracking the bank's own remaining balance as it
+    // is consumed across that item's rows (separately from the cross-item consumedByPayment map
+    // below, which still tracks running consumption across different bank lines in this same run).
+    return bulkReady.flatMap((item):{item:BulkItem;rowKey:string;tenant:string;invoiceNo:string|null;invoiceAmount:number;alreadyPaid:number;remainingBefore:number;applied:number;remainingAfter:number}[]=>{
       const {bank}=item;
-      if(item.kind==='payment') {
-        const consumed=consumedByPayment.get(item.payment.id)??0;
-        const remainingBefore=Math.max(remainingPaymentAmount(item.payment)-consumed,0);
+      if(item.kind==='invoice') {
+        const consumed=consumedByInvoice.get(item.invoice.id)??0;
+        const remainingBefore=Math.max(item.invoice.rentOutstanding-consumed,0);
         const applied=Math.min(remainingBankAmount(bank),remainingBefore);
-        consumedByPayment.set(item.payment.id,consumed+applied);
-        return {item,tenant:item.payment.tenant,invoiceNo:item.payment.invoice,invoiceAmount:item.payment.amount,alreadyPaid:(item.payment.reconciledAmount??0)+consumed,remainingBefore,applied,remainingAfter:Math.max(remainingBefore-applied,0)};
+        consumedByInvoice.set(item.invoice.id,consumed+applied);
+        return [{item,rowKey:`${bank.id}:invoice:${item.invoice.id}`,tenant:item.invoice.tenantName,invoiceNo:item.invoice.invoiceNumber,invoiceAmount:item.invoice.invoiceAmount,alreadyPaid:item.invoice.paidAmount+consumed,remainingBefore,applied,remainingAfter:Math.max(remainingBefore-applied,0)}];
       }
-      const consumed=consumedByInvoice.get(item.invoice.id)??0;
-      const remainingBefore=Math.max(item.invoice.rentOutstanding-consumed,0);
-      const applied=Math.min(remainingBankAmount(bank),remainingBefore);
-      consumedByInvoice.set(item.invoice.id,consumed+applied);
-      return {item,tenant:item.invoice.tenantName,invoiceNo:item.invoice.invoiceNumber,invoiceAmount:item.invoice.invoiceAmount,alreadyPaid:item.invoice.paidAmount+consumed,remainingBefore,applied,remainingAfter:Math.max(remainingBefore-applied,0)};
+      const paymentsList=item.kind==='payment'?[item.payment]:item.payments;
+      let bankLeft=remainingBankAmount(bank);
+      return paymentsList.map(payment=>{
+        const consumed=consumedByPayment.get(payment.id)??0;
+        const remainingBefore=Math.max(remainingPaymentAmount(payment)-consumed,0);
+        const applied=Math.min(bankLeft,remainingBefore);
+        bankLeft=Math.max(bankLeft-applied,0);
+        consumedByPayment.set(payment.id,consumed+applied);
+        return {item,rowKey:`${bank.id}:payment:${payment.id}`,tenant:payment.tenant,invoiceNo:payment.invoice,invoiceAmount:payment.amount,alreadyPaid:(payment.reconciledAmount??0)+consumed,remainingBefore,applied,remainingAfter:Math.max(remainingBefore-applied,0)};
+      });
     });
   },[bulkReady]);
   const [bulkPending,startBulk]=useTransition();
   function runBulkReconcile() {
     startBulk(async()=>{
-      let succeeded=0,failed=0;
+      let linesSucceeded=0,linesFailed=0,actionsSucceeded=0,actionsFailed=0;
       for(const item of bulkReady) {
-        try {
-          const data=new FormData();data.set('lineId',item.bank.id);
-          let result;
-          if(item.kind==='payment') { data.set('paymentId',item.payment.id); result=await reconcileExistingPayment(data); }
-          else { data.set('billId',item.invoice.id); result=await applyBankToRoomInvoice(data); }
-          if(result.ok) succeeded+=1; else failed+=1;
-        } catch { failed+=1; }
+        if(item.kind==='invoice') {
+          try {
+            const data=new FormData();data.set('lineId',item.bank.id);data.set('billId',item.invoice.id);
+            const result=await applyBankToRoomInvoice(data);
+            if(result.ok) { linesSucceeded+=1;actionsSucceeded+=1; } else { linesFailed+=1;actionsFailed+=1; }
+          } catch { linesFailed+=1;actionsFailed+=1; }
+          continue;
+        }
+        // A 'payments' item allocates the SAME bank line to more than one payment: each call is
+        // the exact same reconcileExistingPayment RPC the per-row Reconcile button uses, run in
+        // sequence — the server recomputes the bank line's live remaining balance before each one,
+        // so this is identical to an admin picking one payment, reconciling, then picking the next.
+        const paymentsList=item.kind==='payment'?[item.payment]:item.payments;
+        let lineFailures=0;
+        for(const payment of paymentsList) {
+          try {
+            const data=new FormData();data.set('lineId',item.bank.id);data.set('paymentId',payment.id);
+            const result=await reconcileExistingPayment(data);
+            if(result.ok) actionsSucceeded+=1; else { actionsFailed+=1;lineFailures+=1; }
+          } catch { actionsFailed+=1;lineFailures+=1; }
+        }
+        if(lineFailures) linesFailed+=1; else linesSucceeded+=1;
       }
-      setMessage(`Reconciled ${succeeded} of ${bulkReady.length} room-matched transaction${bulkReady.length===1?'':'s'}. Existing confirmed payments were linked, never duplicated; a new confirmed payment was only created for room-matched invoices with no existing payment available.${failed?` ${failed} could not be reconciled and remain for manual review — nothing else changed.`:''}`);
+      const splitNote=actionsSucceeded>linesSucceeded?` (${actionsSucceeded} payment allocations in total — some bank transactions were split across more than one existing payment for the same tenant)`:'';
+      setMessage(`Reconciled ${linesSucceeded} of ${bulkReady.length} room-matched transaction${bulkReady.length===1?'':'s'}${splitNote}. Existing confirmed payments were linked, never duplicated; a new confirmed payment was only created for room-matched invoices with no existing payment available.${linesFailed?` ${linesFailed} could not be fully reconciled and remain for manual review — nothing else changed.`:''}`);
       router.refresh();
     });
   }
@@ -156,16 +200,16 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold text-emerald-950">Ready to reconcile by room match ({bulkReady.length})</h3>
-          <p className="text-sm text-emerald-800">Each bank line&rsquo;s own reference/description is checked for a property+room code, a tenant name, or an exact bank-reference match to an existing confirmed payment — the same month as the bank line, always. When exactly one confirmed payment is identified this way, it&rsquo;s matched here automatically — a bank amount that differs from the payment amount is treated as an ordinary partial payment, never a reason to hold it for manual review. A bare room number with no property code is never guessed at, since bank statements carry no property of their own. When no confirmed payment is identified but the bank line names a property and room with exactly one open invoice for the month, the bank evidence is matched straight to that invoice instead. Excluded only when the match isn&rsquo;t confident — more than one identified candidate, or a duplicate/conflict flag. Everything else stays in the list below for you to match by hand.</p>
+          <p className="text-sm text-emerald-800">Each bank line&rsquo;s own reference/description is checked for a property+room code, a tenant name, or an exact bank-reference match to an existing confirmed payment — the same month as the bank line, always. When exactly one confirmed payment is identified this way, it&rsquo;s matched here automatically — a bank amount that differs from the payment amount is treated as an ordinary partial payment, never a reason to hold it for manual review. When more than one confirmed payment is identified for the SAME tenant and room — a deposit and a separate rent invoice paid together, for example — the bank line is matched to all of them here, applied one after another (shown as one row per payment below); this never happens when the candidates are for different tenants, or when two of them share the exact same amount and so could be indistinguishable duplicates of each other — those stay below for manual review. A bare room number with no property code is never guessed at, since bank statements carry no property of their own. When no confirmed payment is identified but the bank line names a property and room with exactly one open invoice for the month, the bank evidence is matched straight to that invoice instead. Everything else stays in the list below for you to match by hand.</p>
         </div>
         <button type="button" disabled={locked||pending||bulkPending} className="whitespace-nowrap rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={runBulkReconcile}>{bulkPending?'Reconciling…':`Reconcile all ${bulkReady.length} now`}</button>
       </div>
       <div className="max-h-64 overflow-auto rounded border bg-white">
         <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr>{['Tenant','Property / Room','Invoice','Invoice amount','Already paid','Remaining before','Bank amount','Remaining after','Bank reference'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead>
           <tbody>{bulkPreview.map(row=>{
-            const {item,tenant,invoiceNo,invoiceAmount,alreadyPaid,remainingBefore,applied,remainingAfter}=row;
+            const {item,rowKey,tenant,invoiceNo,invoiceAmount,alreadyPaid,remainingBefore,applied,remainingAfter}=row;
             const {bank,location}=item;
-            return <tr key={bank.id} className="border-t">
+            return <tr key={rowKey} className="border-t">
             <td className="p-2">{tenant}</td>
             <td className="p-2">{location.propertyCode} / Room {location.roomCode}</td>
             <td className="p-2">{invoiceNo||'—'}</td>
@@ -174,7 +218,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
             <td className="p-2 whitespace-nowrap">{money(remainingBefore)}</td>
             <td className="p-2 whitespace-nowrap">{money(applied)} · {bank.date}</td>
             <td className="p-2 whitespace-nowrap font-semibold">{money(remainingAfter)}</td>
-            <td className="p-2">{bank.reference||bank.description.slice(0,50)}{item.kind==='payment'?<span className="block text-slate-500">Existing payment</span>:null}</td>
+            <td className="p-2">{bank.reference||bank.description.slice(0,50)}{item.kind!=='invoice'?<span className="block text-slate-500">Existing payment{item.kind==='payments'?' · split across '+item.payments.length+' payments':''}</span>:null}</td>
           </tr>;})}</tbody>
         </table>
       </div>
