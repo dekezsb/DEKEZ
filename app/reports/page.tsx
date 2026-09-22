@@ -535,6 +535,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       rentOutstanding,
       depositOutstanding,
       outstanding: rentOutstanding + depositOutstanding,
+      invoiceAmount: Number(bill.amount ?? 0) + (itemTotals.get(bill.id) ?? 0),
+      paidAmount: Number(bill.paid_amount ?? 0),
     };
   });
   const invoiceOptions = allInvoiceOptions.filter((bill) => bill.outstanding > 0.005);
