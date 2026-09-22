@@ -125,6 +125,14 @@ test('signed-in-process tenants and previous occupants are excluded from never-s
   assert.equal(neverSignedTenancies([row(),row({id:'v2',signed_at:'2026-09-22',status:'signed'})], '2026-09-22').length,0);
   assert.equal(neverSignedTenancies([row({tenancies:{status:'ended',checkout_date:'2026-09-01'}})],'2026-09-22').length,0);
 });
+
+test('management followup identifies the current room after transfer without rewriting historical agreement snapshots', () => {
+  const old = row({property_name_snapshot:'DGG',room_name_snapshot:'Room 6',tenancies:{status:'active',checkout_date:null,properties:{name:'DGG'},rooms:{room_number:'Room 15'},tenants:{full_name:'Current tenant'}}});
+  const [result]=neverSignedTenancies([old],'2026-09-22');
+  assert.equal(result.roomName,'Room 15');
+  assert.equal(result.tenantName,'Current tenant');
+  assert.equal(result.pending[0].room_name_snapshot,'Room 6');
+});
 test('overlapping historical copies are flagged, not silently offered as consecutive terms', () => {
   const result=neverSignedTenancies([row(),row({id:'v3',version_number:3,term_end_date:'2027-03-07'})],'2026-09-22');
   assert.equal(result[0].overlap,true);

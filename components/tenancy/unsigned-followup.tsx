@@ -16,7 +16,7 @@ export function UnsignedTenancyFollowup({ agreements }: { agreements: AgreementA
         <table className="w-full text-left text-sm">
           <thead><tr><th className="p-2">Property / room / tenant</th><th className="p-2">Unsigned versions and dates</th><th className="p-2">Follow-up</th></tr></thead>
           <tbody>{rows.map(row => <tr className="border-t" key={row.tenancyId}>
-            <td className="p-2 align-top">{row.pending[0].property_name_snapshot} · {row.pending[0].room_name_snapshot}<br />{row.pending[0].tenant_name_snapshot}</td>
+            <td className="p-2 align-top">{row.propertyName} · {row.roomName}<br />{row.tenantName}</td>
             <td className="p-2">{row.pending.map(a => <p key={a.id} className="mb-2"><Link className="underline" href={`/e-tenancy/${a.id}`}>V{a.version_number} · {formatMalaysiaDate(a.term_start_date)}–{formatMalaysiaDate(a.term_end_date)}</Link>{a.term_end_date && a.term_end_date < today ? " · Expired / unsigned" : " · Awaiting signature"}</p>)}</td>
             <td className="p-2 align-top">{row.overlap ? "Date overlap — management review first" : row.expired && row.standby ? "Ask tenant to review and sign old and next terms" : row.expired ? "Expired — next term needs review" : "Request signature"}</td>
           </tr>)}</tbody>
