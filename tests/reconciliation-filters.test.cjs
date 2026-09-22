@@ -33,7 +33,11 @@ function render(filter = 'all', search = '', selected = {}) {
   try { return renderToStaticMarkup(React.createElement(TenantPaymentReconciliation, { payments, banks, locked: false, canUnmatch: true })); }
   finally { React.useState = original; }
 }
-const rows = html => html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'));
+// Name-matched banks with no property/room code (like 'exact' and 'high' below) now also
+// auto-queue into the "Ready to reconcile by room match" bulk panel, which renders its own
+// <tbody> above the main table. Locate the main table's body specifically, rather than the
+// first <tbody> in the page, so this helper stays correct whether or not the bulk panel shows.
+const rows = html => { const marker = html.indexOf('Filter reconciliation by confidence'); const start = html.indexOf('<tbody>', marker); return html.slice(start, html.indexOf('</tbody>', start)); };
 test('all five filters stay in sticky header with counts and highest confidence first', () => {
   const html = render();
   assert.match(html, /sticky top-0/);

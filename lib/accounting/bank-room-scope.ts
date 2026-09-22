@@ -29,6 +29,7 @@ export function paymentInBankScope(bank: Bank, payment: { property: string; prop
 export type RoomInvoiceOption = {
   id: string; invoiceNumber: string | null; billMonth: string; tenantName: string;
   propertyCode: string; roomCode: string; rentOutstanding: number;
+  invoiceAmount: number; paidAmount: number;
 };
 
 // Paid invoices stay visible. An invoice alone is not proof of a new payment.
