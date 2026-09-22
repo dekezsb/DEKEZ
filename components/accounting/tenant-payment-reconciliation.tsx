@@ -29,14 +29,16 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
   // Property + Room + same month identifies the correct record straight from the bank line's own
   // reference/description — no manual matching needed when that evidence is already unambiguous.
   // When exactly one existing confirmed payment matches that room and month, it's queued to
-  // allocate against that payment (partial amounts included, the same MIN-of-balances rule as the
-  // table below, and it must already carry a slip/receipt). When no confirmed payment is available
-  // but the room has exactly one open invoice for the month, it's queued for the direct
-  // bank-to-invoice match instead (the exception in AGENTS.md) — the same rule the per-row
-  // "Match & Reconcile" button uses. A line is excluded only when the room can't be confidently
-  // identified (no hint or a conflict), there's more than one matching payment or invoice, a
-  // duplicate/used flag is set, or the bank amount exceeds what's available to allocate. Everything
-  // excluded stays in the list below for manual review.
+  // allocate against that payment — the exact same gate the per-row "Reconcile" button itself uses
+  // (canAllocateExistingPayment: eligible, not duplicate, not already used/completed, in scope, and
+  // a positive amount to allocate). A bank amount that differs from the payment amount is not a
+  // reason to exclude it — that's an ordinary partial payment, and the MIN-of-balances rule (same as
+  // the table below) applies whatever the bank amount is. When no confirmed payment is available but
+  // the room has exactly one open invoice for the month, it's queued for the direct bank-to-invoice
+  // match instead (the exception in AGENTS.md) — the same rule the per-row "Match & Reconcile" button
+  // uses. A line is excluded only when the room can't be confidently identified (no hint or a
+  // conflict), there's more than one matching payment or invoice, or a duplicate/used flag is set.
+  // Everything excluded stays in the list below for manual review.
   const bulkReady=useMemo<BulkItem[]>(()=>workingBanks.flatMap((bank):BulkItem[]=>{
     const {hint:location,conflict:roomConflict}=bankRoomScope(bank);
     if(!location||roomConflict||bank.used||bank.duplicate) return [];
@@ -44,7 +46,7 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
     if(roomPayments.length>1) return [];
     if(roomPayments.length===1) {
       const payment=roomPayments[0];
-      if(!canAllocateExistingPayment(bank,payment)||!(payment.slipUrl||payment.receipt.trim())) return [];
+      if(!canAllocateExistingPayment(bank,payment)) return [];
       return [{bank,location,kind:'payment' as const,payment}];
     }
     const unpaidRoomInvoices=roomInvoicesForBank(bank,invoices).filter(invoice=>invoice.rentOutstanding>0.005);
@@ -53,6 +55,33 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
     if(remainingBankAmount(bank)>invoice.rentOutstanding+0.005) return [];
     return [{bank,location,kind:'invoice' as const,invoice}];
   }),[workingBanks,available,invoices]);
+  // Two or more bank lines in this same bulk run can target the same payment or invoice (for
+  // example two partial transfers for one tenant's rent). Walk bulkReady in order, tracking a
+  // running consumed amount per payment/invoice id, so the preview's "already paid" / "remaining"
+  // figures reflect what earlier lines in this run already applied, instead of each row computing
+  // its balance independently (which would show the same starting balance twice). The actual
+  // reconciliation still runs each line sequentially through the same server-side RPC — which
+  // recomputes live balances itself and is already safe from double-allocation — so this is a
+  // display-accuracy improvement for the preview table only.
+  const bulkPreview=useMemo(()=>{
+    const consumedByPayment=new Map<string,number>();
+    const consumedByInvoice=new Map<string,number>();
+    return bulkReady.map(item=>{
+      const {bank}=item;
+      if(item.kind==='payment') {
+        const consumed=consumedByPayment.get(item.payment.id)??0;
+        const remainingBefore=Math.max(remainingPaymentAmount(item.payment)-consumed,0);
+        const applied=Math.min(remainingBankAmount(bank),remainingBefore);
+        consumedByPayment.set(item.payment.id,consumed+applied);
+        return {item,tenant:item.payment.tenant,invoiceNo:item.payment.invoice,invoiceAmount:item.payment.amount,alreadyPaid:(item.payment.reconciledAmount??0)+consumed,remainingBefore,applied,remainingAfter:Math.max(remainingBefore-applied,0)};
+      }
+      const consumed=consumedByInvoice.get(item.invoice.id)??0;
+      const remainingBefore=Math.max(item.invoice.rentOutstanding-consumed,0);
+      const applied=Math.min(remainingBankAmount(bank),remainingBefore);
+      consumedByInvoice.set(item.invoice.id,consumed+applied);
+      return {item,tenant:item.invoice.tenantName,invoiceNo:item.invoice.invoiceNumber,invoiceAmount:item.invoice.invoiceAmount,alreadyPaid:item.invoice.paidAmount+consumed,remainingBefore,applied,remainingAfter:Math.max(remainingBefore-applied,0)};
+    });
+  },[bulkReady]);
   const [bulkPending,startBulk]=useTransition();
   function runBulkReconcile() {
     startBulk(async()=>{
@@ -118,21 +147,15 @@ export function TenantPaymentReconciliation({ payments, banks, locked, canUnmatc
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold text-emerald-950">Ready to reconcile by room match ({bulkReady.length})</h3>
-          <p className="text-sm text-emerald-800">Each bank line&rsquo;s own reference/description names exactly one property and room. When that room&rsquo;s one available confirmed payment for the same month is unambiguous, it&rsquo;s matched here — partial amounts included. When no confirmed payment is available but the room has exactly one open invoice for the month, the bank evidence is matched straight to that invoice instead. Excluded only when the match isn&rsquo;t confident — more than one candidate, a duplicate/conflict flag, or the bank amount exceeds what&rsquo;s available. Everything else stays in the list below for you to match by hand.</p>
+          <p className="text-sm text-emerald-800">Each bank line&rsquo;s own reference/description names exactly one property and room. When that room&rsquo;s one available confirmed payment for the same month is unambiguous, it&rsquo;s matched here automatically — a bank amount that differs from the payment amount is treated as an ordinary partial payment, never a reason to hold it for manual review. When no confirmed payment is available but the room has exactly one open invoice for the month, the bank evidence is matched straight to that invoice instead. Excluded only when the match isn&rsquo;t confident — more than one candidate, or a duplicate/conflict flag. Everything else stays in the list below for you to match by hand.</p>
         </div>
         <button type="button" disabled={locked||pending||bulkPending} className="whitespace-nowrap rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" onClick={runBulkReconcile}>{bulkPending?'Reconciling…':`Reconcile all ${bulkReady.length} now`}</button>
       </div>
       <div className="max-h-64 overflow-auto rounded border bg-white">
         <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100"><tr>{['Tenant','Property / Room','Invoice','Invoice amount','Already paid','Remaining before','Bank amount','Remaining after','Bank reference'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead>
-          <tbody>{bulkReady.map(item=>{
+          <tbody>{bulkPreview.map(row=>{
+            const {item,tenant,invoiceNo,invoiceAmount,alreadyPaid,remainingBefore,applied,remainingAfter}=row;
             const {bank,location}=item;
-            const tenant=item.kind==='invoice'?item.invoice.tenantName:item.payment.tenant;
-            const invoiceNo=item.kind==='invoice'?item.invoice.invoiceNumber:item.payment.invoice;
-            const invoiceAmount=item.kind==='invoice'?item.invoice.invoiceAmount:item.payment.amount;
-            const alreadyPaid=item.kind==='invoice'?item.invoice.paidAmount:(item.payment.reconciledAmount??0);
-            const remainingBefore=item.kind==='invoice'?item.invoice.rentOutstanding:remainingPaymentAmount(item.payment);
-            const applied=item.kind==='invoice'?remainingBankAmount(bank):allocationAmount(bank,item.payment);
-            const remainingAfter=Math.max(remainingBefore-applied,0);
             return <tr key={bank.id} className="border-t">
             <td className="p-2">{tenant}</td>
             <td className="p-2">{location.propertyCode} / Room {location.roomCode}</td>
