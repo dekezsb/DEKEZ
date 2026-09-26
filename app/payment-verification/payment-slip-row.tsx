@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DocumentPreview } from "@/components/ui/document-preview";
+import { ReceiptViewer } from "./receipt-viewer";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { paymentPurposeLabel } from "@/lib/payments/payment-purpose";
@@ -43,8 +43,8 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
     month: "short", year: "numeric", timeZone: "Asia/Kuala_Lumpur",
   }).format(new Date(row.billMonth.slice(0, 7) + "-01T00:00:00+08:00")) : "Not assigned";
   return <TableRow className="align-top" data-payment-slip={row.submissionId}>
-    <TableCell>{row.receiptUrl ? <DocumentPreview url={row.receiptUrl}
-      contentType={row.receiptIsImage ? "image/*" : "application/pdf"} label="View slip" showName={false} size="sm" /> : "No slip"}</TableCell>
+    <TableCell>{row.receiptUrl ? <ReceiptViewer url={row.receiptUrl}
+      isImage={row.receiptIsImage} label={`Payment receipt — ${row.tenantName}`} /> : "No slip"}</TableCell>
     <TableCell className="min-w-44 whitespace-normal font-medium">{row.tenantName}</TableCell>
     <TableCell className="min-w-32 whitespace-normal">{row.propertyName}<br />{row.roomName}</TableCell>
     <TableCell className="whitespace-nowrap">{month}</TableCell>

@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { ReceiptViewer } from "./receipt-viewer";
 import { bankReferenceRequired, usableBankReference } from "@/lib/payments/verification-row";
 import { useFormStatus } from "react-dom";
 import { Badge } from "@/components/ui/badge";
@@ -744,9 +745,7 @@ function ReceiptPreview({
       ) : (
         <p className="text-sm text-gray-600">This receipt is a PDF or document.</p>
       )}
-      <a className="mt-3 inline-flex text-sm font-medium text-[#126b5f]" href={receiptUrl} target="_blank">
-        Open full receipt
-      </a>
+      <ReceiptViewer url={receiptUrl} isImage={receiptIsImage} thumbnail={false} />
     </div>
   );
 }

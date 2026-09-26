@@ -31,6 +31,16 @@ test('existing leading-zero and usable QR codes display without manual entry',()
 test('pending slip exposes Verify and missing-code input without any folder expansion',()=>{
  const html=render({status:'pending_verification'});assert.match(html,/>Verify</);assert.match(html,/Enter bank code/);assert.doesNotMatch(html,/<details/);
 });
+test('receipt thumbnail opens an accessible same-page dialog, never a new tab, for both image and PDF',()=>{
+ for(const receiptIsImage of [true,false]){
+  const html=render({receiptIsImage});
+  assert.match(html,/aria-haspopup="dialog"/);assert.match(html,/<dialog/);assert.match(html,/>Close</);
+  assert.doesNotMatch(html,/target="_blank"|href="\/fixture.png"/);
+ }
+ const source=fs.readFileSync(path.join(root,'app/payment-verification/receipt-viewer.tsx'),'utf8');
+ assert.match(source,/showModal\(\)/);assert.match(source,/onClose=/);assert.match(source,/<iframe/);
+ assert.doesNotMatch(source,/window\.open|router\.|location\.|savePayment|reviewPayment/);
+});
 test('filters apply to each slip, keep old verified slips findable and never leak sibling months/status',()=>{
  const base={tenant_id:'t',payment_method:'bank_transfer',bill_month:'2026-08-01',payment_date:'2026-08-02',verification_status:'verified'};
  assert.equal(paymentMatchesFilters(base,{status:'verified',month:'2026-08'}),true);

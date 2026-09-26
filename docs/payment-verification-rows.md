@@ -24,3 +24,9 @@ Use the existing normalized reference scope: same invoice, tenancy or tenant rec
 Obtain publishing approval. Fetch current main again and integrate any newer changes without replacing them. Re-run release tests and TypeScript on the integrated result. Apply `20260926132857_payment_slip_inline_bank_reference.sql` before releasing the UI. It installs reference validation/save functions and triggers; it does not backfill or modify payment rows during installation. Publish the matching application version and check the authenticated live page read-only. Do not submit real payments as a deployment test.
 
 Publishing approved 26 September 2026. Migration installed successfully as version `20260926132857`; all four new functions confirmed security-invoker and service-role-only. Existing unrelated security advisories are unchanged (legacy function permissions/search paths and disabled leaked-password protection); no authorization policies were broadened for this release.
+
+## Same-page receipt preview follow-up
+
+Receipt thumbnails and the full-receipt control open a native modal on the current page. Images and PDFs use the existing authorized receipt URL. Close or Escape returns focus to the row without navigating, saving, verifying, or clearing an unsaved bank reference. Other document pages are unchanged.
+
+The 140-check release suite and TypeScript passed. Browser checks with fictional slips confirmed the visible overlay, Close and Escape dismissal, unchanged page URL, restored trigger focus, and preservation of an unsaved leading-zero bank code. No production payment was submitted during testing.
