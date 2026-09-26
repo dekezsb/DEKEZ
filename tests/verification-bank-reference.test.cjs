@@ -16,10 +16,10 @@ const db = {
 };
 Module._resolveFilename = function(request, ...args) { return resolve.call(this, request.startsWith('@/') ? path.join(root, request.slice(2)) : request, ...args); };
 Module._load = function(request, ...args) {
-  if (request === 'next/navigation') return { redirect(url) { throw new Error(url); } };
+  if (request === 'next/navigation') return { useRouter: () => ({ refresh() {} }), redirect(url) { throw new Error(url); } };
   if (request === 'next/cache') return { revalidatePath() {} };
   if (request === '@/lib/auth/session') return { requireRole: async () => role };
-  if (request === '@/lib/data/organization') return { getCurrentUser: async () => ({ id: 'actor' }) };
+  if (request === '@/lib/data/organization') return { getCurrentUser: async () => ({ id: 'actor' }), getProperties: async () => [{id:'property'}] };
   if (request === '@/lib/supabase/admin') return { createAdminClient: () => db };
   if (request === '@/lib/supabase/server') return { createClient: async () => db };
   if (request === '@/lib/invoices/deposit-payments') return { getVerifiedDepositPaymentMaps: async () => ({}), verifiedDepositPaid: () => 0 };
@@ -30,7 +30,7 @@ for (const ext of ['.ts', '.tsx']) Module._extensions[ext] = (m, f) => m._compil
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true, target: ts.ScriptTarget.ES2022 }, fileName: f,
 }).outputText, f);
 const { verificationBankReference } = require('../lib/payments/bank-reference.ts');
-const { reviewPaymentSubmission } = require('../app/payment-verification/actions.ts');
+const { reviewPaymentSubmission, reviewPaymentSubmissionInline } = require('../app/payment-verification/actions.ts');
 const { bankReferenceMatches, rankExistingPayments, directReconciliationPayment } = require('../lib/accounting/tenant-reconciliation.ts');
 const React = require('react'), { renderToStaticMarkup } = require('react-dom/server');
 const { PaymentRecordActions } = require('../app/payment-verification/payment-record-actions.tsx');
@@ -81,6 +81,21 @@ test('bad references and already verified submissions stop before writes; reject
   setup('monthly_rent');
   await assert.rejects(reviewPaymentSubmission(form({ submissionId: current.id, decision: 'rejected', notes: 'Fixture reject', bankReference: 'NEW-999' })), error => error === stop);
   assert.equal(writes[0].value.reference_number, 'OLD-001');
+});
+test('inline Verify returns missing-code, verified and scope errors without financial writes', async () => {
+  setup('monthly_rent');current.property_id='property';current.payment_method='bank_transfer';current.reference_number=null;
+  const f=form({submissionId:current.id,decision:'verified'});
+  assert.equal((await reviewPaymentSubmissionInline(f)).error,'bank_reference_required');
+  current.verification_status='verified';
+  assert.equal((await reviewPaymentSubmissionInline(f)).error,'already_verified');
+  current.property_id='inaccessible';
+  assert.equal((await reviewPaymentSubmissionInline(f)).error,'review');
+  assert.equal(writes.length,0);
+});
+test('inline unchanged hashed slip preserves atomic reference-plus-folder verification', async () => {
+  setup('monthly_rent');current.property_id='property';current.payment_method='bank_transfer';current.receipt_sha256='fixture-hash';
+  await assert.rejects(reviewPaymentSubmissionInline(form({submissionId:current.id,decision:'verified',bankReference:'00027588'})),error=>error===stop);
+  assert.deepEqual(writes,[{rpc:'verify_payment_folder_slip_with_reference',value:{p_submission:'submission',p_actor:'actor',p_reference:'00027588',p_previous:'OLD-001'}}]);
 });
 const bank = extra => ({ id: 'b', amount: 100, date: '2026-09-20', reference: '001234', description: 'Transfer', used: false, ...extra });
 const payment = extra => ({ id: 'p', amount: 100, date: '2026-09-01', reference: '001234', tenant: 'Fixture tenant', property: 'KLB', propertyCode: 'KLB', room: '17', invoice: 'INV-1', invoiceId: 'bill', invoiceMonth: '2026-09-01', receipt: 'REC-1', slipUrl: null, arReference: '', eligible: true, bankId: null, legacyMatched: false, ...extra });

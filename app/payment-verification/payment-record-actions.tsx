@@ -2,6 +2,8 @@
 
 import { Loader2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { bankReferenceRequired, usableBankReference } from "@/lib/payments/verification-row";
 import { useFormStatus } from "react-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,10 +21,11 @@ import {
 import { statusBadgeClass } from "@/lib/status-styles";
 import {
   reviewPaymentSubmission,
+  reviewPaymentSubmissionInline,
   reversePaymentSubmission,
 } from "./actions";
 
-type PaymentRecordActionsProps = {
+export type PaymentRecordActionsProps = {
   submissionId: string;
   status: string;
   tenantName: string;
@@ -45,6 +48,10 @@ type PaymentRecordActionsProps = {
   canCorrectPurpose?: boolean;
   canReverse?: boolean;
   returnTo?: string;
+  inline?: boolean;
+  paymentMethod?: string;
+  onReferenceMissing?: () => void;
+  errorMessages?: Record<string, string>;
 };
 
 function statusLabel(status: string) {
@@ -104,11 +111,30 @@ export function PaymentRecordActions({
   canCorrectPurpose = false,
   canReverse = false,
   returnTo = "/payment-verification",
+  inline = false,
+  paymentMethod = "",
+  onReferenceMissing,
+  errorMessages = {},
 }: PaymentRecordActionsProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
+  const [inlineError, setInlineError] = useState("");
+  const router = useRouter();
+  async function submitInline(form: FormData) {
+    setInlineError("");
+    try {
+      const result = await reviewPaymentSubmissionInline(form);
+      if (result.error) {
+        setInlineError(errorMessages[result.error] ?? "Could not verify. Check the payment details and try again.");
+      } else {
+        setConfirmOpen(false);
+        setRejectOpen(false);
+        router.refresh();
+      }
+    } catch { setInlineError("Could not confirm the result. Refresh to check this slip before retrying."); }
+  }
   const isBookingFee = isBookingFeePayment(paymentPurpose);
   const [selectedPurpose, setSelectedPurpose] = useState(
     verificationPaymentPurpose(paymentPurpose),
@@ -160,7 +186,7 @@ export function PaymentRecordActions({
 
   return (
     <div className="space-y-3">
-      <Badge className={statusBadgeClass(status)}>{statusLabel(status)}</Badge>
+      {!inline ? <Badge className={statusBadgeClass(status)}>{statusLabel(status)}</Badge> : null}
       {status === "verified" ? (
         <>
           <div className="text-xs leading-5 text-gray-500">
@@ -185,22 +211,27 @@ export function PaymentRecordActions({
       ) : null}
       {status !== "verified" ? (
         <div className="grid gap-2">
-          <Button size="sm" type="button" onClick={() => setConfirmOpen(true)}>Verify</Button>
+          <Button size="sm" type="button" onClick={() => {
+            if (inline && bankReferenceRequired(paymentMethod) && !usableBankReference(referenceNumber)) {
+              onReferenceMissing?.(); return;
+            }
+            setInlineError(""); setConfirmOpen(true);
+          }}>Verify</Button>
           <Button className="border-red-200 text-red-700 hover:bg-red-50" size="sm" type="button" variant="outline" onClick={() => setRejectOpen(true)}>
             Reject
           </Button>
         </div>
       ) : null}
 
-      {receiptUrl ? (
+      {!inline && receiptUrl ? (
         <Button size="sm" type="button" variant="outline" onClick={() => setPreviewOpen(true)}>
           Preview slip
         </Button>
       ) : null}
 
       {confirmOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-xl">
+        <div className={inline ? "mt-3 w-[min(36rem,80vw)]" : "fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"}>
+          <div className={inline ? "rounded-lg border bg-white p-4" : "max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-xl"}>
             <h2 className="text-lg font-semibold text-gray-950">Confirm that this payment has been received?</h2>
             <div className="mt-4 grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
               <p>Tenant: <span className="font-medium text-gray-950">{tenantName}</span></p>
@@ -245,17 +276,18 @@ export function PaymentRecordActions({
                 </p>
               </div>
             ) : null}
-            <form action={reviewPaymentSubmission} className="mt-5 space-y-4">
+            <form action={inline ? submitInline : reviewPaymentSubmission} className="mt-5 space-y-4">
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="verified" />
               <input name="returnTo" type="hidden" value={returnTo} />
-              <label className="block rounded-md border border-[#d7dde5] bg-blue-50 p-4">
+              {inline ? <input name="bankReference" type="hidden" value={referenceNumber} /> : <label className="block rounded-md border border-[#d7dde5] bg-blue-50 p-4">
                 <span className="text-sm font-semibold text-gray-950">Bank transaction reference / code</span>
                 <input name="bankReference" type="text" defaultValue={referenceNumber || ""} maxLength={120}
                   autoComplete="off" placeholder="Enter the bank transfer / QR reference"
                   className="mt-2 block w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2" />
                 <span className="mt-2 block text-sm text-gray-600">Copy the transaction code from the bank or slip. It is saved with this payment for reconciliation. Keep any starting zeroes. If no code is available, leave it blank for manual matching.</span>
-              </label>
+              </label>}
+              {inlineError ? <p role="alert" className="text-sm text-red-700">{inlineError}</p> : null}
               <ReceiptPreview receiptUrl={receiptUrl} receiptIsImage={receiptIsImage} />
               {canCorrectPurpose ? (
                 <div className="rounded-md border border-[#d7dde5] bg-gray-50 p-4">
@@ -607,10 +639,11 @@ export function PaymentRecordActions({
           <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
             <h2 className="text-lg font-semibold text-gray-950">Reject payment proof</h2>
             <p className="mt-2 text-sm text-gray-600">Please enter the rejection reason so the tenant knows what to fix.</p>
-            <form action={reviewPaymentSubmission} className="mt-5 space-y-3">
+            <form action={inline ? submitInline : reviewPaymentSubmission} className="mt-5 space-y-3">
               <input name="submissionId" type="hidden" value={submissionId} />
               <input name="decision" type="hidden" value="rejected" />
               <input name="returnTo" type="hidden" value={returnTo} />
+              {inlineError ? <p role="alert" className="text-sm text-red-700">{inlineError}</p> : null}
               <select className="w-full rounded-md border border-[#d7dde5] px-3 py-2" name="notes" required>
                 <option value="">Choose reason</option>
                 <option value="Amount not received">Amount not received</option>

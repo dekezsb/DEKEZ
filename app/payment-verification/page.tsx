@@ -1,17 +1,15 @@
 import { CheckCircle2, Clock, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DocumentPreview } from "@/components/ui/document-preview";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { money } from "@/lib/e-tenancy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { PaymentRecordActions } from "./payment-record-actions";
 import { getProperties } from "@/lib/data/organization";
-import { groupPaymentFolders } from "@/lib/payments/payment-folder";
-import { FolderReview } from "./folder-review";
+import { PaymentSlipRow } from "./payment-slip-row";
+import { paymentMatchesFilters } from "@/lib/payments/verification-row";
 
 export type PaymentVerificationPageProps = {
   searchParams: Promise<{
@@ -91,6 +89,8 @@ type SubmissionRecord = {
 };
 
 const errorMessages: Record<string, string> = {
+  bank_reference_required: "Please enter bank code.",
+  duplicate_bank_reference: "This bank code is already linked to another payment.",
   reservation_first: "This payment belongs to a room reservation. Its slip is saved. Request actual check-in from Reservations and approve the tenant before applying this payment to a rental invoice.",
   identity_first:
     "Approve the tenant check-in first, then verify this payment against its invoice.",
@@ -202,13 +202,10 @@ export async function PaymentVerificationContent({
     .from("payment_submissions")
     .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, payment_note, receipt_sha256, properties(name), rooms(name, room_number), tenant_applications(monthly_rent, deposit, utility_deposit, admin_notes, registration_mode), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
     .in("property_id", propertyIds).order("created_at", { ascending: false }).order("id")) : [];
-  const matching = (s: SubmissionRecord) => (!params.tenant || s.tenant_id === params.tenant)
-    && (!params.method || s.payment_method === params.method)
-    && (!monthFilter || (s.bill_month ?? single(s.rent_bills)?.bill_month ?? s.payment_date ?? "").slice(0, 7) === monthFilter);
-  // Select folders by the filters, then retain every slip inside those folders.
-  const groups = groupPaymentFolders(allSubmissions).filter(([, rows]) =>
-    rows.some((s) => matching(s) && (statusFilter === "all" || s.verification_status === statusFilter)));
-  const submissions = groups.flatMap(([, rows]) => rows);
+  // Filters apply to individual slips, including old verified slips with no code.
+  const submissions = allSubmissions.filter((submission) => paymentMatchesFilters({
+    ...submission, bill_month: submission.bill_month ?? single(submission.rent_bills)?.bill_month ?? null,
+  }, { status: statusFilter, tenant: params.tenant, method: params.method, month: monthFilter }));
   const [profileRows, recordRows] = await Promise.all([
     allRows<{ id: string; full_name: string | null; phone: string | null }>(supabase.from("profiles").select("id, full_name, phone").order("id")),
     allRows<{ id: string; full_name: string; phone: string | null }>(supabase.from("tenant_records").select("id, full_name, phone").in("property_id", propertyIds).order("id")),
@@ -296,7 +293,7 @@ export async function PaymentVerificationContent({
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Default view shows folders with pending slips, including their earlier verified payments.</CardDescription>
+          <CardDescription>One row per payment slip. Choose Verified or All to add missing bank codes to older payments.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 lg:grid-cols-6" method="get">
@@ -356,83 +353,18 @@ export async function PaymentVerificationContent({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {groups.length ? <div className="space-y-4">{groups.map(([key, unsorted]) => {
-            const rows = [...unsorted].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
-            const first = buildRow(rows[0], profiles, tenantRecords, signedUrls, reportedCheckInAmounts);
-            const pending = rows.filter((s) => s.verification_status === "pending_verification");
-            const verified = rows.filter((s) => s.verification_status === "verified");
-            const isCheckInFolder = rows.some((submission) => submission.bill_type === "check_in" || Boolean(submission.tenant_application_id));
-            const folderTone = isCheckInFolder
-              ? "border-emerald-200 bg-emerald-50/40"
-              : "border-sky-200 bg-sky-50/40";
-            const summaryTone = isCheckInFolder ? "bg-emerald-100/70" : "bg-sky-100/70";
-            return <details key={key} className={`rounded-xl border ${folderTone}`} open={groups.length === 1}>
-              <summary className={`cursor-pointer rounded-xl p-4 ${summaryTone}`}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-base font-semibold text-gray-950">{first.tenantName}</span>
-                  <span className="text-sm text-gray-600">{first.propertyName} / {first.roomName}</span>
-                  <span className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${isCheckInFolder ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
-                    {isCheckInFolder ? "NEW TENANT CHECK-IN" : "MONTHLY RENTAL"}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-gray-600">{key.startsWith("deposit:") ? "Deposit folder — all months" : `Rental folder — ${first.billMonth.slice(0, 7)}`}</p>
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Slips</p>
-                    <p className="text-sm font-semibold text-gray-950">{rows.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Awaiting</p>
-                    <p className="text-sm font-semibold text-gray-950">{pending.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Verified</p>
-                    <p className="text-sm font-semibold text-gray-950">{money(verified.reduce((n, s) => n + Number(s.amount), 0))}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pending</p>
-                    <p className="text-sm font-semibold text-gray-950">{money(pending.reduce((n, s) => n + Number(s.amount), 0))}</p>
-                  </div>
-                </div>
-              </summary>
-              <div className="p-4">
-                <p className="mb-3 text-sm text-gray-600">Check each transfer against your bank. Earlier verified slips remain visible and are already counted. Combined rent/deposit slips show the full transfer amount; use their allocation details when reviewing.</p>
-                <div className="grid gap-3 lg:grid-cols-3">{rows.map((submission, index) => {
-                  const row = buildRow(submission, profiles, tenantRecords, signedUrls, reportedCheckInAmounts);
-                  const itemTone = row.isCheckIn
-                    ? "border-emerald-200 bg-emerald-50/70"
-                    : "border-sky-200 bg-sky-50/70";
-                  return <article key={submission.id} className={`rounded-lg border p-3 ${submission.verification_status === "verified" ? "border-green-300 bg-green-50" : itemTone}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-semibold text-gray-950">Slip {index + 1}</h3>
-                      <span className="text-base font-semibold text-gray-950">{row.amountSubmitted}</span>
-                    </div>
-                    <p className={`mt-1 inline-flex rounded px-2 py-0.5 text-xs font-semibold ${row.isCheckIn ? "bg-emerald-700 text-white" : "bg-sky-700 text-white"}`}>
-                      {row.isCheckIn ? "Check-in payment" : "Monthly rental payment"}
-                    </p>
-                    <dl className="mt-2 space-y-1 text-sm text-gray-700">
-                      <div className="flex justify-between gap-2"><dt className="text-gray-500">Date</dt><dd>{formatMalaysiaDate(submission.payment_date)}</dd></div>
-                      <div className="flex justify-between gap-2"><dt className="text-gray-500">Type</dt><dd className="capitalize">{submission.payment_type.replaceAll("_", " ")}</dd></div>
-                      <div className="flex justify-between gap-2"><dt className="shrink-0 text-gray-500">Bank ref.</dt><dd className="break-words text-right">{submission.reference_number || "Not entered"}</dd></div>
-                    </dl>
-                    {row.checkInSummary ? (
-                      <div className="my-2 rounded border border-emerald-200 bg-white/70 p-2 text-xs text-emerald-950">
-                        <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
-                        <p>Received today: rent {row.checkInSummary.reportedRent} · deposit {row.checkInSummary.reportedDeposit}</p>
-                        {row.checkInSummary.note ? <p className="mt-1 whitespace-pre-wrap">Registration note: {row.checkInSummary.note}</p> : null}
-                      </div>
-                    ) : null}
-                    {submission.payment_note ? <p className="my-2 whitespace-pre-wrap text-sm">{submission.payment_note}</p> : null}
-                    <div className="my-3"><ReceiptThumb receiptUrl={row.receiptUrl} receiptIsImage={row.receiptIsImage} /></div>
-                    {submission.receipt_sha256 && submission.verification_status === "pending_verification" ? <>
-                      <FolderReview id={submission.id} />
-                      <details className="mt-3"><summary className="cursor-pointer text-sm underline">Allocation / correction / rejection review</summary><PaymentRecordActions {...row} canCorrectPurpose={role === "super_admin"} canReverse={role === "super_admin"} returnTo={returnTo} /></details>
-                    </> : <PaymentRecordActions {...row} canCorrectPurpose={role === "super_admin"} canReverse={role === "super_admin"} returnTo={returnTo} />}
-                  </article>;
-                })}</div>
-              </div>
-            </details>;
-          })}</div> : <p className="text-sm text-gray-500">No payment folders for this filter.</p>}
+          {submissions.length ? <Table className="min-w-[1150px]">
+            <TableHeader><TableRow>
+              {["Slip", "Tenant", "Property / Room", "Rental month", "Amount", "Bank Code / Reference", "Payment method", "Status", "Action"].map((heading) => <TableHead key={heading}>{heading}</TableHead>)}
+            </TableRow></TableHeader>
+            <TableBody>{submissions.map((submission) => {
+              const row = buildRow(submission, profiles, tenantRecords, signedUrls, reportedCheckInAmounts);
+              return <PaymentSlipRow key={`${submission.id}:${submission.verification_status}:${submission.reference_number ?? ""}`} row={row} paymentMethod={submission.payment_method}
+                paymentNote={submission.payment_note}
+                canCorrectPurpose={role === "super_admin"} canReverse={role === "super_admin"}
+                returnTo={returnTo} errorMessages={errorMessages} />;
+            })}</TableBody>
+          </Table> : <p className="text-sm text-gray-500">No payment slips for this filter.</p>}
         </CardContent>
       </Card>
     </section>
@@ -533,28 +465,6 @@ function buildRow(
           }
         : null,
   };
-}
-
-function ReceiptThumb({
-  receiptUrl,
-  receiptIsImage,
-}: {
-  receiptUrl?: string | null;
-  receiptIsImage: boolean;
-}) {
-  if (!receiptUrl) {
-    return <span className="text-sm text-gray-500">No slip</span>;
-  }
-
-  return (
-    <DocumentPreview
-      contentType={receiptIsImage ? "image/*" : "application/pdf"}
-      label="Payment slip"
-      showName={false}
-      size="sm"
-      url={receiptUrl}
-    />
-  );
 }
 
 function MetricCard({

@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
-import { getCurrentUser } from "@/lib/data/organization";
+import { getCurrentUser, getProperties } from "@/lib/data/organization";
+import { bankReferenceRequired, usableBankReference } from "@/lib/payments/verification-row";
 import { verificationBankReference } from "@/lib/payments/bank-reference";
 import {
   getVerifiedDepositPaymentMaps,
@@ -83,7 +84,31 @@ async function getAdmin() {
   }
 }
 
+class InlineReviewResult extends Error {
+  constructor(readonly result: string) { super(result); }
+}
+
 export async function reviewPaymentSubmission(formData: FormData) {
+  return performPaymentReview(formData, false);
+}
+
+export async function reviewPaymentSubmissionInline(formData: FormData) {
+  try { await performPaymentReview(formData, true); }
+  catch (error) {
+    if (error instanceof InlineReviewResult) {
+      const params = new URLSearchParams(error.result);
+      return { error: params.get("error"), verified: params.get("reviewed") === "1" };
+    }
+    throw error;
+  }
+  return { error: "review", verified: false };
+}
+
+async function performPaymentReview(formData: FormData, inline: boolean) {
+  function finish(path: string, result: string): never {
+    if (inline) throw new InlineReviewResult(result);
+    redirect(withResult(path, result));
+  }
   const role = await requireRole(["super_admin", "admin"], {
     module: "verification",
     level: "manage",
@@ -128,33 +153,41 @@ export async function reviewPaymentSubmission(formData: FormData) {
   const returnTo = returnPath(formData);
 
   if (!user || !submissionId || !["verified", "rejected"].includes(decision)) {
-    redirect(withResult(returnTo, "error=missing"));
+    finish(returnTo, "error=missing");
   }
 
   if (decision === "rejected" && !notes) {
-    redirect(withResult(returnTo, "error=reason"));
+    finish(returnTo, "error=reason");
   }
 
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month, reference_number")
+    .select("id, verification_status, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month, reference_number, payment_method, receipt_sha256")
     .eq("id", submissionId)
     .single();
 
   if (!currentSubmission) {
-    redirect(withResult(returnTo, "error=review"));
+    finish(returnTo, "error=review");
   }
 
+  if (inline && !(await getProperties()).some(p => p.id === currentSubmission.property_id)) {
+    finish(returnTo, "error=review");
+  }
   if (currentSubmission.verification_status === "verified") {
-    redirect(withResult(returnTo, "error=already_verified"));
+    finish(returnTo, "error=already_verified");
   }
 
   let effectiveReference: string | null;
   try {
     effectiveReference = verificationBankReference(formData, decision, currentSubmission.reference_number);
   } catch {
-    redirect(withResult(returnTo, "error=bank_reference"));
+    finish(returnTo, "error=bank_reference");
+  }
+
+  if (inline && decision === "verified" && bankReferenceRequired(currentSubmission.payment_method)
+    && !usableBankReference(effectiveReference)) {
+    finish(returnTo, "error=bank_reference_required");
   }
 
   if (decision === "verified" && currentSubmission.tenant_application_id) {
@@ -164,10 +197,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
       .eq("id", currentSubmission.tenant_application_id)
       .maybeSingle();
     if (applicationReadiness?.registration_mode === "reservation") {
-      redirect(withResult(returnTo, "error=reservation_first"));
+      finish(returnTo, "error=reservation_first");
     }
     if (applicationReadiness?.verification_status !== "verified") {
-      redirect(withResult(returnTo, "error=identity_first"));
+      finish(returnTo, "error=identity_first");
     }
   }
 
@@ -245,7 +278,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       || !recurringRentReason
     )
   ) {
-    redirect(withResult(returnTo, "error=recurring_rent"));
+    finish(returnTo, "error=recurring_rent");
   }
   const paymentDetailsWereCorrected =
     purposeWasCorrected ||
@@ -258,13 +291,13 @@ export async function reviewPaymentSubmission(formData: FormData) {
       role !== "super_admin" ||
       !correctionReason
     ) {
-      redirect(withResult(returnTo, "error=purpose_correction"));
+      finish(returnTo, "error=purpose_correction");
     }
   }
 
   if (paymentPurposeWasSelected) {
     if (!isPaymentPurpose(paymentPurposeOverride)) {
-      redirect(withResult(returnTo, "error=purpose_correction"));
+      finish(returnTo, "error=purpose_correction");
     }
     effectivePaymentType = paymentPurposeOverride;
   }
@@ -274,13 +307,13 @@ export async function reviewPaymentSubmission(formData: FormData) {
       !/^\d{4}-\d{2}-\d{2}$/.test(paymentDateOverride) ||
       Number.isNaN(Date.parse(`${paymentDateOverride}T00:00:00Z`))
     ) {
-      redirect(withResult(returnTo, "error=correction_date"));
+      finish(returnTo, "error=correction_date");
     }
     effectivePaymentDate = paymentDateOverride;
   }
 
   if (billMonthOverride && !/^\d{4}-\d{2}$/.test(billMonthOverride)) {
-    redirect(withResult(returnTo, "error=correction_month"));
+    finish(returnTo, "error=correction_month");
   }
 
   if (
@@ -288,7 +321,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     amountSubmittedOverride !== "" &&
     (!Number.isFinite(requestedAmount) || requestedAmount <= 0)
   ) {
-    redirect(withResult(returnTo, "error=correction_amount"));
+    finish(returnTo, "error=correction_amount");
   }
 
   if (amountWasCorrected) {
@@ -297,7 +330,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
 
   if (billMonthWasCorrected) {
     if (!effectiveTenancyId && !currentSubmission.tenant_application_id) {
-      redirect(withResult(returnTo, "error=correction_bill_missing"));
+      finish(returnTo, "error=correction_bill_missing");
     }
 
     const { data: targetBill } = effectiveTenancyId
@@ -310,10 +343,10 @@ export async function reviewPaymentSubmission(formData: FormData) {
       : { data: null };
 
     if (effectiveTenancyId && !targetBill) {
-      redirect(withResult(returnTo, "error=correction_bill_missing"));
+      finish(returnTo, "error=correction_bill_missing");
     }
     if (targetBill?.status === "paid") {
-      redirect(withResult(returnTo, "error=correction_bill_paid"));
+      finish(returnTo, "error=correction_bill_paid");
     }
 
     const { data: existingPending } = targetBill
@@ -328,7 +361,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       : { data: null };
 
     if (existingPending) {
-      redirect(withResult(returnTo, "error=correction_bill_pending"));
+      finish(returnTo, "error=correction_bill_pending");
     }
 
     effectiveRentBillId = targetBill?.id ?? null;
@@ -414,7 +447,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
             manualAllocation.extra <=
             0
         ) {
-          redirect(withResult(returnTo, "error=allocation_amount"));
+          finish(returnTo, "error=allocation_amount");
         }
         verifiedAllocation = {
           ...manualAllocation,
@@ -465,7 +498,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
         !Number.isFinite(requestedExtraAmount) ||
         requestedExtraAmount <= 0
       ) {
-        redirect(withResult(returnTo, "error=extra_amount"));
+        finish(returnTo, "error=extra_amount");
       }
 
       if (isPaymentPurpose(effectivePaymentType) && !hasManualAllocation) {
@@ -486,7 +519,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
         !isExtraChargeCategory(extraChargeCategory) ||
         !extraChargeDescription
       ) {
-        redirect(withResult(returnTo, "error=extra_purpose"));
+        finish(returnTo, "error=extra_purpose");
       }
       verifiedExtraCharge = {
         amount: requestedExtraAmount,
@@ -523,7 +556,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       );
 
     if (!bookingAllocationIsValid) {
-      redirect(withResult(returnTo, "error=booking_allocation"));
+      finish(returnTo, "error=booking_allocation");
     }
 
     const { error: bookingError } = await supabase.rpc(
@@ -544,7 +577,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
         code: bookingError.code,
         message: bookingError.message,
       });
-      redirect(withResult(returnTo, "error=booking_review"));
+      finish(returnTo, bookingError.message.includes("duplicate_bank_reference") ? "error=duplicate_bank_reference" : "error=booking_review");
     }
 
     if (effectivePaymentType === "monthly_rent" && effectiveTenancyId) {
@@ -574,7 +607,27 @@ export async function reviewPaymentSubmission(formData: FormData) {
       revalidatePath(path);
     }
     revalidatePath(`/invoices/${effectiveRentBillId}`);
-    redirect(withResult(returnTo, "reviewed=1"));
+    finish(returnTo, "reviewed=1");
+  }
+
+  // Preserve the existing atomic folder-slip path for unchanged rent/deposit
+  // allocations. Reference + verification succeed or roll back together.
+  if (inline && decision === "verified" && currentSubmission.receipt_sha256
+    && !paymentDetailsWereCorrected && rentPricingMode !== "recurring"
+    && verifiedAllocation && verifiedAllocation.extra === 0 && verifiedAllocation.credit === 0
+    && ((effectivePaymentType === "monthly_rent" && verifiedAllocation.rent === Number(currentSubmission.amount) && verifiedAllocation.deposit === 0)
+      || (effectivePaymentType === "deposit" && verifiedAllocation.deposit === Number(currentSubmission.amount) && verifiedAllocation.rent === 0))) {
+    const { error: folderError } = await supabase.rpc("verify_payment_folder_slip_with_reference", {
+      p_submission: currentSubmission.id, p_actor: user.id, p_reference: effectiveReference,
+      p_previous: currentSubmission.reference_number,
+    });
+    if (folderError) finish(returnTo, folderError.message.includes("duplicate_bank_reference")
+      ? "error=duplicate_bank_reference" : "error=review");
+    if (effectiveTenancyId && effectivePaymentType === "monthly_rent") {
+      await extendFingerprintAccessAfterPayment({ tenancyId: effectiveTenancyId, paymentSubmissionId: currentSubmission.id, performedBy: user.id }).catch(() => null);
+    }
+    for (const path of ["/verification", "/payment-verification", "/rent-due-tracker", "/dashboard", "/payments"]) revalidatePath(path);
+    finish(returnTo, "reviewed=1");
   }
 
   const { data: submission, error } = await supabase
@@ -602,7 +655,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
     .single();
 
   if (error || !submission) {
-    redirect(withResult(returnTo, "error=review"));
+    finish(returnTo, error?.message.includes("duplicate_bank_reference") ? "error=duplicate_bank_reference" : "error=review");
   }
 
   await supabase.from("payment_verification_audit_logs").insert({
@@ -691,7 +744,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
             })
             .eq("id", submission.tenant_application_id),
         ]);
-        redirect(withResult(returnTo, "error=review"));
+        finish(returnTo, "error=review");
       }
       tenancyId = conversion.tenancyId;
 
@@ -745,7 +798,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", submission.id);
-      redirect(withResult(returnTo, "error=review"));
+      finish(returnTo, "error=review");
     }
 
     if (!rentBillId && submission.bill_type === "check_in") {
@@ -834,7 +887,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", submission.id);
-          redirect(withResult(returnTo, "error=review"));
+          finish(returnTo, "error=review");
         }
       }
 
@@ -1005,7 +1058,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
       ]);
 
       if (coreUpdates.some((result) => result.error)) {
-        redirect(withResult(returnTo, "error=recurring_rent"));
+        finish(returnTo, "error=recurring_rent");
       }
 
       const { data: futureBills } = await supabase
@@ -1069,7 +1122,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
         });
 
       if (adjustmentError) {
-        redirect(withResult(returnTo, "error=recurring_rent"));
+        finish(returnTo, "error=recurring_rent");
       }
     }
 
@@ -1130,7 +1183,7 @@ export async function reviewPaymentSubmission(formData: FormData) {
   if (submission.rent_bill_id) {
     revalidatePath(`/invoices/${submission.rent_bill_id}`);
   }
-  redirect(withResult(returnTo, "reviewed=1"));
+  finish(returnTo, "reviewed=1");
 }
 
 export async function reversePaymentSubmission(formData: FormData) {
