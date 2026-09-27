@@ -12,11 +12,26 @@ export type ExistingPayment = {
 export type StatementTransaction = { id: string; amount: number; allocatedAmount?:number; remainingAmount?:number; date: string; reference: string; description: string; used: boolean; completed?: boolean; duplicate?: boolean; bankAccountId?: string; statementId?: string; legacyPaymentLinks?: {sourceType:string;sourceId:string;amount:number}[] };
 const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 const contains = (haystack: string, needle: string) => normalized(needle).length >= 4 && normalized(haystack).includes(normalized(needle));
+const stripLeadingZeros = (digits: string) => digits.replace(/^0+(?=\d)/, '');
 export function bankReferenceMatches(bank: StatementTransaction, reference: string) {
   const code = normalized(reference);
   if (code.length < 4 || !/\d/.test(code)) return false;
   const token = new RegExp(`(^|[^a-z0-9])${code.split('').join('[\\s/\\-]*')}($|[^a-z0-9])`, 'i');
-  return token.test(bank.reference) || token.test(bank.description);
+  if (token.test(bank.reference) || token.test(bank.description)) return true;
+  // Leading zeroes are not always kept consistently between where a bank code is saved
+  // during payment verification and how the bank's own QR reference is formatted (e.g.
+  // "027588" saved vs "00027588" on the bank statement) - both are the same reference once
+  // leading zeroes are dropped. Only a fully numeric code is eligible, and only once its
+  // significant (non-zero-padded) digits are still longer than the general 4-digit floor -
+  // a short code like "1234" must never be treated as equal to "001234" purely by zero
+  // stripping, since a short code being a coincidental tail of an unrelated longer number is
+  // exactly the false-positive this function otherwise guards against; five or more
+  // significant digits is specific enough that this is never a coincidence.
+  if (!/^\d+$/.test(code)) return false;
+  const stripped = stripLeadingZeros(code);
+  if (stripped.length < 5) return false;
+  const digitRuns = `${bank.reference} ${bank.description}`.match(/\d+/g) ?? [];
+  return digitRuns.some(run => stripLeadingZeros(run) === stripped);
 }
 // Preserve word boundaries: ANN LEE must not match JOANN LEE or ANN LEELA.
 const nameWords = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();

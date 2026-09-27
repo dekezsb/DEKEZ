@@ -106,6 +106,17 @@ test('exact bank reference suggests a ready match without tenant name, but never
   assert.equal(ranked[0].payment.id, 'p'); assert.equal(ranked[0].confidence, 'Exact Match');
   assert.equal(directReconciliationPayment(bank(), ranked).id, 'p'); assert.equal(ranked[1].status, 'MANUAL_REVIEW');
 });
+test('a saved bank code with fewer leading zeroes than the bank\'s own QR reference still matches', () => {
+  const qrBank = bank({ reference: 'QR PAYMENT', description: 'DUITNOW QR CR · QR PAYMENT · QR REF NO:00027588 MGT 12 · LEE MEI CI' });
+  assert.equal(bankReferenceMatches(qrBank, '027588'), true, 'same significant digits, just fewer leading zeroes than the bank statement kept');
+  const ranked = rankExistingPayments(qrBank, [payment({ reference: '027588', amount: 480, tenant: 'Junarit unggongan', propertyCode: 'MGT', room: '12' })]);
+  assert.equal(ranked[0]?.confidence, 'Exact Match');
+  // Still never a coincidence: a short code must not match merely by being the zero-stripped
+  // tail of an unrelated longer number, and two genuinely different numbers of similar length
+  // must never be conflated just because both happen to start with zeroes.
+  assert.equal(bankReferenceMatches(bank(), '1234'), false);
+  assert.equal(bankReferenceMatches(qrBank, '099999'), false);
+});
 test('bank codes allow reviewed partial allocation but never bypass room/month, duplicate or already reconciled protections', () => {
   for (const extra of [{ description: 'DGG 17' }, { date: '2026-08-20' }]) assert.equal(rankExistingPayments(bank(extra), [payment()]).length, 0);
   assert.equal(directReconciliationPayment(bank({amount:101}),rankExistingPayments(bank({amount:101}),[payment()]))?.id,'p','unequal totals are not a reconciliation blocker');
