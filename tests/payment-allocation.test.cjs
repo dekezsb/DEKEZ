@@ -106,6 +106,18 @@ test('canBulkGroupPayments: same tenant + distinct amounts group; different tena
   assert.equal(canBulkGroupPayments([p({id:'a',amount:100}),p({id:'b',amount:200}),p({id:'c',amount:100})]),false,'any equal-amount pair blocks the whole group, not just the two that match');
 });
 
+test('canBulkGroupPayments: an identical explicitly-saved bank code groups a tenant renting more than one room, even with equal amounts',()=>{
+  const room2=p({id:'room2',tenancyId:'tenancy-room2',propertyCode:'PTT',property:'PTT - PUTATAN',room:'2',invoiceId:'bill-room2',amount:500,reference:'112145'});
+  const room3=p({id:'room3',tenancyId:'tenancy-room3',propertyCode:'PTT',property:'PTT - PUTATAN',room:'3',invoiceId:'bill-room3',amount:500,reference:'112145'});
+  assert.equal(canBulkGroupPayments([room2,room3]),true,'same tenant, different rooms/tenancies, same explicit bank code, equal amounts — one transfer covering two rooms');
+  const sameRoomDuplicate=p({id:'room2-again',tenancyId:'tenancy-room2',propertyCode:'PTT',room:'2',invoiceId:'bill-room2',amount:500,reference:'112145'});
+  assert.equal(canBulkGroupPayments([room2,sameRoomDuplicate]),false,'same room + same invoice + same amount + same code looks like an accidental duplicate save, not two rooms — stays blocked');
+  const otherTenant=p({id:'other',propertyCode:'PTT',room:'9',invoiceId:'bill-other',tenant:'Someone Else',amount:500,reference:'112145'});
+  assert.equal(canBulkGroupPayments([room2,otherTenant]),false,'a matching bank code never overrides a different tenant name');
+  const differentCode=p({id:'different-code',propertyCode:'PTT',room:'4',tenancyId:'tenancy-room4',invoiceId:'bill-4',reference:'999999',amount:500});
+  assert.equal(canBulkGroupPayments([room2,differentCode]),false,'a different bank code never triggers the relaxed cross-room grouping, and falls back to the stricter same-tenancy/name+room rule');
+});
+
 test('bulk panel combines a same-tenant deposit and rent invoice identified on one bank line into one multi-payment item',()=>{
   const deposit=p({id:'deposit',invoice:'',invoiceId:null,receipt:'REC-DEP',amount:100,submissionId:'slip-deposit',arReference:''});
   const rent=p({id:'rent',invoice:'DINV-2026-0861',invoiceId:'bill-rent',receipt:'REC-RENT',amount:350,submissionId:'slip-rent'});
