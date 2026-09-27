@@ -6,8 +6,8 @@ import {
   suspendOverdueFingerprintAccess,
   syncFingerprintEnrollments,
 } from "@/lib/ttlock/fingerprint";
-import { normalizePhoneNumber } from "@/lib/whatsapp/config";
-import { sendWhatsAppText } from "@/lib/whatsapp/meta";
+import { getWhatsAppReminderTemplateConfig, normalizePhoneNumber } from "@/lib/whatsapp/config";
+import { sendWhatsAppTemplate, sendWhatsAppText } from "@/lib/whatsapp/meta";
 
 const reminderStages = new Set([7, 3, 1, 0, -1, -3, -7]);
 
@@ -68,8 +68,17 @@ export async function GET(request: Request) {
   const { data: bills } = await supabase
     .from("rent_bills")
     .select("id, tenant_id, property_id, room_id, due_date, amount, paid_amount, status, properties(name), rooms(name, room_number)")
-    .not("status", "in", "(draft,paid,cancelled,waived)")
+    // Admin/accounting-only invoices (e.g. a historical bank-reconciliation
+    // invoice for a room the tenant no longer occupies) must never trigger a
+    // WhatsApp reminder to that tenant.
+    .eq("tenant_facing", true)
+    // payment_submitted / pending_verification means a tenant already sent
+    // proof (via the portal or WhatsApp) and it is waiting on office review -
+    // stop nagging them until an admin confirms or rejects it.
+    .not("status", "in", "(draft,paid,cancelled,waived,payment_submitted,pending_verification)")
     .order("due_date", { ascending: true });
+
+  const { templateName, templateLanguage } = getWhatsAppReminderTemplateConfig();
 
   const tenantIds = Array.from(new Set((bills ?? []).map((bill) => bill.tenant_id)));
   const { data: profiles } = tenantIds.length
@@ -112,13 +121,17 @@ export async function GET(request: Request) {
     const room = Array.isArray(bill.rooms) ? bill.rooms[0] : bill.rooms;
     const amount = Number(bill.amount ?? 0);
     const outstandingAmount = Math.max(amount - Number(bill.paid_amount ?? 0), 0);
+    const tenantName = tenant.full_name ?? tenant.phone;
+    const propertyName = property?.name ?? "your property";
+    const roomName = room?.room_number ?? room?.name ?? "your room";
+    const dueDate = formatMalaysiaDate(bill.due_date);
     const text = messageForBill({
-      tenantName: tenant.full_name ?? tenant.phone,
-      propertyName: property?.name ?? "your property",
-      roomName: room?.room_number ?? room?.name ?? "your room",
+      tenantName,
+      propertyName,
+      roomName,
       amount,
       outstandingAmount,
-      dueDate: formatMalaysiaDate(bill.due_date),
+      dueDate,
       daysUntilDue,
     });
 
@@ -142,7 +155,18 @@ export async function GET(request: Request) {
     let errorMessage: string | null = null;
 
     try {
-      const response = await sendWhatsAppText(tenant.phone, text);
+      // Reminders are business-initiated and usually sent outside any open
+      // 24-hour WhatsApp session, so Meta requires an approved template once
+      // one is configured. Falls back to free-form text (only reliable if
+      // the tenant messaged us in the last 24h) until a template is set up.
+      const response = templateName
+        ? await sendWhatsAppTemplate(tenant.phone, templateName, templateLanguage, [
+            tenantName,
+            daysUntilDue < 0 ? money(outstandingAmount) : money(amount),
+            `${propertyName} ${roomName}`.trim(),
+            dueDate,
+          ])
+        : await sendWhatsAppText(tenant.phone, text);
       providerMessageId = response.messages?.[0]?.id ?? null;
       sent += 1;
     } catch (error) {

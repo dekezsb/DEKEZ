@@ -8,6 +8,7 @@ export type WhatsAppIntent =
   | "get_my_contract_expiry"
   | "get_my_maintenance_tickets"
   | "create_maintenance_ticket"
+  | "submit_payment_proof"
   | "unknown";
 
 export type ClassifiedTenantMessage = {
@@ -28,6 +29,9 @@ type OpenAIResponsePayload = {
 function classifyFallback(message: string): ClassifiedTenantMessage {
   const text = message.toLowerCase();
 
+  if (/already paid|paid already|done pay(ing|ment)?|payment done|sudah bayar|dah bayar|already transfer|transferred|bank(ed)? in|i have paid|i've paid/.test(text)) {
+    return { intent: "submit_payment_proof" };
+  }
   if (/rent|owe|outstanding|hutang|due/.test(text)) {
     return { intent: "get_my_outstanding_rent" };
   }
@@ -101,6 +105,7 @@ export async function classifyTenantMessage(message: string): Promise<Classified
                     "get_my_contract_expiry",
                     "get_my_maintenance_tickets",
                     "create_maintenance_ticket",
+                    "submit_payment_proof",
                     "unknown",
                   ],
                 },

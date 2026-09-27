@@ -107,6 +107,7 @@ export type RentalInvoiceView = {
   status: string;
   invoiceStatus: string;
   invoiceSource: string;
+  tenantFacing: boolean;
   notes: string | null;
   removedAt: string | null;
   removedBy: string | null;
@@ -156,6 +157,7 @@ function billSelect() {
     "deposit_amount",
     "paid_amount",
     "status",
+    "tenant_facing",
     "notes",
     "removed_at",
     "removed_by",
@@ -485,6 +487,7 @@ async function hydrateInvoices(
       status: bill.status,
       invoiceStatus,
       invoiceSource: bill.invoice_source,
+      tenantFacing: bill.tenant_facing !== false,
       notes: bill.notes,
       removedAt: bill.removed_at,
       removedBy: bill.removed_by,
@@ -531,6 +534,11 @@ async function hydrateInvoices(
 
     return (
       !isCheckedOut ||
+      // tenantFacing=false invoices exist specifically so admin/accounting can
+      // review a checked-out tenant's historical invoice (e.g. one created by
+      // QR bank reconciliation) - the opposite of what this filter otherwise
+      // hides. Never suppress them from the admin archive.
+      !invoice.tenantFacing ||
       ["paid", "cancelled", "waived"].includes(invoice.invoiceStatus)
     );
   });

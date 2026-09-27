@@ -84,7 +84,11 @@ export async function getMyOutstandingRent(supabase: SupabaseAdmin, tenant: Tena
     .from("rent_bills")
     .select("id, bill_month, due_date, amount, paid_amount, status")
     .eq("tenant_id", tenant.id)
-    .not("status", "in", "(draft,paid,cancelled,waived)")
+    // Admin/accounting-only invoices (e.g. a historical bank-reconciliation
+    // invoice for a room the tenant no longer occupies) must never be
+    // reported to the tenant as an outstanding bill.
+    .eq("tenant_facing", true)
+    .not("status", "in", "(draft,paid,cancelled,waived,payment_submitted,pending_verification)")
     .order("due_date", { ascending: true });
 
   const outstanding = (bills ?? []).reduce((sum, bill) => {
@@ -108,6 +112,7 @@ export async function getMyBills(supabase: SupabaseAdmin, tenant: TenantIdentity
     .from("rent_bills")
     .select("bill_month, due_date, amount, paid_amount, status")
     .eq("tenant_id", tenant.id)
+    .eq("tenant_facing", true)
     .order("bill_month", { ascending: false })
     .limit(5);
   const rentBills = data ?? [];
@@ -189,6 +194,105 @@ export async function getMyMaintenanceTickets(supabase: SupabaseAdmin, tenant: T
 
   const lines = tickets.map((ticket) => `${ticket.ticket_number}: ${ticket.status} - ${ticket.description}`);
   return { ok: true, message: `Your latest maintenance tickets:\n${lines.join("\n")}`, data: tickets };
+}
+
+export async function submitPaymentProofFromWhatsApp(
+  supabase: SupabaseAdmin,
+  tenant: TenantIdentity,
+  mediaBytes: Buffer,
+  mediaMimeType: string | null,
+  fileExtension: string,
+): Promise<TenantToolResult> {
+  const tenancy = await getActiveTenancy(supabase, tenant.id);
+
+  if (!tenancy) {
+    return {
+      ok: true,
+      message: "I could not find an active tenancy linked to your account, so I could not log this payment slip. Please contact the office.",
+    };
+  }
+
+  const { data: bill } = await supabase
+    .from("rent_bills")
+    .select("id, tenancy_id, tenant_id, property_id, unit_id, room_id, bill_month, due_date, amount, paid_amount, status")
+    .eq("tenancy_id", tenancy.id)
+    .eq("tenant_facing", true)
+    .not("status", "in", "(paid,cancelled,waived,payment_submitted,pending_verification)")
+    .order("due_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!bill) {
+    return {
+      ok: true,
+      message: "Thanks! I don't see any outstanding rent bill on your account right now, so there is nothing pending to mark. If this is a mistake, please contact the office.",
+    };
+  }
+
+  const outstanding = Math.max(Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0), 0);
+  const safeExt = (fileExtension || "jpg").replace(/[^a-zA-Z0-9]/g, "") || "jpg";
+  const path = `${tenant.id}/${bill.id}/whatsapp-${Date.now()}.${safeExt}`;
+
+  const { error: uploadError } = await supabase.storage.from("payment-receipts").upload(path, mediaBytes, {
+    contentType: mediaMimeType || "application/octet-stream",
+    upsert: true,
+  });
+
+  if (uploadError) {
+    return {
+      ok: false,
+      message: "Sorry, I could not save your payment slip. Please try sending it again, or upload it through your DEKEZ tenant portal.",
+    };
+  }
+
+  const { data: submission, error } = await supabase
+    .from("payment_submissions")
+    .insert({
+      tenant_id: tenant.id,
+      tenancy_id: bill.tenancy_id,
+      rent_bill_id: bill.id,
+      property_id: bill.property_id,
+      unit_id: bill.unit_id,
+      room_id: bill.room_id,
+      bill_month: bill.bill_month,
+      bill_type: "monthly_rent",
+      payment_type: "monthly_rent",
+      amount: outstanding > 0 ? outstanding : Number(bill.amount ?? 0),
+      payment_date: new Date().toISOString().slice(0, 10),
+      payment_method: "bank_transfer",
+      reference_number: null,
+      receipt_url: path,
+      verification_status: "pending_verification",
+    })
+    .select("id")
+    .single();
+
+  if (error || !submission) {
+    await supabase.storage.from("payment-receipts").remove([path]);
+    return {
+      ok: false,
+      message: "Sorry, I could not log your payment slip right now. Please try again shortly, or upload it through your DEKEZ tenant portal.",
+    };
+  }
+
+  await supabase.from("payment_attachments").insert({
+    payment_submission_id: submission.id,
+    tenant_id: tenant.id,
+    file_path: path,
+    file_name: `whatsapp-slip.${safeExt}`,
+    content_type: mediaMimeType ?? null,
+  });
+
+  await supabase
+    .from("rent_bills")
+    .update({ status: "payment_submitted", updated_at: new Date().toISOString() })
+    .eq("id", bill.id);
+
+  return {
+    ok: true,
+    message: `Got it, thank you! Your payment slip for ${bill.bill_month ?? "your rent bill"} has been received and is pending verification by our office. We will pause rent reminders for this bill until it is checked. If anything looks wrong we will contact you.`,
+    data: { billId: bill.id, submissionId: submission.id },
+  };
 }
 
 export async function createMaintenanceTicketFromWhatsApp(

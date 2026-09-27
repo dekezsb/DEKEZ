@@ -322,6 +322,10 @@ export async function getTenantPortalData() {
           .from("rent_bills")
           .select(billColumns)
           .in("tenancy_id", tenancyIds)
+          // tenant_facing=false marks an admin/accounting-only invoice (e.g. a
+          // historical invoice backfilled during QR bank reconciliation for a
+          // room this tenant no longer occupies) - it must never appear here.
+          .eq("tenant_facing", true)
           .lte("due_date", tenantInvoiceCutoffDate)
           .order("bill_month", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
@@ -329,6 +333,7 @@ export async function getTenantPortalData() {
       .from("rent_bills")
       .select(billColumns)
       .eq("tenant_id", user.id)
+      .eq("tenant_facing", true)
       .lte("due_date", tenantInvoiceCutoffDate)
       .order("bill_month", { ascending: false }),
   ]);

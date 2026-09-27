@@ -109,6 +109,9 @@ test('exact bank reference suggests a ready match without tenant name, but never
 test('bank codes allow reviewed partial allocation but never bypass room/month, duplicate or already reconciled protections', () => {
   for (const extra of [{ description: 'DGG 17' }, { date: '2026-08-20' }]) assert.equal(rankExistingPayments(bank(extra), [payment()]).length, 0);
   assert.equal(directReconciliationPayment(bank({amount:101}),rankExistingPayments(bank({amount:101}),[payment()]))?.id,'p','unequal totals are not a reconciliation blocker');
+  const mismatched = rankExistingPayments(bank({amount:101}),[payment()]);
+  assert.equal(mismatched[0].status,'MATCH_SUGGESTED','an exact bank code is a confirmed match even when the bank amount differs');
+  assert.equal(mismatched[0].confidence,'Exact Match','display must not cosmetically downgrade an exact bank-code match to Manual Review over an amount difference');
   for (const extra of [{ duplicate: true }, { used: true }]) assert.equal(directReconciliationPayment(bank(extra), rankExistingPayments(bank(extra), [payment()])), null);
   for (const extra of [{ duplicate: true }, { bankId: 'used' }, { legacyMatched: true }]) assert.equal(directReconciliationPayment(bank(), rankExistingPayments(bank(), [payment(extra)])), null);
   const duplicate = rankExistingPayments(bank(), [payment(), payment({ id: 'p2' })]);

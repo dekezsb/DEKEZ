@@ -37,18 +37,28 @@ export function rankExistingPayments(bank: StatementTransaction, payments: Exist
     const ref = bankReferenceMatches(bank, payment.reference);
     const name = containsTenantName(text, payment.tenant);
     const document = contains(text, payment.invoice) || payment.receipt.split(',').some(receipt=>contains(text,receipt));
-    const priority = same && days <= 3 ? 1 : same && ref ? 2 : same && (name || location) ? 3 : document ? 4 : location || name || ref || (days <= 3 && Math.abs(bank.amount-payment.amount)<=5) ? 5 : 0;
+    // An exact bank-code/reference match is treated as identity confirmation
+    // on its own, independent of whether the bank and payment amounts match -
+    // per the standing reconciliation rule, an amount difference is never
+    // grounds to downgrade an exact reference match's priority or confidence.
+    const priority = same && days <= 3 ? 1 : ref ? 2 : same && (name || location) ? 3 : document ? 4 : location || name || (days <= 3 && Math.abs(bank.amount-payment.amount)<=5) ? 5 : 0;
     const locationConflict = false; // Conflicting rooms were excluded before ranking.
     const locationMatch=Boolean(location&&!locationConflict);
     const missingIdentity=!name&&!locationMatch&&!ref;
     return priority ? [{payment,priority,referenceMatch:ref,identity:ref || name || document || locationMatch, exactAmount:same,locationConflict,missingIdentity,
       matchReason:ref ? 'Bank transaction reference matches the verified payment' : locationMatch ? same ? 'Property / room and amount match' : 'Correct property / room; amount differs — review existing payments' : name?'Tenant name matches bank description':'No matching bank code, tenant name or property / room reference — select the existing receipt manually'}] : [];
   }).sort((a,b) => Number(b.referenceMatch&&b.exactAmount)-Number(a.referenceMatch&&a.exactAmount) || Number(a.missingIdentity)-Number(b.missingIdentity) || a.priority-b.priority || Number(b.identity)-Number(a.identity));
-  const exactReferences = ranked.filter(item=>item.referenceMatch&&item.exactAmount);
+  // Exact bank-code matches are the primary cross-check: any candidate whose
+  // reference exactly matches is an exact reference, whether or not its
+  // amount also happens to match (a differing amount is not exclusion
+  // grounds once the bank code confirms the payment relationship). Two or
+  // more exact-reference candidates for the same bank line is still
+  // ambiguous and must fall back to manual review rather than guessing.
+  const exactReferences = ranked.filter(item=>item.referenceMatch);
   const ambiguous = exactReferences.length ? exactReferences.length>1 : location ? ranked.filter(item=>item.exactAmount).length>1 : ranked.length>1 && ((ranked[0].priority===ranked[1].priority && ranked[0].identity===ranked[1].identity) || (!ranked[0].identity&&ranked.some(item=>item.identity)));
   return ranked.map(item => ({...item,
-    confidence: item.missingIdentity || bank.duplicate || item.payment.duplicate || item.locationConflict || !item.exactAmount || item.priority===5 || ambiguous || (exactReferences.length>0&&!item.referenceMatch) ? 'Manual Review' : item.identity && item.priority<=2 ? 'Exact Match' : item.priority<=3 ? 'High Confidence' : 'Possible Match',
-    status: (item.missingIdentity || bank.duplicate || item.payment.duplicate || item.locationConflict || !item.exactAmount || ambiguous || item.priority===5 || (exactReferences.length>0&&!item.referenceMatch) ? 'MANUAL_REVIEW' : 'MATCH_SUGGESTED') as ReconciliationStatus,
+    confidence: item.missingIdentity || bank.duplicate || item.payment.duplicate || item.locationConflict || (!item.exactAmount && !item.referenceMatch) || item.priority===5 || ambiguous || (exactReferences.length>0&&!item.referenceMatch) ? 'Manual Review' : item.identity && item.priority<=2 ? 'Exact Match' : item.priority<=3 ? 'High Confidence' : 'Possible Match',
+    status: (item.missingIdentity || bank.duplicate || item.payment.duplicate || item.locationConflict || (!item.exactAmount && !item.referenceMatch) || ambiguous || item.priority===5 || (exactReferences.length>0&&!item.referenceMatch) ? 'MANUAL_REVIEW' : 'MATCH_SUGGESTED') as ReconciliationStatus,
   }));
 }
 

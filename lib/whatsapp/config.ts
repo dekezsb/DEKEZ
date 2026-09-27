@@ -9,6 +9,18 @@ export function getWhatsAppConfig() {
   };
 }
 
+// Meta's WhatsApp Cloud API only allows free-form text messages inside a
+// 24-hour customer service window (i.e. the tenant messaged us recently).
+// A cold, business-initiated reminder outside that window MUST use a
+// pre-approved message template, or Meta will reject the send. Configure
+// these once a template has been approved in WhatsApp Manager.
+export function getWhatsAppReminderTemplateConfig() {
+  return {
+    templateName: process.env.WHATSAPP_REMINDER_TEMPLATE_NAME || null,
+    templateLanguage: process.env.WHATSAPP_REMINDER_TEMPLATE_LANG || "en",
+  };
+}
+
 export function normalizePhoneNumber(value: string | null | undefined) {
   const digits = String(value ?? "").replace(/\D/g, "");
 

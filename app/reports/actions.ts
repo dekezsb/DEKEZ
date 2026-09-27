@@ -1577,6 +1577,45 @@ export async function applyBankToRoomInvoice(formData: FormData) {
   return { ok: true as const, paymentId: data as string };
 }
 
+// General QR reconciliation rule: the bank line's own property+room code plus
+// its transaction date identify the tenancy that occupied that room at that
+// time (which may be a different, checked-out tenant than whoever is in the
+// room now) - find or create the correct rental invoice for that tenancy and
+// month, then reconcile to it. This never creates a duplicate (the resolver
+// reuses an existing invoice for that exact tenancy+month when one exists,
+// and the database's own unique constraint backstops it), and every actual
+// duplicate/room/month/balance/locked check is enforced by the same, already
+// in-use apply_bank_to_room_invoice function this delegates to - nothing here
+// bypasses those checks.
+export async function createAndApplyRoomInvoiceFromBank(formData: FormData) {
+  const { user, company, supabase } = await accountingContext();
+  const { data, error } = await supabase.rpc("create_and_apply_room_invoice_from_bank", {
+    p_company: company.id, p_actor: user.id,
+    p_line: textValue(formData, "lineId"), p_kind: "monthly_rent",
+  });
+  if (error) {
+    const code = error.message;
+    const message = code.includes("duplicate") || code.includes("existing_payment")
+      ? "Possible duplicate transaction. Please review."
+      : code.includes("existing_slip")
+      ? "A payment slip already exists for this room and month. Verify that slip instead of matching the bank line directly."
+      : code.includes("tenancy_not_found")
+      ? "No tenancy was found for this room on the bank transaction's date. Use Manual Match instead."
+      : code.includes("wrong_room")
+      ? "The bank reference does not clearly match one room. Use Manual Match instead."
+      : code.includes("wrong_month")
+      ? "The invoice month does not match this bank transaction. Nothing was changed."
+      : code.includes("exceeds_balance")
+      ? "The bank amount is more than the invoice's outstanding balance. Nothing was changed."
+      : code.includes("locked")
+      ? "This statement or accounting period is locked. Nothing was changed."
+      : "Cannot create the matching invoice for this bank line. Nothing was changed.";
+    return { ok: false as const, error: message };
+  }
+  revalidatePath("/reports");
+  return { ok: true as const, paymentId: data as string };
+}
+
 export async function unreconcileExistingPayment(formData: FormData) {
   await requireRole(["super_admin", "admin"], { module: "reports", level: "manage" });
   const { user, company, supabase } = await accountingContext();

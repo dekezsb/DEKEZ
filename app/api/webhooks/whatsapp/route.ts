@@ -14,6 +14,7 @@ import {
   getMyProfile,
   getMyRoom,
   getMyTenancyAgreement,
+  submitPaymentProofFromWhatsApp,
   type TenantIdentity,
 } from "@/lib/whatsapp/tenant-tools";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -170,6 +171,8 @@ async function runIntent(
   maintenanceDescription?: string,
   mediaPath?: string | null,
   mediaMimeType?: string | null,
+  mediaBytes?: Buffer | null,
+  mediaExtension?: string,
 ) {
   switch (intent) {
     case "get_my_profile":
@@ -196,11 +199,26 @@ async function runIntent(
         mediaPath,
         mediaMimeType,
       );
+    case "submit_payment_proof":
+      if (mediaBytes) {
+        return submitPaymentProofFromWhatsApp(
+          supabase,
+          tenant,
+          mediaBytes,
+          mediaMimeType ?? null,
+          mediaExtension ?? "jpg",
+        );
+      }
+      return {
+        ok: true,
+        message:
+          "Thanks for letting us know! Please reply with a photo or screenshot of your bank-in slip / transfer receipt so we can verify your payment and pause the reminders.",
+      };
     default:
       return {
         ok: true,
         message:
-          "I can help with your rent balance, bills, payment history, contract end date, room details, and maintenance tickets. Please ask one of those.",
+          "I can help with your rent balance, bills, payment history, contract end date, room details, and maintenance tickets. You can also send a photo of your bank-in slip here to mark your payment as submitted for verification. Please ask one of those.",
       };
   }
 }
@@ -262,11 +280,13 @@ async function processMessage(message: MetaMessage, rawPayload: MetaWebhookPaylo
 
   let mediaPath: string | null = null;
   let mediaMimeType: string | null = media?.mimeType ?? null;
+  let mediaBytes: Buffer | null = null;
 
   if (media) {
     try {
       const downloaded = await downloadWhatsAppMedia(media.mediaId);
       mediaMimeType = downloaded.mimeType;
+      mediaBytes = downloaded.bytes;
       mediaPath = `${tenant.id}/${message.id}/media.${media.extension}`;
       await supabase.storage.from("whatsapp-media").upload(mediaPath, downloaded.bytes, {
         contentType: downloaded.mimeType,
@@ -284,7 +304,15 @@ async function processMessage(message: MetaMessage, rawPayload: MetaWebhookPaylo
     }
   }
 
-  const classified = await classifyTenantMessage(messageText);
+  // A photo or document with no maintenance-sounding caption is most likely a
+  // bank-in slip - route it straight to payment-proof handling instead of
+  // relying on the AI classifier (cheaper, and works even without an OpenAI key).
+  const captionLooksLikeMaintenance = /leak|leaking|broken|repair|aircon|air cond|toilet|pipe|light|fan|door|clean|maintenance|rosak/i.test(
+    messageText,
+  );
+  const classified = media && !captionLooksLikeMaintenance
+    ? { intent: "submit_payment_proof" as const }
+    : await classifyTenantMessage(messageText);
   const result = await runIntent(
     classified.intent,
     supabase,
@@ -293,6 +321,8 @@ async function processMessage(message: MetaMessage, rawPayload: MetaWebhookPaylo
     classified.maintenance_description,
     mediaPath,
     mediaMimeType,
+    mediaBytes,
+    media?.extension,
   );
 
   await reply(supabase, conversationId, tenant, message.from, result.message);
