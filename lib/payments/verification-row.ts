@@ -20,7 +20,8 @@ export function paymentMatchesFilters(s: {
 }
 
 export function bankReferenceError(message: string) {
-  if (message.includes("duplicate_bank_reference")) return "This bank code is already linked to another payment.";
+  if (message.includes("duplicate_bank_reference")) return "This bank code is already linked to the same tenancy / rent bill. Please review it before reusing the code.";
+  if (message.includes("bank_reference_exceeds_amount")) return "Saving this would allocate more than the actual bank transaction amount for this code. Check the other rooms/invoices linked to it.";
   if (message.includes("reference_changed")) return "Bank code changed since this row loaded. Refresh before saving.";
   if (message.includes("reference_conflict")) return "Linked payment has a different bank code. Please review it before changing.";
   if (message.includes("invalid_bank_reference")) return "Please enter bank code.";
