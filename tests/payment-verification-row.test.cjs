@@ -24,6 +24,16 @@ test('one row per slip with all columns; old verified missing-code row has input
  for(const value of ['Fixture Tenant','SLS','D1','Sept 2026','RM 100.00','Bank Code','bank transfer','Verified','Enter bank code','>Save<'])assert.ok(html.includes(value),value);
  assert.doesNotMatch(html,/>Verify<|Rental folder|name="decision"/);
 });
+test('blue existing-tenant and green check-in rows retain their colour independently of verification status',()=>{
+ for(const status of ['verified','pending_verification','rejected']){
+  const old=render({status,isCheckIn:false}),fresh=render({status,isCheckIn:true});
+  assert.match(old,/bg-sky-100\/70 hover:bg-sky-100/);assert.match(old,/EXISTING TENANT PAYMENT/);
+  assert.match(fresh,/bg-emerald-100\/70 hover:bg-emerald-100/);assert.match(fresh,/NEW TENANT CHECK-IN/);
+  assert.doesNotMatch(old,/bg-emerald-100/);assert.doesNotMatch(fresh,/bg-sky-100/);
+ }
+ const page=fs.readFileSync(path.join(root,'app/payment-verification/page.tsx'),'utf8');
+ assert.match(page,/isCheckIn:\s*submission.bill_type === "check_in" \|\| Boolean\(submission.tenant_application_id\)/);
+});
 test('existing leading-zero and usable QR codes display without manual entry',()=>{
  for(const referenceNumber of ['00027588','QR00027588']){const html=render({referenceNumber});assert.ok(html.includes(referenceNumber));assert.doesNotMatch(html,/Enter bank code|>Save</)}
  assert.ok(render({referenceNumber:'QR PAYMENT'}).includes('Enter bank code'));

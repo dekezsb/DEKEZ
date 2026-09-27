@@ -11,7 +11,7 @@ import { usableBankReference } from "@/lib/payments/verification-row";
 import { savePaymentBankReference } from "./reference-actions";
 import { PaymentRecordActions, type PaymentRecordActionsProps } from "./payment-record-actions";
 
-type Row = PaymentRecordActionsProps & { checkInSummary?: {
+type Row = PaymentRecordActionsProps & { isCheckIn?: boolean; checkInSummary?: {
   agreedRent: string; requiredDeposit: string; reportedRent: string; reportedDeposit: string; note: string | null;
 } | null };
 
@@ -42,10 +42,14 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
   const month = /^\d{4}-\d{2}/.test(row.billMonth) ? new Intl.DateTimeFormat("en-MY", {
     month: "short", year: "numeric", timeZone: "Asia/Kuala_Lumpur",
   }).format(new Date(row.billMonth.slice(0, 7) + "-01T00:00:00+08:00")) : "Not assigned";
-  return <TableRow className="align-top" data-payment-slip={row.submissionId}>
+  return <TableRow className={`align-top ${row.isCheckIn ? "bg-emerald-100/70 hover:bg-emerald-100" : "bg-sky-100/70 hover:bg-sky-100"}`} data-payment-slip={row.submissionId}>
     <TableCell>{row.receiptUrl ? <ReceiptViewer url={row.receiptUrl}
       isImage={row.receiptIsImage} label={`Payment receipt — ${row.tenantName}`} /> : "No slip"}</TableCell>
-    <TableCell className="min-w-44 whitespace-normal font-medium">{row.tenantName}</TableCell>
+    <TableCell className="min-w-44 whitespace-normal font-medium">{row.tenantName}
+      <span className={`mt-2 inline-flex rounded px-2 py-0.5 text-xs font-semibold text-white ${row.isCheckIn ? "bg-emerald-700" : "bg-sky-700"}`}>
+        {row.isCheckIn ? "NEW TENANT CHECK-IN" : "EXISTING TENANT PAYMENT"}
+      </span>
+    </TableCell>
     <TableCell className="min-w-32 whitespace-normal">{row.propertyName}<br />{row.roomName}</TableCell>
     <TableCell className="whitespace-nowrap">{month}</TableCell>
     <TableCell className="whitespace-nowrap"><strong>{row.amountSubmitted}</strong><p className="mt-1 text-xs">{paymentPurposeLabel(row.paymentPurpose)}</p></TableCell>

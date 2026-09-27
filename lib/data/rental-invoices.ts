@@ -11,6 +11,7 @@ type BillRow = {
   invoice_number: string;
   invoice_date: string;
   invoice_source: string;
+  tenant_facing?: boolean | null;
   issued_at: string;
   retain_until: string;
   organization_id: string | null;
