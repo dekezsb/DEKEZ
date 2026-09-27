@@ -16,6 +16,7 @@ test.before(async()=>{
     create role anon;create role authenticated;create role service_role;
     create type public.bill_status as enum ('draft','unpaid','partial','paid','cancelled','submitted','pending_verification','rejected','overdue','upcoming','due_today','partially_paid','waived');
     create table profiles(id uuid primary key,role text);
+    create table tenants(id uuid primary key,profile_id uuid);
     create table properties(id uuid primary key,company_id uuid,property_code text);
     create table rooms(id uuid primary key,property_id uuid,room_number text,status text,current_tenancy_id uuid);
     create table tenancies(id uuid primary key,company_id uuid,organization_id uuid,tenant_id uuid,room_id uuid,property_id uuid,unit_id uuid,
@@ -25,15 +26,15 @@ test.before(async()=>{
     create table rent_bills(id uuid primary key default gen_random_uuid(),organization_id uuid,tenancy_id uuid,tenant_id uuid,property_id uuid,unit_id uuid,room_id uuid,
       tenant_record_id uuid,bill_month date,due_date date,amount numeric,paid_amount numeric default 0,status public.bill_status default 'unpaid',
       invoice_source text default 'automatic',tenant_facing boolean not null default true,invoice_number text default '',removed_at timestamptz,deposit_amount numeric default 0,
-      created_by uuid,unique(tenancy_id,bill_month));
+      created_by uuid,updated_at timestamptz default now(),unique(tenancy_id,bill_month));
     create table payment_submissions(id uuid primary key,property_id uuid,room_id uuid,bill_month date,verification_status text,amount numeric,payment_date date);
     create table payments(id uuid primary key default gen_random_uuid(),company_id uuid,organization_id uuid,tenant_id uuid,tenancy_id uuid,property_id uuid,unit_id uuid,room_id uuid,
       rent_bill_id uuid,category text,amount numeric,payment_date date,payment_method text,reference_number text,notes text,status text,
-      recorded_by uuid,verified_by uuid,verified_at timestamptz,origin_bank_line_id uuid,smart_meter_top_up_request_id uuid,reversed_at timestamptz);
+      recorded_by uuid,verified_by uuid,verified_at timestamptz,origin_bank_line_id uuid,smart_meter_top_up_request_id uuid,reversed_at timestamptz,payment_submission_id uuid);
     create table rental_invoice_line_items(id uuid primary key default gen_random_uuid(),rent_bill_id uuid,category text,description text,amount numeric,
       created_by uuid,origin_bank_line_id uuid,smart_meter_top_up_request_id uuid);
     create table bank_statement_imports(id uuid primary key,company_id uuid,status text,period_start date);
-    create table bank_statement_lines(id uuid primary key,statement_import_id uuid,bank_account_id uuid,amount numeric,transaction_date date,reference_number text,description text,status text);
+    create table bank_statement_lines(id uuid primary key,statement_import_id uuid,bank_account_id uuid,amount numeric,transaction_date date,reference_number text,description text,status text,updated_at timestamptz default now());
     create table bank_reconciliation_matches(id uuid primary key default gen_random_uuid(),statement_line_id uuid,source_type text,source_id uuid,matched_amount numeric,match_method text,created_by uuid);
     create table accounting_payment_reconciliations(payment_record_id uuid primary key,company_id uuid,bank_transaction_id uuid unique,reconciliation_status text,reconciled_at timestamptz,reconciled_by uuid,updated_at timestamptz default now());
     create table accounting_audit_logs(company_id uuid,entity_type text,entity_id uuid,action text,after_data jsonb,reason text,performed_by uuid);
@@ -85,7 +86,7 @@ test.before(async()=>{
 test.after(async()=>{await db?.close()});
 const admin=id(1);
 async function truncateAll(){
-  await db.exec(`truncate profiles,properties,rooms,tenancies,tenant_records,rent_bills,payment_submissions,payments,rental_invoice_line_items,
+  await db.exec(`truncate profiles,tenants,properties,rooms,tenancies,tenant_records,rent_bills,payment_submissions,payments,rental_invoice_line_items,
     bank_statement_imports,bank_statement_lines,bank_reconciliation_matches,accounting_payment_reconciliations,accounting_audit_logs,
     rent_bill_audit_logs,accounting_periods,smart_meter_top_up_requests cascade;`);
   await db.exec(`insert into profiles values('${admin}','admin');
@@ -98,6 +99,7 @@ async function bank(n,amount,transactionDate='2026-09-15',reference='',descripti
     values($1,'${id(14)}','${id(17)}',$2,$3,$4,$5,'unmatched')`,[id(n),amount,transactionDate,reference,description]);
 }
 async function tenancy(n,{roomId=id(11),start,end=null,status='active',rent=480}={}){
+  await db.query(`insert into tenants(id,profile_id) values($1,$2)`,[id(900+n),id(1900+n)]);
   await db.query(`insert into tenancies(id,company_id,room_id,property_id,tenant_id,monthly_rental,status,billing_status,check_in_date,checkout_date)
     values($1,'${id(15)}',$2,'${id(10)}',$3,$4,$5,'active',$6,$7)`,[id(n),roomId,id(900+n),rent,status,start,end]);
   await db.query(`insert into tenant_records(id,tenancy_id,company_id,full_name) values($1,$2,'${id(15)}',$3)`,[id(920+n),id(n),`Tenant ${n}`]);
@@ -116,6 +118,7 @@ test("room changed tenants mid-year: an August transaction resolves the OLD tena
   await createAndApply(30);
   const bill=(await rows(`select * from rent_bills where bill_month='2026-08-01'`))[0];
   assert.equal(bill.tenancy_id,id(1),'invoice must be created against the OLD (checked-out) tenancy, not the current occupant');
+  assert.equal(bill.tenant_id,id(1901),'invoice uses the portal profile, not the tenancy tenant-record ID');
   assert.equal(bill.tenant_facing,false,"a checked-out tenant's backfilled invoice must never be tenant-facing");
   assert.equal(Number(bill.paid_amount),480);
   assert.equal(bill.status,'paid');
@@ -209,6 +212,8 @@ test('tenancy_for_room_at_date prefers the checked-out tenancy exactly on its la
   await tenancy(2,{start:'2026-09-01',end:null,status:'active',rent:500});
   assert.equal((await rows(`select id from tenancy_for_room_at_date('${id(11)}','2026-08-31')`))[0].id,id(1));
   assert.equal((await rows(`select id from tenancy_for_room_at_date('${id(11)}','2026-09-01')`))[0].id,id(2));
+  assert.equal((await rows(`select id from tenancy_for_room_at_date('${id(11)}','2027-01-01')`))[0].id,id(2),'an open-ended active tenancy still occupies the room');
+  await db.query(`update tenancies set checkout_date='2026-12-31',status='ended' where id='${id(2)}'`);
   const noMatch=await rows(`select * from tenancy_for_room_at_date('${id(11)}','2027-01-01')`);
   assert.equal(noMatch.length,1,'a non-setof composite function called in FROM still returns one all-null row when nothing matches');
   assert.equal(noMatch[0].id,null);

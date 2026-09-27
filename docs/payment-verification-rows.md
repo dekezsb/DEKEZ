@@ -30,3 +30,9 @@ Publishing approved 26 September 2026. Migration installed successfully as versi
 Receipt thumbnails and the full-receipt control open a native modal on the current page. Images and PDFs use the existing authorized receipt URL. Close or Escape returns focus to the row without navigating, saving, verifying, or clearing an unsaved bank reference. Other document pages are unchanged.
 
 The 140-check release suite and TypeScript passed. Browser checks with fictional slips confirmed the visible overlay, Close and Escape dismissal, unchanged page URL, restored trigger focus, and preservation of an unsaved leading-zero bank code. No production payment was submitted during testing.
+
+## Colour restoration and release repair (27 September 2026)
+
+Restore blue backgrounds for existing-tenant payments and green backgrounds for check-in/application slips, with visible type labels independent of verification status. Preserve all row actions and receipt previews; browser fixtures include both colours and both pending and verified check-ins.
+
+Integrated current main `04b5450` without discarding its newer uploads. Two existing compilation blockers needed non-behavioural repairs: declare the already-selected `tenant_facing` field in the invoice row type and exclude the non-runtime `dekez-bankcode-fix` uploaded source bundle from application TypeScript compilation (files retained). The historical invoice test fixture was missing the tenants/profile relationship, payment submission link and update timestamps; added these instead of weakening production checks. Corrected the date test to distinguish open-ended occupancy from a real checkout, retaining the post-checkout no-match assertion and adding a portal-profile-ID assertion. These ten tests now run in the mandatory release gate. No production database migration or financial submission is part of this repair.
