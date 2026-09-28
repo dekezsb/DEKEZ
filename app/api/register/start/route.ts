@@ -300,8 +300,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Reservations are not available for this property." }, { status: 400 });
     }
     if (isReservation) {
-      const problem = reservationPaymentError(body?.reservationDeposit, body?.paymentDate, uploads.length === 1 && uploads[0].key === "paymentSlip");
+      const problem = reservationPaymentError(body?.reservationDeposit, body?.paymentDate, uploads.filter((upload) => upload.key === "paymentSlip").length === 1);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+      if (uploads.some((upload) => !["paymentSlip", "icFront", "icBack", "passportPhoto"].includes(upload.key))) {
+        return NextResponse.json({ error: "Attach only the reservation deposit slip and IC or passport photos." }, { status: 400 });
+      }
     }
     if (!proposedStartDate) {
       proposedStartDate = new Intl.DateTimeFormat("en-CA", {

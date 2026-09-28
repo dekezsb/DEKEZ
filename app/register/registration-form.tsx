@@ -192,7 +192,7 @@ export function RegistrationForm({
     try {
       const uploads = Object.entries(files)
         .filter(
-          (entry): entry is [UploadKey, File] => entry[1] !== undefined && (!isReservation || entry[0] === "paymentSlip"),
+          (entry): entry is [UploadKey, File] => entry[1] !== undefined && (!isReservation || ["paymentSlip", "icFront", "icBack", "passportPhoto"].includes(entry[0])),
         )
         .map(([key, file]) => ({
           key,
@@ -612,7 +612,7 @@ export function RegistrationForm({
         )}
       </div>
 
-      {!isReservation ? <fieldset className="rounded-md border border-[#d7dde5] p-4">
+      <fieldset className="rounded-md border border-[#d7dde5] p-4">
         <legend className="px-1 text-sm font-semibold text-[#07142f]">
           Identity photos
         </legend>
@@ -623,13 +623,13 @@ export function RegistrationForm({
                 file={files.icFront}
                 label="IC photo - FRONT"
                 onSelect={(file) => selectFile("icFront", file)}
-                required
+                required={!isReservation}
               />
               <FilePicker
                 file={files.icBack}
                 label="IC photo - BACK"
                 onSelect={(file) => selectFile("icBack", file)}
-                required
+                required={!isReservation}
               />
             </>
           ) : (
@@ -637,14 +637,15 @@ export function RegistrationForm({
               file={files.passportPhoto}
               label="Passport photo page"
               onSelect={(file) => selectFile("passportPhoto", file)}
-              required
+              required={!isReservation}
             />
           )}
         </div>
         <p className="mt-3 text-xs leading-5 text-[#7b879c]">
           Make sure the full document is visible, sharp and well lit.
         </p>
-      </fieldset> : <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Reservation only: upload one deposit slip below. IC photos and remaining check-in details can be added when the tenant arrives. No tenancy or rent invoice starts now.</p>}
+        {isReservation ? <p className="mt-3 text-sm text-[#60708a]">Attach IC or passport photos now if available. They stay with this reservation for check-in. Photos are optional when reserving; no tenancy or rent invoice starts now.</p> : null}
+      </fieldset>
 
       {accountType === "tenant" ? (
         <>

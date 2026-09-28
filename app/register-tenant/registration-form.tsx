@@ -566,7 +566,7 @@ export function RegistrationForm({
         </label>
       )}
 
-      {!isReservation ? <fieldset className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
+      <fieldset className="rounded-md border border-[#d7dde5] p-4 sm:col-span-2">
         <legend className="px-1 text-sm font-semibold text-[#07142f]">
           Identity documents
         </legend>
@@ -576,17 +576,18 @@ export function RegistrationForm({
         </p>
         {identityType === "ic" ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <FileField label="IC front" name="icFront" required />
-            <FileField label="IC back" name="icBack" required />
+            <FileField label="IC front" name="icFront" required={!isReservation} />
+            <FileField label="IC back" name="icBack" required={!isReservation} />
           </div>
         ) : (
           <FileField
             label="Passport photo page"
             name="passportPhoto"
-            required
+            required={!isReservation}
           />
         )}
-      </fieldset> : <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">No IC photos are required to reserve. Add them on the existing reservation when the tenant arrives.</p>}
+        {isReservation ? <p className="mt-3 text-sm text-[#60708a]">Attach IC or passport photos now if available. They stay with this reservation for check-in. Photos are optional when reserving.</p> : null}
+      </fieldset>
 
       {!isReservation && selectedProperty?.isCommercial ? (
         <div className="rounded-md border border-[#ead8ad] bg-[#fffaf0] p-4 sm:col-span-2">

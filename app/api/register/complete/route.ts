@@ -96,6 +96,7 @@ export async function POST(request: Request) {
       (upload) =>
         !upload ||
         !["payment-receipts", "tenant-documents"].includes(upload.bucket) ||
+        typeof upload.path !== "string" ||
         !upload.path.startsWith(`${user.id}/self-registration/`) ||
         !upload.fileName ||
         !upload.contentType ||
@@ -172,8 +173,30 @@ export async function POST(request: Request) {
     if (application.registration_mode === "reservation") {
       const slip = confirmedUploads.find((upload) => upload.key === "paymentSlip" && upload.bucket === "payment-receipts");
       const problem = reservationPaymentError(body?.reservationDeposit, body?.paymentDate, Boolean(slip));
-      if (problem || uploads.length !== 1 || !slip || !slip.path.startsWith(`${user.id}/self-registration/${application.id}/`)) {
-        return NextResponse.json({ error: problem ?? "Upload only the reservation deposit slip for this reservation." }, { status: 400 });
+      if (problem || !slip || uploads.some((upload) =>
+        !upload.path.startsWith(`${user.id}/self-registration/${application.id}/`) ||
+        !["paymentSlip", "icFront", "icBack", "passportPhoto"].includes(upload.key) ||
+        upload.bucket !== (upload.key === "paymentSlip" ? "payment-receipts" : "tenant-documents")
+      )) {
+        return NextResponse.json({ error: problem ?? "Attach only this reservation's deposit slip and IC or passport photos." }, { status: 400 });
+      }
+      if (confirmedUploads.length !== uploads.length) {
+        return NextResponse.json({ error: "One or more identity photos did not finish uploading. Please retry before submitting." }, { status: 400 });
+      }
+      // Save optional identity files on the same application before committing money.
+      // Retrying completion reuses each file record; it never verifies documents.
+      for (const upload of confirmedUploads.filter((file) => file.bucket === "tenant-documents")) {
+        const { data: existing, error: lookupError } = await admin.from("tenant_documents")
+          .select("id").eq("file_path", upload.path).maybeSingle();
+        if (lookupError) return NextResponse.json({ error: "Identity photos could not be checked. Please retry." }, { status: 500 });
+        if (!existing) {
+          const { error } = await admin.from("tenant_documents").insert({
+            tenant_application_id: application.id, tenant_id: user.id,
+            document_type: documentTypes[upload.key], file_path: upload.path,
+            file_name: upload.fileName, content_type: upload.contentType, uploaded_by: user.id,
+          });
+          if (error) return NextResponse.json({ error: "Identity photos could not be saved. Please retry." }, { status: 500 });
+        }
       }
       const { error: reservationError } = await admin.rpc("submit_reservation_deposit", {
         p_application: application.id, p_actor: user.id, p_amount: Number(body.reservationDeposit),

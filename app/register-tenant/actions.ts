@@ -236,6 +236,31 @@ export async function submitAdminTenantApplication(formData: FormData) {
       await supabase.from("tenant_applications").delete().eq("id", booking.id).eq("status", "draft");
       fail("upload", propertyId, roomId);
     }
+    const identityDocuments: Array<{ documentType: TenantDocumentType; file: File }> = [];
+    if (icFront) identityDocuments.push({ documentType: "ic_front", file: icFront });
+    if (icBack) identityDocuments.push({ documentType: "ic_back", file: icBack });
+    if (passportPhoto) identityDocuments.push({ documentType: "passport_photo_page", file: passportPhoto });
+    let reservationDocuments: Awaited<ReturnType<typeof uploadTenantDocuments>> = [];
+    const removeDraftAttachments = async () => {
+      if (reservationDocuments.length) {
+        await supabase.storage.from("tenant-documents").remove(reservationDocuments.map((document) => document.file_path));
+        await supabase.from("tenant_documents").delete().eq("tenant_application_id", booking.id);
+      }
+      await supabase.storage.from("payment-receipts").remove([path]);
+      await supabase.from("tenant_applications").delete().eq("id", booking.id).eq("status", "draft");
+    };
+    try {
+      reservationDocuments = await uploadTenantDocuments(supabase, user.id, booking.id, identityDocuments);
+      if (reservationDocuments.length) {
+        const { error } = await supabase.from("tenant_documents").insert(reservationDocuments.map((document) => ({
+          ...document, tenant_application_id: booking.id, tenant_id: null, uploaded_by: user.id,
+        })));
+        if (error) throw error;
+      }
+    } catch {
+      await removeDraftAttachments();
+      fail("upload", propertyId, roomId);
+    }
     const { error: reservationError } = await supabase.rpc("submit_reservation_deposit", {
       p_application: booking.id, p_actor: user.id, p_amount: Number(amount), p_date: paymentDate,
       p_path: path, p_file_name: paymentSlip.name, p_content_type: paymentSlip.type, p_note: staffNote,
@@ -245,8 +270,7 @@ export async function submitAdminTenantApplication(formData: FormData) {
       // did not succeed (a lost response must not delete a successful booking).
       const { data: state } = await supabase.from("tenant_applications").select("status").eq("id", booking.id).maybeSingle();
       if (state?.status === "draft") {
-        await supabase.storage.from("payment-receipts").remove([path]);
-        await supabase.from("tenant_applications").delete().eq("id", booking.id).eq("status", "draft");
+        await removeDraftAttachments();
       }
       if (state?.status !== "submitted") fail("reservation_payment", propertyId, roomId);
     }
