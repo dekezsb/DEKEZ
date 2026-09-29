@@ -41,6 +41,19 @@ test('existing leading-zero and usable QR codes display without manual entry',()
 test('pending slip exposes Verify and missing-code input without any folder expansion',()=>{
  const html=render({status:'pending_verification'});assert.match(html,/>Verify</);assert.match(html,/Enter bank code/);assert.doesNotMatch(html,/<details/);
 });
+test('Verify actions stay in the second column beside the slip, before tenant and bank code',()=>{
+ const page=fs.readFileSync(path.join(root,'app/payment-verification/page.tsx'),'utf8');
+ assert.match(page,/\["Slip", "Action", "Tenant", "Property \/ Room", "Rental month", "Amount", "Bank Code \/ Reference", "Payment method", "Status"\]/);
+ for(const isCheckIn of [false,true]){
+  const html=render({status:'pending_verification',isCheckIn});
+  const cells=[...html.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)].map(match=>match[0]);
+  assert.equal(cells.length,9);
+  assert.match(cells[0],/aria-haspopup="dialog"/);
+  assert.match(cells[1],/data-payment-actions/);assert.match(cells[1],/>Verify</);assert.match(cells[1],/>Reject</);
+  assert.match(cells[2],/Fixture Tenant/);assert.match(cells[6],/Enter bank code/);
+  assert.equal((html.match(/>Verify</g)||[]).length,1);
+ }
+});
 test('receipt thumbnail opens an accessible same-page dialog, never a new tab, for both image and PDF',()=>{
  for(const receiptIsImage of [true,false]){
   const html=render({receiptIsImage});

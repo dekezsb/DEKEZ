@@ -355,7 +355,7 @@ export async function PaymentVerificationContent({
         <CardContent>
           {submissions.length ? <Table className="min-w-[1150px]">
             <TableHeader><TableRow>
-              {["Slip", "Tenant", "Property / Room", "Rental month", "Amount", "Bank Code / Reference", "Payment method", "Status", "Action"].map((heading) => <TableHead key={heading}>{heading}</TableHead>)}
+              {["Slip", "Action", "Tenant", "Property / Room", "Rental month", "Amount", "Bank Code / Reference", "Payment method", "Status"].map((heading) => <TableHead key={heading}>{heading}</TableHead>)}
             </TableRow></TableHeader>
             <TableBody>{submissions.map((submission) => {
               const row = buildRow(submission, profiles, tenantRecords, signedUrls, reportedCheckInAmounts);

@@ -45,6 +45,17 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
   return <TableRow className={`align-top ${row.isCheckIn ? "bg-emerald-100/70 hover:bg-emerald-100" : "bg-sky-100/70 hover:bg-sky-100"}`} data-payment-slip={row.submissionId}>
     <TableCell>{row.receiptUrl ? <ReceiptViewer url={row.receiptUrl}
       isImage={row.receiptIsImage} label={`Payment receipt — ${row.tenantName}`} /> : "No slip"}</TableCell>
+    <TableCell className="min-w-36 max-w-64" data-payment-actions>
+      <fieldset disabled={busy}><PaymentRecordActions {...row} inline paymentMethod={paymentMethod} referenceNumber={reference}
+        canCorrectPurpose={canCorrectPurpose} canReverse={canReverse} returnTo={returnTo} errorMessages={errorMessages}
+        onReferenceMissing={() => { setMessage("Please enter bank code."); setFailed(true); setEditing(true); input.current?.focus(); }} /></fieldset>
+      {paymentNote ? <p className="mt-2 max-w-64 whitespace-pre-wrap text-xs text-gray-600">{paymentNote}</p> : null}
+      {row.checkInSummary ? <details className="mt-2 text-xs"><summary className="cursor-pointer">Check-in terms</summary>
+        <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
+        <p>Received: rent {row.checkInSummary.reportedRent} · deposit {row.checkInSummary.reportedDeposit}</p>
+        {row.checkInSummary.note ? <p>{row.checkInSummary.note}</p> : null}
+      </details> : null}
+    </TableCell>
     <TableCell className="min-w-44 whitespace-normal font-medium">{row.tenantName}
       <span className={`mt-2 inline-flex rounded px-2 py-0.5 text-xs font-semibold text-white ${row.isCheckIn ? "bg-emerald-700" : "bg-sky-700"}`}>
         {row.isCheckIn ? "NEW TENANT CHECK-IN" : "EXISTING TENANT PAYMENT"}
@@ -67,16 +78,5 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
     </TableCell>
     <TableCell className="capitalize">{paymentMethod.replaceAll("_", " ")}</TableCell>
     <TableCell><Badge className={statusBadgeClass(row.status)}>{row.status === "verified" ? "Verified" : row.status === "rejected" ? "Rejected" : "Awaiting"}</Badge></TableCell>
-    <TableCell className="min-w-36">
-      <fieldset disabled={busy}><PaymentRecordActions {...row} inline paymentMethod={paymentMethod} referenceNumber={reference}
-        canCorrectPurpose={canCorrectPurpose} canReverse={canReverse} returnTo={returnTo} errorMessages={errorMessages}
-        onReferenceMissing={() => { setMessage("Please enter bank code."); setFailed(true); setEditing(true); input.current?.focus(); }} /></fieldset>
-      {paymentNote ? <p className="mt-2 max-w-64 whitespace-pre-wrap text-xs text-gray-600">{paymentNote}</p> : null}
-      {row.checkInSummary ? <details className="mt-2 text-xs"><summary className="cursor-pointer">Check-in terms</summary>
-        <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
-        <p>Received: rent {row.checkInSummary.reportedRent} · deposit {row.checkInSummary.reportedDeposit}</p>
-        {row.checkInSummary.note ? <p>{row.checkInSummary.note}</p> : null}
-      </details> : null}
-    </TableCell>
   </TableRow>;
 }
