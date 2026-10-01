@@ -90,7 +90,7 @@ type SubmissionRecord = {
 
 const errorMessages: Record<string, string> = {
   bank_reference_required: "Please enter bank code.",
-  duplicate_bank_reference: "This bank code is already linked to the same tenancy / rent bill. Please review it before reusing the code.",
+  duplicate_bank_reference: "This bank code is already linked to the same invoice / payment. Please review it before reusing the code.",
   bank_reference_exceeds_amount: "Saving this would allocate more than the actual bank transaction amount for this code. Check the other rooms/invoices linked to it.",
   reservation_first: "This payment belongs to a room reservation. Its slip is saved. Request actual check-in from Reservations and approve the tenant before applying this payment to a rental invoice.",
   identity_first:

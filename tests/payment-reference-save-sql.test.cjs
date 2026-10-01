@@ -208,3 +208,68 @@ test('rejected slips neither count toward the cap nor make a duplicate', async (
   await saveShared(120); await saveShared(130);
   assert.equal((await sharedRows('select * from audit_logs')).length,2);
 });
+
+// Folder uploads (20261001130000) follow the same invoice/payment-level rule and bank-amount cap.
+const folderSql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261001130000_payment_folder_bank_reference_per_invoice.sql'), 'utf8');
+let folder;
+test.before(async () => {
+  folder = new PGlite();
+  await folder.exec(`create role anon; create role authenticated; create role service_role;
+    create table profiles(id uuid primary key,role text,global_role text);
+    create table properties(id uuid primary key,company_id uuid);
+    create table rent_bills(id uuid primary key,tenancy_id uuid,tenant_record_id uuid,tenant_id uuid,property_id uuid,unit_id uuid,room_id uuid,bill_month date,status text);
+    create table payment_submissions(id uuid primary key default gen_random_uuid(),tenant_id uuid,tenant_application_id uuid,tenant_record_id uuid,tenancy_id uuid,rent_bill_id uuid,property_id uuid,unit_id uuid,room_id uuid,bill_month date,bill_type text,payment_type text,
+      amount numeric,payment_date date,payment_method text,reference_number text,receipt_url text,verification_status text,verified_at timestamptz,instalment boolean,submission_key uuid,payment_note text,receipt_sha256 text);
+    create table payments(id uuid primary key,payment_submission_id uuid,company_id uuid,tenancy_id uuid,rent_bill_id uuid,category text,reference_number text,amount numeric,payment_date date,status text,reversed_at timestamptz);
+    create table payment_attachments(payment_submission_id uuid,tenant_id uuid,tenant_record_id uuid,file_path text,file_name text,content_type text);
+    create table audit_logs(company_id uuid,actor_profile_id uuid,action text,entity_table text,entity_id uuid,metadata jsonb);
+    create table bank_accounts(id uuid primary key,company_id uuid);
+    create table bank_statement_lines(id uuid primary key,bank_account_id uuid,transaction_date date,reference_number text,description text,amount numeric);
+    create function verify_payment_folder_slip(uuid,uuid,text,text) returns void language plpgsql as $$ begin end; $$;`);
+  for (const migration of [sql, sharedSql, invoiceKeySql, folderSql]) await folder.exec(migration);
+});
+test.after(async () => folder?.close());
+async function folderFixture() {
+  // One tenancy (Room 2) with Sept + Oct invoices, a second room's tenancy, and one RM1,000 transfer 112145.
+  await folder.exec(`truncate properties,rent_bills,payment_submissions,payments,payment_attachments,audit_logs,bank_accounts,bank_statement_lines;
+    insert into properties values('${id(210)}','${id(211)}');
+    insert into bank_accounts values('${id(250)}','${id(211)}');
+    insert into bank_statement_lines values('${id(260)}','${id(250)}','2026-09-25','112145','DUITNOW TRANSFER',1000);
+    insert into rent_bills values
+      ('${id(220)}','${id(221)}','${id(223)}','${id(219)}','${id(210)}',null,'${id(224)}','2026-09-01','unpaid'),
+      ('${id(230)}','${id(221)}','${id(223)}','${id(219)}','${id(210)}',null,'${id(224)}','2026-10-01','unpaid'),
+      ('${id(240)}','${id(241)}','${id(243)}','${id(219)}','${id(210)}',null,'${id(244)}','2026-09-01','unpaid');`);
+}
+let slipNo = 0;
+const upload = (bill, amount, extra={}) => { slipNo += 1; const n = String(slipNo).padStart(12,'0');
+  return folder.query('select record_payment_folder_slip($1,$2,$3::jsonb)',[id(bill),id(1),JSON.stringify({ key:`10000000-0000-4000-8000-${n}`, amount, purpose:'monthly_rent', date:'2026-09-25',
+    reference:'112145', hash:n.padStart(64,'a'), path:`fixture/${n}.png`, file_name:`${n}.png`, content_type:'image/png', ...extra })]); };
+const folderRows = async q => (await folder.query(q)).rows;
+const folderCounts = async () => ({ slips:(await folderRows('select * from payment_submissions')).length,
+  attachments:(await folderRows('select * from payment_attachments')).length, audits:(await folderRows(`select * from audit_logs where action='payment_folder_slip_added'`)).length });
+test('folder upload: two different invoices of the same tenancy may share one bank code within the bank amount', async () => {
+  await folderFixture();
+  await upload(220,500); await upload(230,500);
+  assert.deepEqual((await folderRows('select rent_bill_id,reference_number from payment_submissions order by bill_month')).map(r=>[r.rent_bill_id,r.reference_number]),
+    [[id(220),'112145'],[id(230),'112145']]);
+});
+test('folder upload: the same invoice receiving the same bank code twice is a duplicate and rolls back', async () => {
+  await folderFixture();
+  await upload(220,300);
+  await assert.rejects(upload(220,200,{reference:'112-145'}),/duplicate_bank_reference/);
+  assert.deepEqual(await folderCounts(),{slips:1,attachments:1,audits:1});
+});
+test('folder upload: invoices whose combined total exceeds the bank amount are blocked and roll back', async () => {
+  await folderFixture();
+  await upload(220,500); await upload(240,400);
+  await assert.rejects(upload(230,200),/bank_reference_exceeds_amount/);
+  assert.deepEqual(await folderCounts(),{slips:2,attachments:2,audits:2});
+});
+test('folder upload: rejected slips neither count nor duplicate; the same file is still blocked', async () => {
+  await folderFixture();
+  await folder.exec(`insert into payment_submissions(tenancy_id,rent_bill_id,property_id,reference_number,verification_status,amount,receipt_sha256) values('${id(221)}','${id(220)}','${id(210)}','112145','rejected',900,'${'f'.repeat(64)}');`);
+  await upload(220,500); await upload(230,500);
+  assert.equal((await folderRows(`select * from payment_submissions where verification_status<>'rejected'`)).length,2);
+  const live = (await folderRows(`select receipt_sha256 from payment_submissions where rent_bill_id='${id(230)}'`))[0].receipt_sha256;
+  await assert.rejects(upload(220,100,{reference:'',hash:live}),/Duplicate payment slip/);
+});
