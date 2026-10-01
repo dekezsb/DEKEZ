@@ -80,7 +80,9 @@ test('Save calls only reference RPC with leading zeroes and previous value, neve
  assert.equal(result.reference,'00027588');assert.deepEqual(calls,[{name:'save_payment_bank_reference',args:{p_submission:'s',p_actor:'admin',p_reference:'00027588',p_previous:''}}]);
 });
 test('duplicate message is explicit; invalid code and permission failures never write',async()=>{
- calls=[];rpcError={message:'duplicate_bank_reference'};assert.equal((await savePaymentBankReference('s','00027588','')).error,'This bank code is already linked to another payment.');rpcError=null;
+ calls=[];rpcError={message:'duplicate_bank_reference'};assert.equal((await savePaymentBankReference('s','00027588','')).error,'This bank code is already linked to the same tenancy / rent bill. Please review it before reusing the code.');rpcError=null;
+ calls=[];rpcError={message:'bank_reference_exceeds_amount'};assert.equal((await savePaymentBankReference('s','00027588','')).error,'Saving this would allocate more than the actual bank transaction amount for this code. Check the other rooms/invoices linked to it.');rpcError=null;
+ assert.deepEqual(calls.map(c=>c.name),['save_payment_bank_reference'],'over-allocation is reported from the reference RPC only, never verification');
  calls=[];assert.equal((await savePaymentBankReference('s','','')).error,'Please enter bank code.');assert.equal(calls.length,0);
  visible=false;assert.equal((await savePaymentBankReference('s','00027588','')).error,'Payment unavailable.');visible=true;
  allowed=false;await assert.rejects(savePaymentBankReference('s','00027588',''),/Forbidden/);allowed=true;assert.equal(calls.length,0);

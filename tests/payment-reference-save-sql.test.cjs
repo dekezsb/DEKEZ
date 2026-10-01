@@ -97,3 +97,73 @@ test('reference RPC is service-only, not an authenticated public privilege bypas
   const r=await rows("select has_function_privilege('authenticated','save_payment_bank_reference(uuid,uuid,text,text)','execute') as allowed, has_function_privilege('service_role','save_payment_bank_reference(uuid,uuid,text,text)','execute') as server_allowed");
   assert.equal(r[0].allowed,false); assert.equal(r[0].server_allowed,true);
 });
+
+// Shared bank code across rooms (20260927140000): one real transfer may fund several
+// rooms/invoices, but the total saved under a code must never exceed the bank line.
+const sharedSql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260927140000_shared_bank_reference_multi_room_amount_cap.sql'), 'utf8');
+let shared;
+test.before(async () => {
+  shared = new PGlite();
+  await shared.exec(`create role anon; create role authenticated; create role service_role;
+    create table profiles(id uuid primary key,role text,global_role text);
+    create table properties(id uuid primary key,company_id uuid);
+    create table payment_submissions(id uuid primary key,property_id uuid,tenancy_id uuid,tenant_record_id uuid,rent_bill_id uuid,reference_number text,verification_status text,amount numeric,payment_date date,payment_method text,verified_at timestamptz,receipt_url text);
+    create table payments(id uuid primary key,payment_submission_id uuid,company_id uuid,tenancy_id uuid,rent_bill_id uuid,reference_number text,amount numeric,payment_date date,status text,reversed_at timestamptz);
+    create table audit_logs(company_id uuid,actor_profile_id uuid,action text,entity_table text,entity_id uuid,metadata jsonb);
+    create table bank_accounts(id uuid primary key,company_id uuid);
+    create table bank_statement_lines(id uuid primary key,bank_account_id uuid,transaction_date date,reference_number text,description text,amount numeric);
+    create function verify_payment_folder_slip(uuid,uuid,text,text) returns void language plpgsql as $$ begin end; $$;`);
+  await shared.exec(sql); await shared.exec(sharedSql);
+});
+test.after(async () => shared?.close());
+async function sharedFixture() {
+  // Room 2 / Room 3 (RM500 each, separate tenancies and bills) paid by one RM1,000 transfer; one unrelated RM350 slip.
+  await shared.exec(`truncate profiles,properties,payment_submissions,payments,audit_logs,bank_accounts,bank_statement_lines;
+    insert into profiles values('${id(1)}','super_admin','super_admin');
+    insert into properties values('${id(110)}','${id(111)}');
+    insert into bank_accounts values('${id(150)}','${id(111)}');
+    insert into bank_statement_lines values('${id(160)}','${id(150)}','2026-09-25','112145','DUITNOW TRANSFER',1000);
+    insert into payment_submissions(id,property_id,tenancy_id,tenant_record_id,rent_bill_id,verification_status,amount,payment_date,payment_method) values
+      ('${id(120)}','${id(110)}','${id(121)}','${id(123)}','${id(122)}','pending_verification',500,'2026-09-25','bank_transfer'),
+      ('${id(130)}','${id(110)}','${id(131)}','${id(133)}','${id(132)}','pending_verification',500,'2026-09-25','bank_transfer'),
+      ('${id(140)}','${id(110)}','${id(141)}','${id(143)}','${id(142)}','pending_verification',350,'2026-09-25','bank_transfer');`);
+}
+const saveShared = (submission, code='112145') => shared.query('select save_payment_bank_reference($1,$2,$3,$4)',[id(submission),id(1),code,null]);
+const sharedRows = async q => (await shared.query(q)).rows;
+const refOf = async submission => (await sharedRows(`select reference_number from payment_submissions where id='${id(submission)}'`))[0].reference_number;
+test('one bank code may fund two rooms up to the real bank amount', async () => {
+  await sharedFixture();
+  await saveShared(120); await saveShared(130);
+  assert.equal(await refOf(120),'112145'); assert.equal(await refOf(130),'112145');
+  assert.equal((await sharedRows('select * from audit_logs')).length,2);
+});
+test('bank_reference_exceeds_amount: total under one code cannot exceed the bank transaction amount', async () => {
+  await sharedFixture();
+  await saveShared(120); await saveShared(130);
+  await assert.rejects(saveShared(140),/bank_reference_exceeds_amount/);
+  assert.equal(await refOf(140),null,'rejected save leaves the slip unchanged');
+  assert.equal((await sharedRows('select * from audit_logs')).length,2,'no audit row for the rejected save');
+  // Standalone confirmed payments under the same code count toward the cap too.
+  await sharedFixture();
+  await shared.exec(`insert into payments(id,company_id,reference_number,amount,payment_date,status) values('${id(170)}','${id(111)}','112145',600,'2026-09-25','confirmed');`);
+  await assert.rejects(saveShared(120),/bank_reference_exceeds_amount/);
+});
+test('cap matches the bank line even when its text formats the code with spaces/hyphens', async () => {
+  await sharedFixture();
+  await shared.exec(`update bank_statement_lines set reference_number=null,description='IBG 112-145 RENT';`);
+  await saveShared(120); await saveShared(130);
+  await assert.rejects(saveShared(140),/bank_reference_exceeds_amount/);
+});
+test('reusing the code on the same tenancy / rent bill is still duplicate_bank_reference', async () => {
+  await sharedFixture();
+  await shared.exec(`insert into payment_submissions(id,property_id,tenancy_id,tenant_record_id,rent_bill_id,verification_status,amount,payment_date,payment_method) values('${id(125)}','${id(110)}','${id(121)}','${id(126)}','${id(127)}','pending_verification',100,'2026-09-25','bank_transfer');`);
+  await saveShared(120);
+  await assert.rejects(saveShared(125),/duplicate_bank_reference/);
+  assert.equal(await refOf(125),null);
+});
+test('rejected slips do not count toward the cap', async () => {
+  await sharedFixture();
+  await shared.exec(`insert into payment_submissions(id,property_id,tenancy_id,rent_bill_id,reference_number,verification_status,amount) values('${id(180)}','${id(110)}','${id(181)}','${id(182)}','112145','rejected',900);`);
+  await saveShared(120); await saveShared(130);
+  assert.equal((await sharedRows('select * from audit_logs')).length,2);
+});
