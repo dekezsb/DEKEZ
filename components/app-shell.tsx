@@ -17,6 +17,7 @@ import {
 } from "@/lib/auth/roles";
 import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/lib/i18n";
+import { consolidateBillNavigation, navigationItemIsActive } from "@/lib/navigation/expense-bills";
 
 type AppShellProps = {
   children: ReactNode;
@@ -31,12 +32,12 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const navigation: NavigationItem[] =
     role && access
-      ? roleNavigation[role].filter((item) =>
+      ? consolidateBillNavigation(roleNavigation[role].filter((item) =>
           hasModuleAccess(access, item.module),
-        )
+        ))
       : [];
   const currentPage =
-    navigation.find((item) => pathname.startsWith(item.href))?.label;
+    navigation.find((item) => navigationItemIsActive(item, pathname))?.label;
   const currentPageLabel = currentPage
     ? t(navigationTranslationKeys[currentPage] ?? "nav.dashboard")
     : "DEKEZ";
@@ -107,9 +108,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
           <div className="mx-auto grid max-w-2xl grid-cols-4">
             {navigation.map((item) => {
               const Icon = item.icon;
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              const isActive = navigationItemIsActive(item, pathname);
 
               return (
                 <Link
@@ -185,9 +184,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
           <div className="mx-auto grid max-w-4xl grid-cols-6">
             {navigation.map((item) => {
               const Icon = item.icon;
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              const isActive = navigationItemIsActive(item, pathname);
 
               return (
                 <Link
@@ -248,7 +245,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
           <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-4">
             {navigation.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname.startsWith(item.href);
+              const isActive = navigationItemIsActive(item, pathname);
 
               return (
                 <Link
@@ -344,7 +341,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
           <div className="grid grid-cols-4">
             {navigation.slice(0, 4).map((item) => {
               const Icon = item.icon;
-              const isActive = pathname.startsWith(item.href);
+              const isActive = navigationItemIsActive(item, pathname);
 
               return (
                 <Link

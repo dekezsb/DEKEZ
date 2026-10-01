@@ -1,5 +1,6 @@
 import { FileImage, ReceiptText } from "lucide-react";
 import { AddExpenseForm } from "@/components/expenses/add-expense-form";
+import { BillSections } from "@/components/expenses/bill-sections";
 import {
   ExpensePaymentBatchForm,
   type PayableExpense,
@@ -474,6 +475,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           <a href="#add-expense">+ Add Expense</a>
         </Button>
       </div>
+
+      <BillSections active="expenses" propertyId={params.property} />
 
       {params.created ? (
         <div className="rounded-lg border border-[#b98a2c]/30 bg-white px-4 py-3 text-sm font-medium text-[#9d7424] shadow-sm">

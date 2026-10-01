@@ -1,4 +1,5 @@
 import { Link } from "@/components/app-link";
+import { BillSections } from "@/components/expenses/bill-sections";
 import {
   Banknote,
   CalendarDays,
@@ -173,8 +174,8 @@ export default async function UtilityBillsPage({ searchParams }: UtilityBillsPag
     <section className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="text-xs font-semibold uppercase text-[#126b5f]">Property Expenses</p>
-          <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Property Utility Bills</h1>
+          <p className="text-xs font-semibold uppercase text-[#126b5f]">Expense Bills</p>
+          <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Water, Electricity & Utilities</h1>
           <p className="mt-2 max-w-3xl text-sm text-gray-600">
             Create and manage water, electricity or other utility bills for a property.
           </p>
@@ -185,6 +186,8 @@ export default async function UtilityBillsPage({ searchParams }: UtilityBillsPag
           </Button>
         ) : null}
       </div>
+
+      <BillSections active="utilities" propertyId={params.property} />
 
       <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
         These are the main property bills paid by DEKEZ and reported to Owners. Individual tenant
