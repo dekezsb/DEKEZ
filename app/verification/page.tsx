@@ -692,9 +692,15 @@ function SmartMeterTopUpVerification({
                         {statusLabel}
                       </Badge>
                       {!request.meter_id ? (
-                        <Badge className="bg-red-100 text-red-700">
-                          Meter not assigned
-                        </Badge>
+                        request.status === "credited" ? (
+                          <Badge className="bg-sky-100 text-sky-700">
+                            No live meter — recorded as payment
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-red-100 text-red-700">
+                            Meter not assigned
+                          </Badge>
+                        )
                       ) : null}
                     </div>
                     <p className="mt-2 font-semibold text-gray-950">
@@ -738,35 +744,41 @@ function SmartMeterTopUpVerification({
                   )}
                 </div>
 
-                <div className="mt-4 grid gap-2 rounded-md border border-[#e5e9ef] bg-[#f8f9fb] px-4 py-3 text-xs text-gray-700 sm:grid-cols-2 lg:grid-cols-4">
-                  <p>
-                    <span className="font-semibold text-gray-900">Meter:</span>{" "}
-                    {meter?.meter_number ?? "Not assigned"}
+                {meter ? (
+                  <div className="mt-4 grid gap-2 rounded-md border border-[#e5e9ef] bg-[#f8f9fb] px-4 py-3 text-xs text-gray-700 sm:grid-cols-2 lg:grid-cols-4">
+                    <p>
+                      <span className="font-semibold text-gray-900">Meter:</span>{" "}
+                      {meter.meter_number ?? "Not assigned"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-gray-900">
+                        Remaining credit:
+                      </span>{" "}
+                      {meter.remaining_credit !== undefined && meter.remaining_credit !== null
+                        ? money(Number(meter.remaining_credit))
+                        : "—"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-gray-900">
+                        Remaining units:
+                      </span>{" "}
+                      {meter.remaining_units !== undefined && meter.remaining_units !== null
+                        ? `${Number(meter.remaining_units).toFixed(2)} ${meter.unit_label ?? "kWh"}`
+                        : "—"}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-gray-900">
+                        Connection:
+                      </span>{" "}
+                      {meter.connection_status ?? "—"}
+                      {meter.power_state ? ` / ${meter.power_state}` : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-md border border-[#e5e9ef] bg-[#f8f9fb] px-4 py-3 text-xs text-gray-600">
+                    This property has no live smart meter connected — this top-up is recorded as a payment, not credited to a meter.
                   </p>
-                  <p>
-                    <span className="font-semibold text-gray-900">
-                      Remaining credit:
-                    </span>{" "}
-                    {meter?.remaining_credit !== undefined && meter?.remaining_credit !== null
-                      ? money(Number(meter.remaining_credit))
-                      : "—"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-gray-900">
-                      Remaining units:
-                    </span>{" "}
-                    {meter?.remaining_units !== undefined && meter?.remaining_units !== null
-                      ? `${Number(meter.remaining_units).toFixed(2)} ${meter.unit_label ?? "kWh"}`
-                      : "—"}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-gray-900">
-                      Connection:
-                    </span>{" "}
-                    {meter?.connection_status ?? "—"}
-                    {meter?.power_state ? ` / ${meter.power_state}` : ""}
-                  </p>
-                </div>
+                )}
 
                 {request.status === "pending_verification" ? (
                   <form
@@ -802,12 +814,18 @@ function SmartMeterTopUpVerification({
                     <input name="requestId" type="hidden" value={request.id} />
                     <label className="block">
                       <span className="text-sm font-semibold text-gray-800">
-                        Physical meter/provider reference
+                        {meter
+                          ? "Physical meter/provider reference"
+                          : "Payment reference"}
                       </span>
                       <input
                         className="mt-1 h-11 w-full rounded-md border border-[#d7dde5] px-3 text-sm"
                         name="providerReference"
-                        placeholder="Enter only after the meter credit succeeds"
+                        placeholder={
+                          meter
+                            ? "Enter only after the meter credit succeeds"
+                            : "Enter the bank/payment reference to mark this as paid"
+                        }
                         required
                       />
                     </label>
@@ -815,7 +833,7 @@ function SmartMeterTopUpVerification({
                       className="self-end bg-emerald-700 text-white hover:bg-emerald-600"
                       type="submit"
                     >
-                      Confirm Meter Credited
+                      {meter ? "Confirm Meter Credited" : "Confirm Payment Recorded"}
                     </Button>
                   </form>
                 ) : null}
@@ -829,9 +847,13 @@ function SmartMeterTopUpVerification({
                 {request.status === "credited" ? (
                   <div className="mt-4 grid gap-2 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-800 sm:grid-cols-2">
                     <p>Provider reference: {request.provider_reference}</p>
-                    <p>
-                      Credit: {money(Number(request.credit_before ?? 0))} → {money(Number(request.credit_after ?? 0))}
-                    </p>
+                    {request.credit_before !== null && request.credit_after !== null ? (
+                      <p>
+                        Credit: {money(Number(request.credit_before))} → {money(Number(request.credit_after))}
+                      </p>
+                    ) : (
+                      <p>No live smart meter at this property — payment recorded without a meter credit.</p>
+                    )}
                     <p>
                       Credited by {creditedByProfile?.full_name ?? "a reviewer"}
                       {request.credited_at
