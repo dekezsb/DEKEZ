@@ -25,11 +25,13 @@ import { DepositOutstanding } from "@/components/dashboard/deposit-outstanding";
 import { TenantCheckoutHistory } from "@/components/dashboard/tenant-checkout-history";
 import { TenantCheckoutPanel } from "@/components/dashboard/tenant-checkout-panel";
 import { TenantHome } from "@/components/tenant/tenant-portal";
+import { StaffElectricityTopUp } from "@/components/smart-meter/staff-electricity-top-up";
 import { hasModuleAccess } from "@/lib/auth/access";
 import { getCurrentUserAccess, requireRole } from "@/lib/auth/session";
 import { getAgreementRenewalReminders } from "@/lib/data/agreement-renewals";
 import { getCashManagementSummary } from "@/lib/data/cash-management";
 import { getDepositOutstandingSummary } from "@/lib/data/deposit-outstanding";
+import { getStaffElectricityTopUpCandidates } from "@/lib/data/electricity-top-up-admin";
 import { getDashboardSummary } from "@/lib/data/organization";
 import { getOwnerPortalSummary, getStaffPortalSummary } from "@/lib/data/portal";
 import { getRentDueSummary } from "@/lib/data/rent-due";
@@ -60,6 +62,39 @@ const paymentUploadErrors: Record<string, string> = {
   proof_upload: "The payment slip could not be uploaded. Please try again.",
   proof_create: "The payment record could not be created. Please try again.",
 };
+
+const topUpErrors: Record<string, string> = {
+  invalid: "Choose a valid whole-Ringgit amount (RM10–RM500) and attach an image or PDF slip up to 5 MB.",
+  tenancy: "The selected active tenancy could not be found.",
+  pending: "A top-up request for this room is already being processed.",
+  access: "Electricity top-up is only available for that tenancy's property.",
+  upload: "The payment slip could not be uploaded. Please try again.",
+  create: "The top-up request could not be created. Please try again.",
+};
+
+function TopUpResultBanner({
+  submitted,
+  error,
+}: {
+  submitted?: string;
+  error?: string;
+}) {
+  if (submitted === "1") {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+        Electricity top-up slip submitted. It is now waiting for Verification.
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 shadow-sm">
+        {topUpErrors[error] ?? "The electricity top-up request could not be submitted."}
+      </div>
+    );
+  }
+  return null;
+}
 
 function StatCard({
   label,
@@ -163,7 +198,7 @@ export default async function DashboardPage({
     return (
       <>
         <AccessNotice show={query.error === "access_denied"} />
-        <MaintenanceDashboard />
+        <MaintenanceDashboard query={query} />
       </>
     );
   }
@@ -448,6 +483,8 @@ async function AdminDashboard({
     checkoutMonth?: string;
     phone_release_error?: string;
     phone_release_fixed?: string;
+    topup_submitted?: string;
+    topup_error?: string;
   };
 }) {
   const [
@@ -457,6 +494,7 @@ async function AdminDashboard({
     cashSummary,
     agreementReminders,
     checkoutHistory,
+    topUpCandidates,
   ] = await Promise.all([
     getDashboardSummary(),
     getRentDueSummary(),
@@ -464,6 +502,7 @@ async function AdminDashboard({
     getCashManagementSummary(),
     getAgreementRenewalReminders(),
     getTenantCheckoutHistory(query.checkoutMonth),
+    getStaffElectricityTopUpCandidates(),
   ]);
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
@@ -491,6 +530,8 @@ async function AdminDashboard({
         <Button asChild variant="outline"><Link href="/reservations">Reservations</Link></Button>
         <Button asChild variant="outline"><Link href="/tenant-movements">Monthly Check-ins & Check-outs</Link></Button>
       </div>
+
+      <TopUpResultBanner error={query.topup_error} submitted={query.topup_submitted} />
 
       <Card className="mx-auto max-w-4xl rounded-xl border-[#d7dde5] bg-white shadow-sm">
         <CardHeader className="pb-2">
@@ -561,6 +602,8 @@ async function AdminDashboard({
 
       <DepositOutstanding canManage summary={depositSummary} />
 
+      <StaffElectricityTopUp candidates={topUpCandidates} />
+
       <AgreementRenewalReminders
         result={query.renewalResult}
         selectedBucket={query.renewalBucket}
@@ -616,8 +659,15 @@ async function TenantDashboard({
   );
 }
 
-async function MaintenanceDashboard() {
-  const summary = await getStaffPortalSummary();
+async function MaintenanceDashboard({
+  query,
+}: {
+  query: { topup_submitted?: string; topup_error?: string };
+}) {
+  const [summary, topUpCandidates] = await Promise.all([
+    getStaffPortalSummary(),
+    getStaffElectricityTopUpCandidates(),
+  ]);
 
   return (
     <section className="space-y-6">
@@ -628,6 +678,8 @@ async function MaintenanceDashboard() {
           View assigned jobs, update work progress, upload photos and submit claims.
         </p>
       </div>
+
+      <TopUpResultBanner error={query.topup_error} submitted={query.topup_submitted} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Assigned Jobs" value={summary.newAssignedJobs} detail="New jobs assigned to you" />
@@ -645,6 +697,8 @@ async function MaintenanceDashboard() {
         <ModuleCard title="Upload After Photos" description="Attach after-work photos before marking completed." href="/maintenance" icon={Upload} />
         <ModuleCard title="Submit Claim" description="Upload a repair bill for Admin verification." href="/maintenance#claim-bills" icon={ReceiptText} />
       </div>
+
+      <StaffElectricityTopUp candidates={topUpCandidates} />
 
       <Card>
         <CardHeader>

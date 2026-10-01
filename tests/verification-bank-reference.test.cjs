@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict'), test = require('node:test');
 const fs = require('node:fs'), path = require('node:path'), Module = require('node:module'), ts = require('typescript');
 const root = path.resolve(__dirname, '..'), resolve = Module._resolveFilename, load = Module._load;
-let current, writes, role = 'super_admin';
+let current, writes, role = 'super_admin', guardError = null;
 const stop = new Error('Stopped at mocked write — no real payment is submitted');
 const db = {
   from(table) {
@@ -9,10 +9,10 @@ const db = {
       : table === 'tenancies' ? { deposit: 100 } : [];
     const query = { select() { return this; }, eq() { return this; }, single() { return Promise.resolve({ data }); }, maybeSingle() { return this.single(); },
       then(ok, fail) { return Promise.resolve({ data }).then(ok, fail); },
-      update(value) { writes.push({ table, value }); throw stop; } };
+      update(value) { writes.push({ table, value }); if (guardError) return { eq() { return this; }, select() { return this; }, single: async () => ({ data: null, error: guardError }) }; throw stop; } };
     return query;
   },
-  rpc(name, value) { writes.push({ rpc: name, value }); throw stop; },
+  rpc(name, value) { writes.push({ rpc: name, value }); if (guardError) return Promise.resolve({ data: null, error: guardError }); throw stop; },
 };
 Module._resolveFilename = function(request, ...args) { return resolve.call(this, request.startsWith('@/') ? path.join(root, request.slice(2)) : request, ...args); };
 Module._load = function(request, ...args) {
@@ -96,6 +96,31 @@ test('inline unchanged hashed slip preserves atomic reference-plus-folder verifi
   setup('monthly_rent');current.property_id='property';current.payment_method='bank_transfer';current.receipt_sha256='fixture-hash';
   await assert.rejects(reviewPaymentSubmissionInline(form({submissionId:current.id,decision:'verified',bankReference:'00027588'})),error=>error===stop);
   assert.deepEqual(writes,[{rpc:'verify_payment_folder_slip_with_reference',value:{p_submission:'submission',p_actor:'actor',p_reference:'00027588',p_previous:'OLD-001'}}]);
+});
+test('Verify shows the specific over-allocation message when the bank-code guard refuses the total', async () => {
+  const exceeds = 'error=bank_reference_exceeds_amount';
+  guardError = { code: 'P0001', message: 'bank_reference_exceeds_amount' };
+  try {
+    setup('monthly_rent');
+    await assert.rejects(reviewPaymentSubmission(form({ submissionId: current.id, decision: 'verified', bankReference: '112145' })), error => error.message.includes(exceeds));
+    assert.equal(writes.length, 1, 'standard Verify path');
+    setup('monthly_rent'); current.property_id = 'property'; current.payment_method = 'bank_transfer';
+    assert.equal((await reviewPaymentSubmissionInline(form({ submissionId: current.id, decision: 'verified', bankReference: '112145' }))).error, 'bank_reference_exceeds_amount');
+    setup('monthly_rent'); current.property_id = 'property'; current.payment_method = 'bank_transfer'; current.receipt_sha256 = 'fixture-hash';
+    assert.deepEqual(await reviewPaymentSubmissionInline(form({ submissionId: current.id, decision: 'verified', bankReference: '112145' })), { error: 'bank_reference_exceeds_amount', verified: false });
+    assert.equal(writes[0].rpc, 'verify_payment_folder_slip_with_reference', 'atomic folder Verify path');
+    setup('booking_fee');
+    await assert.rejects(reviewPaymentSubmission(form({ submissionId: current.id, decision: 'verified', bankReference: '112145', paymentPurposeOverride: 'monthly_rent' })), error => error.message.includes(exceeds));
+    assert.equal(writes[0].rpc, 'verify_booking_fee_allocation_with_reference', 'booking Verify path');
+    guardError = { message: 'duplicate_bank_reference' }; setup('monthly_rent');
+    await assert.rejects(reviewPaymentSubmission(form({ submissionId: current.id, decision: 'verified', bankReference: '112145' })), /error=duplicate_bank_reference/);
+    guardError = { message: 'unrelated failure' }; setup('monthly_rent');
+    await assert.rejects(reviewPaymentSubmission(form({ submissionId: current.id, decision: 'verified', bankReference: '112145' })), /error=review/);
+  } finally { guardError = null; }
+  const page = fs.readFileSync(path.join(root, 'app/payment-verification/page.tsx'), 'utf8');
+  assert.match(page, /bank_reference_exceeds_amount: "[^"]*more than the actual bank transaction amount[^"]*"/);
+  const inlineUi = fs.readFileSync(path.join(root, 'app/payment-verification/payment-record-actions.tsx'), 'utf8');
+  assert.match(inlineUi, /setInlineError\(errorMessages\[result\.error\]/, 'inline Verify shows the page message for the returned error code');
 });
 const bank = extra => ({ id: 'b', amount: 100, date: '2026-09-20', reference: '001234', description: 'Transfer', used: false, ...extra });
 const payment = extra => ({ id: 'p', amount: 100, date: '2026-09-01', reference: '001234', tenant: 'Fixture tenant', property: 'KLB', propertyCode: 'KLB', room: '17', invoice: 'INV-1', invoiceId: 'bill', invoiceMonth: '2026-09-01', receipt: 'REC-1', slipUrl: null, arReference: '', eligible: true, bankId: null, legacyMatched: false, ...extra });

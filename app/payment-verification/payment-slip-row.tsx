@@ -13,7 +13,7 @@ import { PaymentRecordActions, type PaymentRecordActionsProps } from "./payment-
 
 type Row = PaymentRecordActionsProps & { isCheckIn?: boolean; checkInSummary?: {
   agreedRent: string; requiredDeposit: string; reportedRent: string; reportedDeposit: string; note: string | null;
-} | null };
+} | null; linkedByCode?: { id: string; tenantName: string; propertyRoom: string; amount: string; status: string }[] };
 
 export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurpose, canReverse, returnTo, errorMessages }: {
   row: Row; paymentMethod: string; paymentNote?: string | null;
@@ -75,6 +75,12 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
       </form> : <div className="mt-1 flex items-start gap-2"><span className="break-all font-mono">{savedReference}</span>
         {row.status !== "verified" ? <button type="button" className="text-xs underline" onClick={() => setEditing(true)}>Edit</button> : null}</div>}
       {message ? <p role={failed ? "alert" : "status"} className={`mt-1 text-xs ${failed ? "text-red-700" : "text-emerald-700"}`}>{message}</p> : null}
+      {row.linkedByCode?.length ? <details className="mt-1 text-xs text-gray-600">
+        <summary className="cursor-pointer font-medium">Same code · {row.linkedByCode.length} other room{row.linkedByCode.length > 1 ? "s" : ""}/invoice{row.linkedByCode.length > 1 ? "s" : ""}</summary>
+        <ul className="mt-1 space-y-1">{row.linkedByCode.map(other => <li key={other.id}>
+          {other.tenantName} — {other.propertyRoom} — {other.amount} ({other.status === "verified" ? "Verified" : other.status === "rejected" ? "Rejected" : "Awaiting"})
+        </li>)}</ul>
+      </details> : null}
     </TableCell>
     <TableCell className="capitalize">{paymentMethod.replaceAll("_", " ")}</TableCell>
     <TableCell><Badge className={statusBadgeClass(row.status)}>{row.status === "verified" ? "Verified" : row.status === "rejected" ? "Rejected" : "Awaiting"}</Badge></TableCell>

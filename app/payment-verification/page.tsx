@@ -90,7 +90,8 @@ type SubmissionRecord = {
 
 const errorMessages: Record<string, string> = {
   bank_reference_required: "Please enter bank code.",
-  duplicate_bank_reference: "This bank code is already linked to another payment.",
+  duplicate_bank_reference: "This bank code is already linked to the same invoice / payment. Please review it before reusing the code.",
+  bank_reference_exceeds_amount: "Saving this would allocate more than the actual bank transaction amount for this code. Check the other rooms/invoices linked to it.",
   reservation_first: "This payment belongs to a room reservation. Its slip is saved. Request actual check-in from Reservations and approve the tenant before applying this payment to a rental invoice.",
   identity_first:
     "Approve the tenant check-in first, then verify this payment against its invoice.",
@@ -141,6 +142,13 @@ function single<T>(value: T | T[] | null | undefined) {
 
 function isImagePath(path: string | null | undefined) {
   return Boolean(path?.match(/\.(png|jpg|jpeg|webp|gif)$/i));
+}
+
+// Same normalization the save-time guard and reconciliation matcher use, so
+// "cross-check" grouping here lines up with what the database considers the
+// same bank code.
+function normalizeCode(value: string | null | undefined) {
+  return (value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 function malaysiaDate(value = new Date()) {
@@ -212,6 +220,15 @@ export async function PaymentVerificationContent({
   ]);
   const profiles = new Map(profileRows.map((p) => [p.id, p]));
   const tenantRecords = new Map(recordRows.map((p) => [p.id, p]));
+  // Every non-rejected submission sharing a bank code, grouped so each row can
+  // show the other rooms/invoices cross-checking against the same transfer.
+  const submissionsByCode = new Map<string, SubmissionRecord[]>();
+  for (const submission of allSubmissions) {
+    if (submission.verification_status === "rejected") continue;
+    const code = normalizeCode(submission.reference_number);
+    if (code.length < 4) continue;
+    submissionsByCode.set(code, [...(submissionsByCode.get(code) ?? []), submission]);
+  }
   const signedUrls = new Map<string, string>();
   await Promise.all(submissions.map(async (submission) => {
     if (!submission.receipt_url) return;
@@ -358,7 +375,7 @@ export async function PaymentVerificationContent({
               {["Slip", "Action", "Tenant", "Property / Room", "Rental month", "Amount", "Bank Code / Reference", "Payment method", "Status"].map((heading) => <TableHead key={heading}>{heading}</TableHead>)}
             </TableRow></TableHeader>
             <TableBody>{submissions.map((submission) => {
-              const row = buildRow(submission, profiles, tenantRecords, signedUrls, reportedCheckInAmounts);
+              const row = buildRow(submission, profiles, tenantRecords, signedUrls, reportedCheckInAmounts, submissionsByCode);
               return <PaymentSlipRow key={`${submission.id}:${submission.verification_status}:${submission.reference_number ?? ""}`} row={row} paymentMethod={submission.payment_method}
                 paymentNote={submission.payment_note}
                 canCorrectPurpose={role === "super_admin"} canReverse={role === "super_admin"}
@@ -383,6 +400,7 @@ function buildRow(
   tenantRecords: Map<string, { id: string; full_name: string; phone: string | null }>,
   signedUrls: Map<string, string>,
   reportedCheckInAmounts: Map<string, { rent: number; deposit: number }>,
+  submissionsByCode: Map<string, SubmissionRecord[]>,
 ) {
   const tenant = submission.tenant_id ? profiles.get(submission.tenant_id) : null;
   const tenantRecord = submission.tenant_record_id ? tenantRecords.get(submission.tenant_record_id) : null;
@@ -425,6 +443,28 @@ function buildRow(
     0,
   );
 
+  // Other rooms/invoices saved under this same bank code, so the reviewer can
+  // cross-check a shared transfer (e.g. one transfer covering two rooms) right
+  // on this row, without changing the row's own status colour/badge.
+  const code = normalizeCode(submission.reference_number);
+  const linkedByCode = code.length >= 4
+    ? (submissionsByCode.get(code) ?? [])
+        .filter((other) => other.id !== submission.id)
+        .map((other) => {
+          const otherTenant = other.tenant_id ? profiles.get(other.tenant_id) : null;
+          const otherTenantRecord = other.tenant_record_id ? tenantRecords.get(other.tenant_record_id) : null;
+          const otherProperty = single(other.properties);
+          const otherRoom = single(other.rooms);
+          return {
+            id: other.id,
+            tenantName: otherTenant?.full_name ?? otherTenantRecord?.full_name ?? otherTenant?.phone ?? otherTenantRecord?.phone ?? "Tenant",
+            propertyRoom: `${otherProperty?.name ?? "-"} / ${otherRoom?.room_number ?? otherRoom?.name ?? "-"}`,
+            amount: money(other.amount),
+            status: other.verification_status,
+          };
+        })
+    : [];
+
   return {
     submissionId: submission.id,
     status: submission.verification_status,
@@ -444,6 +484,7 @@ function buildRow(
     rentOutstanding,
     depositOutstanding,
     referenceNumber: submission.reference_number ?? "",
+    linkedByCode,
     receiptUrl,
     receiptIsImage: isImagePath(submission.receipt_url),
     verifiedBy: profiles.get(submission.verified_by ?? "")?.full_name ?? submission.verified_by,

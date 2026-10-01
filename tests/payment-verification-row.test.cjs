@@ -16,7 +16,7 @@ for(const ext of ['.ts','.tsx'])Module._extensions[ext]=(m,f)=>m._compile(ts.tra
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
 const {PaymentSlipRow}=require('../app/payment-verification/payment-slip-row.tsx');
 const {savePaymentBankReference}=require('../app/payment-verification/reference-actions.ts');
-const {paymentMatchesFilters,usableBankReference,bankReferenceRequired}=require('../lib/payments/verification-row.ts');
+const {paymentMatchesFilters,usableBankReference,bankReferenceRequired,sameInvoiceBankReference,bankReferenceError}=require('../lib/payments/verification-row.ts');
 const row={submissionId:'s',status:'verified',tenantName:'Fixture Tenant',propertyName:'SLS',roomName:'D1',billMonth:'2026-09-01',paymentDate:'2026-09-01',amountSubmitted:'RM 100.00',amountSubmittedValue:100,paymentPurpose:'monthly_rent',invoiceOutstanding:100,rentOutstanding:100,depositOutstanding:0,referenceNumber:'',receiptIsImage:true,receiptUrl:'/fixture.png'};
 const render=(extra={})=>renderToStaticMarkup(React.createElement('table',null,React.createElement('tbody',null,React.createElement(PaymentSlipRow,{row:{...row,...extra},paymentMethod:'bank_transfer',canCorrectPurpose:false,canReverse:false,returnTo:'/verification?view=payments',errorMessages:{}}))));
 test('one row per slip with all columns; old verified missing-code row has input and Save, not Verify',()=>{
@@ -80,8 +80,30 @@ test('Save calls only reference RPC with leading zeroes and previous value, neve
  assert.equal(result.reference,'00027588');assert.deepEqual(calls,[{name:'save_payment_bank_reference',args:{p_submission:'s',p_actor:'admin',p_reference:'00027588',p_previous:''}}]);
 });
 test('duplicate message is explicit; invalid code and permission failures never write',async()=>{
- calls=[];rpcError={message:'duplicate_bank_reference'};assert.equal((await savePaymentBankReference('s','00027588','')).error,'This bank code is already linked to another payment.');rpcError=null;
+ calls=[];rpcError={message:'duplicate_bank_reference'};assert.equal((await savePaymentBankReference('s','00027588','')).error,'This bank code is already linked to the same invoice / payment. Please review it before reusing the code.');rpcError=null;
+ calls=[];rpcError={message:'bank_reference_exceeds_amount'};assert.equal((await savePaymentBankReference('s','00027588','')).error,'Saving this would allocate more than the actual bank transaction amount for this code. Check the other rooms/invoices linked to it.');rpcError=null;
+ assert.deepEqual(calls.map(c=>c.name),['save_payment_bank_reference'],'over-allocation is reported from the reference RPC only, never verification');
  calls=[];assert.equal((await savePaymentBankReference('s','','')).error,'Please enter bank code.');assert.equal(calls.length,0);
  visible=false;assert.equal((await savePaymentBankReference('s','00027588','')).error,'Payment unavailable.');visible=true;
  allowed=false;await assert.rejects(savePaymentBankReference('s','00027588',''),/Forbidden/);allowed=true;assert.equal(calls.length,0);
+});
+test('duplicate bank-code message names the same invoice / payment, not the tenancy',()=>{
+ const message='This bank code is already linked to the same invoice / payment. Please review it before reusing the code.';
+ assert.equal(bankReferenceError('duplicate_bank_reference'),message);
+ const page=fs.readFileSync(path.join(root,'app/payment-verification/page.tsx'),'utf8');
+ assert.ok(page.includes(`duplicate_bank_reference: "${message}"`));
+ for(const file of ['app/payment-verification/page.tsx','lib/payments/verification-row.ts','app/rent-due-tracker/actions.ts'])
+  assert.doesNotMatch(fs.readFileSync(path.join(root,file),'utf8'),/same tenancy \/ rent bill/,file);
+});
+test('folder upload pre-check: a bank code is a duplicate only on the same invoice',()=>{
+ const slip=(rent_bill_id,reference_number,verification_status='pending_verification')=>({rent_bill_id,reference_number,verification_status});
+ assert.equal(sameInvoiceBankReference([slip('sept','112145')],'sept','112-145'),true,'same invoice, formatting ignored');
+ assert.equal(sameInvoiceBankReference([slip('sept','112145')],'oct','112145'),false,'another invoice of the same tenancy may share the transfer');
+ assert.equal(sameInvoiceBankReference([slip('oct','112145','rejected')],'oct','112145'),false,'rejected slips never block');
+ assert.equal(sameInvoiceBankReference([slip('oct',null)],'oct',''),false,'blank code is not a duplicate');
+ const action=fs.readFileSync(path.join(root,'app/rent-due-tracker/actions.ts'),'utf8');
+ assert.match(action,/sameInvoiceBankReference\(live, bill\.id, reference\)/);
+ assert.doesNotMatch(action,/normalize\(s\.reference_number/,'old tenancy-wide reference check is gone');
+ assert.match(action,/s\.receipt_sha256 === hash/,'same-file duplicate check is kept');
+ assert.match(action,/error\.message\.includes\("bank_reference"\) \? bankReferenceError\(error\.message\)/,'database duplicate / over-amount reasons reach the uploader');
 });

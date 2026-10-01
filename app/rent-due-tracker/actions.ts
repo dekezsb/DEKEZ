@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { folderSummary, type FolderSlip } from "@/lib/payments/payment-folder";
+import { bankReferenceError, sameInvoiceBankReference } from "@/lib/payments/verification-row";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -360,9 +361,10 @@ export async function submitPaymentFolderSlip(form: FormData): Promise<{ ok: boo
   const bytes = Buffer.from(await file.arrayBuffer());
   const hash = createHash("sha256").update(bytes).digest("hex");
   const live = previous.filter((s) => s.verification_status !== "rejected");
-  const normalize = (s: string) => s.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  if (live.some((s) => s.receipt_sha256 === hash || (normalize(reference) && normalize(s.reference_number ?? "") === normalize(reference))))
-    return { ok: false, message: "This file or bank reference is already saved. Check the earlier slips; do not upload it again." };
+  if (live.some((s) => s.receipt_sha256 === hash))
+    return { ok: false, message: "This file is already saved. Check the earlier slips; do not upload it again." };
+  if (sameInvoiceBankReference(live, bill.id, reference))
+    return { ok: false, message: bankReferenceError("duplicate_bank_reference") };
   // Older slips predate fingerprints. Compare their stored bytes without modifying their records.
   for (const s of live.filter((s) => !s.receipt_sha256 && s.receipt_url && s.rent_bill_id === bill.id)) {
     const { data } = await db.storage.from("payment-receipts").download(s.receipt_url!);
@@ -386,7 +388,8 @@ export async function submitPaymentFolderSlip(form: FormData): Promise<{ ok: boo
     const { data: saved, error: lookupError } = await db.from("payment_submissions").select("id").eq("submission_key", key).maybeSingle();
     if (!saved) {
       if (!lookupError) await db.storage.from("payment-receipts").remove([path]);
-      return { ok: false, message: error.message.includes("Duplicate") ? "Duplicate slip or bank reference. Check the saved payments." : "Could not confirm saving. Retry this same slip; it will not be counted twice." };
+      return { ok: false, message: error.message.includes("bank_reference") ? bankReferenceError(error.message)
+        : error.message.includes("Duplicate") ? "Duplicate slip. Check the saved payments." : "Could not confirm saving. Retry this same slip; it will not be counted twice." };
     }
   }
   for (const path of ["/rent-due-tracker", "/dashboard", "/payment-verification", "/verification"]) revalidatePath(path);
