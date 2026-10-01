@@ -705,7 +705,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
 
   const statementLinesResult = selectedStatementId
-    ? await allReportRows(supabase.from("bank_statement_lines").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason").eq("statement_import_id", selectedStatementId).order("transaction_date"))
+    ? await allReportRows(supabase.from("bank_statement_transactions").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason, is_reused, import_result").eq("statement_import_id", selectedStatementId).order("transaction_date"))
     : { data: [], error: null };
   if (statementLinesResult.error) throw new Error("Unable to load remaining statement transactions. Please retry.");
   const statementLines = statementLinesResult.data;
@@ -746,7 +746,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
   const statementMovement = statementLines.reduce((total, line) => total + Number(line.amount ?? 0), 0);
   const statementDifference = selectedStatement ? Number(selectedStatement.opening_balance ?? 0) + statementMovement - Number(selectedStatement.closing_balance ?? 0) : 0;
-  const unmatchedLines = statementLines.filter((line) => line.status === "unmatched");
+  const reusedStatementLines = statementLines.filter((line) => line.is_reused);
+  const alreadyReconciledCount = reusedStatementLines.filter((line) => line.import_result === "ALREADY RECONCILED").length;
+  const unmatchedLines = statementLines.filter((line) => !line.is_reused && line.status === "unmatched");
   const unmatchedCount = unmatchedLines.length;
   const creditLines = unmatchedLines.filter((line) => Number(line.amount) > 0);
   const debitLines = unmatchedLines.filter((line) => Number(line.amount) < 0);
@@ -868,7 +870,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     if (allAccountsResult.error) throw new Error("Unable to load Balance Sheet accounts");
     const balanceStatementIds = [...new Set([endDate, pnlDates.priorEndDate].flatMap((date) => bankAccounts.map((bank) => statementImports.find((s) => s.bank_account_id === bank.id && s.period_end <= date)?.id).filter((id): id is string => Boolean(id))))];
     const bankBreakdownResult = balanceStatementIds.length
-      ? await allReportRows(supabase.from("bank_statement_lines").select("id, statement_import_id, transaction_date, description, reference_number, amount").in("statement_import_id", balanceStatementIds))
+      ? await allReportRows(supabase.from("bank_statement_transactions").select("id, statement_import_id, transaction_date, description, reference_number, amount").in("statement_import_id", balanceStatementIds).order("statement_import_id"))
       : {data: [], error: null};
     if (bankBreakdownResult.error) throw new Error("Unable to load bank statement supporting movements");
     const reportingAccounts = allAccountsResult.data;
@@ -1169,7 +1171,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               </form>
               </details>
             </CardContent></Card>
-            <Card id="bank-import"><CardHeader><CardTitle>Import monthly bank statement</CardTitle><CardDescription>Upload the CSV once. The original is retained for seven years and the same file cannot be duplicated.</CardDescription></CardHeader><CardContent>
+            <Card id="bank-import"><CardHeader><CardTitle>Import monthly bank statement</CardTitle><CardDescription>The original is retained for seven years. Overlapping uploads reuse existing bank transactions and keep earlier reconciliations; only new transactions are added.</CardDescription></CardHeader><CardContent>
+              {params.imported !== undefined ? <p role="status" className="mb-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-900">{Number(params.imported) || 0} new transactions imported. {Number(params.reused) || 0} ALREADY IMPORTED, including {Number(params.completed) || 0} ALREADY RECONCILED. Existing transactions and reconciliation records were reused, not copied.</p> : null}
               {params.error?.startsWith("statement_") ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessages[params.error] ?? "The statement could not be imported."}</div> : null}
               {bankAccounts.length ? <form action={importBankStatement} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm sm:col-span-2">Bank account<select className="mt-1 h-10 w-full rounded-md border border-[#d7dde5] bg-white px-3" name="bankAccountId" required>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.name}{account.account_number ? ` · ${account.account_number}` : account.account_number_last4 ? ` · ending ${account.account_number_last4}` : ""}</option>)}</select></label>
@@ -1190,6 +1193,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
           {selectedStatement ? (
             <>
+              {reusedStatementLines.length ? <p role="status" className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">{reusedStatementLines.length} overlapping transactions reused: {alreadyReconciledCount} ALREADY RECONCILED; {reusedStatementLines.length - alreadyReconciledCount} ALREADY IMPORTED. They are excluded from this work list. Any remaining allocation stays with the original transaction in its earlier statement. Statement totals below still include every transaction once.</p> : null}
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
                 {[
                   { label: "Bank account", value: statementAccount ? `${statementAccount.bank_name} · ${statementAccount.name}${statementAccount.account_number ? ` · ${statementAccount.account_number}` : ""}` : "Bank", icon: Building2, warn: false },

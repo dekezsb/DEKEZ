@@ -456,13 +456,22 @@ export async function importBankStatement(formData: FormData) {
     redirect(statementImportPath({ error: "statement_lines" }));
   }
 
+  const importedRows = await allReportRows(supabase.from("bank_statement_transactions")
+    .select("id, is_reused, import_result").eq("statement_import_id", statementImport.id));
+  if (importedRows.error) redirect(reportPath({ statement: statementImport.id, error: "statement_lines" }));
+  const importSummary = {
+    statement: statementImport.id,
+    imported: String(importedRows.data.filter((line) => !line.is_reused).length),
+    reused: String(importedRows.data.filter((line) => line.is_reused).length),
+    completed: String(importedRows.data.filter((line) => line.import_result === "ALREADY RECONCILED").length),
+  };
   revalidatePath("/reports");
   try {
     await refreshPaymentSuggestions(supabase, company.id);
   } catch {
-    redirect(reportPath({ statement: statementImport.id, imported: String(parsedLines.length), suggestions: "retry" }));
+    redirect(reportPath({ ...importSummary, suggestions: "retry" }));
   }
-  redirect(reportPath({ statement: statementImport.id, imported: String(parsedLines.length) }));
+  redirect(reportPath(importSummary));
 }
 
 async function refreshLineStatus(
@@ -1651,7 +1660,7 @@ export async function finalizeBankReconciliation(formData: FormData) {
   const statementId = textValue(formData, "statementId");
   const [{ data: statementImport }, { data: lines, error: lineError }] = await Promise.all([
     supabase.from("bank_statement_imports").select("id, opening_balance, closing_balance, status").eq("id", statementId).eq("company_id", company.id).single(),
-    allReportRows(supabase.from("bank_statement_lines").select("id, amount, status").eq("statement_import_id", statementId)),
+    allReportRows(supabase.from("bank_statement_transactions").select("id, amount, status").eq("statement_import_id", statementId)),
   ]);
   if (!statementImport || statementImport.status !== "in_progress") redirect(reportPath({ error: "statement_closed" }));
   if (lineError) redirect(reportPath({ statement: statementId, error: "statement_lines" }));

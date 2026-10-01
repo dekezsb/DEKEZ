@@ -181,6 +181,9 @@ export function parseBankStatementCsv(content: string): ParsedBankLine[] {
         ? primaryReference
         : detailValues.find((value) => /(?:ref|qr|room|\b[A-Z]{3}\s*\d+)/i.test(value)) ?? null;
       const valueDate = valueDateIndex >= 0 ? parseDate(row[valueDateIndex]) : null;
+      // Source-row identity only (including repeated identical rows in one file).
+      // Cross-import identity is enforced in the database from account/date/signed
+      // amount/reference/description, independently of row position and filename.
       const rawKey = [transactionDate, valueDate, amount.toFixed(2), description, referenceNumber, rowIndex].join("|");
 
       return {

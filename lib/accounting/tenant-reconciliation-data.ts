@@ -50,9 +50,10 @@ export async function loadExistingPayments(db: SupabaseClient, companyId: string
 }
 
 export async function loadAccountingBankCredits(db:SupabaseClient,companyId:string):Promise<StatementTransaction[]> {
-  const result=await allReportRows(db.from('bank_statement_lines').select('id,bank_account_id,statement_import_id,amount,transaction_date,reference_number,description,status,bank_statement_imports!inner(company_id,status),bank_reconciliation_matches(id,source_type,source_id,matched_amount,existing_payment_link)').eq('bank_statement_imports.company_id',companyId).neq('bank_statement_imports.status','void').gt('amount',0));
+  const result=await allReportRows(db.from('bank_statement_lines').select('id,bank_account_id,statement_import_id,amount,transaction_date,reference_number,description,status,duplicate_of_line_id,bank_statement_imports!inner(company_id,status),bank_reconciliation_matches(id,source_type,source_id,matched_amount,existing_payment_link)').eq('bank_statement_imports.company_id',companyId).neq('bank_statement_imports.status','void').gt('amount',0));
   if(result.error) throw new Error('Unable to load bank transactions. No records changed.');
-  return flagDuplicateBanks(result.data.map(b=>{
+  // Retained duplicate-import rows are audit evidence, never another bank candidate.
+  return flagDuplicateBanks(result.data.filter(b=>!b.duplicate_of_line_id).map(b=>{
     const matches=b.bank_reconciliation_matches??[];
     const allocatedAmount=matches.reduce((n,m)=>n+Number(m.matched_amount),0);
     const remainingAmount=Math.max(0,Math.round((Number(b.amount)-allocatedAmount)*100)/100);
