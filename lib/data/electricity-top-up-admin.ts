@@ -22,7 +22,9 @@ export type StaffTopUpCandidate = {
   roomName: string;
   meterNumber: string | null;
   remainingUnits: number | null;
+  remainingCredit: number | null;
   unitLabel: string | null;
+  connectionStatus: string | null;
   openRequest: { status: string; amount: number } | null;
 };
 
@@ -65,7 +67,9 @@ export async function getStaffElectricityTopUpCandidates(): Promise<
     supabase.from("tenants").select("id, full_name, profile_id").in("id", tenantIds),
     supabase
       .from("smart_meters")
-      .select("room_id, meter_number, remaining_units, unit_label")
+      .select(
+        "room_id, meter_number, remaining_units, remaining_credit, unit_label, connection_status",
+      )
       .eq("meter_type", "electricity")
       .eq("status", "active")
       .in("room_id", roomIds),
@@ -105,7 +109,9 @@ export async function getStaffElectricityTopUpCandidates(): Promise<
         roomName: room?.room_number ?? room?.name ?? "Room",
         meterNumber: meter?.meter_number ?? null,
         remainingUnits: meter ? numberValue(meter.remaining_units) : null,
+        remainingCredit: meter ? numberValue(meter.remaining_credit) : null,
         unitLabel: meter?.unit_label ?? null,
+        connectionStatus: meter?.connection_status ?? null,
         openRequest: openRequest
           ? {
               status: openRequest.status,

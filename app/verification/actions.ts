@@ -111,6 +111,18 @@ export async function reviewSmartMeterTopUp(formData: FormData) {
     redirect(verificationPath("meter_topups", "error=topup_changed"));
   }
 
+  await supabase.from("audit_logs").insert({
+    actor_profile_id: user.id,
+    action:
+      decision === "approved"
+        ? "electricity_topup_approved"
+        : "electricity_topup_rejected",
+    entity_table: "smart_meter_top_up_requests",
+    entity_id: reviewedRequest.id,
+    metadata:
+      decision === "rejected" ? { reason } : {},
+  });
+
   revalidatePath("/verification");
   revalidatePath("/dashboard");
   redirect(
@@ -135,20 +147,40 @@ export async function confirmSmartMeterCredit(formData: FormData) {
   }
 
   const supabase = createAdminClient();
-  const { error } = await supabase.rpc("confirm_smart_meter_top_up_credit", {
-    request_id: requestId,
-    reviewer_id: user.id,
-    external_reference: providerReference,
-  });
+  const { data: creditResult, error } = await supabase.rpc(
+    "confirm_smart_meter_top_up_credit",
+    {
+      request_id: requestId,
+      reviewer_id: user.id,
+      external_reference: providerReference,
+    },
+  );
 
   if (error) {
-    const errorCode = error.message.includes("active_electricity_meter_required")
-      ? "meter_missing"
-      : error.message.includes("monthly_invoice_required")
-        ? "invoice_missing"
-        : "topup_credit";
+    const errorCode = error.message.includes("monthly_invoice_required")
+      ? "invoice_missing"
+      : "topup_credit";
     redirect(verificationPath("meter_topups", `error=${errorCode}`));
   }
+
+  // The RPC returns the updated row as a single composite object (not a
+  // setof), but guard against an array shape defensively in case that ever
+  // changes.
+  const creditedRequest = Array.isArray(creditResult)
+    ? creditResult[0]
+    : creditResult;
+
+  await supabase.from("audit_logs").insert({
+    actor_profile_id: user.id,
+    action: "electricity_topup_credited",
+    entity_table: "smart_meter_top_up_requests",
+    entity_id: creditedRequest?.id ?? requestId,
+    metadata: {
+      provider_reference: providerReference,
+      credit_before: creditedRequest?.credit_before ?? null,
+      credit_after: creditedRequest?.credit_after ?? null,
+    },
+  });
 
   revalidatePath("/verification");
   revalidatePath("/dashboard");
