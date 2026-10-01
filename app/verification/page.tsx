@@ -230,7 +230,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       .order("uploaded_at", { ascending: true }),
     supabase
       .from("smart_meter_top_up_requests")
-      .select("id, property_id, room_id, tenancy_id, tenant_profile_id, meter_id, rent_bill_id, bill_month, payment_date, amount, payment_slip_bucket, payment_slip_path, payment_slip_name, payment_slip_type, status, rejection_reason, verified_at, credited_at, provider_reference, credit_before, credit_after, created_at, properties(name, property_code), rooms(name, room_number), rent_bills(invoice_number)")
+      .select("id, property_id, room_id, tenancy_id, tenant_profile_id, submitted_by, verified_by, credited_by, meter_id, rent_bill_id, bill_month, payment_date, amount, payment_slip_bucket, payment_slip_path, payment_slip_name, payment_slip_type, status, rejection_reason, verified_at, credited_at, provider_reference, credit_before, credit_after, created_at, properties(name, property_code), rooms(name, room_number), rent_bills(invoice_number), smart_meters(meter_number, remaining_credit, remaining_units, unit_label, rate, connection_status, power_state)")
       .order("created_at", { ascending: false })
       .limit(100),
   ]);
@@ -255,6 +255,21 @@ export default async function VerificationPage({ searchParams }: PageProps) {
       };
     }),
   );
+  const topUpRequestIds = smartMeterTopUps.map((request) => request.id);
+  const topUpHistoryResult = topUpRequestIds.length
+    ? await supabase
+        .from("audit_logs")
+        .select("id, actor_profile_id, action, entity_id, metadata, created_at")
+        .eq("entity_table", "smart_meter_top_up_requests")
+        .in("entity_id", topUpRequestIds)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+  const topUpHistoryByRequest = new Map<string, TopUpAuditLogRow[]>();
+  for (const entry of topUpHistoryResult.data ?? []) {
+    const list = topUpHistoryByRequest.get(entry.entity_id) ?? [];
+    list.push(entry);
+    topUpHistoryByRequest.set(entry.entity_id, list);
+  }
   const profiles = new Map(
     (profilesResult.data ?? []).map((profile) => [profile.id, profile]),
   );
@@ -466,6 +481,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 
       {activeView === "meter_topups" ? (
         <SmartMeterTopUpVerification
+          historyByRequest={topUpHistoryByRequest}
           profiles={profiles}
           requests={smartMeterTopUps}
         />
@@ -535,12 +551,31 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
   return null;
 }
 
+type TopUpAuditLogRow = {
+  id: string;
+  actor_profile_id: string | null;
+  action: string;
+  entity_id: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+const topUpAuditActionLabels: Record<string, string> = {
+  electricity_topup_submitted: "Submitted",
+  electricity_topup_approved: "Payment verified",
+  electricity_topup_rejected: "Rejected",
+  electricity_topup_credited: "Meter credited",
+};
+
 type SmartMeterTopUpRequestView = {
   id: string;
   property_id: string;
   room_id: string;
   tenancy_id: string;
   tenant_profile_id: string;
+  submitted_by: string | null;
+  verified_by: string | null;
+  credited_by: string | null;
   meter_id: string | null;
   rent_bill_id: string | null;
   bill_month: string;
@@ -560,12 +595,34 @@ type SmartMeterTopUpRequestView = {
   properties: { name: string; property_code: string | null } | { name: string; property_code: string | null }[] | null;
   rooms: { name: string | null; room_number: string | null } | { name: string | null; room_number: string | null }[] | null;
   rent_bills: { invoice_number: string } | { invoice_number: string }[] | null;
+  smart_meters:
+    | {
+        meter_number: string | null;
+        remaining_credit: number | string | null;
+        remaining_units: number | string | null;
+        unit_label: string | null;
+        rate: number | string | null;
+        connection_status: string | null;
+        power_state: string | null;
+      }
+    | {
+        meter_number: string | null;
+        remaining_credit: number | string | null;
+        remaining_units: number | string | null;
+        unit_label: string | null;
+        rate: number | string | null;
+        connection_status: string | null;
+        power_state: string | null;
+      }[]
+    | null;
 };
 
 function SmartMeterTopUpVerification({
+  historyByRequest,
   profiles,
   requests,
 }: {
+  historyByRequest: Map<string, TopUpAuditLogRow[]>;
   profiles: Map<
     string,
     {
@@ -604,7 +661,21 @@ function SmartMeterTopUpVerification({
             const property = single(request.properties);
             const room = single(request.rooms);
             const invoice = single(request.rent_bills);
+            const meter = single(request.smart_meters);
             const statusLabel = request.status.replaceAll("_", " ");
+            const submittedByProfile = request.submitted_by
+              ? profiles.get(request.submitted_by)
+              : null;
+            const isStaffAssisted =
+              Boolean(request.submitted_by) &&
+              request.submitted_by !== request.tenant_profile_id;
+            const verifiedByProfile = request.verified_by
+              ? profiles.get(request.verified_by)
+              : null;
+            const creditedByProfile = request.credited_by
+              ? profiles.get(request.credited_by)
+              : null;
+            const history = historyByRequest.get(request.id) ?? [];
 
             return (
               <article
@@ -637,6 +708,19 @@ function SmartMeterTopUpVerification({
                       {profile?.phone ? ` / ${profile.phone}` : ""}
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
+                      {isStaffAssisted
+                        ? `Submitted by staff: ${submittedByProfile?.full_name ?? "Staff member"}`
+                        : "Submitted by tenant"}
+                    </p>
+                    {request.verified_at ? (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Verified by {verifiedByProfile?.full_name ?? "a reviewer"}
+                        {request.verified_at
+                          ? ` on ${formatMalaysiaDateTime(request.verified_at)}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs text-gray-500">
                       Billing month {formatMalaysiaDate(request.bill_month)}
                       {invoice?.invoice_number ? ` / ${invoice.invoice_number}` : ""}
                     </p>
@@ -652,6 +736,36 @@ function SmartMeterTopUpVerification({
                       Payment slip unavailable
                     </span>
                   )}
+                </div>
+
+                <div className="mt-4 grid gap-2 rounded-md border border-[#e5e9ef] bg-[#f8f9fb] px-4 py-3 text-xs text-gray-700 sm:grid-cols-2 lg:grid-cols-4">
+                  <p>
+                    <span className="font-semibold text-gray-900">Meter:</span>{" "}
+                    {meter?.meter_number ?? "Not assigned"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-gray-900">
+                      Remaining credit:
+                    </span>{" "}
+                    {meter?.remaining_credit !== undefined && meter?.remaining_credit !== null
+                      ? money(Number(meter.remaining_credit))
+                      : "—"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-gray-900">
+                      Remaining units:
+                    </span>{" "}
+                    {meter?.remaining_units !== undefined && meter?.remaining_units !== null
+                      ? `${Number(meter.remaining_units).toFixed(2)} ${meter.unit_label ?? "kWh"}`
+                      : "—"}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-gray-900">
+                      Connection:
+                    </span>{" "}
+                    {meter?.connection_status ?? "—"}
+                    {meter?.power_state ? ` / ${meter.power_state}` : ""}
+                  </p>
                 </div>
 
                 {request.status === "pending_verification" ? (
@@ -718,10 +832,40 @@ function SmartMeterTopUpVerification({
                     <p>
                       Credit: {money(Number(request.credit_before ?? 0))} → {money(Number(request.credit_after ?? 0))}
                     </p>
+                    <p>
+                      Credited by {creditedByProfile?.full_name ?? "a reviewer"}
+                      {request.credited_at
+                        ? ` on ${formatMalaysiaDateTime(request.credited_at)}`
+                        : ""}
+                    </p>
                     <p className="sm:col-span-2">
                       Accounting: Top Up Utilities income posted to {invoice?.invoice_number ?? "the monthly invoice"}; payment slip retained for audit.
                     </p>
                   </div>
+                ) : null}
+
+                {history.length ? (
+                  <details className="mt-4 border-t border-[#e5e9ef] pt-3">
+                    <summary className="cursor-pointer text-xs font-semibold text-gray-600">
+                      History ({history.length})
+                    </summary>
+                    <ul className="mt-2 space-y-1.5">
+                      {history.map((entry) => {
+                        const actor = entry.actor_profile_id
+                          ? profiles.get(entry.actor_profile_id)
+                          : null;
+                        return (
+                          <li className="text-xs text-gray-500" key={entry.id}>
+                            {topUpAuditActionLabels[entry.action] ?? entry.action}
+                            {" by "}
+                            {actor?.full_name ?? "System"}
+                            {" on "}
+                            {formatMalaysiaDateTime(entry.created_at)}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </details>
                 ) : null}
               </article>
             );

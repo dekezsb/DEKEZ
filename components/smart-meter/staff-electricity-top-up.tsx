@@ -10,8 +10,22 @@ import {
 } from "@/components/ui/card";
 import type { StaffTopUpCandidate } from "@/lib/data/electricity-top-up-admin";
 
+function meterSummary(candidate: StaffTopUpCandidate) {
+  if (!candidate.meterNumber) return "no meter assigned";
+  const parts = [`meter ${candidate.meterNumber}`];
+  if (candidate.remainingCredit !== null) {
+    parts.push(`RM ${candidate.remainingCredit.toFixed(2)} left`);
+  } else if (candidate.remainingUnits !== null) {
+    parts.push(`${candidate.remainingUnits.toFixed(2)} ${candidate.unitLabel ?? "kWh"} left`);
+  }
+  if (candidate.connectionStatus && candidate.connectionStatus !== "connected") {
+    parts.push(candidate.connectionStatus);
+  }
+  return parts.join(" · ");
+}
+
 function candidateLabel(candidate: StaffTopUpCandidate) {
-  const base = `${candidate.propertyName} / ${candidate.roomName} — ${candidate.tenantName}`;
+  const base = `${candidate.propertyName} / ${candidate.roomName} — ${candidate.tenantName} (${meterSummary(candidate)})`;
   if (!candidate.openRequest) return base;
   const statusLabel =
     candidate.openRequest.status === "pending_verification"
@@ -76,9 +90,6 @@ export function StaffElectricityTopUp({
                     value={candidate.tenancyId}
                   >
                     {candidateLabel(candidate)}
-                    {candidate.remainingUnits !== null
-                      ? ` · meter: ${candidate.remainingUnits.toFixed(2)} ${candidate.unitLabel ?? "kWh"}`
-                      : ""}
                   </option>
                 ))}
               </select>

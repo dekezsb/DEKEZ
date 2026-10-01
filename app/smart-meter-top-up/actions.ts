@@ -131,7 +131,7 @@ export async function submitSmartMeterTopUp(formData: FormData) {
     redirect(topUpResult("topup_error=upload"));
   }
 
-  const { error: createError } = await supabase
+  const { data: createdRequest, error: createError } = await supabase
     .from("smart_meter_top_up_requests")
     .insert({
       property_id: tenancy.property_id,
@@ -139,18 +139,35 @@ export async function submitSmartMeterTopUp(formData: FormData) {
       tenancy_id: tenancy.id,
       tenant_record_id: tenant.id,
       tenant_profile_id: user.id,
+      submitted_by: user.id,
       meter_id: meter?.id ?? null,
       amount,
       payment_slip_path: path,
       payment_slip_name: slip.name,
       payment_slip_type: slip.type,
       status: "pending_verification",
-    });
+    })
+    .select("id")
+    .maybeSingle();
 
-  if (createError) {
+  if (createError || !createdRequest) {
     await supabase.storage.from("smart-meter-top-up-slips").remove([path]);
     redirect(topUpResult("topup_error=create"));
   }
+
+  await supabase.from("audit_logs").insert({
+    actor_profile_id: user.id,
+    action: "electricity_topup_submitted",
+    entity_table: "smart_meter_top_up_requests",
+    entity_id: createdRequest.id,
+    metadata: {
+      tenancy_id: tenancy.id,
+      room_id: tenancy.room_id,
+      tenant_profile_id: user.id,
+      amount,
+      assisted: false,
+    },
+  });
 
   revalidatePath("/dashboard");
   revalidatePath("/verification");
@@ -221,25 +238,31 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
     redirect(topUpResult("topup_error=access"));
   }
 
-  const [{ data: tenant }, { data: existingRequest }] = await Promise.all([
-    supabase
-      .from("tenants")
-      .select("id, profile_id")
-      .eq("id", tenancy.tenant_id)
-      .maybeSingle(),
-    supabase
-      .from("smart_meter_top_up_requests")
-      .select("id")
-      .eq("tenancy_id", tenancy.id)
-      .in("status", ["pending_verification", "approved_awaiting_top_up"])
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const { data: tenant } = await supabase
+    .from("tenants")
+    .select("id, profile_id")
+    .eq("id", tenancy.tenant_id)
+    .maybeSingle();
 
-  if (!tenant || existingRequest) {
-    redirect(
-      topUpResult(existingRequest ? "topup_error=pending" : "topup_error=tenancy"),
-    );
+  if (!tenant) {
+    redirect(topUpResult("topup_error=tenancy"));
+  }
+
+  // Keyed the same way as the database's own one-open-request constraint
+  // (tenant + room, not tenancy), so a tenant whose tenancy was renewed to a
+  // new tenancy_id still gets the friendly "already pending" message instead
+  // of a raw database error.
+  const { data: existingRequest } = await supabase
+    .from("smart_meter_top_up_requests")
+    .select("id")
+    .eq("tenant_profile_id", tenant.profile_id)
+    .eq("room_id", tenancy.room_id)
+    .in("status", ["pending_verification", "approved_awaiting_top_up"])
+    .limit(1)
+    .maybeSingle();
+
+  if (existingRequest) {
+    redirect(topUpResult("topup_error=pending"));
   }
 
   const { data: meter } = await supabase
@@ -273,6 +296,7 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
       tenancy_id: tenancy.id,
       tenant_record_id: tenant.id,
       tenant_profile_id: tenant.profile_id,
+      submitted_by: user.id,
       meter_id: meter?.id ?? null,
       amount,
       payment_slip_path: path,
@@ -290,7 +314,7 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
 
   await supabase.from("audit_logs").insert({
     actor_profile_id: user.id,
-    action: "staff_submitted_electricity_topup",
+    action: "electricity_topup_submitted",
     entity_table: "smart_meter_top_up_requests",
     entity_id: createdRequest.id,
     metadata: {
@@ -298,6 +322,7 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
       room_id: tenancy.room_id,
       tenant_profile_id: tenant.profile_id,
       amount,
+      assisted: true,
     },
   });
 
