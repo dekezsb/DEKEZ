@@ -101,19 +101,21 @@ test('reference RPC is service-only, not an authenticated public privilege bypas
 // Shared bank code across rooms (20260927140000): one real transfer may fund several
 // rooms/invoices, but the total saved under a code must never exceed the bank line.
 const sharedSql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260927140000_shared_bank_reference_multi_room_amount_cap.sql'), 'utf8');
+// Duplicate key narrowed to the same invoice / payment slot (20261001120000); tenant/person is never the key.
+const invoiceKeySql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261001120000_bank_reference_duplicate_key_per_invoice.sql'), 'utf8');
 let shared;
 test.before(async () => {
   shared = new PGlite();
   await shared.exec(`create role anon; create role authenticated; create role service_role;
     create table profiles(id uuid primary key,role text,global_role text);
     create table properties(id uuid primary key,company_id uuid);
-    create table payment_submissions(id uuid primary key,property_id uuid,tenancy_id uuid,tenant_record_id uuid,rent_bill_id uuid,reference_number text,verification_status text,amount numeric,payment_date date,payment_method text,verified_at timestamptz,receipt_url text);
-    create table payments(id uuid primary key,payment_submission_id uuid,company_id uuid,tenancy_id uuid,rent_bill_id uuid,reference_number text,amount numeric,payment_date date,status text,reversed_at timestamptz);
+    create table payment_submissions(id uuid primary key,property_id uuid,tenant_id uuid,tenant_application_id uuid,tenancy_id uuid,tenant_record_id uuid,rent_bill_id uuid,bill_month date,payment_type text,reference_number text,verification_status text,amount numeric,payment_date date,payment_method text,verified_at timestamptz,receipt_url text);
+    create table payments(id uuid primary key,payment_submission_id uuid,company_id uuid,tenancy_id uuid,rent_bill_id uuid,category text,reference_number text,amount numeric,payment_date date,status text,reversed_at timestamptz);
     create table audit_logs(company_id uuid,actor_profile_id uuid,action text,entity_table text,entity_id uuid,metadata jsonb);
     create table bank_accounts(id uuid primary key,company_id uuid);
     create table bank_statement_lines(id uuid primary key,bank_account_id uuid,transaction_date date,reference_number text,description text,amount numeric);
     create function verify_payment_folder_slip(uuid,uuid,text,text) returns void language plpgsql as $$ begin end; $$;`);
-  await shared.exec(sql); await shared.exec(sharedSql);
+  await shared.exec(sql); await shared.exec(sharedSql); await shared.exec(invoiceKeySql);
 });
 test.after(async () => shared?.close());
 async function sharedFixture() {
@@ -123,13 +125,14 @@ async function sharedFixture() {
     insert into properties values('${id(110)}','${id(111)}');
     insert into bank_accounts values('${id(150)}','${id(111)}');
     insert into bank_statement_lines values('${id(160)}','${id(150)}','2026-09-25','112145','DUITNOW TRANSFER',1000);
-    insert into payment_submissions(id,property_id,tenancy_id,tenant_record_id,rent_bill_id,verification_status,amount,payment_date,payment_method) values
-      ('${id(120)}','${id(110)}','${id(121)}','${id(123)}','${id(122)}','pending_verification',500,'2026-09-25','bank_transfer'),
-      ('${id(130)}','${id(110)}','${id(131)}','${id(133)}','${id(132)}','pending_verification',500,'2026-09-25','bank_transfer'),
-      ('${id(140)}','${id(110)}','${id(141)}','${id(143)}','${id(142)}','pending_verification',350,'2026-09-25','bank_transfer');`);
+    insert into payment_submissions(id,property_id,tenant_id,tenancy_id,tenant_record_id,rent_bill_id,bill_month,payment_type,verification_status,amount,payment_date,payment_method) values
+      ('${id(120)}','${id(110)}','${id(119)}','${id(121)}','${id(123)}','${id(122)}','2026-09-01','monthly_rent','pending_verification',500,'2026-09-25','bank_transfer'),
+      ('${id(130)}','${id(110)}','${id(119)}','${id(131)}','${id(133)}','${id(132)}','2026-09-01','monthly_rent','pending_verification',500,'2026-09-25','bank_transfer'),
+      ('${id(140)}','${id(110)}','${id(149)}','${id(141)}','${id(143)}','${id(142)}','2026-09-01','monthly_rent','pending_verification',350,'2026-09-25','bank_transfer');`);
 }
 const saveShared = (submission, code='112145') => shared.query('select save_payment_bank_reference($1,$2,$3,$4)',[id(submission),id(1),code,null]);
 const sharedRows = async q => (await shared.query(q)).rows;
+const addSlip = (n, cols) => shared.exec(`insert into payment_submissions(id,property_id,verification_status,payment_date,payment_method,${Object.keys(cols).join(',')}) values('${id(n)}','${id(110)}','pending_verification','2026-09-25','bank_transfer',${Object.values(cols).map(v=>v===null?'null':typeof v==='number'?v:`'${v}'`).join(',')});`);
 const refOf = async submission => (await sharedRows(`select reference_number from payment_submissions where id='${id(submission)}'`))[0].reference_number;
 test('one bank code may fund two rooms up to the real bank amount', async () => {
   await sharedFixture();
@@ -154,16 +157,54 @@ test('cap matches the bank line even when its text formats the code with spaces/
   await saveShared(120); await saveShared(130);
   await assert.rejects(saveShared(140),/bank_reference_exceeds_amount/);
 });
-test('reusing the code on the same tenancy / rent bill is still duplicate_bank_reference', async () => {
+test('same person paying two rooms with one code is allowed even when the slips share a tenant record', async () => {
   await sharedFixture();
-  await shared.exec(`insert into payment_submissions(id,property_id,tenancy_id,tenant_record_id,rent_bill_id,verification_status,amount,payment_date,payment_method) values('${id(125)}','${id(110)}','${id(121)}','${id(126)}','${id(127)}','pending_verification',100,'2026-09-25','bank_transfer');`);
+  // Room 3's slip carries the same tenant_record_id as Room 2: still two different invoices.
+  await shared.exec(`update payment_submissions set tenant_record_id='${id(123)}' where id='${id(130)}';`);
+  await saveShared(120); await saveShared(130);
+  assert.equal(await refOf(120),'112145'); assert.equal(await refOf(130),'112145');
+  assert.equal((await sharedRows('select * from audit_logs')).length,2);
+});
+test('two different invoices of the same tenancy may share one code within the bank amount', async () => {
+  await sharedFixture();
+  await addSlip(125,{tenant_id:id(119),tenancy_id:id(121),tenant_record_id:id(123),rent_bill_id:id(127),bill_month:'2026-10-01',payment_type:'monthly_rent',amount:500});
+  await saveShared(120); await saveShared(125);
+  assert.equal(await refOf(125),'112145');
+});
+test('the same rent bill receiving the same code twice is duplicate_bank_reference', async () => {
+  await sharedFixture();
+  await addSlip(125,{tenant_id:id(119),tenancy_id:id(121),tenant_record_id:id(123),rent_bill_id:id(122),bill_month:'2026-09-01',payment_type:'monthly_rent',amount:100});
   await saveShared(120);
   await assert.rejects(saveShared(125),/duplicate_bank_reference/);
   assert.equal(await refOf(125),null);
-});
-test('rejected slips do not count toward the cap', async () => {
+  // A standalone confirmed payment already carrying the code on the same bill is also a duplicate.
   await sharedFixture();
-  await shared.exec(`insert into payment_submissions(id,property_id,tenancy_id,rent_bill_id,reference_number,verification_status,amount) values('${id(180)}','${id(110)}','${id(181)}','${id(182)}','112145','rejected',900);`);
+  await shared.exec(`insert into payments(id,company_id,tenancy_id,rent_bill_id,category,reference_number,amount,payment_date,status) values('${id(171)}','${id(111)}','${id(121)}','${id(122)}','monthly_rent','112-145',100,'2026-09-25','confirmed');`);
+  await assert.rejects(saveShared(120),/duplicate_bank_reference/);
+  assert.equal((await sharedRows('select * from audit_logs')).length,0);
+});
+test('payments without an invoice: same slot is a duplicate, a different payment type is not', async () => {
+  await sharedFixture();
+  await shared.exec(`delete from bank_statement_lines;`);
+  const app = { tenant_id:id(119), tenant_application_id:id(190), tenant_record_id:id(123), rent_bill_id:null, bill_month:'2026-09-01' };
+  await addSlip(191,{...app,payment_type:'deposit',amount:500});
+  await addSlip(192,{...app,payment_type:'deposit',amount:500});
+  await addSlip(193,{...app,payment_type:'monthly_rent',amount:500});
+  await saveShared(191);
+  await assert.rejects(saveShared(192),/duplicate_bank_reference/);
+  await saveShared(193);
+  assert.equal(await refOf(193),'112145');
+});
+test('multiple rooms/invoices whose combined total exceeds the bank amount are blocked', async () => {
+  await sharedFixture();
+  await shared.exec(`update payment_submissions set tenant_record_id='${id(123)}',tenant_id='${id(119)}';`);
+  await saveShared(120); await saveShared(130);
+  await assert.rejects(saveShared(140),/bank_reference_exceeds_amount/);
+  assert.equal(await refOf(140),null);
+});
+test('rejected slips neither count toward the cap nor make a duplicate', async () => {
+  await sharedFixture();
+  await shared.exec(`insert into payment_submissions(id,property_id,tenancy_id,rent_bill_id,reference_number,verification_status,amount) values('${id(180)}','${id(110)}','${id(181)}','${id(182)}','112145','rejected',900),('${id(183)}','${id(110)}','${id(121)}','${id(122)}','112145','rejected',500);`);
   await saveShared(120); await saveShared(130);
   assert.equal((await sharedRows('select * from audit_logs')).length,2);
 });

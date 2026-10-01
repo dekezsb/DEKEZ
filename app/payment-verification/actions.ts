@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser, getProperties } from "@/lib/data/organization";
-import { bankReferenceRequired, usableBankReference } from "@/lib/payments/verification-row";
+import { bankReferenceRequired, bankReferenceResult, usableBankReference } from "@/lib/payments/verification-row";
 import { verificationBankReference } from "@/lib/payments/bank-reference";
 import {
   getVerifiedDepositPaymentMaps,
@@ -577,7 +577,7 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
         code: bookingError.code,
         message: bookingError.message,
       });
-      finish(returnTo, bookingError.message.includes("duplicate_bank_reference") ? "error=duplicate_bank_reference" : "error=booking_review");
+      finish(returnTo, bankReferenceResult(bookingError.message, "error=booking_review"));
     }
 
     if (effectivePaymentType === "monthly_rent" && effectiveTenancyId) {
@@ -621,8 +621,7 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
       p_submission: currentSubmission.id, p_actor: user.id, p_reference: effectiveReference,
       p_previous: currentSubmission.reference_number,
     });
-    if (folderError) finish(returnTo, folderError.message.includes("duplicate_bank_reference")
-      ? "error=duplicate_bank_reference" : "error=review");
+    if (folderError) finish(returnTo, bankReferenceResult(folderError.message, "error=review"));
     if (effectiveTenancyId && effectivePaymentType === "monthly_rent") {
       await extendFingerprintAccessAfterPayment({ tenancyId: effectiveTenancyId, paymentSubmissionId: currentSubmission.id, performedBy: user.id }).catch(() => null);
     }
@@ -655,7 +654,7 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
     .single();
 
   if (error || !submission) {
-    finish(returnTo, error?.message.includes("duplicate_bank_reference") ? "error=duplicate_bank_reference" : "error=review");
+    finish(returnTo, bankReferenceResult(error?.message, "error=review"));
   }
 
   await supabase.from("payment_verification_audit_logs").insert({

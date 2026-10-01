@@ -19,6 +19,14 @@ export function paymentMatchesFilters(s: {
     && (!filters.month || (s.bill_month ?? s.payment_date ?? "").slice(0, 7) === filters.month);
 }
 
+// Verify paths: keep the specific bank-code guard result instead of a generic
+// review error, so staff see why the database refused the code.
+export function bankReferenceResult(message: string | undefined, fallback: string) {
+  if (message?.includes("duplicate_bank_reference")) return "error=duplicate_bank_reference";
+  if (message?.includes("bank_reference_exceeds_amount")) return "error=bank_reference_exceeds_amount";
+  return fallback;
+}
+
 export function bankReferenceError(message: string) {
   if (message.includes("duplicate_bank_reference")) return "This bank code is already linked to the same tenancy / rent bill. Please review it before reusing the code.";
   if (message.includes("bank_reference_exceeds_amount")) return "Saving this would allocate more than the actual bank transaction amount for this code. Check the other rooms/invoices linked to it.";
