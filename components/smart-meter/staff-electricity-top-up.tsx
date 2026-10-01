@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import { Zap } from "lucide-react";
 import { submitSmartMeterTopUpForTenant } from "@/app/smart-meter-top-up/actions";
 import { Button } from "@/components/ui/button";
@@ -10,27 +13,13 @@ import {
 } from "@/components/ui/card";
 import type { StaffTopUpCandidate } from "@/lib/data/electricity-top-up-admin";
 
-function meterSummary(candidate: StaffTopUpCandidate) {
-  if (!candidate.meterNumber) return "no meter assigned";
-  const parts = [`meter ${candidate.meterNumber}`];
-  if (candidate.remainingCredit !== null) {
-    parts.push(`RM ${candidate.remainingCredit.toFixed(2)} left`);
-  } else if (candidate.remainingUnits !== null) {
-    parts.push(`${candidate.remainingUnits.toFixed(2)} ${candidate.unitLabel ?? "kWh"} left`);
-  }
-  if (candidate.connectionStatus && candidate.connectionStatus !== "connected") {
-    parts.push(candidate.connectionStatus);
-  }
-  return parts.join(" · ");
-}
-
-function candidateLabel(candidate: StaffTopUpCandidate) {
-  const base = `${candidate.propertyName} / ${candidate.roomName} — ${candidate.tenantName} (${meterSummary(candidate)})`;
+function roomLabel(candidate: StaffTopUpCandidate) {
+  const base = `${candidate.roomName} — ${candidate.tenantName}`;
   if (!candidate.openRequest) return base;
   const statusLabel =
     candidate.openRequest.status === "pending_verification"
       ? "slip pending verification"
-      : "approved, awaiting meter top-up";
+      : "approved, awaiting top-up";
   return `${base} (already has a top-up ${statusLabel})`;
 }
 
@@ -39,7 +28,23 @@ export function StaffElectricityTopUp({
 }: {
   candidates: StaffTopUpCandidate[];
 }) {
-  const availableCount = candidates.filter((c) => !c.openRequest).length;
+  const properties = useMemo(
+    () =>
+      Array.from(new Set(candidates.map((candidate) => candidate.propertyName))).sort(
+        (a, b) => a.localeCompare(b),
+      ),
+    [candidates],
+  );
+
+  const [selectedProperty, setSelectedProperty] = useState("");
+
+  const roomsForProperty = useMemo(
+    () =>
+      candidates
+        .filter((candidate) => candidate.propertyName === selectedProperty)
+        .sort((a, b) => a.roomName.localeCompare(b.roomName)),
+    [candidates, selectedProperty],
+  );
 
   return (
     <Card className="overflow-hidden border-amber-300 shadow-sm">
@@ -51,10 +56,10 @@ export function StaffElectricityTopUp({
           <div>
             <CardTitle>Submit Tenant&apos;s Electricity Top-Up</CardTitle>
             <CardDescription className="mt-1">
-              For tenants who can&apos;t submit it themselves — pick their
-              room, enter the amount, and attach a photo of their bank-in
-              slip. It still goes through the usual Verification review
-              before the meter is credited.
+              For tenants who can&apos;t submit it themselves — choose the
+              property, then the room, enter the amount, and attach a photo
+              of their bank-in slip. It still goes through the usual
+              Verification review before it&apos;s confirmed.
             </CardDescription>
           </div>
         </div>
@@ -71,25 +76,45 @@ export function StaffElectricityTopUp({
             encType="multipart/form-data"
           >
             <label className="block text-sm font-semibold text-gray-900">
-              Tenant / room
+              Property
               <select
                 className="mt-1 w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm font-normal"
+                onChange={(event) => setSelectedProperty(event.target.value)}
+                value={selectedProperty}
+              >
+                <option value="">Select a property...</option>
+                {properties.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-semibold text-gray-900">
+              Room / tenant
+              <select
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm font-normal disabled:bg-gray-100 disabled:text-gray-400"
                 defaultValue=""
+                disabled={!selectedProperty}
+                key={selectedProperty}
                 name="tenancyId"
                 required
               >
                 <option disabled value="">
-                  {availableCount
-                    ? "Select a tenant..."
-                    : "All tenants already have an open top-up request"}
+                  {!selectedProperty
+                    ? "Choose a property first"
+                    : roomsForProperty.some((candidate) => !candidate.openRequest)
+                      ? "Select a room..."
+                      : "All tenants at this property already have an open top-up request"}
                 </option>
-                {candidates.map((candidate) => (
+                {roomsForProperty.map((candidate) => (
                   <option
                     disabled={Boolean(candidate.openRequest)}
                     key={candidate.tenancyId}
                     value={candidate.tenancyId}
                   >
-                    {candidateLabel(candidate)}
+                    {roomLabel(candidate)}
                   </option>
                 ))}
               </select>
