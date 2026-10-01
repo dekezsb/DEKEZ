@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { TopUpCreditForm } from "@/app/verification/top-up-credit-form";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,6 +39,7 @@ import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { resolveEffectiveTopUpMeter } from "@/lib/smart-meter/effective-top-up-meter";
 import { checkoutRoom } from "@/app/properties/[id]/actions";
 import { PaymentVerificationContent } from "@/app/payment-verification/page";
 import { TenantVerificationContent } from "@/app/tenant-verification/page";
@@ -146,7 +148,6 @@ const errorMessages: Record<string, string> = {
   topup_changed: "This electricity top-up request was already reviewed. Refresh and check its latest status.",
   topup_credit_details: "Enter the meter-provider transaction reference after the physical meter is credited.",
   topup_credit: "The meter credit could not be recorded. Check the request and provider reference.",
-  meter_missing: "Assign an active electricity meter to this room before confirming the meter credit.",
   invoice_missing: "The monthly invoice could not be prepared for this electricity top-up.",
 };
 
@@ -264,6 +265,51 @@ export default async function VerificationPage({ searchParams }: PageProps) {
         .in("entity_id", topUpRequestIds)
         .order("created_at", { ascending: true })
     : { data: [] };
+  // Load every active electricity meter the credit RPC could pick for these
+  // requests (the stored meter_id, or the room's meter when meter_id is
+  // null) so each card shows the flow the RPC will actually run.
+  const openTopUps = smartMeterTopUps.filter(
+    (request) => request.status !== "credited" && request.status !== "rejected",
+  );
+  const topUpMeterIds = [
+    ...new Set(openTopUps.flatMap((request) => (request.meter_id ? [request.meter_id] : []))),
+  ];
+  const topUpRoomIds = [
+    ...new Set(openTopUps.filter((request) => !request.meter_id).map((request) => request.room_id)),
+  ];
+  const activeMeterColumns =
+    "id, room_id, meter_type, status, updated_at, meter_number, remaining_credit, remaining_units, unit_label, rate, connection_status, power_state";
+  const [meterByIdResult, meterByRoomResult] = await Promise.all([
+    topUpMeterIds.length
+      ? supabase
+          .from("smart_meters")
+          .select(activeMeterColumns)
+          .eq("meter_type", "electricity")
+          .eq("status", "active")
+          .in("id", topUpMeterIds)
+      : Promise.resolve({ data: [] }),
+    topUpRoomIds.length
+      ? supabase
+          .from("smart_meters")
+          .select(activeMeterColumns)
+          .eq("meter_type", "electricity")
+          .eq("status", "active")
+          .in("room_id", topUpRoomIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const activeTopUpMeters = [
+    ...new Map(
+      [...(meterByIdResult.data ?? []), ...(meterByRoomResult.data ?? [])].map(
+        (meter) => [meter.id, meter],
+      ),
+    ).values(),
+  ];
+  const effectiveMeterByRequest = new Map(
+    openTopUps.map((request) => [
+      request.id,
+      resolveEffectiveTopUpMeter(request, activeTopUpMeters),
+    ]),
+  );
   const topUpHistoryByRequest = new Map<string, TopUpAuditLogRow[]>();
   for (const entry of topUpHistoryResult.data ?? []) {
     const list = topUpHistoryByRequest.get(entry.entity_id) ?? [];
@@ -481,6 +527,7 @@ export default async function VerificationPage({ searchParams }: PageProps) {
 
       {activeView === "meter_topups" ? (
         <SmartMeterTopUpVerification
+          effectiveMeterByRequest={effectiveMeterByRequest}
           historyByRequest={topUpHistoryByRequest}
           profiles={profiles}
           requests={smartMeterTopUps}
@@ -596,32 +643,28 @@ type SmartMeterTopUpRequestView = {
   rooms: { name: string | null; room_number: string | null } | { name: string | null; room_number: string | null }[] | null;
   rent_bills: { invoice_number: string } | { invoice_number: string }[] | null;
   smart_meters:
-    | {
-        meter_number: string | null;
-        remaining_credit: number | string | null;
-        remaining_units: number | string | null;
-        unit_label: string | null;
-        rate: number | string | null;
-        connection_status: string | null;
-        power_state: string | null;
-      }
-    | {
-        meter_number: string | null;
-        remaining_credit: number | string | null;
-        remaining_units: number | string | null;
-        unit_label: string | null;
-        rate: number | string | null;
-        connection_status: string | null;
-        power_state: string | null;
-      }[]
+    | TopUpMeterView
+    | TopUpMeterView[]
     | null;
 };
 
+type TopUpMeterView = {
+  meter_number: string | null;
+  remaining_credit: number | string | null;
+  remaining_units: number | string | null;
+  unit_label: string | null;
+  rate: number | string | null;
+  connection_status: string | null;
+  power_state: string | null;
+};
+
 function SmartMeterTopUpVerification({
+  effectiveMeterByRequest,
   historyByRequest,
   profiles,
   requests,
 }: {
+  effectiveMeterByRequest: Map<string, TopUpMeterView | null>;
   historyByRequest: Map<string, TopUpAuditLogRow[]>;
   profiles: Map<
     string,
@@ -661,7 +704,16 @@ function SmartMeterTopUpVerification({
             const property = single(request.properties);
             const room = single(request.rooms);
             const invoice = single(request.rent_bills);
-            const meter = single(request.smart_meters);
+            // Credited/rejected cards show what was recorded; open requests
+            // show the meter the credit RPC will actually use right now.
+            const isOpen =
+              request.status !== "credited" && request.status !== "rejected";
+            const meter: TopUpMeterView | null = isOpen
+              ? (effectiveMeterByRequest.get(request.id) ?? null)
+              : (single(request.smart_meters) ?? null);
+            const creditedWithoutMeter =
+              request.status === "credited" &&
+              (request.credit_before === null || request.credit_after === null);
             const statusLabel = request.status.replaceAll("_", " ");
             const submittedByProfile = request.submitted_by
               ? profiles.get(request.submitted_by)
@@ -691,16 +743,14 @@ function SmartMeterTopUpVerification({
                       <Badge className={statusBadgeClass(request.status)}>
                         {statusLabel}
                       </Badge>
-                      {!request.meter_id ? (
-                        request.status === "credited" ? (
-                          <Badge className="bg-sky-100 text-sky-700">
-                            No live meter — recorded as payment
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-red-100 text-red-700">
-                            Meter not assigned
-                          </Badge>
-                        )
+                      {creditedWithoutMeter ? (
+                        <Badge className="bg-sky-100 text-sky-700">
+                          No live meter — recorded as payment
+                        </Badge>
+                      ) : isOpen && !meter ? (
+                        <Badge className="bg-sky-100 text-sky-700">
+                          No live meter — will be recorded as payment
+                        </Badge>
                       ) : null}
                     </div>
                     <p className="mt-2 font-semibold text-gray-950">
@@ -807,35 +857,11 @@ function SmartMeterTopUpVerification({
                 ) : null}
 
                 {request.status === "approved_awaiting_top_up" ? (
-                  <form
+                  <TopUpCreditForm
                     action={confirmSmartMeterCredit}
-                    className="mt-4 grid gap-3 border-t border-[#e5e9ef] pt-4 lg:grid-cols-[1fr_auto]"
-                  >
-                    <input name="requestId" type="hidden" value={request.id} />
-                    <label className="block">
-                      <span className="text-sm font-semibold text-gray-800">
-                        {meter
-                          ? "Physical meter/provider reference"
-                          : "Payment reference"}
-                      </span>
-                      <input
-                        className="mt-1 h-11 w-full rounded-md border border-[#d7dde5] px-3 text-sm"
-                        name="providerReference"
-                        placeholder={
-                          meter
-                            ? "Enter only after the meter credit succeeds"
-                            : "Enter the bank/payment reference to mark this as paid"
-                        }
-                        required
-                      />
-                    </label>
-                    <Button
-                      className="self-end bg-emerald-700 text-white hover:bg-emerald-600"
-                      type="submit"
-                    >
-                      {meter ? "Confirm Meter Credited" : "Confirm Payment Recorded"}
-                    </Button>
-                  </form>
+                    hasMeter={Boolean(meter)}
+                    requestId={request.id}
+                  />
                 ) : null}
 
                 {request.status === "rejected" ? (

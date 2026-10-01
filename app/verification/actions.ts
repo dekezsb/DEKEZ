@@ -157,11 +157,9 @@ export async function confirmSmartMeterCredit(formData: FormData) {
   );
 
   if (error) {
-    const errorCode = error.message.includes("active_electricity_meter_required")
-      ? "meter_missing"
-      : error.message.includes("monthly_invoice_required")
-        ? "invoice_missing"
-        : "topup_credit";
+    const errorCode = error.message.includes("monthly_invoice_required")
+      ? "invoice_missing"
+      : "topup_credit";
     redirect(verificationPath("meter_topups", `error=${errorCode}`));
   }
 
