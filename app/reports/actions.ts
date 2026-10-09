@@ -456,6 +456,12 @@ export async function importBankStatement(formData: FormData) {
     redirect(statementImportPath({ error: "statement_lines" }));
   }
 
+  // Display grouping only: earlier statements this one fully covers become part
+  // of its month. Nothing is deleted or voided; the month fallback still groups
+  // them if this link cannot be recorded, so the import is not failed for it.
+  const { error: mergeError } = await supabase.rpc("link_contained_bank_statements", { p_statement_id: statementImport.id });
+  if (mergeError) console.error("[bank-statement] merge link failed", { statementImportId: statementImport.id, message: mergeError.message });
+
   const importedRows = await allReportRows(supabase.from("bank_statement_transactions")
     .select("id, is_reused, import_result").eq("statement_import_id", statementImport.id));
   if (importedRows.error) redirect(reportPath({ statement: statementImport.id, error: "statement_lines" }));

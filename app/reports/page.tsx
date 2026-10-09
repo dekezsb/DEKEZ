@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
-import { loadWorkingStatementIds, workingStatements, selectedWorkingStatement } from "@/lib/accounting/statement-work-queue";
+import { loadWorkingStatementIds, groupStatements, workingStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines } from "@/lib/accounting/statement-work-queue";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -307,7 +307,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
-    allReportRows(supabase.from("bank_statement_imports").select("id, bank_account_id, period_start, period_end, statement_date, opening_balance, closing_balance, status, original_file_name, created_at").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false })),
+    // "*" keeps this read working before merged_into_statement_id is migrated; grouping then falls back to month.
+    allReportRows(supabase.from("bank_statement_imports").select("*").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false })),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, description, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
     supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
@@ -323,7 +324,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   if (manualBalanceTransactionsResult.error) throw new Error("Unable to load bank voucher balances. Please retry.");
   const statementImports = statementsResult.data ?? [];
   if (statementsResult.error) throw new Error("Unable to load bank statements. Please retry.");
-  const workingStatementImports = workingStatements(statementImports, workingStatementIds);
+  const statementGroups = groupStatements(statementImports);
+  const workingStatementGroupList = workingStatementGroups(statementGroups, workingStatementIds);
   const accounts = accountsResult.data ?? [];
   const journalEntries = journalEntriesResult.data ?? [];
   const journalEntryIds = journalEntries.map((entry) => entry.id);
@@ -336,8 +338,12 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   ]));
   // An old bookmark must not bring a finished statement back into the workspace.
   // Other accounting reports retain the complete statement list and balances.
-  const selectedStatement = selectedWorkingStatement(tab === "bank" ? workingStatementImports : statementImports, params.statement);
+  const selectedGroup = selectedStatementGroup(tab === "bank" ? workingStatementGroupList : statementGroups, params.statement);
+  // The root (widest-period) statement owns the balances; merged partials are history.
+  const selectedStatement = selectedGroup?.root ?? null;
   const selectedStatementId = selectedStatement?.id ?? "";
+  const selectedGroupIds = selectedGroup?.statements.map((statement) => statement.id) ?? [];
+  const mergedHistoryStatements = selectedGroup?.statements.filter((statement) => statement.id !== selectedStatementId) ?? [];
   const statementRentalMonth = selectedStatement?.period_start?.slice(0, 7) ?? selectedMonth;
 
   const { data: companyExpenses } = await supabase.from("expenses").select("id").eq("company_id", company.id);
@@ -704,11 +710,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     journalLinesByEntry.set(line.journal_entry_id, entryLines);
   }
 
-  const statementLinesResult = selectedStatementId
-    ? await allReportRows(supabase.from("bank_statement_transactions").select("id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason, is_reused, import_result").eq("statement_import_id", selectedStatementId).order("transaction_date"))
+  const statementLinesResult = selectedGroupIds.length
+    ? await allReportRows(supabase.from("bank_statement_transactions").select("id, statement_import_id, original_statement_import_id, bank_account_id, transaction_date, value_date, description, reference_number, amount, status, ignored_reason, is_reused, import_result").in("statement_import_id", selectedGroupIds).order("transaction_date").order("id"))
     : { data: [], error: null };
   if (statementLinesResult.error) throw new Error("Unable to load remaining statement transactions. Please retry.");
-  const statementLines = statementLinesResult.data;
+  // Totals and balances belong to the root statement's own movements; the work
+  // list and overlap counts use every transaction in the month group once.
+  const rootStatementLines = statementLinesResult.data.filter((line) => line.statement_import_id === selectedStatementId);
+  const statementLines = dedupeStatementLines(statementLinesResult.data);
   const otherBankAccountIds = bankAccounts
     .filter((account) => account.id !== selectedStatement?.bank_account_id)
     .map((account) => account.id);
@@ -744,7 +753,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     const key = `${match.source_type}:${match.source_id}`;
     consumed.set(key, (consumed.get(key) ?? 0) + Math.abs(Number(match.matched_amount ?? 0)));
   }
-  const statementMovement = statementLines.reduce((total, line) => total + Number(line.amount ?? 0), 0);
+  const statementMovement = rootStatementLines.reduce((total, line) => total + Number(line.amount ?? 0), 0);
   const statementDifference = selectedStatement ? Number(selectedStatement.opening_balance ?? 0) + statementMovement - Number(selectedStatement.closing_balance ?? 0) : 0;
   const reusedStatementLines = statementLines.filter((line) => line.is_reused);
   const alreadyReconciledCount = reusedStatementLines.filter((line) => line.import_result === "ALREADY RECONCILED").length;
@@ -815,7 +824,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const reviewLines = prioritizedFlowLines
     .map((item) => item.line);
   const statementAccount = bankAccounts.find((item) => item.id === selectedStatement?.bank_account_id);
-  const unreconciledTotal = workingStatementImports.length;
+  const unreconciledTotal = workingStatementGroupList.length;
   const adjustmentAccounts = accounts.filter((account) => account.id !== statementAccount?.accounting_account_id);
   const adjustmentAccountGroups = ["expense", "asset", "liability", "equity", "income"].map((type) => ({
     type,
@@ -1187,8 +1196,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </CardContent></Card>
           </div>
 
-          {workingStatementImports.length ? <Card><CardHeader><CardTitle>Statements</CardTitle><CardDescription>Only statements with money in or money out still to reconcile. Finished items leave this workspace automatically.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">
-            {workingStatementImports.map((statement) => { const account = bankAccounts.find((item) => item.id === statement.bank_account_id); return <Button asChild key={statement.id} variant={statement.id === selectedStatementId ? "default" : "outline"}><Link href={tabHref("bank", selectedMonth, selectedPropertyId, statement.id)}>{account?.bank_name ?? "Bank"} · {dateLabel(statement.period_end)} <Badge className={statusClasses[statement.status] ?? ""}>{statement.status.replaceAll("_", " ")}</Badge></Link></Button>; })}
+          {workingStatementGroupList.length ? <Card><CardHeader><CardTitle>Statements</CardTitle><CardDescription>Only statements with money in or money out still to reconcile. Finished items leave this workspace automatically.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">
+            {workingStatementGroupList.map((group) => { const statement = group.root; const account = bankAccounts.find((item) => item.id === statement.bank_account_id); const status = statementGroupStatus(group, workingStatementIds); return <Button asChild key={group.key} variant={statement.id === selectedStatementId ? "default" : "outline"}><Link href={tabHref("bank", selectedMonth, selectedPropertyId, statement.id)}>{account?.bank_name ?? "Bank"} · {rentalMonthLabel(statement.period_end.slice(0, 7))} <Badge className={statusClasses[status] ?? ""}>{status.replaceAll("_", " ")}</Badge></Link></Button>; })}
           </CardContent></Card> : null}
 
           {selectedStatement ? (
@@ -1198,12 +1207,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 {[
                   { label: "Bank account", value: statementAccount ? `${statementAccount.bank_name} · ${statementAccount.name}${statementAccount.account_number ? ` · ${statementAccount.account_number}` : ""}` : "Bank", icon: Building2, warn: false },
                   { label: "Opening", value: money(selectedStatement.opening_balance), icon: WalletCards, warn: false },
-                  { label: "Money in", value: money(statementLines.filter((line) => Number(line.amount) > 0).reduce((sum, line) => sum + Number(line.amount), 0)), icon: ArrowDownLeft, warn: false },
-                  { label: "Money out", value: money(Math.abs(statementLines.filter((line) => Number(line.amount) < 0).reduce((sum, line) => sum + Number(line.amount), 0))), icon: ArrowUpRight, warn: false },
+                  { label: "Money in", value: money(rootStatementLines.filter((line) => Number(line.amount) > 0).reduce((sum, line) => sum + Number(line.amount), 0)), icon: ArrowDownLeft, warn: false },
+                  { label: "Money out", value: money(Math.abs(rootStatementLines.filter((line) => Number(line.amount) < 0).reduce((sum, line) => sum + Number(line.amount), 0))), icon: ArrowUpRight, warn: false },
                   { label: "Closing", value: money(selectedStatement.closing_balance), icon: Landmark, warn: false },
                   { label: "Difference", value: money(statementDifference), icon: Scale, warn: Math.abs(statementDifference) > 0.005 },
                 ].map((summary) => { const Icon = summary.icon; return <Card key={summary.label}><CardHeader className="pb-3"><CardDescription>{summary.label}</CardDescription><CardTitle className={`text-lg ${summary.warn ? "text-red-600" : ""}`}>{summary.value}</CardTitle><Icon className="mt-2 h-4 w-4 text-[#9a6b19]" /></CardHeader></Card>; })}
               </div>
+              {mergedHistoryStatements.length ? <div className="rounded-md border border-[#d7dde5] bg-white p-3 text-sm text-gray-700"><p className="font-medium text-gray-900">Earlier statements in this month (read-only history)</p><ul className="mt-1 space-y-1">{mergedHistoryStatements.map((statement) => <li key={statement.id}>{dateLabel(statement.period_start)} – {dateLabel(statement.period_end)}{statement.original_file_name ? ` · ${statement.original_file_name}` : ""} · Opening {money(statement.opening_balance)} · Closing {money(statement.closing_balance)}</li>)}</ul><p className="mt-1 text-xs text-gray-500">Balances above use the {dateLabel(selectedStatement.period_start)} – {dateLabel(selectedStatement.period_end)} statement. Transactions from these earlier files appear once in the work list below.</p></div> : null}
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <Link
@@ -1245,7 +1255,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               {bankFlow === "credit" ? <><div className="flex justify-end">{selectedStatement.status === "in_progress" ? <form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id}/><Button disabled={unmatchedCount>0||Math.abs(statementDifference)>0.005} type="submit">Finalise whole statement</Button></form> : <Badge>Reconciled and locked</Badge>}</div><TenantPaymentReconciliation
                 payments={existingTenantPayments}
                 invoices={allInvoiceOptions}
-                banks={accountingBankCredits.filter(line=>line.statementId===selectedStatement.id)}
+                banks={accountingBankCredits.filter(line=>selectedGroupIds.includes(line.statementId))}
                 locked={selectedStatement.status!=="in_progress"}
                 canUnmatch={["super_admin","admin"].includes(accountingRole)}
               /></> : <Card id="bank-transactions">
