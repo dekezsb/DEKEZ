@@ -18,6 +18,20 @@ test("voucher assets, liabilities and equity do not become P&L expenses", async 
 });
 
 const COMPANY_ID = "company-1";
+test("renovation invoice recognises general-company income once; verified and matched receipts only settle AR", async () => {
+  const income={id:'reno-income',code:'4050',name:'Renovation Service Income',account_type:'income',report_group:'other_income'};
+  const ar={id:'reno-ar',code:'1185',name:'Renovation Client Receivables',account_type:'asset',report_group:'current_asset',system_key:'renovation_receivable'};
+  const supabase=fakeSupabase({
+    accounting_journal_entries:[{id:'reno-entry',company_id:COMPANY_ID,entry_date:'2026-10-19',status:'posted',source_type:'renovation_invoice',source_id:'reno-invoice',description:'Renovation',entry_number:'DRI-TEST'}],
+    accounting_journal_lines:[{id:'reno-income-line',journal_entry_id:'reno-entry',debit:0,credit:900,property_id:null,accounting_accounts:income},{id:'reno-ar-line',journal_entry_id:'reno-entry',debit:900,credit:0,property_id:null,accounting_accounts:ar}],
+    bank_manual_transactions:[{id:'reno-receipt',company_id:COMPANY_ID,transaction_date:'2026-10-20',amount:400,property_id:null,description:'Verified renovation receipt',accounting_accounts:ar}],
+  });
+  const result=await report(supabase,'2026-10-01','2026-10-31');
+  assert.equal(result.totalRevenue,900); assert.equal(result.totalExpenses,0);
+  assert.equal(result.revenue.find(r=>r.label==='Renovation Service Income')?.amount,900);
+  const rentalOutlet=await getProfitLossReport(supabase,{companyId:COMPANY_ID,propertyId:'property-1',startDate:'2026-10-01',endDate:'2026-10-31'});
+  assert.equal(rentalOutlet.totalRevenue,0);
+});
 const PROPERTY = {
   id: "property-1",
   company_id: COMPANY_ID,

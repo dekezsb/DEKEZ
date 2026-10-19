@@ -55,7 +55,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
     return <>{children}</>;
   }
 
-  if (pathname.startsWith("/invoices/")) {
+  if (pathname.startsWith("/invoices/") || /^\/renovation\/[0-9a-f-]{36}$/i.test(pathname)) {
     return <>{children}</>;
   }
 
@@ -380,6 +380,7 @@ const navigationTranslationKeys: Record<string, TranslationKey> = {
   "Referral Rewards": "nav.referrals",
   "Rent Due Tracker": "nav.rentDueTracker",
   "Rental Invoices": "nav.rentalInvoices",
+  "Renovation Quotes & Invoices": "nav.renovation",
   "Tenancy Agreements": "nav.tenancyAgreements",
   "Utility Bills": "nav.utilityBills",
   "Expense Bills": "nav.expenseBills",

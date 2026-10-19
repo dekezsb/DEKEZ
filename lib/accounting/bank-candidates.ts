@@ -21,6 +21,8 @@ export type BankCandidate = {
   referenceNumber: string | null;
   propertyId: string | null;
   isRental?: boolean;
+  isRenovation?: boolean;
+  bankAccountId?: string;
   invoiceMonth?: string | null;
   invoiceNumber?: string | null;
   tenantName?: string | null;
@@ -74,7 +76,7 @@ export async function getBankCandidates(
       .in("status", ["verified", "reimbursed"]),
     supabase
       .from("bank_manual_transactions")
-      .select("id, transaction_date, amount, description, reference_number")
+      .select("id, transaction_date, amount, description, reference_number, bank_account_id, accounting_accounts!bank_manual_transactions_offset_account_id_fkey(system_key)")
       .eq("company_id", companyId),
   ]);
 
@@ -273,9 +275,12 @@ export async function getBankCandidates(
   }
 
   for (const transaction of manualResult.data ?? []) {
+    const offset = Array.isArray(transaction.accounting_accounts) ? transaction.accounting_accounts[0] : transaction.accounting_accounts;
     candidates.push({
       sourceType: "manual_bank_transaction",
       sourceId: transaction.id,
+      isRenovation: offset?.system_key === "renovation_receivable",
+      bankAccountId: transaction.bank_account_id,
       date: transaction.transaction_date,
       amount: numberValue(transaction.amount),
       description: transaction.description,

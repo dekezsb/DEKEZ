@@ -1111,6 +1111,15 @@ export async function matchBankLine(formData: FormData) {
   }
   const candidate = candidates.find((item) => item.sourceType === sourceType && item.sourceId === sourceId);
   if (!line || !candidate || line.status === "ignored") redirect(bankActionPath(formData, { error: "match_missing" }));
+  // Renovation receipts are already verified, never recurring income templates.
+  // Dedicated RPC locks both balances and permits genuine cross-month settlement.
+  if (candidate.isRenovation) {
+    const { error } = await supabase.rpc("match_renovation_payment", {
+      p_company: company.id, p_actor: user.id, p_transaction: sourceId, p_line: lineId,
+    });
+    revalidatePath("/reports"); revalidatePath("/renovation");
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, ...(error ? { error: "match_used" } : { matched: "1" }) }));
+  }
   const statement = singleRelation(line.bank_statement_imports);
   const statementRentalMonth = statement?.period_start?.slice(0, 7);
   if (

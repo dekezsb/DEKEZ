@@ -769,7 +769,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     const locationHint = bankRoomHint(line.description);
     const candidatePool = candidates.filter((candidate) => {
       const key = `${candidate.sourceType}:${candidate.sourceId}`;
-      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction" && !candidate.isRenovation
         && candidate.date.slice(0, 7) !== statementRentalMonth;
       const available = isRecurringTemplate
         ? Math.abs(candidate.amount)
@@ -777,11 +777,12 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       return Math.sign(candidate.amount) === Math.sign(remaining)
         && available > 0.005
         && (!candidate.isRental || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth)
-        && (isRecurringTemplate || candidate.date.slice(0, 7) === statementRentalMonth);
+        && (!candidate.isRenovation || candidate.bankAccountId === line.bank_account_id)
+        && (candidate.isRenovation || isRecurringTemplate || candidate.date.slice(0, 7) === statementRentalMonth);
     });
     const exactAmountCandidates = candidatePool.filter((candidate) => {
       const key = `${candidate.sourceType}:${candidate.sourceId}`;
-      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction" && !candidate.isRenovation
         && candidate.date.slice(0, 7) !== statementRentalMonth;
       const available = isRecurringTemplate
         ? Math.abs(candidate.amount)
@@ -1354,23 +1355,24 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       : statementInvoiceOptions;
                     const candidatePool = candidates.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
-                      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+                      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction" && !candidate.isRenovation
                         && candidate.date.slice(0, 7) !== statementRentalMonth;
                       const available = isRecurringTemplate
                         ? Math.abs(candidate.amount)
                         : Math.abs(candidate.amount) - (consumed.get(key) ?? 0);
                       const correctRentalMonth = !candidate.isRental
                         || candidate.invoiceMonth?.slice(0, 7) === statementRentalMonth;
-                      const correctSourceMonth = isRecurringTemplate
+                      const correctSourceMonth = candidate.isRenovation || isRecurringTemplate
                         || candidate.date.slice(0, 7) === statementRentalMonth;
                       return Math.sign(candidate.amount) === Math.sign(remaining)
                         && available > 0.005
                         && correctRentalMonth
+                        && (!candidate.isRenovation || candidate.bankAccountId === line.bank_account_id)
                         && correctSourceMonth;
                     });
                     const exactAmountCandidates = candidatePool.filter((candidate) => {
                       const key = `${candidate.sourceType}:${candidate.sourceId}`;
-                      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction"
+                      const isRecurringTemplate = candidate.sourceType === "manual_bank_transaction" && !candidate.isRenovation
                         && candidate.date.slice(0, 7) !== statementRentalMonth;
                       const available = isRecurringTemplate
                         ? Math.abs(candidate.amount)
@@ -1417,7 +1419,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                         && rankedCandidates[0].score > (rankedCandidates[1]?.score ?? 0)
                           ? rankedCandidates[0].candidate
                           : null;
-                    const isRecurringRecommendation = recommendedCandidate?.sourceType === "manual_bank_transaction"
+                    const isRecurringRecommendation = recommendedCandidate?.sourceType === "manual_bank_transaction" && !recommendedCandidate.isRenovation
                       && recommendedCandidate.date.slice(0, 7) !== statementRentalMonth;
                     const isSmallExtraCredit = remaining > 0.005
                       && Boolean(locationHint && suggestedInvoice)

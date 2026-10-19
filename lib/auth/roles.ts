@@ -56,9 +56,11 @@ const adminNavigation: NavigationItem[] = [
   { label: "Expense Bills", href: "/expenses", icon: ReceiptText, module: "expenses" },
   { label: "Maintenance", href: "/maintenance", icon: Wrench, module: "maintenance" },
   { label: "Reports", href: "/reports", icon: BarChart3, module: "reports" },
+  { label: "Renovation Quotes & Invoices", href: "/renovation", icon: FileText, module: "reports" },
 ];
 
 const managementNavigation: NavigationItem[] = [
+  { label: "Renovation Quotes & Invoices", href: "/renovation", icon: FileText, module: "reports" },
   { label: "Home", href: "/dashboard", icon: House, module: "dashboard" },
   { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "maintenance" },
   { label: "Rent Due Tracker", href: "/rent-due-tracker", icon: CalendarClock, module: "rent_due_tracker" },
@@ -96,6 +98,7 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
     ...adminNavigation,
   ],
   owner: [
+    { label: "Renovation Quotes & Invoices", href: "/renovation", icon: FileText, module: "reports" },
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
     { label: "Properties", href: "/properties", icon: Building2, module: "properties" },
     { label: "Room Availability", href: "/room-availability", icon: LayoutGrid, module: "properties" },
@@ -139,6 +142,7 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
 };
 
 export const protectedRoutes = [
+  "/renovation",
   "/dashboard",
   "/admin-setup",
   "/register-tenant",
