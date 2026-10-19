@@ -1,5 +1,7 @@
 "use client";
 import { useActionState } from "react";
+import Link from "next/link";
+import { ReceiptViewer } from "@/app/payment-verification/receipt-viewer";
 import { matchRenovationPayment, submitRenovationPayment, verifyRenovationPayment } from "@/app/renovation/actions";
 import { money, type RenovationPayment } from "@/lib/renovation/model";
 const field = "block w-full rounded border border-slate-300 bg-white px-3 py-2";
@@ -16,29 +18,31 @@ export function PaymentUpload({ invoiceId, banks, today, outstanding }: { invoic
     {state.error && <p role="alert" className="text-red-700 sm:col-span-2">{state.error}</p>}<button className={button} disabled={pending}>{pending ? "Uploading…" : "Submit for verification"}</button>
   </form></details>;
 }
-function VerifyPayment({ payment }: { payment: RenovationPayment }) {
+export function VerifyPayment({ payment, returnTo }: { payment: RenovationPayment; returnTo: string }) {
   const [state, action, pending] = useActionState(verifyRenovationPayment, {});
   return <form action={action} className="space-y-3 rounded border border-amber-300 bg-amber-50 p-3"><input type="hidden" name="payment_id" value={payment.id} /><input type="hidden" name="invoice_id" value={payment.invoice_id} />
+    <input type="hidden" name="return_to" value={returnTo} />
     <label className="flex gap-2"><input name="confirm" value="yes" type="checkbox" /><span>I checked this slip and confirm {money(Number(payment.amount))} was received for this renovation invoice.</span></label>
     <label>Reason (required if rejecting)<input name="reason" className={field} maxLength={2000} /></label>
     {state.error && <p role="alert" className="text-red-700">{state.error}</p>}<div className="flex gap-3"><button className={button} name="decision" value="verify" disabled={pending}>Verify payment</button><button className="rounded border border-red-400 px-4 py-2 text-red-700" name="decision" value="reject" disabled={pending}>Reject</button></div>
   </form>;
 }
-function MatchPayment({ payment, lines }: { payment: RenovationPayment; lines: BankLineOption[] }) {
+export function MatchPayment({ payment, lines, returnTo }: { payment: RenovationPayment; lines: BankLineOption[]; returnTo: string }) {
   const [state, action, pending] = useActionState(matchRenovationPayment, {});
   const options = lines.filter(l => l.bank_account_id === payment.bank_account_id && l.remaining > 0);
   return <form action={action} className="space-y-3 rounded border bg-slate-50 p-3"><input type="hidden" name="invoice_id" value={payment.invoice_id} /><input type="hidden" name="transaction_id" value={payment.bank_transaction_id ?? ""} />
+    <input type="hidden" name="return_to" value={returnTo} />
     <p className="text-sm">Bank matched: {money(payment.matched ?? 0)} / {money(Number(payment.amount))}. Matching uses the smaller remaining amount and creates no new payment or income.</p>
     <label>Match to imported bank transaction<select name="line_id" className={field} required><option value="">Select same-bank money-in transaction</option>{options.map(l => <option key={l.id} value={l.id}>{l.transaction_date} · {money(l.remaining)} remaining · {l.reference_number ?? ""} · {l.description}</option>)}</select></label>
     {!options.length && <p className="text-sm">No open money-in lines for this bank. Import the statement in Accounting first.</p>}
     {state.error && <p role="alert" className="text-red-700">{state.error}</p>}<button className={button} disabled={pending || !options.length}>Match verified payment</button>
   </form>;
 }
-export function PaymentCard({ payment, lines, manage }: { payment: RenovationPayment; lines: BankLineOption[]; manage: boolean }) {
+export function PaymentCard({ payment }: { payment: RenovationPayment }) {
   return <section className="space-y-3 rounded-lg border bg-white p-4"><div className="flex flex-wrap justify-between gap-2"><strong>{money(Number(payment.amount))} · {payment.status.toUpperCase()}</strong><span>{payment.payment_date} · Ref {payment.reference_number}</span></div>
-    {payment.proofUrl ? <details><summary className="cursor-pointer font-semibold underline">View bank-in slip</summary><div className="mt-3 rounded border bg-slate-100 p-2">{payment.proof_path.endsWith(".pdf") ? <iframe title="Renovation bank-in slip" src={payment.proofUrl} className="h-[32rem] w-full" /> : <img alt="Renovation bank-in slip" src={payment.proofUrl} className="mx-auto max-h-[32rem] max-w-full object-contain" />}</div></details> : <p className="text-red-700">Proof preview unavailable. Do not verify until the slip can be reviewed.</p>}
+    {payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path.endsWith(".pdf")} label="Renovation bank-in slip" thumbnail={false} /> : <p className="text-red-700">Proof preview unavailable. Do not verify until the slip can be reviewed.</p>}
     {payment.rejection_reason && <p>Rejection reason: {payment.rejection_reason}</p>}
-    {manage && payment.status === "pending" && payment.proofUrl && <VerifyPayment payment={payment} />}
-    {payment.status === "verified" && (Number(payment.amount) - (payment.matched ?? 0) < 0.005 ? <p className="font-semibold text-emerald-700">Fully matched to bank statement</p> : manage ? <MatchPayment payment={payment} lines={lines} /> : <p>Bank matching outstanding: {money(Number(payment.amount) - (payment.matched ?? 0))}</p>)}
+    {payment.status === "pending" && <Link className="block font-semibold underline" href="/verification?view=payments#renovation-payments">Awaiting approval in Payment Verification →</Link>}
+    {payment.status === "verified" && <><p>Bank matched: {money(payment.matched ?? 0)} / {money(Number(payment.amount))}</p>{Number(payment.amount) - (payment.matched ?? 0) < 0.005 ? <p className="font-semibold text-emerald-700">Fully matched to bank statement</p> : <Link className="block font-semibold underline" href="/reports?tab=bank&bankFlow=credit#renovation-reconciliation">Continue in Bank Reconciliation →</Link>}</>}
   </section>;
 }

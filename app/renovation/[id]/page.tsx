@@ -34,7 +34,7 @@ export default async function RenovationDetail({ params }: { params: Promise<{ i
         <div className="grid grid-cols-2 gap-3"><p className="rounded border bg-white p-3">Invoice after discount<strong className="block">{money(Number(d.total))}</strong></p><p className="rounded border bg-emerald-50 p-3">Verified received<strong className="block">{money(summary.verified)}</strong></p><p className="rounded border bg-amber-50 p-3">Pending verification<strong className="block">{money(summary.pending)}</strong></p><p className="rounded border bg-white p-3">Outstanding<strong className="block">{money(summary.outstanding)}</strong></p></div>
         <p className="text-sm">Outstanding excludes only verified payments. Bank matching is tracked separately; it does not reduce the balance twice.</p>
         {manage && summary.outstanding > 0 && <PaymentUpload invoiceId={d.id} banks={paymentData.banks} today={malaysiaToday()} outstanding={summary.outstanding} />}
-        {paymentData.payments.map(payment => <PaymentCard key={payment.id} payment={payment} lines={paymentData.lines} manage={manage} />)}
+        {paymentData.payments.map(payment => <PaymentCard key={payment.id} payment={payment} />)}
       </section>}
     </div>
     <RenovationPrintDocument document={d} payments={summary ?? undefined} />

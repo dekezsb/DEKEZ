@@ -3,7 +3,7 @@ const path=require('node:path'),fs=require('node:fs'),os=require('node:os'),http
 const root=path.resolve(__dirname,'..'),fixtures=path.join(__dirname,'fixtures/renovation');
 const output=fs.mkdtempSync(path.join(os.tmpdir(),'dekez-renovation-qa-'));
 const {webpack}=require('next/dist/compiled/webpack/webpack');
-const compiler=webpack({mode:'development',devtool:false,entry:path.join(fixtures,'entry.jsx'),output:{path:output,filename:'fixture.js'},resolve:{extensions:['.tsx','.ts','.jsx','.js'],alias:{'@/app/renovation/actions':path.join(fixtures,'mocks.jsx'),'next/image':path.join(fixtures,'mocks.jsx'),'@':root}},module:{rules:[{test:/\.[jt]sx?$/,exclude:/node_modules/,use:path.join(__dirname,'fixtures/payment-rows/loader.cjs')}]}});
+const compiler=webpack({mode:'development',devtool:false,entry:path.join(fixtures,'entry.jsx'),output:{path:output,filename:'fixture.js'},resolve:{extensions:['.tsx','.ts','.jsx','.js'],alias:{'@/app/renovation/actions':path.join(fixtures,'mocks.jsx'),'next/image':path.join(fixtures,'mocks.jsx'),'next/link':path.join(fixtures,'link.jsx'),'@':root}},module:{rules:[{test:/\.[jt]sx?$/,exclude:/node_modules/,use:path.join(__dirname,'fixtures/payment-rows/loader.cjs')}]}});
 compiler.run(async(error,stats)=>{
  let server,browser;
  try {
@@ -20,7 +20,7 @@ compiler.run(async(error,stats)=>{
   const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
   browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});
   const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
-  page.on('pageerror',e=>errors.push(e.message));
+  page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});
   const url=`http://127.0.0.1:${server.address().port}`;
   await page.goto(url); await page.getByRole('button',{name:'+ Saved partition work',exact:true}).click();
   await page.getByLabel('Project / scope title').fill('Test new job');
@@ -41,6 +41,29 @@ compiler.run(async(error,stats)=>{
   await page.getByText('TOTAL CONTRACT SUM:').waitFor();
   await page.screenshot({path:path.join(output,'quotation.png'),fullPage:true});
   if(process.env.RENOVATION_PDF_QA==='1') await page.pdf({path:path.join(output,'quotation.pdf'),printBackground:true,preferCSSPageSize:true});
+  await page.goto(url+'?payments=1');
+  await page.getByRole('link',{name:'Continue in Bank Reconciliation →'}).waitFor();
+  assert.equal(await page.locator('#invoice form').count(),0);
+  await page.getByRole('button',{name:'View receipt: Renovation bank-in slip'}).click();
+  await page.getByRole('dialog').waitFor({state:'visible'});
+  assert.equal(page.context().pages().length,1);
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button',{name:'Verify payment',exact:true}).click();
+  await page.waitForFunction(()=>window.testVerification);
+  const approval=await page.evaluate(()=>window.testVerification);
+  assert.equal(approval.payment_id,'test-slip');assert.equal(approval.decision,'verify');assert.equal(approval.confirm,'yes');
+  assert.equal(await page.locator('#bank select option').count(),2);
+  await page.locator('#bank select').selectOption('test-line');
+  await page.getByRole('button',{name:'Match verified payment'}).click();
+  await page.waitForFunction(()=>window.testMatch);
+  const match=await page.evaluate(()=>window.testMatch);
+  assert.equal(match.transaction_id,'test-receipt');assert.equal(match.line_id,'test-line');
+  await page.screenshot({path:path.join(output,'payment-workflows-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'payment controls fit mobile');
+  await page.screenshot({path:path.join(output,'payment-workflows-mobile.png'),fullPage:true});
   assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,output}));
  }catch(e){console.error(e);process.exitCode=1;}finally{await browser?.close();server?.close();compiler.close(()=>{});}
 });

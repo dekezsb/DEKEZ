@@ -1,17 +1,20 @@
 import "server-only";
 import { renovationContext } from "./server";
 import { allReportRows } from "@/lib/accounting/report-data";
-import type { RenovationPayment } from "./model";
+import type { RenovationPayment, RenovationDocument } from "./model";
 import type { BankLineOption } from "@/components/renovation/payments";
 
-export async function renovationPaymentData(invoiceId: string) {
+export async function renovationPaymentData(invoiceId?: string, statementIds?: string[]) {
   const { db, company } = await renovationContext();
-  const [payments, banks, lines] = await Promise.all([
-    allReportRows(db.from("renovation_payment_submissions").select("*").eq("company_id", company.id).eq("invoice_id", invoiceId)),
+  let paymentQuery = db.from("renovation_payment_submissions").select("*").eq("company_id", company.id);
+  if (invoiceId) paymentQuery = paymentQuery.eq("invoice_id", invoiceId);
+  const [payments, banks, lines, documents] = await Promise.all([
+    allReportRows(paymentQuery.order("created_at", { ascending: false }).order("id")),
     allReportRows(db.from("bank_accounts").select("id,name").eq("company_id", company.id)),
-    allReportRows(db.from("bank_statement_lines").select("id,bank_account_id,transaction_date,description,reference_number,amount,bank_statement_imports!inner(company_id,status)").eq("bank_statement_imports.company_id", company.id).eq("bank_statement_imports.status", "in_progress").gt("amount", 0).neq("status", "ignored").is("duplicate_of_line_id", null)),
+    statementIds?.length ? allReportRows(db.from("bank_statement_lines").select("id,bank_account_id,transaction_date,description,reference_number,amount,bank_statement_imports!inner(company_id,status)").eq("bank_statement_imports.company_id", company.id).eq("bank_statement_imports.status", "in_progress").in("statement_import_id", statementIds).gt("amount", 0).neq("status", "ignored").is("duplicate_of_line_id", null)) : Promise.resolve({ data: [], error: null }),
+    !invoiceId ? allReportRows(db.from("renovation_documents").select("id,document_number,client_snapshot,project").eq("company_id", company.id).eq("kind", "invoice").eq("status", "issued")) : Promise.resolve({ data: [], error: null }),
   ]);
-  if ([payments, banks, lines].some(r => r.error)) throw new Error("Could not load renovation payment balances. No estimated balances are shown.");
+  if ([payments, banks, lines, documents].some(r => r.error)) throw new Error("Could not load renovation payment balances. No estimated balances are shown.");
   const sourceIds = payments.data.map(p => p.bank_transaction_id).filter(Boolean) as string[];
   const lineIds = lines.data.map(l => l.id);
   const sourceTotals = new Map<string, number>(), lineTotals = new Map<string, number>();
@@ -29,5 +32,5 @@ export async function renovationPaymentData(invoiceId: string) {
     return { ...p, proofUrl: data?.signedUrl, matched: p.bank_transaction_id ? sourceTotals.get(p.bank_transaction_id) ?? 0 : 0 };
   }));
   const available: BankLineOption[] = lines.data.map(l => ({ ...l, remaining: Number(l.amount) - (lineTotals.get(l.id) ?? 0) })).filter(l => l.remaining > 0.005);
-  return { payments: signedPayments, banks: banks.data, lines: available };
+  return { payments: signedPayments, banks: banks.data, lines: available, invoices: documents.data as Pick<RenovationDocument, "id" | "document_number" | "client_snapshot" | "project">[] };
 }

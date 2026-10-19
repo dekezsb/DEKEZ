@@ -76,6 +76,8 @@ type PageProps = {
     tenant?: string;
     month?: string;
     method?: string;
+    renovation_status?: string;
+    renovation_q?: string;
     occupancy?: string;
     agreement_verified?: string;
     agreement_rejected?: string;

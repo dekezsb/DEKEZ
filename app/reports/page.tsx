@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
+import { RenovationBankReconciliation } from "@/components/accounting/renovation-bank-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
 import { loadWorkingStatementIds, groupStatements, workingStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines } from "@/lib/accounting/statement-work-queue";
 import {
@@ -1259,7 +1260,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 banks={accountingBankCredits.filter(line=>selectedGroupIds.includes(line.statementId))}
                 locked={selectedStatement.status!=="in_progress"}
                 canUnmatch={["super_admin","admin"].includes(accountingRole)}
-              /></> : <Card id="bank-transactions">
+              /><RenovationBankReconciliation statementIds={selectedGroupIds} bankAccountId={selectedStatement.bank_account_id} locked={selectedStatement.status !== "in_progress"} returnTo={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "credit")} /></> : <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className={String(bankFlow) === "credit" ? "text-emerald-900" : "text-red-900"}>{String(bankFlow) === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>

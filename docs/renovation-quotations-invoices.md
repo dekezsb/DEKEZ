@@ -20,9 +20,12 @@ permissions; all financial mutations are server-side and company-scoped.
    The approved quote automatically creates one invoice, retaining the quote.
    This records staff-provided evidence; it is not an online client signature.
 6. Upload each bank-in slip against the renovation invoice. It remains pending
-   and does not reduce outstanding until an authorized manager verifies it.
-7. Match the verified receipt to an imported same-bank money-in transaction,
-   from the invoice or existing accounting reconciliation workspace. Partial
+   and does not reduce outstanding until an authorized manager verifies it in
+   **Payment Verification → Renovation payment verification**. Rental slips
+   retain their separate rows, filters, colours and accounting.
+7. Match the verified receipt to an imported same-bank money-in transaction
+   in **Bank Reconciliation → Money in → Renovation**. The invoice shows status
+   and links to these central workspaces, not separate approval controls. Partial
    and multiple allocations consume only the remaining amounts.
 
 The list and invoice show renovation outstanding, verified receipts and pending

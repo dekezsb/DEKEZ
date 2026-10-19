@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProperties } from "@/lib/data/organization";
 import { PaymentSlipRow } from "./payment-slip-row";
 import { paymentMatchesFilters } from "@/lib/payments/verification-row";
+import { RenovationPaymentVerification } from "./renovation-payments";
 
 export type PaymentVerificationPageProps = {
   searchParams: Promise<{
@@ -21,6 +22,8 @@ export type PaymentVerificationPageProps = {
     tenant?: string;
     month?: string;
     method?: string;
+    renovation_status?: string;
+    renovation_q?: string;
   }>;
 };
 
@@ -279,7 +282,7 @@ export async function PaymentVerificationContent({
         <p className="text-xs font-semibold uppercase text-[#b98a2c]">Bank In Records</p>
         <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">Payment Verification</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-          Check uploaded bank-in slips before rent bills are marked paid and rental totals are counted.
+          Verify uploaded rental and renovation bank-in slips here. Their invoice balances and accounting remain separate.
         </p>
       </div> : null}
 
@@ -299,6 +302,8 @@ export async function PaymentVerificationContent({
         </div>
       ) : null}
 
+      <RenovationPaymentVerification params={params} returnTo={returnTo} />
+      <h2 className="text-xl font-semibold">Rental payment verification</h2>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard icon={Clock} label="Pending Payments" value={pendingPayments.length} />
         <MetricCard icon={CheckCircle2} label="Verified Today" value={verifiedToday} />
@@ -314,6 +319,8 @@ export async function PaymentVerificationContent({
         </CardHeader>
         <CardContent>
           <form className="grid gap-4 lg:grid-cols-6" method="get">
+            {params.renovation_status && <input type="hidden" name="renovation_status" value={params.renovation_status} />}
+            {params.renovation_q && <input type="hidden" name="renovation_q" value={params.renovation_q} />}
             {returnTo === "/verification?view=payments" ? (
               <input name="view" type="hidden" value="payments" />
             ) : null}

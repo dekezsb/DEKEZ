@@ -84,6 +84,19 @@ export function addDays(date: string, days: number) {
 }
 export const money = (value: number) => new Intl.NumberFormat("en-MY", { style: "currency", currency: "MYR" }).format(value);
 
+export function renovationWorkflowReturnTo(raw: string, workflow: "verification" | "bank") {
+  const fallback = workflow === "bank" ? "/reports?tab=bank&bankFlow=credit#renovation-reconciliation" : "/verification?view=payments#renovation-payments";
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return fallback;
+  const url = new URL(raw, "https://dekez.local");
+  if (workflow === "bank" ? url.pathname !== "/reports" : !["/verification", "/payment-verification"].includes(url.pathname)) return fallback;
+  const params = new URLSearchParams();
+  const keys = workflow === "bank" ? ["month", "property", "statement"] : ["status", "property", "tenant", "month", "method", "renovation_status", "renovation_q"];
+  for (const key of keys) { const value = url.searchParams.get(key); if (value) params.set(key, value); }
+  if (workflow === "bank") { params.set("tab", "bank"); params.set("bankFlow", "credit"); }
+  else if (url.pathname === "/verification") params.set("view", "payments");
+  return `${url.pathname}?${params.toString()}#${workflow === "bank" ? "renovation-reconciliation" : "renovation-payments"}`;
+}
+
 // Filing is a view rule only: retain quotation IDs, approval and invoice links.
 export function renovationWorkspaceDocuments(documents: RenovationDocument[], clientId = "") {
   if (clientId) return documents.filter(d => d.client_id === clientId);

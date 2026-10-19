@@ -3,6 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { renovationContext } from "@/lib/renovation/server";
+import { requireRole } from "@/lib/auth/session";
+import { renovationWorkflowReturnTo } from "@/lib/renovation/model";
 
 export type RenovationActionState = { error?: string };
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
@@ -85,22 +87,28 @@ export async function submitRenovationPayment(_previous: RenovationActionState, 
   const { error } = await db.from("renovation_payment_submissions").insert({ id, company_id: company.id, invoice_id: invoiceId, bank_account_id: bankId, amount, payment_date: date, reference_number: reference, proof_path: path, proof_sha256: hash, submitted_by: user.id });
   // Retain a failed-upload orphan rather than delete proof after an ambiguous network response.
   if (error) return { error: message(error) };
-  revalidatePath("/renovation"); revalidatePath(`/renovation/${invoiceId}`);
+  revalidatePath("/renovation"); revalidatePath(`/renovation/${invoiceId}`); revalidatePath("/verification"); revalidatePath("/payment-verification");
   redirect(`/renovation/${invoiceId}`);
 }
 export async function verifyRenovationPayment(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
+  await requireRole(["super_admin", "admin"], { module: "verification", level: "manage" });
   const { db, company, user } = await renovationContext(true);
+  if (!["verify", "reject"].includes(text(form, "decision"))) return { error: "Choose Verify or Reject." };
   const accept = text(form, "decision") === "verify";
   if (accept && text(form, "confirm") !== "yes") return { error: "Confirm that you have checked the bank-in slip and amount received." };
+  const { data: payment, error: readError } = await db.from("renovation_payment_submissions").select("invoice_id").eq("id", text(form, "payment_id")).eq("company_id", company.id).maybeSingle();
+  if (readError || !payment) return { error: "This renovation payment could not be loaded. Refresh and try again." };
   const { error } = await db.rpc("verify_renovation_payment", { p_company: company.id, p_actor: user.id, p_id: text(form, "payment_id"), p_accept: accept, p_reason: text(form, "reason") || null });
   if (error) return { error: message(error) };
-  revalidatePath("/renovation"); revalidatePath("/reports"); revalidatePath(`/renovation/${text(form, "invoice_id")}`);
-  redirect(`/renovation/${text(form, "invoice_id")}`);
+  revalidatePath("/renovation"); revalidatePath("/reports"); revalidatePath(`/renovation/${payment.invoice_id}`); revalidatePath("/verification"); revalidatePath("/payment-verification");
+  redirect(renovationWorkflowReturnTo(text(form, "return_to"), "verification"));
 }
 export async function matchRenovationPayment(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
   const { db, company, user } = await renovationContext(true);
+  const { data: payment, error: readError } = await db.from("renovation_payment_submissions").select("invoice_id").eq("bank_transaction_id", text(form, "transaction_id")).eq("company_id", company.id).eq("status", "verified").maybeSingle();
+  if (readError || !payment) return { error: "A verified renovation receipt is required. Refresh and check again." };
   const { error } = await db.rpc("match_renovation_payment", { p_company: company.id, p_actor: user.id, p_transaction: text(form, "transaction_id"), p_line: text(form, "line_id") });
   if (error) return { error: message(error) };
-  revalidatePath("/renovation"); revalidatePath("/reports"); revalidatePath(`/renovation/${text(form, "invoice_id")}`);
-  redirect(`/renovation/${text(form, "invoice_id")}`);
+  revalidatePath("/renovation"); revalidatePath("/reports"); revalidatePath(`/renovation/${payment.invoice_id}`); revalidatePath("/verification"); revalidatePath("/payment-verification");
+  redirect(renovationWorkflowReturnTo(text(form, "return_to"), "bank"));
 }
