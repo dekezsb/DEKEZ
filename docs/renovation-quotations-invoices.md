@@ -30,6 +30,11 @@ proof separately. A pending slip is not a paid invoice. Bank matching does not
 subtract the payment a second time. Copy an existing document for a new job;
 the copy starts as a fresh quotation with new dates and no payment history.
 
+After conversion, the approved quotation leaves the active list. **Client folders**
+retain all that client's quotations, revisions and invoices with unchanged IDs and
+history. Open the folder from the main list or any document. Folder searches stay
+within that client; outstanding counts issued invoices only, never quotations.
+
 ## Accounting and preservation rules
 
 - Drafts and issued quotations post no money.

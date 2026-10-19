@@ -2,6 +2,33 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const m={exports:{}};
 new Function('module','exports',ts.transpileModule(fs.readFileSync('lib/renovation/model.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(m,m.exports);
 const {totalCents,discountCents,stageAmounts,paymentSummary}=m.exports;
+test('converted quotations leave the active list but remain unchanged in their client folder',()=>{
+  const docs=[
+    {id:'q',client_id:'david',kind:'quotation',status:'approved'},
+    {id:'i',client_id:'david',kind:'invoice',status:'issued',source_quotation_id:'q'},
+    {id:'m',client_id:'michelle',kind:'invoice',status:'issued'},
+    {id:'draft',client_id:'david',kind:'quotation',status:'draft'},
+    {id:'open',client_id:'david',kind:'quotation',status:'issued'},
+  ];
+  const snapshot=JSON.stringify(docs);
+  assert.deepEqual(m.exports.renovationWorkspaceDocuments(docs).map(d=>d.id),['i','m','draft','open']);
+  assert.deepEqual(m.exports.renovationWorkspaceDocuments(docs,'david').map(d=>d.id),['q','i','draft','open']);
+  assert.deepEqual(m.exports.renovationWorkspaceDocuments(docs,'unknown'),[]);
+  assert.equal(JSON.stringify(docs),snapshot);
+});
+test('issued conversion link hides a quote; draft invoice does not archive an open quote',()=>{
+  const quote={id:'q',kind:'quotation',status:'issued'};
+  const invoice={id:'i',kind:'invoice',source_quotation_id:'q',status:'draft'};
+  assert.equal(m.exports.renovationWorkspaceDocuments([quote,invoice]).length,2);
+  assert.deepEqual(m.exports.renovationWorkspaceDocuments([quote,{...invoice,status:'issued'}]).map(d=>d.id),['i']);
+});
+test('client folders preserve company scope, filters and invoice-only outstanding',()=>{
+  const page=fs.readFileSync('app/renovation/page.tsx','utf8');
+  assert.match(page,/eq\("company_id", company.id\)/);
+  assert.match(page,/type="hidden" name="client" value=\{client\}/);
+  assert.match(page,/filter\(p => invoiceIds.has\(p.invoice_id\)\)/);
+  assert.match(page,/Client folders/);
+});
 test('quantity/rate rounding, percentage and fixed discount agree with cents-based totals',()=>{
   assert.equal(totalCents([{quantity:2798,rate:8.5}]),2378300);
   assert.equal(totalCents([{quantity:0.5,rate:0.01}]),1);

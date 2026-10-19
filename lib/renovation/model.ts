@@ -83,3 +83,11 @@ export function addDays(date: string, days: number) {
   return value.toISOString().slice(0, 10);
 }
 export const money = (value: number) => new Intl.NumberFormat("en-MY", { style: "currency", currency: "MYR" }).format(value);
+
+// Filing is a view rule only: retain quotation IDs, approval and invoice links.
+export function renovationWorkspaceDocuments(documents: RenovationDocument[], clientId = "") {
+  if (clientId) return documents.filter(d => d.client_id === clientId);
+  const converted = new Set(documents.filter(d => d.kind === "invoice" && d.status === "issued")
+    .map(d => d.source_quotation_id).filter(Boolean));
+  return documents.filter(d => !(d.kind === "quotation" && (d.status === "approved" || converted.has(d.id))));
+}

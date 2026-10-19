@@ -24,6 +24,7 @@ export default async function RenovationDetail({ params }: { params: Promise<{ i
   return <main className="min-h-screen bg-slate-100 p-4 print:bg-white print:p-0">
     <div className="mx-auto mb-5 max-w-[210mm] space-y-4 print:hidden"><div className="flex flex-wrap items-center gap-3"><Link href="/renovation" className="rounded border bg-white px-4 py-2">← Renovation documents</Link><InvoicePrintButton />{manage && d.status === "draft" && <Link className="underline" href={`/renovation/new?edit=${id}`}>Edit draft / discount</Link>}{manage && d.kind === "quotation" && d.status === "issued" && <Link className="underline" href={`/renovation/new?revise=${id}`}>Revise quotation / discount</Link>}{manage && <Link className="underline" href={`/renovation/new?copy=${id}`}>Copy for a new job</Link>}</div>
       <p>Status: <strong>{d.status}</strong>{d.kind === "invoice" && d.status === "issued" ? " · Posted to general-company Renovation Service Income. No payment is implied." : ""}</p>
+      <Link className="block underline" href={`/renovation?client=${d.client_id}`}>Open {d.client_snapshot.name}'s client folder</Link>
       {d.approval_name && <p className="rounded border bg-white p-3">Approval recorded for {d.approval_name}. Evidence: {d.approval_evidence}</p>}
       {d.source_quotation_id && <Link className="block underline" href={`/renovation/${d.source_quotation_id}`}>View original approved quotation</Link>}
       {d.revision_of_id && <Link className="block underline" href={`/renovation/${d.revision_of_id}`}>View previous quotation</Link>}
