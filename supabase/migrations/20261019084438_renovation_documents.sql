@@ -410,3 +410,27 @@ end; $$;
 revoke all on function public.guard_renovation_payment_proof() from public,anon,authenticated;
 create trigger guard_renovation_payment_proof before insert or update on public.renovation_payment_submissions
 for each row execute function public.guard_renovation_payment_proof();
+
+create function public.unmatch_renovation_payment(p_company uuid,p_actor uuid,p_match uuid,p_reason text)
+returns void language plpgsql security invoker set search_path='' as $$
+declare m public.bank_reconciliation_matches; l public.bank_statement_lines; remaining numeric;
+begin
+  perform public.assert_renovation_actor(p_company,p_actor);
+  if length(btrim(coalesce(p_reason,'')))<3 then raise exception 'renovation_rejection_reason'; end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_company::text,1801));
+  select * into m from public.bank_reconciliation_matches where id=p_match;
+  if not found then return; end if;
+  if m.source_type<>'manual_bank_transaction' or not exists(select 1 from public.renovation_payment_submissions
+    where company_id=p_company and status='verified' and bank_transaction_id=m.source_id) then raise exception 'renovation_not_allowed'; end if;
+  select b.* into l from public.bank_statement_lines b join public.bank_statement_imports s on s.id=b.statement_import_id
+    where b.id=m.statement_line_id and s.company_id=p_company for update of b;
+  if not found then raise exception 'renovation_wrong_bank'; end if;
+  delete from public.bank_reconciliation_matches where id=m.id;
+  select l.amount-coalesce(sum(matched_amount),0) into remaining from public.bank_reconciliation_matches where statement_line_id=l.id;
+  update public.bank_statement_lines set status=case when remaining>0 then 'unmatched' else 'matched' end,updated_at=now() where id=l.id;
+  update public.bank_statement_imports set status='in_progress' where id=l.statement_import_id;
+  insert into public.accounting_audit_logs(company_id,entity_type,entity_id,action,before_data,reason,performed_by)
+  values(p_company,'renovation_payment',m.source_id,'bank_unmatched',to_jsonb(m),p_reason,p_actor);
+end; $$;
+revoke all on function public.unmatch_renovation_payment(uuid,uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.unmatch_renovation_payment(uuid,uuid,uuid,text) to service_role;

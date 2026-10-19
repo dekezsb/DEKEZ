@@ -1346,6 +1346,19 @@ export async function unmatchBankLine(formData: FormData) {
   if (match.source_type === "payment" || match.source_type === "rent_bill") {
     redirect(bankActionPath(formData, { error: "use_payment_unmatch" }));
   }
+  if (match.source_type === "manual_bank_transaction") {
+    const { data: renovation, error: lookupError } = await supabase.from("renovation_payment_submissions")
+      .select("id").eq("bank_transaction_id", match.source_id).eq("company_id", company.id).eq("status", "verified").maybeSingle();
+    if (lookupError) redirect(bankActionPath(formData, { error: "unmatch_failed" }));
+    if (renovation) {
+      const { error } = await supabase.rpc("unmatch_renovation_payment", {
+        p_company: company.id, p_actor: user.id, p_match: match.id,
+        p_reason: "Admin unlinked renovation bank allocation for correction; verified receipt retained.",
+      });
+      revalidatePath("/reports"); revalidatePath("/renovation");
+      redirect(bankActionPath(formData, error ? { error: "unmatch_failed" } : { unmatched: "1" }));
+    }
+  }
   if (match.source_type === "bank_account_transfer") {
     const { data: linkedMatches } = await supabase
       .from("bank_reconciliation_matches")

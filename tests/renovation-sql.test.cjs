@@ -155,6 +155,19 @@ test('general-accounting corrections cannot corrupt renovation invoice or verifi
   assert.equal((await rows("select * from accounting_audit_logs where action='proof_submitted'")).length,1);
 });
 
+test('unmatching is audited and restores bank work without reversing payment verification or income', async () => {
+  await fixture(); await directInvoice(); await payment(); const tx=(await verify()).rows[0].id; await match(tx);
+  const m=(await rows('select id from bank_reconciliation_matches'))[0].id;
+  await assert.rejects(db.query('select unmatch_renovation_payment($1,$2,$3,$4)',[id(2),id(3),m,'Test correction']),/not_allowed/);
+  await db.query('select unmatch_renovation_payment($1,$2,$3,$4)',[id(1),id(3),m,'Test correction']);
+  assert.equal((await rows('select status from renovation_payment_submissions'))[0].status,'verified');
+  assert.equal((await rows('select * from bank_manual_transactions')).length,1);
+  assert.equal((await rows('select * from accounting_journal_entries')).length,1);
+  assert.equal((await rows(`select status from bank_statement_lines where id='${id(31)}'`))[0].status,'unmatched');
+  assert.equal((await rows("select * from accounting_audit_logs where action='bank_unmatched'")).length,1);
+  await match(tx);
+});
+
 test('service role can perform the complete flow, while original non-renovation duplicate guard is retained', async () => {
   await fixture(); await db.exec('set role service_role');
   try { await directInvoice(); await payment(); const tx=(await verify()).rows[0].id; await match(tx); }
