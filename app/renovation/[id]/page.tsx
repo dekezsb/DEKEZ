@@ -5,8 +5,8 @@ import { RenovationPdfPreview } from "@/components/renovation/pdf-preview";
 import { renovationContext, renovationDocument, renovationSavedTranslations } from "@/lib/renovation/server";
 import { malaysiaToday, money, paymentSummary, documentStatus, documentTotals, type RenovationDocument } from "@/lib/renovation/model";
 import { allReportRows } from "@/lib/accounting/report-data";
-import { renovationPaymentData } from "@/lib/renovation/payments";
-import { PaymentCard, PaymentUpload } from "@/components/renovation/payments";
+import { renovationPaymentData, existingRenovationReceipts } from "@/lib/renovation/payments";
+import { PaymentCard, PaymentUpload, LinkExistingReceipts } from "@/components/renovation/payments";
 import { getCurrentUserAccess } from "@/lib/auth/session";
 import { hasModuleAccess } from "@/lib/auth/access";
 
@@ -21,6 +21,7 @@ export default async function RenovationDetail({ params,searchParams }: { params
   if (error) throw new Error("Could not load linked renovation documents.");
   const paymentData = d.kind === "invoice" && d.status === "issued" ? await renovationPaymentData(d.id) : null;
   const summary = paymentData ? paymentSummary(Number(d.total), paymentData.payments) : null;
+  const existingReceipts = manage && summary && summary.outstanding > 0 ? await existingRenovationReceipts() : [];
   const amounts = documentTotals(d);
   const {data:events,error:historyError}=await allReportRows(db.from('accounting_audit_logs').select('id,action,before_data,after_data,reason,performed_by,performed_at').eq('company_id',company.id).eq('entity_type','renovation_document').eq('entity_id',id).order('performed_at',{ascending:false}));
   if(historyError)throw new Error('Could not load document version history.');
@@ -51,6 +52,7 @@ export default async function RenovationDetail({ params,searchParams }: { params
         <div className="grid grid-cols-2 gap-3"><p className="rounded border bg-emerald-50 p-3">Amount received<strong className="block">{money(summary.verified)}</strong></p><p className="rounded border bg-white p-3">Outstanding<strong className="block">{money(summary.outstanding)}</strong></p>{summary.pending > 0 && <p className="rounded border bg-amber-50 p-3">Pending verification (not received)<strong className="block">{money(summary.pending)}</strong></p>}</div>
         <p className="text-sm">Admin receipts are recorded immediately. Bank matching happens later in Bank Statement Reconciliation and does not reduce outstanding twice.</p>
         {manage && summary.outstanding > 0 && <PaymentUpload invoiceId={d.id} banks={paymentData.banks} today={malaysiaToday()} outstanding={summary.outstanding} />}
+        {manage && summary.outstanding > 0 && <LinkExistingReceipts invoiceId={d.id} receipts={existingReceipts} outstanding={summary.outstanding} />}
         {paymentData.payments.map(payment => <PaymentCard key={payment.id} payment={payment} manage={manage} />)}
       </section>}
     </div>

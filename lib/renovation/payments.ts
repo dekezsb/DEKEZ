@@ -33,9 +33,37 @@ export async function renovationPaymentData(invoiceId?: string, statementIds?: s
     }
   }
   const signedPayments: RenovationPayment[] = await Promise.all((payments.data as RenovationPayment[]).map(async p => {
-    const { data } = await db.storage.from("renovation-proofs").createSignedUrl(p.proof_path, 600);
+    const { data } = p.proof_path ? await db.storage.from("renovation-proofs").createSignedUrl(p.proof_path, 600) : { data: null };
     return { ...p, proofUrl: data?.signedUrl, matched: p.bank_transaction_id ? sourceTotals.get(p.bank_transaction_id) ?? 0 : 0 };
   }));
   const available: BankLineOption[] = lines.data.map(l => ({ ...l, blocked: blocked.has(l.id), matchedSourceIds:lineSources.get(l.id) ?? [], remaining: Number(l.amount) - (lineTotals.get(l.id) ?? 0) })).filter(l => l.remaining > 0.005);
   return { payments: signedPayments, banks: banks.data, lines: available, invoices: documents.data as Pick<RenovationDocument, "id" | "document_number" | "client_snapshot" | "project">[] };
+}
+
+// Receipt selection is not bank reconciliation: these receipts are already
+// fully bank-confirmed. The RPC rechecks all eligibility and balances atomically.
+export async function existingRenovationReceipts() {
+  const { db, company } = await renovationContext(true);
+  const { data: accounts, error: accountError } = await db.from("accounting_accounts").select("id")
+    .eq("company_id", company.id).eq("is_active", true).in("code", ["4050", "1185"]);
+  if (accountError) throw new Error("Could not load renovation accounts.");
+  if (!accounts?.length) return [];
+  const [receipts, links] = await Promise.all([
+    allReportRows(db.from("bank_manual_transactions").select("id,correction_version,transaction_date,reference_number,description,amount")
+      .eq("company_id", company.id).in("offset_account_id", accounts.map(a => a.id)).is("property_id", null).gt("amount", 0)
+      .order("transaction_date", { ascending: false }).order("id")),
+    allReportRows(db.from("renovation_payment_submissions").select("bank_transaction_id").eq("company_id", company.id).eq("status", "verified")),
+  ]);
+  if (receipts.error || links.error) throw new Error("Could not load existing renovation receipts.");
+  const linked = new Set(links.data.map(p => p.bank_transaction_id));
+  const available = receipts.data.filter(r => !linked.has(r.id));
+  const sums = new Map<string, number>();
+  for (let offset = 0; offset < available.length; offset += 100) {
+    const matches = await allReportRows(db.from("bank_reconciliation_matches").select("source_id,matched_amount")
+      .eq("source_type", "manual_bank_transaction").in("source_id", available.slice(offset, offset + 100).map(r => r.id)));
+    if (matches.error) throw new Error("Could not confirm existing bank receipts.");
+    for (const m of matches.data) sums.set(m.source_id, (sums.get(m.source_id) ?? 0) + Math.round(Number(m.matched_amount) * 100));
+  }
+  return available.filter(r => r.reference_number?.trim().length >= 3 && sums.get(r.id) === Math.round(Number(r.amount) * 100))
+    .map(r => ({ ...r, amount: Number(r.amount) }));
 }

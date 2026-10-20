@@ -41,7 +41,7 @@ export async function RenovationPaymentVerification({ params, returnTo }: {
     {payments.map(payment => { const invoice = invoices.get(payment.invoice_id); return <article key={`${payment.id}:${payment.status}`} className="rounded-lg border border-purple-200 bg-purple-50 p-4">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
         <div className="space-y-3">
-          {payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path.endsWith(".pdf")} label={`Renovation · ${invoice?.client_snapshot.name ?? "Client"} · ${money(Number(payment.amount))}`} /> : <p role="alert">Slip unavailable. Do not verify until it can be reviewed.</p>}
+          {payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path?.endsWith(".pdf")} label={`Renovation · ${invoice?.client_snapshot.name ?? "Client"} · ${money(Number(payment.amount))}`} /> : <p role="alert">Slip unavailable. Do not verify until it can be reviewed.</p>}
           {manage && payment.status === "pending" && payment.proofUrl && <VerifyPayment payment={payment} returnTo={destination} />}
           {payment.status !== "pending" && <strong className="block uppercase">{payment.status}</strong>}
         </div>

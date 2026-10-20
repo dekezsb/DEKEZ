@@ -31,6 +31,26 @@ export async function savePdfTranslations(form: FormData): Promise<RenovationAct
 
 export type RenovationActionState = { error?: string; success?: string };
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
+export async function linkExistingReceipts(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
+  const { db, company, user } = await renovationContext(true);
+  const invoice = text(form, "invoice_id"), reason = text(form, "reason");
+  const selected = form.getAll("receipt").map(String);
+  if (!/^[0-9a-f-]{36}$/i.test(invoice) || form.get("confirm") !== "yes" || reason.length < 10 || reason.length > 1000
+    || selected.length < 1 || selected.length > 20 || selected.some(v => !/^[0-9a-f-]{36}:\d{1,9}$/i.test(v))) {
+    return { error: "Select the existing receipts, enter a reason, and confirm they settle this invoice." };
+  }
+  const receipts = selected.map(value => { const [id, version] = value.split(":"); return { id, version: Number(version) }; });
+  if (new Set(receipts.map(r => r.id)).size !== receipts.length) return { error: "Select each receipt only once." };
+  const { error } = await db.rpc("link_existing_renovation_receipts", { p_company: company.id, p_actor: user.id,
+    p_invoice: invoice, p_receipts: receipts, p_reason: reason });
+  if (error) {
+    if (/overpayment/.test(error.message)) return { error: "The selected receipts exceed this invoice's outstanding balance. Nothing was changed." };
+    if (/period_locked/.test(error.message)) return { error: "The receipt's accounting period is locked. Nothing was changed." };
+    return { error: "A receipt changed, is already linked, or is not eligible. Refresh and review the existing receipts; no partial change was saved." };
+  }
+  revalidatePath("/renovation"); revalidatePath(`/renovation/${invoice}`); revalidatePath("/reports");
+  redirect(`/renovation/${invoice}`);
+}
 function message(error: { message: string } | null) {
   const value = error?.message ?? "";
   if (/tax_account_required/.test(value)) return "Select an active tax liability account when applying tax.";

@@ -14,6 +14,29 @@ const link = ({href, children, ...props}) => React.createElement('a', {...props,
 const viewer = () => React.createElement('button', null, 'Preview slip');
 const base = {id:'receipt',invoice_id:'invoice',amount:2800,status:'verified',bank_account_id:'bank',bank_transaction_id:'transaction',proof_path:'proof.pdf',proofUrl:'https://example.test/proof',reference_number:'00119128',payment_date:'2026-10-11',matched:0};
 const invoices = [{id:'invoice',document_number:'DRI-TEST',client_snapshot:{name:'Example Client'},project:'Works'}];
+test('existing bank receipt has no upload prompt or verification/reconciliation controls',()=>{
+  const {PaymentCard,LinkExistingReceipts}=load('components/renovation/payments.tsx',{'@/lib/renovation/model':model,'@/app/payment-verification/receipt-viewer':{ReceiptViewer:viewer},'@/app/renovation/actions':{linkExistingReceipts:async()=>({})}});
+  const card=renderToStaticMarkup(React.createElement(PaymentCard,{payment:{...base,receipt_origin:'existing_bank',admin_uploaded:true,proof_path:null,proofUrl:undefined}}));
+  assert.match(card,/RECORDED/);assert.match(card,/No slip upload required/);
+  assert.doesNotMatch(card,/unavailable|type="file"|Verify|Match verified|Reconcile|line_id/);
+  const form=renderToStaticMarkup(React.createElement(LinkExistingReceipts,{invoiceId:'invoice',outstanding:2800,receipts:[{id:'existing',correction_version:0,transaction_date:'2026-10-11',amount:2800,reference_number:'119128',description:'Existing payment'}]}));
+  assert.match(form,/name="receipt" value="existing:0"/);assert.match(form,/name="confirm"/);
+  assert.doesNotMatch(form,/type="file"|line_id|Match verified payment|Reconcile/);
+});
+test('link action uses authenticated company and actor, existing receipt IDs only, with confirmation',async()=>{
+  const calls=[],invalidated=[];
+  const {linkExistingReceipts}=load('app/renovation/actions.ts',{
+    '@/lib/renovation/server':{renovationContext:async manage=>{assert.equal(manage,true);return {db:{rpc:async(...args)=>{calls.push(args);return {data:1};}},company:{id:'company'},user:{id:'actor'}};}},
+    '@/lib/auth/session':{},'@/lib/renovation/model':model,'@/lib/renovation/payments':{},'@/lib/renovation/reconciliation':{},
+    '@/lib/renovation/saved-translations':{},'next/cache':{revalidatePath:path=>invalidated.push(path)},'next/navigation':{redirect:path=>{throw new Error(`redirect:${path}`);}},
+  });
+  const form=new FormData();form.set('invoice_id','00000000-0000-0000-0000-000000000010');
+  form.set('receipt','00000000-0000-0000-0000-000000000070:0');form.set('reason','Existing bank receipt settles this invoice');
+  assert.match((await linkExistingReceipts({},form)).error,/confirm/);assert.equal(calls.length,0);
+  form.set('confirm','yes');await assert.rejects(linkExistingReceipts({},form),/redirect:/);
+  assert.equal(calls[0][0],'link_existing_renovation_receipts');assert.equal(calls[0][1].p_actor,'actor');assert.equal(calls[0][1].p_company,'company');
+  assert.deepEqual(calls[0][1].p_receipts,[{id:'00000000-0000-0000-0000-000000000070',version:0}]);assert.ok(invalidated.includes('/reports'));
+});
 test('payment loader scopes bank lines to selected company statements and subtracts existing allocations',async()=>{
   const queries=[];
   const db={from(table){const q={table,ops:[]};for(const method of ['select','eq','order','in','gt','neq','is'])q[method]=(...args)=>{q.ops.push([method,...args]);return q;};queries.push(q);return q;},storage:{from:()=>({createSignedUrl:async()=>({data:{signedUrl:'signed'}})})}};

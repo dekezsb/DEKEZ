@@ -3,6 +3,7 @@ const test = require('node:test'), assert = require('node:assert/strict'), fs = 
 const migration = fs.readFileSync('supabase/migrations/20261019084438_renovation_documents.sql', 'utf8');
 const adminMigration = fs.readFileSync('supabase/migrations/20261019163235_renovation_admin_receipts.sql', 'utf8');
 const editorMigration = fs.readFileSync('supabase/migrations/20261019164832_renovation_editor_multilingual.sql','utf8');
+const existingReceiptMigration = fs.readFileSync('supabase/migrations/20261020151420_renovation_existing_bank_receipts.sql','utf8');
 const journal = fs.readFileSync('supabase/migrations/20260814155906_post_manual_journal_entries.sql', 'utf8');
 const foundation = fs.readFileSync('supabase/migrations/20260805090954_accounting_pnl_bank_reconciliation.sql', 'utf8').split('create table if not exists public.bank_accounts')[0];
 const existingGuard = fs.readFileSync('supabase/migrations/20260921092807_existing_payment_split_reconciliation.sql', 'utf8').match(/create or replace function public\.guard_existing_payment_bank_match\(\)[\s\S]*?\$\$;/)[0];
@@ -32,6 +33,8 @@ test.before(async () => {
     alter table bank_statement_lines add column transaction_date date default '2026-10-20',add column reference_number text,add column description text default '';
     ${adminMigration}
     ${editorMigration}
+    alter table bank_manual_transactions add column correction_version integer not null default 0, add column property_id uuid;
+    ${existingReceiptMigration}
     grant usage on schema public,auth to service_role;
     grant select,insert,update on all tables in schema public to service_role;
     grant select on auth.users to service_role;`);
@@ -58,6 +61,88 @@ async function payment(n=20,amount=400,invoice=id(10),bank=8) {
 const verify = (n=20,accept=true,actor=3) => db.query('select verify_renovation_payment($1,$2,$3,$4,$5) as id',[id(1),id(actor),id(n),accept,accept?null:'Wrong slip']);
 const match = (transaction,line=31,company=1) => db.query('select match_renovation_payment($1,$2,$3,$4)',[id(company),id(3),transaction,id(line)]);
 const recordAdmin = (n=20,amount=400,reference='119128',actor=3) => db.query('select record_admin_renovation_payment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as id',[id(1),id(actor),id(n),id(10),id(8),amount,'2026-10-20',reference,`${id(1)}/${id(10)}/${n}.pdf`,String(n).padStart(64,'0')]);
+const linkExisting = (receipts=[{id:id(70),version:0},{id:id(71),version:0}], invoice=10, actor=3, company=1) =>
+  db.query('select link_existing_renovation_receipts($1,$2,$3,$4,$5) as count',[id(company),id(actor),id(invoice),JSON.stringify(receipts),'Owner confirmed these bank receipts settle this invoice']);
+async function historicalReceipts() {
+  await directInvoice();
+  await db.exec(`update bank_statement_lines set amount=450 where id in ('${id(31)}','${id(32)}');
+    insert into bank_manual_transactions(id,company_id,bank_account_id,offset_account_id,transaction_date,amount,description,reference_number,created_by)
+    values('${id(70)}','${id(1)}','${id(8)}','${id(7)}','2026-10-20',450,'Existing renovation receipt','125616','${id(3)}'),
+          ('${id(71)}','${id(1)}','${id(8)}','${id(7)}','2026-10-21',450,'Existing renovation receipt','195579','${id(3)}');
+    insert into bank_reconciliation_matches(statement_line_id,source_type,source_id,matched_amount,match_method,created_by)
+    values('${id(31)}','manual_bank_transaction','${id(70)}',450,'adjustment','${id(3)}'),
+          ('${id(32)}','manual_bank_transaction','${id(71)}',450,'adjustment','${id(3)}');`);
+}
+test('historical bank receipts clear AR without new money, journal, upload or changed matches',async()=>{
+  await fixture();await historicalReceipts();
+  const before=await rows('select * from bank_manual_transactions order by id');
+  const matches=await rows('select * from bank_reconciliation_matches order by id');
+  const journals=await rows('select * from accounting_journal_entries');
+  const invoice=await rows('select * from renovation_documents');
+  const rentals=await rows('select * from rent_bills');
+  assert.equal((await linkExisting()).rows[0].count,2);
+  assert.equal((await linkExisting()).rows[0].count,0);
+  const after=await rows('select * from bank_manual_transactions order by id');
+  assert.equal(after.length,2);
+  for(let i=0;i<2;i++){
+    const {offset_account_id:oldOffset,correction_version:oldVersion,...original}=before[i];
+    const {offset_account_id:newOffset,correction_version:newVersion,...retained}=after[i];
+    assert.deepEqual(retained,original);assert.notEqual(newOffset,oldOffset);assert.equal(newVersion,oldVersion+1);
+  }
+  assert.deepEqual(await rows('select * from bank_reconciliation_matches order by id'),matches);
+  assert.deepEqual(await rows('select * from accounting_journal_entries'),journals);
+  assert.deepEqual(await rows('select * from renovation_documents'),invoice);
+  assert.deepEqual(await rows('select * from rent_bills'),rentals);
+  const links=await rows('select * from renovation_payment_submissions');
+  assert.equal(links.length,2);assert.equal(links.reduce((s,p)=>s+Number(p.amount),0),900);
+  for(const p of links){assert.equal(p.proof_path,null);assert.equal(p.proof_sha256,null);assert.equal(p.status,'verified');assert.equal(p.receipt_origin,'existing_bank');assert.equal(p.admin_uploaded,true);}
+  const net=await rows(`select
+    (select coalesce(sum(l.credit-l.debit),0) from accounting_journal_lines l join accounting_accounts a on a.id=l.account_id where a.code='4050')
+      +(select coalesce(sum(b.amount),0) from bank_manual_transactions b join accounting_accounts a on a.id=b.offset_account_id where a.code='4050') revenue,
+    (select coalesce(sum(l.debit-l.credit),0) from accounting_journal_lines l join accounting_accounts a on a.id=l.account_id where a.code='1185')
+      -(select coalesce(sum(b.amount),0) from bank_manual_transactions b join accounting_accounts a on a.id=b.offset_account_id where a.code='1185') ar`);
+  assert.equal(Number(net[0].revenue),900);assert.equal(Number(net[0].ar),0);
+  assert.equal((await rows("select * from accounting_audit_logs where action='posting_corrected'")).length,2);
+  assert.equal((await rows("select * from accounting_audit_logs where action='existing_bank_receipt_linked'")).length,2);
+  await assert.rejects(db.exec(`update bank_manual_transactions set amount=1 where id='${id(70)}'`),/cannot be changed/);
+  await assert.rejects(db.exec(`update renovation_payment_submissions set amount=1 where bank_transaction_id='${id(70)}'`),/immutable/);
+});
+test('existing-receipt linking rejects tenant, cross-company, stale, duplicate and unconfirmed requests without partial changes',async()=>{
+  await fixture();await historicalReceipts();
+  const before=await rows('select * from bank_manual_transactions order by id');
+  await assert.rejects(linkExisting(undefined,10,4),/not_allowed/);
+  await assert.rejects(linkExisting(undefined,10,3,2),/invoice_required/);
+  await assert.rejects(linkExisting([{id:id(70),version:0},{id:id(70),version:0}]),/duplicates/);
+  await assert.rejects(linkExisting([{id:id(70),version:0},{id:id(71),version:99}]),/stale/);
+  assert.deepEqual(await rows('select * from bank_manual_transactions order by id'),before);
+  assert.equal((await rows('select * from renovation_payment_submissions')).length,0);
+  await db.exec(`delete from bank_reconciliation_matches where source_id='${id(71)}'`);
+  await assert.rejects(linkExisting(),/not_confirmed/);
+  assert.deepEqual(await rows('select * from bank_manual_transactions order by id'),before);
+});
+test('existing receipt linking rejects locked periods, overpayment and rental account classification',async()=>{
+  await fixture();await historicalReceipts();
+  await db.exec(`insert into accounting_periods(company_id,period_start,period_end,status)values('${id(1)}','2026-10-01','2026-10-31','locked')`);
+  await assert.rejects(linkExisting(),/period_locked/);
+  await db.exec('delete from accounting_periods');
+  await recordAdmin(20,100,'OTHERRECEIPT');
+  await assert.rejects(linkExisting(),/overpayment/);
+  assert.equal((await rows('select * from renovation_payment_submissions')).length,1);
+  await db.exec(`insert into accounting_accounts(id,company_id,code,name,account_type,report_group,normal_balance)
+    values('${id(75)}','${id(1)}','4000','Rental Income','income','other_income','credit');
+    update bank_manual_transactions set offset_account_id='${id(75)}' where id='${id(70)}';`);
+  await assert.rejects(linkExisting([{id:id(70),version:0}]),/invalid/);
+});
+test('a linked bank receipt cannot be assigned to another invoice and browser roles cannot call the function',async()=>{
+  await fixture();await historicalReceipts();await linkExisting([{id:id(70),version:0}]);
+  await save(11,payload({kind:'invoice'}));await issue(11);
+  await assert.rejects(linkExisting([{id:id(70),version:0}],11),/already_recorded/);
+  for(const role of ['anon','authenticated']){
+    await db.exec(`set role ${role}`);
+    await assert.rejects(linkExisting([{id:id(71),version:0}]),/permission denied/);
+    await db.exec('reset role');
+  }
+});
 
 test('expanded item library is explicit, versioned, company scoped and never changes document snapshots',async()=>{
   await fixture();

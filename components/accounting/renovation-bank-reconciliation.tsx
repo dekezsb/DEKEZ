@@ -24,7 +24,7 @@ export async function RenovationBankReconciliation({ statementIds, bankAccountId
       <Link className="block underline" href={`/renovation/${payment.invoice_id}`}>{invoice?.document_number ?? "Open invoice"} · {invoice?.project}</Link>
       <p>Payment date: {payment.payment_date} · Remaining to match: {money(Number(payment.amount) - (payment.matched ?? 0))}</p>
       {manage && payment.admin_uploaded && !payment.reference_number && <MissingReference paymentId={payment.id} />}
-      {payment.proofUrl && <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path.endsWith(".pdf")} label="Verified renovation receipt" thumbnail={false} />}
+      {payment.proofUrl && <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path?.endsWith(".pdf")} label="Verified renovation receipt" thumbnail={false} />}
       {manage && !locked ? <MatchPayment payment={payment} lines={data.lines} returnTo={returnTo} /> : <p>{locked ? "This statement is locked." : "Bank matching requires accounting management permission."}</p>}
     </article>; })}
     {!payments.length && <p className="text-sm text-slate-600">No unmatched verified renovation receipts for this bank.</p>}

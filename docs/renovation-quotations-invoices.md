@@ -43,6 +43,26 @@ permissions; all financial mutations are server-side and company-scoped.
    amounts, matching controls or reconciliation links. Partial
    and multiple allocations consume only the remaining amounts.
 
+### Link historical bank receipts (no upload)
+
+For money already recorded and fully bank-confirmed, use **Link existing bank
+receipt** on the renovation invoice. Select the existing receipt references and
+confirm the client/invoice and reason. This is not bank-statement reconciliation.
+No new slip, receipt, bank transaction, journal or reconciliation match is created.
+The existing bank receipt is reclassified from Renovation Service Income (4050)
+to Renovation Client Receivables (1185), if necessary, and an immutable invoice
+association is added to the existing renovation payment records. The association
+has `receipt_origin=existing_bank`, no proof file/hash, and immediately counts as
+received; it never enters Payment Verification.
+
+The transaction retains dates, references, amounts, bank IDs and original bank
+matches, with before/after audit snapshots. Invoice locking, receipt locking,
+version checks, unique bank-receipt links, outstanding checks and locked-period
+checks prevent duplicate or partial changes. Only company-scoped, positive,
+general-company renovation receipts already fully matched to valid bank lines
+are eligible. Rental-classified/property receipts are rejected. Repeat requests
+return without new writes. Upload workflows retain their existing proof rules.
+
 The list and invoice show renovation outstanding, verified receipts and pending
 proof separately. A pending slip is not a paid invoice. Bank matching does not
 subtract the payment a second time. Copy an existing document for a new job;

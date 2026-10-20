@@ -3,7 +3,8 @@ export type WorkLine = { description: string; quantity: number; unit: string; ra
 export type PaymentStage = { label: string; percent: number };
 export type RenovationClient = { id: string; name: string; phone: string; email: string; address: string };
 export type CatalogueItem = { id: string; description: string; unit: string; rate: number; item_code?: string; category?: string; cost_price?: number | null; active?: boolean; translations?: Partial<Record<DocumentLanguage, string>>; version?: number };
-export type RenovationPayment = { id: string; admin_uploaded?: boolean; invoice_id: string; amount: number; payment_date: string; reference_number: string; status: "pending" | "verified" | "rejected"; bank_transaction_id: string | null; bank_account_id: string; proof_path: string; rejection_reason: string | null; proofUrl?: string; matched?: number };
+export type RenovationPayment = { id: string; admin_uploaded?: boolean; receipt_origin?: "upload" | "existing_bank"; invoice_id: string; amount: number; payment_date: string; reference_number: string; status: "pending" | "verified" | "rejected"; bank_transaction_id: string | null; bank_account_id: string; proof_path: string | null; rejection_reason: string | null; proofUrl?: string; matched?: number };
+export type ExistingRenovationReceipt = { id: string; correction_version: number; transaction_date: string; reference_number: string; description: string; amount: number };
 export function paymentSummary(total: number, payments: RenovationPayment[]) {
   const verified = payments.filter(p => p.status === "verified").reduce((sum, p) => sum + Math.round(Number(p.amount) * 100), 0);
   const pending = payments.filter(p => p.status === "pending").reduce((sum, p) => sum + Math.round(Number(p.amount) * 100), 0);

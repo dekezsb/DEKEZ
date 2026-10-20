@@ -1,12 +1,35 @@
 "use client";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { ReceiptViewer } from "@/app/payment-verification/receipt-viewer";
-import { bulkReconcileRenovation, saveRenovationReference, matchRenovationPayment, submitRenovationPayment, verifyRenovationPayment } from "@/app/renovation/actions";
-import { money, type RenovationPayment } from "@/lib/renovation/model";
+import { bulkReconcileRenovation, saveRenovationReference, matchRenovationPayment, submitRenovationPayment, verifyRenovationPayment, linkExistingReceipts } from "@/app/renovation/actions";
+import { money, type RenovationPayment, type ExistingRenovationReceipt } from "@/lib/renovation/model";
 const field = "block w-full rounded border border-slate-300 bg-white px-3 py-2";
 const button = "rounded bg-[#b58a2a] px-4 py-2 font-semibold text-white disabled:opacity-50";
 export type BankOption = { id: string; name: string };
 export type BankLineOption = { id: string; bank_account_id: string; transaction_date: string; description: string; reference_number: string | null; remaining: number; blocked?: boolean; matchedSourceIds?: string[] };
+export function LinkExistingReceipts({ invoiceId, receipts, outstanding }: { invoiceId: string; receipts: ExistingRenovationReceipt[]; outstanding: number }) {
+  const [state, action, pending] = useActionState(linkExistingReceipts, {});
+  const [query, setQuery] = useState(""), [selected, setSelected] = useState<string[]>([]);
+  const selectedTotal = receipts.filter(r => selected.includes(r.id)).reduce((sum, r) => sum + Math.round(r.amount * 100), 0);
+  const visible = receipts.filter(r => `${r.description} ${r.reference_number} ${r.transaction_date}`.toLowerCase().includes(query.toLowerCase()) || selected.includes(r.id));
+  return <details className="rounded-lg border bg-white p-4"><summary className="cursor-pointer font-semibold">Link existing bank receipt — no upload needed</summary>
+    <form action={action} className="mt-4 space-y-3"><input type="hidden" name="invoice_id" value={invoiceId} />
+      <p>Use money already recorded and confirmed in the bank. This links the same receipt and, if needed, changes its account from renovation income to receivables. No new payment or income is created.</p>
+      <label className="block">Search existing receipts<input className={field} value={query} onChange={e => setQuery(e.target.value)} placeholder="Bank reference, description or date" /></label>
+      <fieldset disabled={pending} className="max-h-80 space-y-2 overflow-auto"><legend>Select receipts for this invoice</legend>
+        {visible.map(r => <label key={r.id} className="flex items-start gap-3 rounded border p-3"><input type="checkbox" name="receipt" value={`${r.id}:${r.correction_version}`} checked={selected.includes(r.id)}
+          onChange={e => setSelected(current => e.target.checked ? [...current, r.id] : current.filter(id => id !== r.id))} />
+          <span>{r.transaction_date} · {money(r.amount)} · Reference {r.reference_number}<span className="block text-sm">{r.description}</span></span></label>)}
+        {!visible.length && <p>No eligible unlinked bank receipts found.</p>}
+      </fieldset>
+      <p>Selected: <strong>{money(selectedTotal / 100)}</strong> · Outstanding: {money(outstanding)}</p>
+      <label className="block">Reason for linking<input name="reason" required minLength={10} maxLength={1000} className={field} placeholder="These existing bank receipts settle this renovation invoice" /></label>
+      <label className="flex gap-2"><input type="checkbox" name="confirm" value="yes" required /><span>I confirm these receipts belong to this client and invoice. Preserve their dates, references and existing bank matches.</span></label>
+      {state.error && <p role="alert" className="text-red-700">{state.error}</p>}
+      <button className={button} disabled={pending || !selected.length || selected.length > 20 || selectedTotal > Math.round(outstanding * 100)}>{pending ? "Linking existing receipts…" : "Link existing receipts"}</button>
+    </form>
+  </details>;
+}
 export function PaymentUpload({ invoiceId, banks, today, outstanding }: { invoiceId: string; banks: BankOption[]; today: string; outstanding: number }) {
   const [state, action, pending] = useActionState(submitRenovationPayment, {});
   return <details className="rounded-lg border bg-white p-4"><summary className="cursor-pointer font-semibold">+ Upload renovation payment / instalment</summary><form action={action} className="mt-4 grid gap-3 sm:grid-cols-2"><input type="hidden" name="invoice_id" value={invoiceId} />
@@ -41,7 +64,7 @@ export function PaymentCard({ payment, manage = false }: { payment: RenovationPa
   return <section className="space-y-3 rounded-lg border bg-white p-4"><div className="flex flex-wrap justify-between gap-2"><strong>Payment amount: {money(Number(payment.amount))}</strong><span>Payment status: {payment.admin_uploaded && payment.status === "verified" ? "RECORDED" : payment.status.toUpperCase()}</span></div>
     <p>Payment date: {payment.payment_date}</p><p>Bank code / reference: {payment.reference_number || "Missing bank code"}</p>
     {manage && payment.admin_uploaded && payment.status === "verified" && !payment.reference_number && <MissingReference paymentId={payment.id} />}
-    {payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path.endsWith(".pdf")} label="Renovation bank-in slip" thumbnail={false} /> : <p className="text-red-700">Payment slip preview unavailable. Refresh or ask your administrator to check the attachment.</p>}
+    {payment.receipt_origin === "existing_bank" ? <p>Existing bank receipt linked to this invoice. No slip upload required; original bank records are retained.</p> : payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path?.endsWith(".pdf")} label="Renovation bank-in slip" thumbnail={false} /> : <p className="text-red-700">Payment slip preview unavailable. Refresh or ask your administrator to check the attachment.</p>}
     {payment.rejection_reason && <p>Rejection reason: {payment.rejection_reason}</p>}
   </section>;
 }
