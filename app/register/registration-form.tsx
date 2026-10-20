@@ -142,6 +142,10 @@ export function RegistrationForm({
   const [bookingDeposit, setBookingDeposit] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [resumePhone, setResumePhone] = useState<string | null>(null);
+  const [resumePassword, setResumePassword] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const selectedProperty = properties.find(
     (property) => property.id === propertyId,
@@ -160,6 +164,9 @@ export function RegistrationForm({
   function switchAccountType(value: AccountType) {
     setAccountType(value);
     setError(null);
+    setResumePhone(null);
+    setResumePassword("");
+    setNotice(null);
     setFiles({});
     setIdentityType("ic");
     setPropertyId("");
@@ -168,7 +175,9 @@ export function RegistrationForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isLoading) return;
     setError(null);
+    setNotice(null);
 
     const formData = new FormData(event.currentTarget);
     if (isReservation) {
@@ -229,8 +238,12 @@ export function RegistrationForm({
       const result = await startResponse.json();
 
       if (!startResponse.ok) {
+        setResumePhone(result.code === "PHONE_ALREADY_REGISTERED" && accountType === "tenant"
+          ? String(formData.get("phone") ?? "") : null);
         throw new Error(result.error ?? "Registration could not start.");
       }
+      setResumePhone(null);
+      setResumePassword("");
       if (result.completed && result.redirectTo === "/registration-status") { window.location.assign(result.redirectTo); return; }
       const startResult = result as { applicationId: string; uploads: SignedUpload[] };
 
@@ -283,8 +296,36 @@ export function RegistrationForm({
     }
   }
 
+  async function signInAndContinue() {
+    if (!resumePhone || !resumePassword || isLoading) return;
+    const currentPhone = formRef.current ? new FormData(formRef.current).get("phone") : null;
+    if (currentPhone !== resumePhone) {
+      setResumePhone(null);
+      setError("The phone number changed. Press Continue registration to check it again.");
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/auth/sign-in", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: resumePhone, password: resumePassword }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Unable to sign in.");
+      setResumePassword("");
+      // Stay on this form: navigation would discard the user's local files.
+      setNotice("Signed in. Press Continue registration to submit your saved form details.");
+      setResumePhone(null);
+    } catch (signInError) {
+      setError(signInError instanceof Error ? signInError.message : "Unable to sign in. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
-    <form className="mt-7 space-y-6" noValidate onSubmit={handleSubmit}>
+    <form ref={formRef} className="mt-7 space-y-6" noValidate onSubmit={handleSubmit}>
       <div className="grid grid-cols-2 rounded-md border border-[#d7dde5] bg-[#f6f7f9] p-1">
         {(["tenant", "owner"] as const).map((type) => (
           <button
@@ -753,9 +794,28 @@ export function RegistrationForm({
       )}
 
       {error ? (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </p>
+      ) : null}
+      {notice ? <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
+
+      {resumePhone ? (
+        <section aria-label="Continue your existing registration" className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4">
+          <h2 className="font-semibold">Continue your existing registration</h2>
+          <p className="text-sm">Sign in for {resumePhone}. Your entered details and selected files stay on this page. We will reuse your unfinished application, not create another account.</p>
+          <label className="block text-sm">
+            Your PIN / password
+            <input className={inputClass} type="password" autoComplete="current-password"
+              value={resumePassword} onChange={event => setResumePassword(event.target.value)}
+              placeholder="Initial PIN: last 4 digits of your phone" />
+          </label>
+          <button type="button" disabled={isLoading || !resumePassword} onClick={signInAndContinue}
+            className="rounded-md bg-[#b8892c] px-4 py-2 font-semibold text-white disabled:opacity-50">
+            Sign in to continue
+          </button>
+          <p className="text-xs">Not your old registration? Contact DEKEZ Admin to correct the wrongly entered number. Other tenants’ records cannot be changed here.</p>
+        </section>
       ) : null}
 
       <button
@@ -763,7 +823,7 @@ export function RegistrationForm({
         disabled={isLoading}
         type="submit"
       >
-        {isLoading ? "Uploading registration..." : isReservation ? "Submit reservation" : "Submit registration"}
+        {isLoading ? "Preparing registration..." : isReservation ? "Submit reservation" : "Continue registration"}
       </button>
 
       <p className="text-center text-sm text-gray-600">

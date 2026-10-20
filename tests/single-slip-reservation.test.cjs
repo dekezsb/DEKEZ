@@ -196,7 +196,8 @@ test('normal check-in payment validation remains unchanged', async () => {
   assert.equal((await submit(body())).status, 400);
   assert.equal(calls.length, 0);
 });
-function mockStart({ existing = true, status = 'draft', mode = 'reservation', completed = false, money = false, uploadFails = false } = {}) {
+function mockStart({ existing = true, status = 'draft', mode = 'reservation', completed = false, money = false, uploadFails = false,
+  linkedTenant = false, linkedTenancy = false, lookupFails = false, stale = false, identity = '', registrationStatus = 'pending_verification', role = 'tenant' } = {}) {
   const calls = [];
   db = {
     auth: { admin: {
@@ -211,13 +212,16 @@ function mockStart({ existing = true, status = 'draft', mode = 'reservation', co
         insert(value) { mutation = 'insert'; calls.push({ table, mutation, value }); return query; },
         update(value) { mutation = 'update'; calls.push({ table, mutation, value }); return query; },
         async maybeSingle() {
-          return { data: table === 'profiles' ? (existing ? { id: 'actor', requested_role: 'tenant', registration_completed_at: completed ? '2026-09-12' : null } : null)
+          return { error: table === 'profiles' && lookupFails ? new Error('lookup unavailable') : null,
+            data: table === 'profiles' ? (existing ? { id: 'actor', role, requested_role: 'tenant', registration_status: registrationStatus,
+              identity_number: identity, registration_completed_at: completed ? '2026-09-12' : null } : null)
             : table === 'properties' ? { id: 'property', property_code: 'KLB', is_commercial: false, rental_model: 'tenancy', contract_duration_options: [6,12] }
             : table === 'rooms' ? { id: 'room', property_id: 'property', status: 'vacant', monthly_rent: 600 }
-            : { id: 'booking', status, registration_mode: mode } };
+            : { id: 'booking', status, registration_mode: mode, updated_at: '2026-10-11T08:02:27Z' } };
         },
-        async single() { return { data: { id: 'booking' }, error: null }; },
-        then(resolve) { return Promise.resolve({ data: table === 'payment_submissions' && money ? [{ id: 'paid' }] : [], error: null }).then(resolve); },
+        async single() { return stale ? { data: null, error: new Error('draft changed') } : { data: { id: 'booking' }, error: null }; },
+        then(resolve) { return Promise.resolve({ data: table === 'payment_submissions' && money || table === 'tenants' && linkedTenant
+          || table === 'tenancies' && linkedTenancy ? [{ id: 'existing' }] : [], error: null }).then(resolve); },
       }; return query;
     },
   };
@@ -240,6 +244,54 @@ test('own authenticated failed reservation resumes the draft without creating an
   assert.equal(calls.includes('create-user'), false);
   assert.equal(calls.some(c => c.table === 'tenant_applications' && c.mutation === 'insert'), false);
   assert.equal(calls.some(c => c.table === 'tenant_applications' && c.mutation === 'update'), true);
+});
+test('tenant self-registration resumes its own failed check-in, preserving the profile and historical tables', async () => {
+  sessionId = 'actor';
+  const calls = mockStart({ mode: 'check_in', identity: '020928-12-1538' });
+  const response = await start(startData({ registrationMode: 'check_in', identityNumber: '020928121538' }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).applicationId, 'booking');
+  assert.deepEqual(calls.map(c => [c.table,c.mutation]), [['tenant_applications','update']]);
+  const source = fs.readFileSync(path.join(root,'app/api/register/start/route.ts'),'utf8');
+  assert.match(source, /\.eq\("updated_at", resumedApplicationVersion!\)/);
+  assert.match(source, /resumedUserId \? \{ error: null \} : await authClient.auth.signInWithPassword/);
+});
+test('check-in continuation blocks anonymous callers, another session, money, live history and identity changes', async () => {
+  for (const options of [{money:true},{linkedTenant:true},{linkedTenancy:true},{completed:true},
+    {identity:'OTHER-ID'},{registrationStatus:'approved'},{registrationStatus:'rejected'},{role:'admin'},{mode:'reservation'}]) {
+    sessionId = 'actor'; const calls = mockStart({mode:'check_in',...options});
+    const response = await start(startData({registrationMode:'check_in',identityNumber:'020928121538'}));
+    assert.equal(response.status,409,JSON.stringify(options)); assert.equal(calls.length,0);
+    assert.equal((await response.json()).code,'REGISTRATION_REVIEW_REQUIRED');
+  }
+  for (sessionId of [null,'different-person']) {
+    const calls = mockStart({mode:'check_in'});
+    const response = await start(startData({registrationMode:'check_in'}));
+    assert.equal(response.status,409); assert.equal(calls.length,0);
+    const result=await response.json(); assert.equal(result.code,'PHONE_ALREADY_REGISTERED');
+    assert.equal(result.applicationId,undefined);
+  }
+});
+test('lookup failure and concurrent draft changes cannot create or delete accounts', async () => {
+  sessionId='actor';
+  for (const options of [{lookupFails:true},{stale:true}]) {
+    const calls=mockStart({mode:'check_in',...options});
+    const response=await start(startData({registrationMode:'check_in'}));
+    assert.equal(response.status,options.lookupFails?503:500);
+    assert.equal(calls.includes('create-user'),false);
+    assert.equal(calls.includes('delete-user'),false);
+    assert.equal(calls.some(c=>c.table==='profiles'),false);
+  }
+});
+test('tenant duplicate warning offers in-page login, never staff override or another tenant record', () => {
+  stateIndex=0;
+  states=['tenant','ic','property','room','check_in',{},'0','0','',null,false,'0123456789',''];
+  const html=renderToStaticMarkup(React.createElement(PublicForm,{properties:[],rooms:[]}));
+  assert.match(html,/Continue your existing registration/);
+  assert.match(html,/Sign in to continue/);
+  assert.match(html,/Contact DEKEZ Admin/);
+  assert.doesNotMatch(html,/Continue Registration Anyway|Correct Existing Phone Number|View Existing Record/);
+  states=[];
 });
 test('phone knowledge cannot resume another account or an already-paid draft', async () => {
   for (sessionId of [null, 'someone-else']) {

@@ -173,34 +173,60 @@ export async function POST(request: NextRequest) {
   });
   let resumedApplicationId: string | null = null;
   let resumedUserId: string | null = null;
-  const { data: existingProfile } = await admin
+  let resumedApplicationVersion: string | null = null;
+  const { data: existingProfile, error: profileLookupError } = await admin
     .from("profiles")
-    .select("id,requested_role,registration_completed_at")
+    .select("id,role,requested_role,registration_status,registration_completed_at,identity_number")
     .in("normalized_phone", phone.lookupDigits)
     .limit(1)
     .maybeSingle();
 
+  if (profileLookupError) {
+    return NextResponse.json({ error: "Unable to check your registration. Please try again." }, { status: 503 });
+  }
   if (existingProfile) {
-    // A failed reservation can only be resumed by its existing authenticated
+    // A failed tenant registration can only be resumed by its authenticated
     // session. Knowing a phone number is never enough to edit another account.
-    const { data: { user: sessionUser } } = isReservation ? await authClient.auth.getUser() : { data: { user: null } };
-    if (isReservation && sessionUser && sessionUser.id === existingProfile.id && existingProfile.requested_role === "tenant") {
-      const { data: ownApplication } = await admin.from("tenant_applications")
-        .select("id,status,registration_mode").eq("tenant_id", sessionUser.id)
+    const { data: { user: sessionUser } } = accountType === "tenant" ? await authClient.auth.getUser() : { data: { user: null } };
+    if (accountType === "tenant" && sessionUser && sessionUser.id === existingProfile.id
+      && existingProfile.role === "tenant" && existingProfile.requested_role === "tenant") {
+      const { data: ownApplication, error: applicationLookupError } = await admin.from("tenant_applications")
+        .select("id,status,registration_mode,updated_at").eq("tenant_id", sessionUser.id)
         .in("status", ["draft", "submitted", "pending_verification", "approved"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (ownApplication?.registration_mode === "reservation" && ownApplication.status !== "draft") return jsonWithCookies({ completed: true, redirectTo: "/registration-status" }, cookiesToSet);
-      if (ownApplication?.status === "draft" && !existingProfile.registration_completed_at) {
-        const { data: previousMoney, error: moneyError } = await admin.from("payment_submissions").select("id").eq("tenant_application_id", ownApplication.id).limit(1);
-        if (!moneyError && !previousMoney?.length) { resumedApplicationId = ownApplication.id; resumedUserId = sessionUser.id; }
+      if (applicationLookupError) return NextResponse.json({ error: "Unable to check your unfinished registration." }, { status: 503 });
+      if (ownApplication && ownApplication.status !== "draft") return jsonWithCookies({ completed: true, redirectTo: "/registration-status" }, cookiesToSet);
+      const identityKey = (value: string) => value.replace(/[\s-]/g, "").toUpperCase();
+      const savedIdentity = existingProfile.identity_number ?? "";
+      const sameIdentity = !savedIdentity || savedIdentity.startsWith("PENDING-ADMIN-REVIEW-")
+        || identityKey(savedIdentity) === identityKey(identityNumber);
+      if (ownApplication?.status === "draft" && ownApplication.registration_mode === registrationMode
+        && ownApplication.updated_at && !existingProfile.registration_completed_at
+        && existingProfile.registration_status === "pending_verification" && sameIdentity) {
+        const [money, tenants, tenancies] = await Promise.all([
+          admin.from("payment_submissions").select("id").eq("tenant_application_id", ownApplication.id).limit(1),
+          admin.from("tenants").select("id").eq("profile_id", sessionUser.id).limit(1),
+          admin.from("tenancies").select("id").eq("tenant_application_id", ownApplication.id).limit(1),
+        ]);
+        // An existing tenant or any recorded money needs staff review, never a
+        // public reset. Only the untouched draft is eligible for continuation.
+        if (![money, tenants, tenancies].some(result => result.error || result.data?.length)) {
+          resumedApplicationId = ownApplication.id;
+          resumedApplicationVersion = ownApplication.updated_at;
+          resumedUserId = sessionUser.id;
+        }
       }
     }
     if (!resumedUserId) {
-    return NextResponse.json(
+    return jsonWithCookies(
       {
+        code: sessionUser?.id === existingProfile.id ? "REGISTRATION_REVIEW_REQUIRED" : "PHONE_ALREADY_REGISTERED",
         error:
-          "This phone number is already registered. Sign in using the last 4 digits of the phone number.",
+          sessionUser?.id === existingProfile.id
+            ? "This registration needs DEKEZ Admin review before it can continue. Your existing records have not been changed."
+            : "Phone number already exists. If this was your unfinished registration, sign in below to continue. If the old number was entered wrongly, ask DEKEZ Admin to review it.",
       },
-      { status: 409 },
+      cookiesToSet,
+      409,
     );
     }
   }
@@ -392,7 +418,8 @@ export async function POST(request: NextRequest) {
   const storedIdentityNumber =
     identityNumber || "PENDING-ADMIN-REVIEW-" + phone.lookupDigits.slice(-4);
   try {
-    const { error: profileError } = await admin
+    // Resuming a draft must not reset an existing profile, identity or approval.
+    const { error: profileError } = resumedUserId ? { error: null } : await admin
       .from("profiles")
       .update({
         full_name: fullName,
@@ -459,10 +486,11 @@ export async function POST(request: NextRequest) {
           status: "draft",
           verification_status: "incomplete",
           payment_status: "unpaid",
+          updated_at: new Date().toISOString(),
           admin_notes: `Registration terms declared — room rent to collect: RM ${monthlyRent.toFixed(2)}; security deposit to collect: RM ${securityDeposit.toFixed(2)}.`,
         };
       const applicationQuery = resumedApplicationId
-        ? admin.from("tenant_applications").update(applicationValues).eq("id", resumedApplicationId).eq("tenant_id", userId).eq("status", "draft")
+        ? admin.from("tenant_applications").update(applicationValues).eq("id", resumedApplicationId).eq("tenant_id", userId).eq("status", "draft").eq("updated_at", resumedApplicationVersion!)
         : admin.from("tenant_applications").insert(applicationValues);
       const { data: application, error: applicationError } = await applicationQuery
         .select("id")
@@ -519,7 +547,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { error: signInError } = await authClient.auth.signInWithPassword({
+    // The owner already authenticated. Do not reset their credentials or use
+    // the original alias/PIN again (it may have legitimately changed).
+    const { error: signInError } = resumedUserId ? { error: null } : await authClient.auth.signInWithPassword({
       email: aliasEmail,
       password,
     });
