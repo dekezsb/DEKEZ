@@ -1,7 +1,7 @@
 "use client";
 import { useActionState } from "react";
-import { issueDocument, saveCatalogueItem, saveClient } from "@/app/renovation/actions";
-import { addDays, type RenovationDocument } from "@/lib/renovation/model";
+import { issueDocument, saveCatalogueItem, saveClient, closeRenovationDocument } from "@/app/renovation/actions";
+import { addDays, type RenovationDocument, type CatalogueItem } from "@/lib/renovation/model";
 const field = "block w-full rounded border border-slate-300 px-3 py-2";
 const button = "rounded bg-[#b58a2a] px-4 py-2 font-semibold text-white disabled:opacity-50";
 export function ClientForm({ id }: { id: string }) {
@@ -12,12 +12,33 @@ export function ClientForm({ id }: { id: string }) {
     {state.error && <p role="alert" className="text-red-700">{state.error}</p>}<button className={button} disabled={pending}>{pending ? "Saving…" : "Save client & start document"}</button>
   </form>;
 }
-export function CatalogueForm() {
+export function CatalogueForm({item}:{item?:CatalogueItem}) {
   const [state, action, pending] = useActionState(saveCatalogueItem, {});
-  return <form action={action} className="space-y-3"><label>Description<input className={field} name="description" required maxLength={1000} /></label>
-    <label>Unit<input className={field} name="unit" required maxLength={30} placeholder="LOT / SQ FT / SET / POINT" /></label><label>Default unit price (RM)<input className={field} name="rate" required type="number" min="0" max="9999999.99" step="0.01" defaultValue="0" /></label>
-    <p className="text-sm">Saving the same description and unit updates its suggested price. Existing documents are unchanged.</p>
-    {state.error && <p role="alert" className="text-red-700">{state.error}</p>}<button className={button} disabled={pending}>Save work item</button></form>;
+  return <form action={action} className="space-y-3">
+    <input type="hidden" name="id" value={item?.id??''}/><input type="hidden" name="version" value={item?.version??0}/>
+    <label className="block">Item code<input className={field} name="item_code" required maxLength={80} defaultValue={item?.item_code}/></label>
+    <label className="block">Category<input className={field} name="category" maxLength={100} defaultValue={item?.category}/></label>
+    <label className="block">English description<textarea className={field} name="description" required maxLength={1000} defaultValue={item?.description}/></label>
+    <label className="block">Malay description (optional)<textarea className={field} name="description_ms" maxLength={1000} defaultValue={item?.translations?.ms}/></label>
+    <label className="block">Chinese description (optional)<textarea className={field} name="description_zh" maxLength={1000} defaultValue={item?.translations?.zh}/></label>
+    <label className="block">Unit<input className={field} name="unit" required maxLength={30} placeholder="LOT / SQ FT / SET / POINT" defaultValue={item?.unit}/></label>
+    <label className="block">Default selling price (RM)<input className={field} name="rate" required type="number" min="0" max="9999999.99" step="0.01" defaultValue={item?.rate??0}/></label>
+    <label className="block">Cost price (RM, optional)<input className={field} name="cost_price" type="number" min="0" max="9999999.99" step="0.01" defaultValue={item?.cost_price??''}/></label>
+    <label className="block">Availability<select className={field} name="active" defaultValue={item?.active===false?'false':'true'}><option value="true">Active</option><option value="false">Inactive</option></select></label>
+    {item&&<label className="flex gap-2"><input type="checkbox" required name="confirm_update" value="yes"/>Update this master item explicitly. Existing documents stay unchanged.</label>}
+    {state.error && <p role="alert" className="text-red-700">{state.error}</p>}{state.success&&<p role="status">{state.success}</p>}<button className={button} disabled={pending}>{item?'Update master item':'Save new master item'}</button></form>;
+}
+
+export function CloseDocumentForm({document:d,today}:{document:RenovationDocument;today:string}) {
+  const [state,action,pending]=useActionState(closeRenovationDocument,{});
+  if(d.status!=='issued')return null;
+  return <details className="rounded border bg-white p-4"><summary>{d.kind==='quotation'?'Record rejection':'Void unpaid invoice'}</summary><form action={action} className="mt-3 space-y-3">
+    <input type="hidden" name="id" value={d.id}/><input type="hidden" name="version" value={d.version}/>
+    <label className="block">Reason<textarea name="reason" required minLength={10} maxLength={2000} className={field}/></label>
+    <label className="block">Posting date<input name="posting_date" type="date" required defaultValue={today} className={field}/></label>
+    <label className="flex gap-2"><input name="confirm" value="yes" type="checkbox" required/>I confirm. The original document and audit history will remain. Invoices with receipts cannot be voided here.</label>
+    {state.error&&<p role="alert">{state.error}</p>}<button className={button} disabled={pending}>{d.kind==='quotation'?'Record rejection':'Confirm void'}</button>
+  </form></details>;
 }
 export function IssueForm({ document, today }: { document: RenovationDocument; today: string }) {
   const [state, action, pending] = useActionState(issueDocument, {});

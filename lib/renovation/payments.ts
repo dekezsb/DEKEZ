@@ -18,19 +18,24 @@ export async function renovationPaymentData(invoiceId?: string, statementIds?: s
   const sourceIds = payments.data.map(p => p.bank_transaction_id).filter(Boolean) as string[];
   const lineIds = lines.data.map(l => l.id);
   const sourceTotals = new Map<string, number>(), lineTotals = new Map<string, number>();
+  const blocked = new Set<string>(), lineSources = new Map<string, string[]>();
   for (const [ids, key, totals] of [[sourceIds, "source_id", sourceTotals], [lineIds, "statement_line_id", lineTotals]] as const) {
     for (let offset = 0; offset < ids.length; offset += 100) {
-      let query = db.from("bank_reconciliation_matches").select("source_id,statement_line_id,matched_amount").in(key, ids.slice(offset, offset + 100));
+      let query = db.from("bank_reconciliation_matches").select("source_type,source_id,statement_line_id,matched_amount").in(key, ids.slice(offset, offset + 100));
       if (key === "source_id") query = query.eq("source_type", "manual_bank_transaction");
       const result = await allReportRows(query);
       if (result.error) throw new Error("Could not load bank matching balances.");
       for (const match of result.data) totals.set(match[key], (totals.get(match[key]) ?? 0) + Number(match.matched_amount));
+      if (key === "statement_line_id") for (const match of result.data) {
+        if (match.source_type !== "manual_bank_transaction" || !sourceIds.includes(match.source_id)) blocked.add(match.statement_line_id);
+        lineSources.set(match.statement_line_id, [...(lineSources.get(match.statement_line_id) ?? []),match.source_id]);
+      }
     }
   }
   const signedPayments: RenovationPayment[] = await Promise.all((payments.data as RenovationPayment[]).map(async p => {
     const { data } = await db.storage.from("renovation-proofs").createSignedUrl(p.proof_path, 600);
     return { ...p, proofUrl: data?.signedUrl, matched: p.bank_transaction_id ? sourceTotals.get(p.bank_transaction_id) ?? 0 : 0 };
   }));
-  const available: BankLineOption[] = lines.data.map(l => ({ ...l, remaining: Number(l.amount) - (lineTotals.get(l.id) ?? 0) })).filter(l => l.remaining > 0.005);
+  const available: BankLineOption[] = lines.data.map(l => ({ ...l, blocked: blocked.has(l.id), matchedSourceIds:lineSources.get(l.id) ?? [], remaining: Number(l.amount) - (lineTotals.get(l.id) ?? 0) })).filter(l => l.remaining > 0.005);
   return { payments: signedPayments, banks: banks.data, lines: available, invoices: documents.data as Pick<RenovationDocument, "id" | "document_number" | "client_snapshot" | "project">[] };
 }

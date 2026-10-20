@@ -11,7 +11,8 @@ compiler.run(async(error,stats)=>{
   compiler.close(()=>{});
   const css=await require('postcss')([require('@tailwindcss/postcss')({base:root})]).process(fs.readFileSync(path.join(root,'app/globals.css'),'utf8'),{from:path.join(root,'app/globals.css')});
   server=http.createServer((req,res)=>{
-   if(req.url==='/fixture.js'){res.setHeader('Content-Type','text/javascript');return res.end(fs.readFileSync(path.join(output,'fixture.js')));}
+   if(/^\/[a-zA-Z0-9_.-]+\.js$/.test(req.url)){res.setHeader('Content-Type','text/javascript');return res.end(fs.readFileSync(path.join(output,req.url.slice(1))));}
+   if(req.url==='/fonts/NotoSansSC-Regular.ttf'){res.setHeader('Content-Type','font/ttf');return res.end(fs.readFileSync(path.join(root,'public/fonts/NotoSansSC-Regular.ttf')));}
    if(req.url==='/style.css'){res.setHeader('Content-Type','text/css');return res.end(css.css);}
    if(req.url==='/dekez-logo.jpg'){res.setHeader('Content-Type','image/jpeg');return res.end(fs.readFileSync(path.join(root,'public/dekez-logo.jpg')));}
    res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/style.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
@@ -33,6 +34,16 @@ compiler.run(async(error,stats)=>{
   assert.equal(saved.items[0].quantity,10);assert.equal(saved.discount_value,10);assert.equal(saved.discount_kind,'percent');
   assert.equal(await page.getByRole('combobox',{name:/^Client/}).inputValue(),'test-client');
   assert.equal(await page.getByLabel('Discount type').inputValue(),'percent');
+  await page.getByRole('button',{name:'Duplicate item 1',exact:true}).click();
+  assert.equal(await page.getByLabel('Quantity 2',{exact:true}).inputValue(),'10');
+  await page.getByLabel('2. Description',{exact:true}).fill('Duplicated edited work');
+  await page.getByRole('button',{name:'Move item 2 up',exact:true}).click();
+  assert.equal(await page.getByLabel('1. Description',{exact:true}).inputValue(),'Duplicated edited work');
+  await page.getByRole('button',{name:'Remove item 1',exact:true}).click();
+  await page.getByLabel('Unit price 1',{exact:true}).fill('15');
+  await page.getByRole('button',{name:'Save draft & preview'}).click();
+  await page.waitForFunction(()=>window.savedDraft.items[0].rate===15);
+  assert.equal(await page.getByRole('button',{name:'+ Saved partition work',exact:true}).count(),1);
   await page.screenshot({path:path.join(output,'editor-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'mobile editor has no horizontal scrolling');
@@ -42,7 +53,8 @@ compiler.run(async(error,stats)=>{
   await page.screenshot({path:path.join(output,'quotation.png'),fullPage:true});
   if(process.env.RENOVATION_PDF_QA==='1') await page.pdf({path:path.join(output,'quotation.pdf'),printBackground:true,preferCSSPageSize:true});
   await page.goto(url+'?payments=1');
-  await page.getByRole('link',{name:'Continue in Bank Reconciliation →'}).waitFor();
+  await page.locator('#invoice').getByText('Bank code / reference: 00119128').waitFor();
+  assert.doesNotMatch(await page.locator('#invoice').innerText(),/Bank matched|Fully matched|Reconciliation|Reconcile/);
   assert.equal(await page.locator('#invoice form').count(),0);
   await page.getByRole('button',{name:'View receipt: Renovation bank-in slip'}).click();
   await page.getByRole('dialog').waitFor({state:'visible'});
@@ -60,10 +72,32 @@ compiler.run(async(error,stats)=>{
   await page.waitForFunction(()=>window.testMatch);
   const match=await page.evaluate(()=>window.testMatch);
   assert.equal(match.transaction_id,'test-receipt');assert.equal(match.line_id,'test-line');
+  await page.getByRole('button',{name:'BULK RECONCILE 1 renovation matches'}).click();
+  await page.waitForFunction(()=>window.testBulk);
+  assert.equal((await page.evaluate(()=>window.testBulk)).pairs,'test-receipt:test-line');
+  await page.getByLabel('Bank code / reference',{exact:true}).fill('00119128');
+  await page.getByRole('button',{name:'Save bank code'}).click();
+  await page.waitForFunction(()=>window.testReference);
+  assert.equal((await page.evaluate(()=>window.testReference)).reference,'00119128');
   await page.screenshot({path:path.join(output,'payment-workflows-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'payment controls fit mobile');
   await page.screenshot({path:path.join(output,'payment-workflows-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1280,height:900});await page.goto(url+'?pdf=1');
+  await page.getByLabel('Document language',{exact:true}).selectOption('zh');
+  await page.getByLabel('I reviewed the translated wording and any original-text fallbacks.').check();
+  await page.getByRole('button',{name:'Preview PDF',exact:true}).click();
+  await page.getByRole('link',{name:'Download PDF',exact:true}).waitFor({timeout:60000});
+  assert.match(await page.getByRole('link',{name:'Download PDF',exact:true}).getAttribute('download'),/-zh\.pdf$/);
+  await page.screenshot({path:path.join(output,'pdf-chinese-preview.png'),fullPage:true});
+  await page.getByLabel('Document language',{exact:true}).selectOption('ms');
+  assert.equal(await page.getByRole('link',{name:'Download PDF',exact:true}).count(),0);
+  await page.getByLabel('I reviewed the translated wording and any original-text fallbacks.').check();
+  await page.getByRole('button',{name:'Preview PDF',exact:true}).click();
+  await page.getByRole('link',{name:'Download PDF',exact:true}).waitFor({timeout:60000});
+  await page.getByLabel('Document language',{exact:true}).selectOption('en');
+  await page.getByRole('button',{name:'Preview PDF',exact:true}).click();
+  await page.getByRole('link',{name:'Download PDF',exact:true}).waitFor({timeout:60000});
   assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,output}));
  }catch(e){console.error(e);process.exitCode=1;}finally{await browser?.close();server?.close();compiler.close(()=>{});}
 });

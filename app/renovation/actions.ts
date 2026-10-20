@@ -5,11 +5,18 @@ import { redirect } from "next/navigation";
 import { renovationContext } from "@/lib/renovation/server";
 import { requireRole } from "@/lib/auth/session";
 import { renovationWorkflowReturnTo } from "@/lib/renovation/model";
+import { renovationPaymentData } from "@/lib/renovation/payments";
+import { renovationBulkCandidates } from "@/lib/renovation/reconciliation";
 
-export type RenovationActionState = { error?: string };
+export type RenovationActionState = { error?: string; success?: string };
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
 function message(error: { message: string } | null) {
   const value = error?.message ?? "";
+  if (/tax_account_required/.test(value)) return "Select an active tax liability account when applying tax.";
+  if (/below_received/.test(value)) return "The corrected total cannot be less than payments already received. No payment history has been changed.";
+  if (/customer_has_payments/.test(value)) return "Existing receipts must remain attached to this client. This invoice cannot be voided or reassigned while it has payments.";
+  if (/issued_date_fixed/.test(value)) return "The original issue date is preserved. Use the correction posting date for this adjustment.";
+  if (/correction_reason/.test(value)) return "Enter a correction reason of at least 10 characters and an adjustment date.";
   if (/changed_or_issued/.test(value)) return "This document changed or was issued. Refresh before editing again.";
   if (/period_locked/.test(value)) return "That accounting period is locked. Choose an open invoice date.";
   if (/income_account_required/.test(value)) return "An active Renovation Service Income account (4050) is required. Ask your accountant to check it.";
@@ -25,11 +32,15 @@ export async function saveDraft(_previous: RenovationActionState, form: FormData
   const { db, company, user } = await renovationContext(true);
   let payload: unknown;
   try { payload = JSON.parse(text(form, "payload")); } catch { return { error: "Invalid document. Please refresh and try again." }; }
-  const { data, error } = await db.rpc("save_renovation_draft", { p_company: company.id, p_actor: user.id,
-    p_id: text(form, "id"), p_version: Number(text(form, "version")), p_data: payload });
+  const correcting = text(form, "correction") === "yes";
+  if (correcting && text(form,"confirm") !== "yes") return {error:"Confirm the controlled correction before saving."};
+  const { data, error } = await db.rpc(correcting ? "correct_renovation_invoice" : "save_renovation_draft", { p_company: company.id, p_actor: user.id,
+    p_id: text(form, "id"), p_version: Number(text(form, "version")), p_data: payload,
+    ...(correcting ? {p_reason:text(form,"reason"),p_posting_date:text(form,"posting_date")} : {}) });
   if (error) return { error: message(error) };
   revalidatePath("/renovation");
   revalidatePath(`/renovation/${data}`);
+  if (correcting) revalidatePath("/reports");
   redirect(`/renovation/${data}`);
 }
 export async function issueDocument(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
@@ -56,18 +67,31 @@ export async function saveClient(_previous: RenovationActionState, form: FormDat
   revalidatePath("/renovation"); redirect("/renovation/new");
 }
 export async function saveCatalogueItem(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
-  const { db, company } = await renovationContext(true);
+  const { db, company, user } = await renovationContext(true);
   const description = text(form, "description"), unit = text(form, "unit"), rate = Number(text(form, "rate"));
   if (!description || description.length > 1000 || !unit || unit.length > 30 || !Number.isFinite(rate) || rate < 0 || rate >= 10000000 || Math.abs(rate * 100 - Math.round(rate * 100)) > 0.000001) return { error: "Enter a description, unit and valid price (up to two decimal places)." };
-  const { error } = await db.from("renovation_catalogue").upsert({ company_id: company.id, description, unit, rate }, { onConflict: "company_id,description,unit" });
-  if (error) return { error: "Could not save the work item." };
-  revalidatePath("/renovation"); redirect("/renovation/new");
+  const version=Number(text(form,"version")||0);
+  if(version>0 && text(form,"confirm_update")!=="yes") return {error:"Confirm that you want to update this master item."};
+  const translations={en:description,ms:text(form,"description_ms"),zh:text(form,"description_zh")};
+  const { error } = await db.rpc("save_renovation_catalogue",{p_company:company.id,p_actor:user.id,p_id:text(form,"id")||randomUUID(),p_version:version,
+    p_data:{description,unit,rate,item_code:text(form,"item_code"),category:text(form,"category"),cost_price:text(form,"cost_price")||null,active:text(form,"active")!=="false",translations}});
+  if (error) return { error: /duplicate key/.test(error.message)?"That item code or description/unit already exists. Open the existing item to update it explicitly.":message(error) };
+  revalidatePath("/renovation"); revalidatePath("/renovation/items"); revalidatePath("/renovation/new");
+  return {success:"Item library saved. Existing document descriptions and prices are unchanged."};
+}
+
+export async function closeRenovationDocument(_previous:RenovationActionState,form:FormData):Promise<RenovationActionState> {
+  const {db,company,user}=await renovationContext(true);
+  if(text(form,"confirm")!=="yes")return {error:"Confirm this action first."};
+  const {data,error}=await db.rpc("close_renovation_document",{p_company:company.id,p_actor:user.id,p_id:text(form,"id"),p_version:Number(text(form,"version")),p_reason:text(form,"reason"),p_date:text(form,"posting_date")});
+  if(error)return {error:message(error)};
+  revalidatePath("/renovation");revalidatePath(`/renovation/${data}`);revalidatePath("/reports");redirect(`/renovation/${data}`);
 }
 export async function submitRenovationPayment(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
   const { db, company, user } = await renovationContext(true);
   const invoiceId = text(form, "invoice_id"), bankId = text(form, "bank_account_id"), reference = text(form, "reference_number");
   const amount = Number(text(form, "amount")), date = text(form, "payment_date"), file = form.get("proof");
-  if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || reference.length < 3 || reference.length > 120 || !/[a-z0-9]{3}/i.test(reference.replace(/[^a-z0-9]/gi, ""))) return { error: "Enter a valid amount, payment date and bank reference." };
+  if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || (reference && (reference.length < 3 || reference.length > 120 || !/[a-z0-9]{3}/i.test(reference.replace(/[^a-z0-9]/gi, ""))))) return { error: "Enter a valid amount, payment date and bank reference." };
   if (!(file instanceof File) || !file.size || file.size > 3 * 1024 * 1024) return { error: "Attach a JPG, PNG or PDF bank-in slip, maximum 3 MB." };
   const bytes = Buffer.from(await file.arrayBuffer());
   const mime = bytes.subarray(0, 5).toString() === "%PDF-" ? "application/pdf" : bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png" : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? "image/jpeg" : null;
@@ -84,10 +108,10 @@ export async function submitRenovationPayment(_previous: RenovationActionState, 
   const id = randomUUID(), path = `${company.id}/${invoiceId}/${id}.${mime === "application/pdf" ? "pdf" : mime === "image/png" ? "png" : "jpg"}`;
   const upload = await db.storage.from("renovation-proofs").upload(path, bytes, { contentType: mime, upsert: false });
   if (upload.error) return { error: "Could not upload the slip. No payment was recorded." };
-  const { error } = await db.from("renovation_payment_submissions").insert({ id, company_id: company.id, invoice_id: invoiceId, bank_account_id: bankId, amount, payment_date: date, reference_number: reference, proof_path: path, proof_sha256: hash, submitted_by: user.id });
+  const { error } = await db.rpc("record_admin_renovation_payment", {p_company:company.id,p_actor:user.id,p_id:id,p_invoice:invoiceId,p_bank:bankId,p_amount:amount,p_date:date,p_reference:reference,p_path:path,p_hash:hash});
   // Retain a failed-upload orphan rather than delete proof after an ambiguous network response.
   if (error) return { error: message(error) };
-  revalidatePath("/renovation"); revalidatePath(`/renovation/${invoiceId}`); revalidatePath("/verification"); revalidatePath("/payment-verification");
+  revalidatePath("/renovation"); revalidatePath(`/renovation/${invoiceId}`); revalidatePath("/verification"); revalidatePath("/payment-verification"); revalidatePath("/reports");
   redirect(`/renovation/${invoiceId}`);
 }
 export async function verifyRenovationPayment(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
@@ -96,12 +120,38 @@ export async function verifyRenovationPayment(_previous: RenovationActionState, 
   if (!["verify", "reject"].includes(text(form, "decision"))) return { error: "Choose Verify or Reject." };
   const accept = text(form, "decision") === "verify";
   if (accept && text(form, "confirm") !== "yes") return { error: "Confirm that you have checked the bank-in slip and amount received." };
-  const { data: payment, error: readError } = await db.from("renovation_payment_submissions").select("invoice_id").eq("id", text(form, "payment_id")).eq("company_id", company.id).maybeSingle();
+  const { data: payment, error: readError } = await db.from("renovation_payment_submissions").select("invoice_id,admin_uploaded").eq("id", text(form, "payment_id")).eq("company_id", company.id).maybeSingle();
   if (readError || !payment) return { error: "This renovation payment could not be loaded. Refresh and try again." };
+  if (payment.admin_uploaded) return {error:"Admin-uploaded receipts are already recorded. No verification is required."};
   const { error } = await db.rpc("verify_renovation_payment", { p_company: company.id, p_actor: user.id, p_id: text(form, "payment_id"), p_accept: accept, p_reason: text(form, "reason") || null });
   if (error) return { error: message(error) };
   revalidatePath("/renovation"); revalidatePath("/reports"); revalidatePath(`/renovation/${payment.invoice_id}`); revalidatePath("/verification"); revalidatePath("/payment-verification");
   redirect(renovationWorkflowReturnTo(text(form, "return_to"), "verification"));
+}
+
+export async function saveRenovationReference(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
+  const {db,company,user}=await renovationContext(true);
+  const {data:payment,error:lookup}=await db.from("renovation_payment_submissions").select("invoice_id").eq("id",text(form,"payment_id")).eq("company_id",company.id).maybeSingle();
+  if (lookup || !payment) return {error:"Payment not found."};
+  const {error}=await db.rpc("save_renovation_payment_reference",{p_company:company.id,p_actor:user.id,p_id:text(form,"payment_id"),p_reference:text(form,"reference")});
+  if(error) return {error:message(error)};
+  revalidatePath(`/renovation/${payment.invoice_id}`);revalidatePath("/reports");
+  return {};
+}
+
+export async function bulkReconcileRenovation(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
+  const {db,company,user}=await renovationContext(true);
+  const statements=text(form,"statements").split(",").filter(s=>/^[0-9a-f-]{36}$/i.test(s));
+  if(!statements.length || statements.length>100) return {error:"Select an active bank statement first."};
+  const data=await renovationPaymentData(undefined,statements);
+  const requested=new Set(text(form,"pairs").split(","));
+  const candidates=renovationBulkCandidates(data.payments,data.lines).filter(c=>requested.has(`${c.transactionId}:${c.lineId}`));
+  for(const candidate of candidates) {
+    const {error}=await db.rpc("match_renovation_payment_by_reference",{p_company:company.id,p_actor:user.id,p_transaction:candidate.transactionId,p_line:candidate.lineId});
+    if(error) {revalidatePath("/reports");return {error:"Matching stopped because a balance or reference changed. Completed matches are retained; refresh before retrying."};}
+  }
+  revalidatePath("/reports");revalidatePath("/renovation");
+  redirect(renovationWorkflowReturnTo(text(form,"return_to"),"bank"));
 }
 export async function matchRenovationPayment(_previous: RenovationActionState, form: FormData): Promise<RenovationActionState> {
   const { db, company, user } = await renovationContext(true);

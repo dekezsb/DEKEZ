@@ -1,8 +1,9 @@
-export type WorkLine = { description: string; quantity: number; unit: string; rate: number };
+export type DocumentLanguage = "en" | "ms" | "zh";
+export type WorkLine = { description: string; quantity: number; unit: string; rate: number; item_code?: string; catalogue_id?: string; translations?: Partial<Record<DocumentLanguage, string>>; translation_source?: string };
 export type PaymentStage = { label: string; percent: number };
 export type RenovationClient = { id: string; name: string; phone: string; email: string; address: string };
-export type CatalogueItem = { id: string; description: string; unit: string; rate: number };
-export type RenovationPayment = { id: string; invoice_id: string; amount: number; payment_date: string; reference_number: string; status: "pending" | "verified" | "rejected"; bank_transaction_id: string | null; bank_account_id: string; proof_path: string; rejection_reason: string | null; proofUrl?: string; matched?: number };
+export type CatalogueItem = { id: string; description: string; unit: string; rate: number; item_code?: string; category?: string; cost_price?: number | null; active?: boolean; translations?: Partial<Record<DocumentLanguage, string>>; version?: number };
+export type RenovationPayment = { id: string; admin_uploaded?: boolean; invoice_id: string; amount: number; payment_date: string; reference_number: string; status: "pending" | "verified" | "rejected"; bank_transaction_id: string | null; bank_account_id: string; proof_path: string; rejection_reason: string | null; proofUrl?: string; matched?: number };
 export function paymentSummary(total: number, payments: RenovationPayment[]) {
   const verified = payments.filter(p => p.status === "verified").reduce((sum, p) => sum + Math.round(Number(p.amount) * 100), 0);
   const pending = payments.filter(p => p.status === "pending").reduce((sum, p) => sum + Math.round(Number(p.amount) * 100), 0);
@@ -10,7 +11,7 @@ export function paymentSummary(total: number, payments: RenovationPayment[]) {
 }
 export type RenovationDocument = {
   id: string; company_id: string; kind: "quotation" | "invoice";
-  status: "draft" | "issued" | "approved" | "superseded"; document_number: string | null;
+  status: "draft" | "issued" | "approved" | "superseded" | "rejected" | "voided"; document_number: string | null;
   client_id: string; client_snapshot: Omit<RenovationClient, "id">;
   project: string; site_address: string; document_date: string; due_date: string;
   items: WorkLine[]; stages: PaymentStage[]; terms: string; total: number;
@@ -18,7 +19,31 @@ export type RenovationDocument = {
   source_quotation_id: string | null; approval_name: string | null;
   approval_evidence: string | null; approved_at: string | null;
   journal_entry_id: string | null; version: number; created_at: string;
+  remarks?: string; tax_rate?: number; tax_amount?: number; tax_account_id?: string | null;
 };
+
+export function documentTotals(d: Pick<RenovationDocument, "items" | "discount_kind" | "discount_value" | "tax_rate">) {
+  const subtotal = totalCents(d.items);
+  const discount = discountCents(subtotal, d.discount_kind, Number(d.discount_value));
+  const tax = Math.round((subtotal - discount) * Math.round(Number(d.tax_rate ?? 0) * 100) / 10000);
+  return { subtotal, discount, tax, total: subtotal - discount + tax };
+}
+export function validateDocumentAmounts(d: RenovationDocument) {
+  const result = documentTotals(d);
+  if (!d.items.length || d.items.some(l => !Number.isFinite(Number(l.quantity)) || Number(l.quantity) <= 0 || !Number.isFinite(Number(l.rate)) || Number(l.rate) < 0)
+    || !Number.isSafeInteger(result.total) || result.total <= 0 || result.discount < 0 || result.discount >= result.subtotal
+    || result.total !== Math.round(Number(d.total) * 100) || result.discount !== Math.round(Number(d.discount_amount) * 100)
+    || result.tax !== Math.round(Number(d.tax_amount ?? 0) * 100)
+    || !d.stages.length || d.stages.some(s => Number(s.percent) <= 0) || d.stages.reduce((sum, s) => sum + Math.round(Number(s.percent) * 100), 0) !== 10000) {
+    throw new Error("Document totals or payment schedule do not agree. Correct the document before exporting.");
+  }
+  return result;
+}
+export function documentStatus(d: RenovationDocument, received = 0) {
+  if (d.kind === "quotation") return d.status === "issued" ? "sent" : d.status === "approved" ? "accepted" : d.status;
+  if (d.status !== "issued") return d.status;
+  return received >= Number(d.total) ? "paid" : received > 0 ? "partially_paid" : "issued";
+}
 
 export const defaultStages: PaymentStage[] = [
   { label: "Down payment - before commencement", percent: 50 },

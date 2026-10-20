@@ -13,7 +13,8 @@ export async function RenovationPaymentVerification({ params, returnTo }: {
   const { access, role } = await getCurrentUserAccess();
   if (!["super_admin", "admin"].includes(role) || !hasModuleAccess(access, "reports", "view") || !hasModuleAccess(access, "verification", "view")) return null;
   const manage = hasModuleAccess(access, "reports", "manage") && hasModuleAccess(access, "verification", "manage");
-  const data = await renovationPaymentData();
+  const loaded = await renovationPaymentData();
+  const data = {...loaded, payments:loaded.payments.filter(p => !p.admin_uploaded)};
   const invoices = new Map(data.invoices.map(d => [d.id, d]));
   const banks = new Map(data.banks.map(b => [b.id, b.name]));
   const status = ["pending", "verified", "rejected", "all"].includes(params.renovation_status ?? "") ? params.renovation_status! : "pending";

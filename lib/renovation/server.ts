@@ -16,10 +16,11 @@ export async function renovationLists() {
   const { db, company } = await renovationContext();
   const results = await Promise.all([
     allReportRows(db.from("renovation_clients").select("id,name,phone,email,address").eq("company_id", company.id)),
-    allReportRows(db.from("renovation_catalogue").select("id,description,unit,rate").eq("company_id", company.id)),
+    allReportRows(db.from("renovation_catalogue").select("*").eq("company_id", company.id)),
+    allReportRows(db.from("accounting_accounts").select("id,code,name").eq("company_id",company.id).eq("account_type","liability").eq("is_active",true)),
   ]);
   if (results.some((r) => r.error)) throw new Error("Renovation data unavailable. The renovation database migration must be installed before using this section.");
-  return { clients: results[0].data as RenovationClient[], catalogue: results[1].data as CatalogueItem[] };
+  return { clients: results[0].data as RenovationClient[], catalogue: results[1].data as CatalogueItem[], taxAccounts:results[2].data as {id:string;code:string;name:string}[] };
 }
 export async function renovationDocument(id: string) {
   const { db, company } = await renovationContext();

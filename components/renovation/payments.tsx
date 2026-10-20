@@ -1,21 +1,20 @@
 "use client";
 import { useActionState } from "react";
-import Link from "next/link";
 import { ReceiptViewer } from "@/app/payment-verification/receipt-viewer";
-import { matchRenovationPayment, submitRenovationPayment, verifyRenovationPayment } from "@/app/renovation/actions";
+import { bulkReconcileRenovation, saveRenovationReference, matchRenovationPayment, submitRenovationPayment, verifyRenovationPayment } from "@/app/renovation/actions";
 import { money, type RenovationPayment } from "@/lib/renovation/model";
 const field = "block w-full rounded border border-slate-300 bg-white px-3 py-2";
 const button = "rounded bg-[#b58a2a] px-4 py-2 font-semibold text-white disabled:opacity-50";
 export type BankOption = { id: string; name: string };
-export type BankLineOption = { id: string; bank_account_id: string; transaction_date: string; description: string; reference_number: string | null; remaining: number };
+export type BankLineOption = { id: string; bank_account_id: string; transaction_date: string; description: string; reference_number: string | null; remaining: number; blocked?: boolean; matchedSourceIds?: string[] };
 export function PaymentUpload({ invoiceId, banks, today, outstanding }: { invoiceId: string; banks: BankOption[]; today: string; outstanding: number }) {
   const [state, action, pending] = useActionState(submitRenovationPayment, {});
   return <details className="rounded-lg border bg-white p-4"><summary className="cursor-pointer font-semibold">+ Upload renovation payment / instalment</summary><form action={action} className="mt-4 grid gap-3 sm:grid-cols-2"><input type="hidden" name="invoice_id" value={invoiceId} />
     <label>Amount received (RM)<input name="amount" type="number" required min="0.01" max={outstanding} step="0.01" className={field} /></label><label>Payment date<input name="payment_date" type="date" required defaultValue={today} className={field} /></label>
-    <label>Received into<select name="bank_account_id" required className={field}><option value="">Select company bank</option>{banks.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><label>Bank code / reference<input name="reference_number" required minLength={3} maxLength={120} className={field} /></label>
+    <label>Received into<select name="bank_account_id" required className={field}><option value="">Select company bank</option>{banks.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><label>Bank code / reference<input name="reference_number" minLength={3} maxLength={120} className={field} /><span className="text-sm">Used for later bank reconciliation. A missing code can be added after saving.</span></label>
     <label className="sm:col-span-2">Bank-in slip (JPG / PNG / PDF, up to 3 MB)<input name="proof" type="file" accept="image/jpeg,image/png,application/pdf" required className={field} /></label>
-    <p className="text-sm sm:col-span-2">Uploading proof does not mark this invoice paid. Verification is required. Rental payments are not affected.</p>
-    {state.error && <p role="alert" className="text-red-700 sm:col-span-2">{state.error}</p>}<button className={button} disabled={pending}>{pending ? "Uploading…" : "Submit for verification"}</button>
+    <p className="text-sm sm:col-span-2">Admin upload records this received payment immediately and updates outstanding. No second verification. Match the bank code later in Bank Statement Reconciliation.</p>
+    {state.error && <p role="alert" className="text-red-700 sm:col-span-2">{state.error}</p>}<button className={button} disabled={pending}>{pending ? "Recording…" : "Record received payment"}</button>
   </form></details>;
 }
 export function VerifyPayment({ payment, returnTo }: { payment: RenovationPayment; returnTo: string }) {
@@ -29,7 +28,7 @@ export function VerifyPayment({ payment, returnTo }: { payment: RenovationPaymen
 }
 export function MatchPayment({ payment, lines, returnTo }: { payment: RenovationPayment; lines: BankLineOption[]; returnTo: string }) {
   const [state, action, pending] = useActionState(matchRenovationPayment, {});
-  const options = lines.filter(l => l.bank_account_id === payment.bank_account_id && l.remaining > 0);
+  const options = lines.filter(l => l.bank_account_id === payment.bank_account_id && l.remaining > 0 && !l.blocked && !l.matchedSourceIds?.includes(payment.bank_transaction_id ?? ""));
   return <form action={action} className="space-y-3 rounded border bg-slate-50 p-3"><input type="hidden" name="invoice_id" value={payment.invoice_id} /><input type="hidden" name="transaction_id" value={payment.bank_transaction_id ?? ""} />
     <input type="hidden" name="return_to" value={returnTo} />
     <p className="text-sm">Bank matched: {money(payment.matched ?? 0)} / {money(Number(payment.amount))}. Matching uses the smaller remaining amount and creates no new payment or income.</p>
@@ -38,11 +37,22 @@ export function MatchPayment({ payment, lines, returnTo }: { payment: Renovation
     {state.error && <p role="alert" className="text-red-700">{state.error}</p>}<button className={button} disabled={pending || !options.length}>Match verified payment</button>
   </form>;
 }
-export function PaymentCard({ payment }: { payment: RenovationPayment }) {
-  return <section className="space-y-3 rounded-lg border bg-white p-4"><div className="flex flex-wrap justify-between gap-2"><strong>{money(Number(payment.amount))} · {payment.status.toUpperCase()}</strong><span>{payment.payment_date} · Ref {payment.reference_number}</span></div>
-    {payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path.endsWith(".pdf")} label="Renovation bank-in slip" thumbnail={false} /> : <p className="text-red-700">Proof preview unavailable. Do not verify until the slip can be reviewed.</p>}
+export function PaymentCard({ payment, manage = false }: { payment: RenovationPayment; manage?: boolean }) {
+  return <section className="space-y-3 rounded-lg border bg-white p-4"><div className="flex flex-wrap justify-between gap-2"><strong>Payment amount: {money(Number(payment.amount))}</strong><span>Payment status: {payment.admin_uploaded && payment.status === "verified" ? "RECORDED" : payment.status.toUpperCase()}</span></div>
+    <p>Payment date: {payment.payment_date}</p><p>Bank code / reference: {payment.reference_number || "Missing bank code"}</p>
+    {manage && payment.admin_uploaded && payment.status === "verified" && !payment.reference_number && <MissingReference paymentId={payment.id} />}
+    {payment.proofUrl ? <ReceiptViewer url={payment.proofUrl} isImage={!payment.proof_path.endsWith(".pdf")} label="Renovation bank-in slip" thumbnail={false} /> : <p className="text-red-700">Payment slip preview unavailable. Refresh or ask your administrator to check the attachment.</p>}
     {payment.rejection_reason && <p>Rejection reason: {payment.rejection_reason}</p>}
-    {payment.status === "pending" && <Link className="block font-semibold underline" href="/verification?view=payments#renovation-payments">Awaiting approval in Payment Verification →</Link>}
-    {payment.status === "verified" && <><p>Bank matched: {money(payment.matched ?? 0)} / {money(Number(payment.amount))}</p>{Number(payment.amount) - (payment.matched ?? 0) < 0.005 ? <p className="font-semibold text-emerald-700">Fully matched to bank statement</p> : <Link className="block font-semibold underline" href="/reports?tab=bank&bankFlow=credit#renovation-reconciliation">Continue in Bank Reconciliation →</Link>}</>}
   </section>;
+}
+
+export function MissingReference({paymentId}:{paymentId:string}) {
+  const [state,action,pending]=useActionState(saveRenovationReference,{});
+  return <form action={action} className="space-y-2"><input type="hidden" name="payment_id" value={paymentId}/><label>Bank code / reference<input name="reference" required minLength={3} maxLength={120} className={field}/></label><button className={button} disabled={pending}>Save bank code</button><p className="text-sm">Reference only. This does not verify or record the payment again.</p>{state.error && <p role="alert">{state.error}</p>}</form>;
+}
+
+export function RenovationBulkReconcile({statements,candidates,returnTo}:{statements:string[];candidates:{transactionId:string;lineId:string;reference:string;amount:number;date:string}[];returnTo:string}) {
+  const [state,action,pending]=useActionState(bulkReconcileRenovation,{});
+  if(!candidates.length) return <p>No unambiguous bank-code matches ready for bulk reconciliation.</p>;
+  return <form action={action} className="space-y-3 rounded border border-emerald-300 bg-emerald-50 p-4"><input type="hidden" name="statements" value={statements.join(",")}/><input type="hidden" name="pairs" value={candidates.map(c=>`${c.transactionId}:${c.lineId}`).join(",")}/><input type="hidden" name="return_to" value={returnTo}/><h3 className="font-semibold">High confidence · Bank code matches</h3>{candidates.map(c=><p key={`${c.transactionId}:${c.lineId}`}>{c.date} · Payment code {c.reference} = bank reference · {money(c.amount)}</p>)}<button className={button} disabled={pending}>{pending ? "Reconciling…" : `BULK RECONCILE ${candidates.length} renovation matches`}</button>{state.error && <p role="alert">{state.error}</p>}</form>;
 }

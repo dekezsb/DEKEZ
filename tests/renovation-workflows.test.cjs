@@ -8,6 +8,8 @@ function load(file, mocks = {}) {
   return m.exports;
 }
 const model = load('lib/renovation/model.ts');
+const rentalMatch=load('lib/accounting/tenant-reconciliation.ts',{'./bank-room-scope':load('lib/accounting/bank-room-scope.ts')});
+const reconciliation=load('lib/renovation/reconciliation.ts',{'@/lib/accounting/tenant-reconciliation':rentalMatch});
 const link = ({href, children, ...props}) => React.createElement('a', {...props, href}, children);
 const viewer = () => React.createElement('button', null, 'Preview slip');
 const base = {id:'receipt',invoice_id:'invoice',amount:2800,status:'verified',bank_account_id:'bank',bank_transaction_id:'transaction',proof_path:'proof.pdf',proofUrl:'https://example.test/proof',reference_number:'00119128',payment_date:'2026-10-11',matched:0};
@@ -35,7 +37,8 @@ function mocks(data, manage = true) {
     '@/lib/auth/access':{hasModuleAccess:(_a,_m,level)=>level==='view'||manage},
     '@/lib/renovation/payments':{renovationPaymentData:async(...args)=>{data.calls?.push(args);return data;}},
     '@/lib/renovation/model':model,
-    '@/components/renovation/payments':{VerifyPayment:()=>React.createElement('button',null,'VERIFY ACTION'),MatchPayment:()=>React.createElement('button',null,'MATCH ACTION')},
+    '@/lib/renovation/reconciliation':reconciliation,
+    '@/components/renovation/payments':{VerifyPayment:()=>React.createElement('button',null,'VERIFY ACTION'),MatchPayment:()=>React.createElement('button',null,'MATCH ACTION'),RenovationBulkReconcile:()=>React.createElement('button',null,'BULK ACTION'),MissingReference:()=>null},
     './receipt-viewer':{ReceiptViewer:viewer},
     '@/app/payment-verification/receipt-viewer':{ReceiptViewer:viewer},
   };
@@ -46,15 +49,17 @@ test('workflow redirects keep only permitted filters and force the correct works
   assert.equal(result,'/reports?month=2026-10&statement=one&tab=bank&bankFlow=credit#renovation-reconciliation');
   assert.match(model.renovationWorkflowReturnTo('/verification?view=tenants&renovation_status=verified&tenant=one','verification'),/tenant=one&renovation_status=verified&view=payments/);
 });
-test('invoice payment card is status and navigation only; no approval or allocation form',()=>{
-  const {PaymentCard}=load('components/renovation/payments.tsx',{'next/link':link,'@/lib/renovation/model':model,'@/app/payment-verification/receipt-viewer':{ReceiptViewer:viewer},'@/app/renovation/actions':{}});
-  for(const status of ['pending','verified']) {
-    const html=renderToStaticMarkup(React.createElement(PaymentCard,{payment:{...base,status}}));
-    assert.doesNotMatch(html,/<form|Match verified payment|Verify payment/);
-    assert.match(html,status==='pending'?/verification\?view=payments/:/reports\?tab=bank/);
+test('renovation Reports receipt shows payment records only, never bank status or reconciliation controls',()=>{
+  const {PaymentCard}=load('components/renovation/payments.tsx',{'next/link':link,'@/lib/renovation/model':model,'@/app/payment-verification/receipt-viewer':{ReceiptViewer:viewer},'@/app/renovation/actions':{saveRenovationReference:async()=>({})}});
+  for(const status of ['pending','verified','rejected']) for(const matched of [0,1000,2800]) {
+    const html=renderToStaticMarkup(React.createElement(PaymentCard,{payment:{...base,status,matched,admin_uploaded:true}}));
+    assert.doesNotMatch(html,/<form|Match verified payment|Verify payment|Bank matched|Fully matched|Reconciliation|Reconcile|line_id|tab=bank|verification\?view/);
+    assert.match(html,/Payment date:.*2026-10-11/);assert.match(html,/Bank code \/ reference:.*00119128/);
+    assert.match(html,status==='verified'?/RECORDED/:new RegExp(status.toUpperCase()));
   }
-  const done=renderToStaticMarkup(React.createElement(PaymentCard,{payment:{...base,matched:2800}}));
-  assert.match(done,/Fully matched/);assert.doesNotMatch(done,/Continue in Bank/);
+  const missing=renderToStaticMarkup(React.createElement(PaymentCard,{payment:{...base,admin_uploaded:true,reference_number:''},manage:true}));
+  assert.match(missing,/Save bank code/);assert.match(missing,/name="payment_id" value="receipt"/);
+  assert.doesNotMatch(missing,/Match verified payment|Verify payment|Bank matched|Fully matched|Reconciliation|Reconcile|line_id/);
 });
 test('central verification defaults to pending and never offers reapproval of verified receipts',async()=>{
   const data={payments:[base,{...base,id:'new',status:'pending',amount:100}],invoices,banks:[],lines:[]};
@@ -92,6 +97,8 @@ test('verification and matching use existing scoped RPCs and invalidate the actu
     '@/lib/renovation/server':{renovationContext:async manage=>{assert.equal(manage,true);return {db,company:{id:'company'},user:{id:'actor'}};}},
     '@/lib/auth/session':{requireRole:async(roles,permission)=>{assert.deepEqual(roles,['super_admin','admin']);assert.deepEqual(permission,{module:'verification',level:'manage'});}},
     '@/lib/renovation/model':model,
+    '@/lib/renovation/payments':{},
+    '@/lib/renovation/reconciliation':reconciliation,
     'next/cache':{revalidatePath:path=>invalidated.push(path)},
     'next/navigation':{redirect:path=>{throw Error('REDIRECT '+path);}},
   });
@@ -104,4 +111,21 @@ test('verification and matching use existing scoped RPCs and invalidate the actu
   assert.ok(calls.some(c=>c[0]==='eq'&&c[1]==='status'&&c[2]==='verified'));
   form.set('decision','invalid');assert.match((await actions.verifyRenovationPayment({},form)).error,/Choose/);
   form.set('decision','verify');form.delete('confirm');assert.match((await actions.verifyRenovationPayment({},form)).error,/Confirm/);
+});
+test('admin receipts never appear in verification, even under all or verified filters',async()=>{
+  const data={payments:[{...base,admin_uploaded:true}],invoices,banks:[],lines:[]};
+  const {RenovationPaymentVerification:View}=load('app/payment-verification/renovation-payments.tsx',mocks(data));
+  for(const status of ['pending','verified','all']) {
+    const html=renderToStaticMarkup(await View({params:{renovation_status:status},returnTo:'/verification?view=payments'}));
+    assert.doesNotMatch(html,/00119128|VERIFY ACTION/);
+  }
+});
+test('bank-code bulk candidates reject ambiguous/exhausted/other-bank receipts and preview running consumption',()=>{
+  const payment={...base,reference_number:'119128'};
+  const line={id:'line',bank_account_id:'bank',transaction_date:'2026-10-11',reference_number:'BANK 119128',description:'',remaining:2000};
+  assert.equal(reconciliation.renovationBulkCandidates([payment],[line])[0].amount,2000);
+  assert.deepEqual(reconciliation.renovationBulkCandidates([payment,{...payment,id:'other',bank_transaction_id:'tx2'}],[line]),[]);
+  for(const changes of [{status:'pending'},{matched:2800},{bank_account_id:'other'},{reference_number:''},{payment_date:'2026-09-11'}])assert.deepEqual(reconciliation.renovationBulkCandidates([{...payment,...changes}],[line]),[]);
+  for(const changes of [{blocked:true},{remaining:0},{reference_number:'991191280'},{matchedSourceIds:['transaction']}])assert.deepEqual(reconciliation.renovationBulkCandidates([payment],[{...line,...changes}]),[]);
+  assert.deepEqual(reconciliation.renovationBulkCandidates([payment],[line,{...line,id:'line2'}]).map(c=>c.amount),[2000,800]);
 });
