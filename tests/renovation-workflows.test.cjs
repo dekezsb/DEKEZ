@@ -100,6 +100,7 @@ test('verification and matching use existing scoped RPCs and invalidate the actu
     '@/lib/renovation/payments':{},
     '@/lib/renovation/reconciliation':reconciliation,
     'next/cache':{revalidatePath:path=>invalidated.push(path)},
+    '@/lib/renovation/saved-translations':require('./renovation-loader.cjs')('lib/renovation/saved-translations.ts'),
     'next/navigation':{redirect:path=>{throw Error('REDIRECT '+path);}},
   });
   const form=new FormData();for(const [key,value] of Object.entries({decision:'verify',confirm:'yes',payment_id:'receipt',invoice_id:'forged',transaction_id:'transaction',line_id:'line',return_to:'https://evil.test'}))form.set(key,value);
@@ -119,6 +120,27 @@ test('admin receipts never appear in verification, even under all or verified fi
     const html=renderToStaticMarkup(await View({params:{renovation_status:status},returnTo:'/verification?view=payments'}));
     assert.doesNotMatch(html,/00119128|VERIFY ACTION/);
   }
+});
+test('saved PDF translations require manage access and the current company/version; append audit only',async()=>{
+  const translationModule=require('./renovation-loader.cjs')('lib/renovation/saved-translations.ts');
+  const id='11111111-1111-4111-8111-111111111111';
+  const document={id,company_id:'company',version:3,items:[{description:'9MM board',quantity:1,unit:'LOT',rate:100}],stages:[{label:'Deposit',percent:100}],terms:'Included',remarks:''};
+  const review={'item:0':{source:'9MM board',text:'9MM 板'},'stage:0':{source:'Deposit',text:'首期款'},terms:{source:'Included',text:'包括'}};
+  const queries=[],writes=[];let allowed=true,found=true;
+  const db={from(table){const q={select(){return q;},eq(...args){queries.push([table,...args]);return q;},async maybeSingle(){return {data:found?document:null,error:null};},async insert(value){writes.push({table,value});return {error:null};}};return q;}};
+  const actions=load('app/renovation/actions.ts',{
+    '@/lib/renovation/server':{renovationContext:async manage=>{assert.equal(manage,true);if(!allowed)throw Error('access denied');return {db,company:{id:'company'},user:{id:'actor'}};}},
+    '@/lib/auth/session':{},'@/lib/renovation/model':model,'@/lib/renovation/payments':{},'@/lib/renovation/reconciliation':reconciliation,
+    '@/lib/renovation/saved-translations':translationModule,'next/cache':{revalidatePath(){}},'next/navigation':{},
+  });
+  const form=new FormData();for(const [key,value] of Object.entries({id,version:'3',language:'zh',reviewed:'yes',review:JSON.stringify(review)}))form.set(key,value);
+  assert.match((await actions.savePdfTranslations(form)).success,/saved/);
+  assert.equal(writes.length,1);assert.equal(writes[0].table,'accounting_audit_logs');assert.equal(writes[0].value.entity_type,'renovation_translation');
+  assert.deepEqual(writes[0].value.after_data,{document_version:3,language:'zh',review});assert.equal(writes[0].value.performed_by,'actor');
+  assert.ok(queries.some(q=>q[1]==='company_id'&&q[2]==='company'));assert.ok(queries.some(q=>q[1]==='version'&&q[2]===3));
+  found=false;assert.match((await actions.savePdfTranslations(form)).error,/changed/);assert.equal(writes.length,1);
+  found=true;form.set('review',JSON.stringify({...review,total:1}));assert.match((await actions.savePdfTranslations(form)).error,/Unknown/);assert.equal(writes.length,1);
+  allowed=false;await assert.rejects(actions.savePdfTranslations(form),/access denied/);
 });
 test('bank-code bulk candidates reject ambiguous/exhausted/other-bank receipts and preview running consumption',()=>{
   const payment={...base,reference_number:'119128'};

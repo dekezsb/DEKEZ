@@ -1,4 +1,5 @@
 import React from 'react';
+export async function savePdfTranslations(form) { const saved=JSON.parse(sessionStorage.getItem('testTranslations')||'{}'); saved[form.get('language')]=JSON.parse(form.get('review')); sessionStorage.setItem('testTranslations',JSON.stringify(saved)); return {success:'Translations saved for future downloads.'}; }
 export async function saveDraft(previous, form) { window.savedDraft=JSON.parse(form.get('payload')); return {}; }
 export async function issueDocument() { return {}; }
 export async function saveClient() { return {}; }

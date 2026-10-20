@@ -45,7 +45,7 @@ export async function renovationPdf(document:RenovationDocument,language:Documen
       if(offset<rows){newPage();if(!header&&sizes.length===6)tableHeader();}
     }
   }
-  const columns=[32,body-32-48-50-80-85,48,50,80,85];
+  const columns=[32,body-32-55-50-80-85,55,50,80,85];
   function tableHeader(){tableRow([t.no,t.description,t.qty,t.unit,t.rate,t.amount],columns,true);}
   newPage();
   page!.drawImage(logo,{x:margin,y:y-65,width:65,height:65});
@@ -84,6 +84,9 @@ export async function renovationPdf(document:RenovationDocument,language:Documen
   if(d.kind==='invoice')paragraph(t.payText,8);
   heading(t.terms);for(const [i,term] of d.terms.split('\n').filter(Boolean).entries())paragraph(`${i+1}. ${term}`,9,6);
   if(d.remarks){heading(t.remarks);paragraph(d.remarks);}
+  // Keep payment/acceptance details with their signature block, including
+  // the longer Malay wording, instead of orphaning signatures on a new page.
+  ensure(d.kind==='quotation'?250:180);
   heading(d.kind==='quotation'?t.acceptance:t.paymentDetails);
   if(d.kind==='quotation')paragraph(t.acceptText);
   paragraph(`${t.bank}: Public Bank Berhad\n${t.accountName}: DEKEZ SDN. BHD.\n${t.accountNo}: 3247421720`);

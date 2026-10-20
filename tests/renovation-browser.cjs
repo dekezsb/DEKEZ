@@ -98,6 +98,18 @@ compiler.run(async(error,stats)=>{
   await page.getByLabel('Document language',{exact:true}).selectOption('en');
   await page.getByRole('button',{name:'Preview PDF',exact:true}).click();
   await page.getByRole('link',{name:'Download PDF',exact:true}).waitFor({timeout:60000});
+  await page.getByLabel('Document language',{exact:true}).selectOption('ms');
+  await page.getByText('Translate / review wording before export',{exact:true}).click();
+  for(const [index,text] of ['Dinding sekatan dan bukaan pintu','Pendawaian elektrik, lampu dan suis','Penyediaan permukaan dan pengecatan'].entries())await page.getByLabel('Translation: Item '+(index+1),{exact:true}).fill(text);
+  await page.getByLabel('I reviewed the translated wording and any original-text fallbacks.').check();
+  await page.getByRole('button',{name:'Save translations',exact:true}).click();
+  await page.getByRole('status').waitFor();
+  await page.reload();
+  await page.getByLabel('Document language',{exact:true}).selectOption('ms');
+  await page.getByText('Saved translation loaded for this document version.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Preview PDF',exact:true}).isEnabled(),true);
+  await page.getByRole('button',{name:'Preview PDF',exact:true}).click();
+  await page.getByRole('link',{name:'Download PDF',exact:true}).waitFor({timeout:60000});
   assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,output}));
  }catch(e){console.error(e);process.exitCode=1;}finally{await browser?.close();server?.close();compiler.close(()=>{});}
 });

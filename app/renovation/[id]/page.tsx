@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IssueForm, CloseDocumentForm } from "@/components/renovation/forms";
 import { RenovationPdfPreview } from "@/components/renovation/pdf-preview";
-import { renovationContext, renovationDocument } from "@/lib/renovation/server";
+import { renovationContext, renovationDocument, renovationSavedTranslations } from "@/lib/renovation/server";
 import { malaysiaToday, money, paymentSummary, documentStatus, documentTotals, type RenovationDocument } from "@/lib/renovation/model";
 import { allReportRows } from "@/lib/accounting/report-data";
 import { renovationPaymentData } from "@/lib/renovation/payments";
@@ -31,6 +31,7 @@ export default async function RenovationDetail({ params,searchParams }: { params
   const printed=requested?versions.get(Number(requested)):d;
   if(!printed)notFound();
   const historical=printed.version!==d.version;
+  const savedTranslations = await renovationSavedTranslations(printed);
   return <main className="min-h-screen bg-slate-100 p-4 print:bg-white print:p-0">
     <div className="mx-auto mb-5 max-w-[210mm] space-y-4 print:hidden"><div className="flex flex-wrap items-center gap-3"><Link href="/renovation" className="rounded border bg-white px-4 py-2">← Client folders</Link>{manage && d.status === "draft" && <Link className="underline" href={`/renovation/new?edit=${id}`}>Edit draft / discount</Link>}{manage && d.kind === "quotation" && d.status === "issued" && <Link className="underline" href={`/renovation/new?revise=${id}`}>Revise quotation / discount</Link>}{manage&&d.kind==='invoice'&&d.status==='issued'&&<Link className="underline" href={`/renovation/new?correct=${id}`}>Controlled invoice correction</Link>}{manage && <Link className="underline" href={`/renovation/new?copy=${id}`}>Copy for a new job</Link>}</div>
       <p>Status: <strong>{documentStatus(d,summary?.verified).replaceAll('_',' ')}</strong>{d.kind === "invoice" && d.status === "issued" ? " · Posted to general-company Renovation Service Income. No payment is implied." : ""}</p>
@@ -54,6 +55,6 @@ export default async function RenovationDetail({ params,searchParams }: { params
       </section>}
     </div>
     {historical&&<p className="mx-auto mb-4 max-w-5xl rounded border border-amber-400 bg-amber-50 p-4">Historical version {printed.version}. Current payments are not included in this historical copy. <Link href={`/renovation/${id}`} className="underline">Return to current version</Link></p>}
-    <RenovationPdfPreview key={`${id}-${printed.version}`} document={printed} manage={manage} payments={historical?undefined:summary??undefined} historical={historical}/>
+    <RenovationPdfPreview key={`${id}-${printed.version}`} document={printed} manage={manage} payments={historical?undefined:summary??undefined} historical={historical} savedTranslations={savedTranslations}/>
   </main>;
 }

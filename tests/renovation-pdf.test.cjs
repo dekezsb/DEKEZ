@@ -2,6 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const load=require('./renovation-loader.cjs');
 const model=load('lib/renovation/model.ts'),language=load('lib/renovation/languages.ts'),{renovationPdf}=load('lib/renovation/pdf.ts');
 const original='9MM G26 partition 2" × 4" - supply and install';
+const {validateTranslationReview}=load('lib/renovation/saved-translations.ts');
 const items=Array.from({length:23},(_,i)=>({item_code:`PART-${i+1}`,description:original,quantity:1,unit:'SQ FT',rate:i===22?25147:1000,translation_source:original,translations:{en:original,ms:'Sekatan 9MM G26 2" × 4" - bekal dan pasang',zh:'9MM G26 隔墙 2" × 4" - 供应及安装'}}));
 const d={id:'fictional',company_id:'test',kind:'invoice',status:'issued',document_number:'DRI-TEST-ONLY',client_id:'test',client_snapshot:{name:'TEST CUSTOMER 测试客户',phone:'',email:'',address:'Test address unchanged'},project:'Fictional renovation - test only',site_address:'Test site',document_date:'2026-10-20',due_date:'2026-11-20',version:1,discount_kind:'amount',discount_value:1547,discount_amount:1547,tax_rate:0,tax_amount:0,total:45600,items,stages:model.defaultStages,terms:model.defaultTerms,remarks:'Custom technical specification: 9MM G26'};
 test('translations preserve every numerical amount, identity and item code, and reject changed specifications',()=>{
@@ -29,6 +30,16 @@ test('amount words and totals are calculated rather than translated',()=>{
   assert.match(language.amountInWords(45600,'en'),/Forty Five Thousand Six Hundred/);
   assert.throws(()=>model.validateDocumentAmounts({...d,total:40000}),/totals/);
   assert.throws(()=>model.validateDocumentAmounts({...d,stages:[{label:'Deposit',percent:90}]}),/schedule/);
+});
+test('saved translations are complete, source-bound and never accept financial fields or changed specifications',()=>{
+  const before=JSON.stringify(d),review=language.suggestedTranslations(d,'zh');
+  review.remarks={source:d.remarks,text:'技术规格：9MM G26'};
+  assert.deepEqual(validateTranslationReview(d,review),review);
+  assert.equal(JSON.stringify(d),before);
+  assert.throws(()=>validateTranslationReview(d,{...review,total:40000}),/Unknown/);
+  assert.throws(()=>validateTranslationReview(d,{...review,'item:0':{source:original,text:'12MM G26 隔墙'}}),/specification/);
+  assert.throws(()=>validateTranslationReview(d,{...review,'item:0':{source:'stale',text:original}}),/current/);
+  assert.throws(()=>validateTranslationReview(d,{...review,remarks:{source:d.remarks,text:''}}),/Complete/);
 });
 test('English, Malay and Chinese PDFs embed Unicode fonts and paginate the same saved document',async()=>{
   const assets={font:new Uint8Array(fs.readFileSync('public/fonts/NotoSansSC-Regular.ttf')),logo:new Uint8Array(fs.readFileSync('public/dekez-logo.jpg'))};

@@ -1,5 +1,17 @@
 # Renovation quotations, invoices and verified receipts
 
+## Saved PDF translations
+
+Malay and Chinese wording can be saved from PDF preview after review. Reuse the
+append-only `accounting_audit_logs` with entity type `renovation_translation` and
+action `export_translation_saved`; do not update original documents or journals.
+Each entry is scoped to company, document, version and language, records its actor,
+and stores source/text pairs. Manage permission is required to save. Reject
+missing fields, stale source wording, extra keys and altered protected numbers or
+specifications. Load only the latest valid entry for that exact version/language.
+Saved wording remains ready after reload; edits require another review/save.
+No schema migration or external translation service is required.
+
 This module is independent of rental invoices, tenant payments, reservations,
 Rent Due Tracker and rental reminders. Open **Renovation Quotations & Invoices**
 from the sidebar (`/renovation`). It uses the existing reports view/manage

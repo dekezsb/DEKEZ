@@ -7,6 +7,27 @@ import { requireRole } from "@/lib/auth/session";
 import { renovationWorkflowReturnTo } from "@/lib/renovation/model";
 import { renovationPaymentData } from "@/lib/renovation/payments";
 import { renovationBulkCandidates } from "@/lib/renovation/reconciliation";
+import { validateTranslationReview } from '@/lib/renovation/saved-translations';
+import type { RenovationDocument } from '@/lib/renovation/model';
+
+export async function savePdfTranslations(form: FormData): Promise<RenovationActionState> {
+  const { db, company, user } = await renovationContext(true);
+  const id = String(form.get('id') ?? ''), language = String(form.get('language') ?? '');
+  const version = Number(form.get('version')), payload = String(form.get('review') ?? '');
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !['ms','zh'].includes(language) || !Number.isSafeInteger(version) || version < 1 || payload.length > 250000 || form.get('reviewed') !== 'yes') return { error: 'Review the wording and select Malay or Chinese before saving.' };
+  const { data: document, error: readError } = await db.from('renovation_documents').select('*').eq('company_id', company.id).eq('id', id).eq('version', version).maybeSingle();
+  if (readError || !document) return { error: 'This document changed. Refresh before saving translations.' };
+  let review;
+  try { review = validateTranslationReview(document as RenovationDocument, JSON.parse(payload)); }
+  catch (error) { return { error: error instanceof Error ? error.message : 'Invalid translation wording.' }; }
+  // Append-only export metadata. No document, payment, receipt, journal or amount is updated.
+  const { error } = await db.from('accounting_audit_logs').insert({ company_id: company.id, entity_type: 'renovation_translation', entity_id: id,
+    action: 'export_translation_saved', after_data: { document_version: version, language, review }, performed_by: user.id,
+    reason: 'Reviewed PDF translation saved separately; original document and financial records unchanged.' });
+  if (error) return { error: 'Could not save translations. Your original document is unchanged.' };
+  revalidatePath(`/renovation/${id}`);
+  return { success: 'Translations saved for future downloads. Original document and amounts unchanged.' };
+}
 
 export type RenovationActionState = { error?: string; success?: string };
 const text = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
