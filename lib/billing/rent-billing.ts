@@ -17,6 +17,8 @@ type GeneratedBillResult = {
 
 type TenancyBillingRow = {
   id: string;
+  company_id: string;
+  start_date: string;
   organization_id: string | null;
   tenant_id: string;
   property_id: string;
@@ -66,11 +68,15 @@ type TenantRecordBillingRow = {
   due_day: number | null;
 };
 
-export const COMPANY_BILLING_START_DATE = "2024-09-01";
+export const COMPANY_BILLING_START_DATE = "2026-03-01";
+const DEKEZ_COMPANY_ID = "660cc0c4-daee-445b-9146-ccd112e791d4";
 
-export function companyBillingStartDate(dateText: string) {
-  return dateText < COMPANY_BILLING_START_DATE
-    ? COMPANY_BILLING_START_DATE
+// This bounds invoice generation only. It must never become a tenancy date,
+// a recurring due-day anchor, or a fresh check-in/deposit charge.
+export function companyBillingStartDate(dateText: string, companyId = DEKEZ_COMPANY_ID) {
+  const cutoff = companyId === DEKEZ_COMPANY_ID ? COMPANY_BILLING_START_DATE : "2024-09-01";
+  return dateText < cutoff
+    ? cutoff
     : dateText;
 }
 
@@ -236,7 +242,7 @@ export async function generateRecurringRentBills(
 
   let tenancyQuery = supabase
     .from("tenancies")
-    .select("id, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!tenancies_room_id_fkey!inner(status), tenants(profile_id), tenant_records!tenant_records_tenancy_id_fkey(id,status), tenancy_agreements!tenancy_agreements_tenancy_id_fkey(term_type,term_end_date,status)")
+    .select("id, company_id, start_date, organization_id, tenant_id, property_id, unit_id, room_id, monthly_rental, deposit, contract_start, contract_end, tenancy_start_date, tenancy_end_date, due_day, rent_due_day, check_in_date, checkout_date, billing_status, rooms!tenancies_room_id_fkey!inner(status), tenants(profile_id), tenant_records!tenant_records_tenancy_id_fkey(id,status), tenancy_agreements!tenancy_agreements_tenancy_id_fkey(term_type,term_end_date,status)")
     .eq("status", "active")
     .eq("billing_status", "active")
     .eq("rooms.status", "occupied");
@@ -260,9 +266,9 @@ export async function generateRecurringRentBills(
     const profileId = tenantProfileId(tenancy);
     const tenantRecordId = activeTenantRecordId(tenancy);
     const tenancyStartDate =
-      tenancy.check_in_date ?? tenancy.tenancy_start_date ?? tenancy.contract_start;
-    const startDate = companyBillingStartDate(tenancyStartDate);
-    const dueDay = tenancy.rent_due_day ?? tenancy.due_day ?? dayOfMonth(startDate);
+      tenancy.check_in_date ?? tenancy.tenancy_start_date ?? tenancy.contract_start ?? tenancy.start_date;
+    const startDate = companyBillingStartDate(tenancyStartDate, tenancy.company_id);
+    const dueDay = tenancy.rent_due_day ?? tenancy.due_day ?? dayOfMonth(tenancyStartDate);
     const endDate = effectiveEndDate({
       checkoutDate: tenancy.checkout_date,
       tenancyEndDate: tenancy.tenancy_end_date,
@@ -282,7 +288,7 @@ export async function generateRecurringRentBills(
         const dueDate = invoiceDueDateForBillMonth(
           billMonth,
           dueDay,
-          startDate,
+          tenancyStartDate,
         );
         return {
           organization_id: tenancy.organization_id,
@@ -297,7 +303,7 @@ export async function generateRecurringRentBills(
           invoice_date: dueDate,
           amount: Number(tenancy.monthly_rental ?? 0),
           deposit_amount:
-            billMonth === billMonthForDate(startDate)
+            billMonth === billMonthForDate(tenancyStartDate)
               ? Number(tenancy.deposit ?? 0)
               : 0,
           paid_amount: 0,
@@ -340,7 +346,8 @@ export async function generateRecurringRentBills(
       result.checkedTenantRecords += 1;
       const existingMonths = await existingBillMonths(supabase, "tenant_record_id", tenant.id);
       const dueDay = tenant.due_day;
-      const contractStart = companyBillingStartDate(tenant.contract_start);
+      const originalContractStart = tenant.contract_start;
+      const contractStart = companyBillingStartDate(originalContractStart, tenant.company_id ?? undefined);
       const targetMonths = targetBillingMonths({
         startDate: contractStart,
         endDate: tenant.contract_end,
@@ -353,7 +360,7 @@ export async function generateRecurringRentBills(
           const dueDate = invoiceDueDateForBillMonth(
             billMonth,
             dueDay,
-            contractStart,
+            originalContractStart,
           );
           return {
             organization_id: null,
@@ -368,7 +375,7 @@ export async function generateRecurringRentBills(
             invoice_date: dueDate,
             amount: Number(tenant.monthly_rent ?? 0),
             deposit_amount:
-              billMonth === billMonthForDate(contractStart)
+              billMonth === billMonthForDate(originalContractStart)
                 ? Number(tenant.deposit ?? 0)
                 : 0,
             paid_amount: 0,
