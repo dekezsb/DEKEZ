@@ -14,6 +14,17 @@ test('history formats full audit timestamps in Malaysia without invalid date cra
   assert.match(page, /reconciliationDateLabel\(match.created_at\)/);
   assert.doesNotMatch(page, /dateLabel\(match.created_at\)/);
 });
+test('history month links keep the selected statement instead of always opening the newest month', () => {
+  const page = fs.readFileSync(path.join(root, 'app/reports/page.tsx'), 'utf8');
+  const source = page.slice(page.indexOf('function tabHref('), page.indexOf('function pnlLedgerHref('));
+  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const href = new Function('URLSearchParams', `${code}; return tabHref;`)(URLSearchParams);
+  for (const tab of ['bank', 'bank-history']) {
+    assert.equal(new URL(href(tab, '2026-07', '', 'march'), 'https://dekez.vercel.app').searchParams.get('statement'), 'march');
+    assert.equal(new URL(href(tab, '2026-07', '', 'april'), 'https://dekez.vercel.app').searchParams.get('statement'), 'april');
+  }
+  assert.equal(new URL(href('profit-loss', '2026-07', '', 'march'), 'https://dekez.vercel.app').searchParams.has('statement'), false);
+});
 function fixtureDb(rows, failAt = -1, allocations = [], failMatches = false) {
   const reads = [];
   const db = { reads, from(table) {

@@ -127,7 +127,7 @@ function singleRelation<T>(value: T | T[] | null | undefined) {
 function tabHref(tab: string, month: string, propertyId: string, statementId?: string) {
   const search = new URLSearchParams({ tab, month });
   if (propertyId) search.set("property", propertyId);
-  if (tab === "bank" && statementId) search.set("statement", statementId);
+  if ((tab === "bank" || tab === "bank-history") && statementId) search.set("statement", statementId);
   return `/reports?${search.toString()}`;
 }
 
