@@ -22,7 +22,7 @@ test.before(async()=>{
  create table rent_bills(id uuid primary key,amount numeric,paid_amount numeric);
  create table receipts(id uuid primary key);
  create table bank_statement_imports(id uuid primary key,company_id uuid,bank_account_id uuid,status text,period_start date,period_end date,opening_balance numeric,closing_balance numeric,reconciled_at timestamptz,reconciled_by uuid,updated_at timestamptz);
- create table bank_statement_lines(id uuid primary key,statement_import_id uuid,bank_account_id uuid,amount numeric,transaction_date date,reference_number text,description text,status text,updated_at timestamptz,duplicate_of_line_id uuid);
+ create table bank_statement_lines(id uuid primary key,statement_import_id uuid,bank_account_id uuid,amount numeric,transaction_date date,reference_number text,description text,status text,updated_at timestamptz,duplicate_of_line_id uuid,created_at timestamptz default now());
  create view bank_statement_transactions as select * from bank_statement_lines;
  create table bank_reconciliation_matches(id uuid primary key default gen_random_uuid(),statement_line_id uuid,source_type text,source_id uuid,matched_amount numeric,existing_payment_link boolean);
  create table bank_manual_transactions(id uuid primary key,company_id uuid,bank_account_id uuid,offset_account_id uuid,transaction_date date,amount numeric,description text,reference_number text);
@@ -32,6 +32,7 @@ test.before(async()=>{
  await db.exec(migration('20261021064148_historical_rental_credit_batch.sql'));
  await db.exec(migration('20261021074439_historical_credit_default_classification.sql'));
  await db.exec(migration('20261021075645_historical_credit_preserve_partial_categories.sql'));
+ await db.exec(migration('20261021170836_september_leftover_credit_scope.sql'));
 });
 test.after(async()=>db?.close());
 test.beforeEach(async()=>{
@@ -116,4 +117,108 @@ test('classified source and audit offset are immutable and cannot be reconciled 
  await bank();await apply(await preview());await assert.rejects(db.exec('update historical_bank_credit_classifications set amount=1'),/immutable/);
  await assert.rejects(db.exec('delete from historical_bank_credit_classifications'),/immutable/);await assert.rejects(db.exec('update bank_statement_lines set amount=1'),/immutable/);
  await assert.rejects(db.exec(`insert into bank_reconciliation_matches(statement_line_id,source_type,source_id,matched_amount) values('${id(20)}','payment','${id(40)}',1)`),/already_classified/);
+});
+const septemberPreview=async(actor=2)=>(await db.query('select preview_september_credit_cleanup($1,$2,$3) p',[id(1),id(4),id(actor)])).rows[0].p;
+test('September grouped receipts, delayed bank dates and non-equal amounts preserve already recorded accounting',async()=>{
+ await bank(20,1575,'unmatched','2026-09-04','unknown','095917');
+ await bank(21,480,'unmatched','2026-09-02','unknown','962673');
+ await bank(22,359,'unmatched','2026-09-05','unknown','257345');
+ await db.exec(`insert into payments values
+ ('${id(40)}','${id(1)}',null,'confirmed',null,'monthly_rent',450,'2026-09-01','095917'),
+ ('${id(41)}','${id(1)}',null,'confirmed',null,'deposit',1125,'2026-09-01','095917'),
+ ('${id(42)}','${id(1)}',null,'confirmed',null,'monthly_rent',450,'2026-09-02','962673'),
+ ('${id(43)}','${id(1)}',null,'confirmed',null,'electricity',30,'2026-09-02','962673'),
+ ('${id(44)}','${id(1)}',null,'confirmed',null,'monthly_rent',350,'2026-09-05','257345'),
+ ('${id(45)}','${id(1)}',null,'confirmed',null,'damage',19,'2026-09-05','257345')`);
+ await captureSeptember();const p=await septemberPreview();
+ assert.deepEqual(p.rows.map(r=>r.ready),[0,0,0]);
+ assert.equal(p.rows.find(r=>r.id===id(20)).reason,'known_security_liability');
+ assert.equal(p.rows.find(r=>r.id===id(22)).existing_accounted_amount,359);
+ const before=await unchanged();await septemberApply(p);assert.deepEqual(await unchanged(),before);
+});
+test('September already allocated grouped receipt does not exclude a genuinely unallocated remainder',async()=>{
+ await bank(20,1200,'unmatched','2026-09-21','unknown','130193');
+ await db.exec(`insert into payments values('${id(40)}','${id(1)}',null,'confirmed',null,'monthly_rent',600,'2026-09-21','130193');
+ insert into bank_reconciliation_matches(statement_line_id,source_type,source_id,matched_amount) values('${id(20)}','payment','${id(40)}',600)`);
+ await captureSeptember();const p=await septemberPreview();assert.equal(p.rows[0].ready,600);
+ const before=await unchanged();await septemberApply(p);assert.deepEqual(await unchanged(),before);
+});
+const septemberApply=async(p,run=200)=>(await db.query('select clear_september_credit_cleanup($1,$2,$3,$4,$5) r',[id(1),id(4),id(2),id(run),p.hash])).rows[0].r;
+async function captureSeptember() {
+ await db.exec(`insert into september_credit_cleanup_scope(statement_line_id,company_id,bank_account_id,captured_remaining,source_snapshot)
+ select bl.id,'${id(1)}',bl.bank_account_id,bl.amount-coalesce((select sum(matched_amount) from bank_reconciliation_matches where statement_line_id=bl.id),0),to_jsonb(bl)
+ from bank_statement_lines bl where amount>0 and transaction_date>='2026-09-01' and transaction_date<'2026-10-01'
+ and status not in ('matched','adjusted','ignored') and duplicate_of_line_id is null`);
+}
+test('September fixed scope: future imports and previously completed sources cannot enter the batch',async()=>{
+ await bank(20,100,'unmatched','2026-09-15');await bank(21,200,'matched','2026-09-15');
+ await captureSeptember();
+ await bank(22,300,'unmatched','2026-09-16');await bank(23,400,'unmatched','2026-10-01');await bank(24,-500,'unmatched','2026-09-15');
+ await db.exec(`update bank_statement_lines set status='unmatched' where id='${id(21)}'`);
+ const p=await septemberPreview();assert.deepEqual(p.rows.map(r=>r.id),[id(20)]);
+ const before=await unchanged();await septemberApply(p);assert.deepEqual(await unchanged(),before);
+ assert.equal((await rows("select count(*)::int n from bank_statement_lines where status='unmatched'"))[0].n,4);
+ assert.equal((await preview()).rows.length,0);
+});
+test('September no-evidence remainder credits 1100 once, keeps dates, and completes a zero-work statement',async()=>{
+ await bank(20,100,'unmatched','2026-09-15');
+ await db.exec("update bank_statement_imports set period_start='2026-09-01',period_end='2026-09-30',closing_balance=100");
+ await captureSeptember();const p=await septemberPreview(),before=await unchanged();
+ const original=(await rows('select * from bank_statement_lines'))[0];
+ const result=await septemberApply(p);assert.equal(result.cleared_amount,100);assert.equal(result.completed_statements.length,1);
+ assert.deepEqual(await unchanged(),before);const c=(await rows('select *,classification_date::text effective_date from historical_bank_credit_classifications'))[0];
+ assert.equal(c.account_id,id(5));assert.equal(c.effective_date,p.adjustment_date);assert.equal(c.source_snapshot.classification_policy,'management_september_frozen_leftovers');
+ assert.equal(Number(c.source_snapshot.amount),Number(original.amount));
+ assert.equal(c.source_snapshot.transaction_date,new Date(original.transaction_date).toISOString().slice(0,10));
+ for(const key of ['reference_number','description'])assert.deepEqual(c.source_snapshot[key],original[key]);
+ assert.deepEqual(await septemberApply(p),result);assert.equal((await septemberApply(await septemberPreview(),201)).cleared_count,0);
+ assert.equal((await rows('select count(*)::int n from historical_bank_credit_classifications'))[0].n,1);
+});
+test('September known liability, valid other category and existing AR payments are not posted twice',async()=>{
+ await bank(20,100,'unmatched','2026-09-15');await bank(21,430,'unmatched','2026-09-15');await bank(22,200,'unmatched','2026-09-15','renovation','REN001');
+ await db.exec(`insert into payments values('${id(40)}','${id(1)}','${id(20)}','confirmed',null,'deposit',100,'2026-09-15',null),
+ ('${id(41)}','${id(1)}','${id(21)}','confirmed',null,'monthly_rent',430,'2026-09-15',null);
+ insert into bank_manual_transactions values('${id(42)}','${id(1)}','${id(4)}','${id(7)}','2026-09-15',200,'renovation','REN001')`);
+ await captureSeptember();const p=await septemberPreview();assert.deepEqual(p.rows.map(r=>r.reason),['known_security_liability','already_accounted','known_other_category']);
+ const before=await unchanged(),banks=await rows('select * from bank_statement_lines');assert.equal((await septemberApply(p)).cleared_count,0);
+ assert.deepEqual(await unchanged(),before);assert.deepEqual(await rows('select * from bank_statement_lines'),banks);
+});
+test('September partial allocations stay intact and completed-during-preview causes stale batch rejection',async()=>{
+ await bank(20,500,'unmatched','2026-09-15');await db.exec(`insert into bank_reconciliation_matches(statement_line_id,source_type,source_id,matched_amount) values('${id(20)}','payment','${id(40)}',100)`);
+ await captureSeptember();const p=await septemberPreview();assert.equal(p.rows[0].ready,400);
+ await db.exec(`update bank_statement_lines set status='matched' where id='${id(20)}'`);
+ await assert.rejects(septemberApply(p),/preview_changed/);const before=await unchanged();
+ assert.equal((await septemberApply(await septemberPreview(),201)).cleared_count,0);assert.deepEqual(await unchanged(),before);
+});
+test('September current lock, wrong role and changed source all fail without partial postings',async()=>{
+ await bank(20,500,'unmatched','2026-09-15');await captureSeptember();let p=await septemberPreview();
+ await assert.rejects(septemberPreview(3),/not_authorized/);
+ await db.exec(`insert into accounting_periods values('${id(1)}','${p.adjustment_date}','${p.adjustment_date}','locked')`);
+ p=await septemberPreview();await assert.rejects(septemberApply(p),/current_period_locked/);
+ await db.exec("delete from accounting_periods; update bank_statement_lines set reference_number='CHANGED'");
+ p=await septemberPreview();assert.equal(p.rows[0].reason,'source_changed');await assert.rejects(septemberApply(p),/source_changed/);
+ assert.equal((await rows('select count(*)::int n from historical_bank_credit_classifications'))[0].n,0);
+});
+test('September manifest is immutable, service cannot widen it, and classification cannot bypass allowlist',async()=>{
+ await bank(20,500,'unmatched','2026-09-15');await captureSeptember();
+ await assert.rejects(db.exec('update september_credit_cleanup_scope set captured_remaining=9999'),/immutable/);
+ await assert.rejects(db.exec('delete from september_credit_cleanup_scope'),/immutable/);
+ const privileges=await rows("select has_table_privilege('service_role','september_credit_cleanup_scope','INSERT') ins, has_function_privilege('authenticated','clear_september_credit_cleanup(uuid,uuid,uuid,uuid,text)','EXECUTE') exe");
+ assert.equal(privileges[0].ins,false);assert.equal(privileges[0].exe,false);
+ await bank(21,100,'unmatched','2026-09-15');
+ await assert.rejects(db.exec(`insert into historical_bank_credit_classifications(company_id,bank_account_id,statement_line_id,account_id,amount,classification_date,original_bank_date,original_statement_month,description,source_snapshot,run_id,created_by)
+ values('${id(1)}','${id(4)}','${id(21)}','${id(5)}',100,current_date,'2026-09-15','2026-09-01','bypass','{}','${id(200)}','${id(2)}')`),/source_not_authorized/);
+});
+test('September removed old allocation cannot increase approved remainder; new allocation decreases it safely',async()=>{
+ await bank(20,500,'unmatched','2026-09-15');
+ await db.exec(`insert into bank_reconciliation_matches(statement_line_id,source_type,source_id,matched_amount) values('${id(20)}','payment','${id(40)}',100)`);
+ await captureSeptember();await db.exec('update bank_reconciliation_matches set matched_amount=50');
+ let p=await septemberPreview();assert.equal(p.rows[0].reason,'source_changed');await assert.rejects(septemberApply(p),/source_changed/);
+ await db.exec('update bank_reconciliation_matches set matched_amount=150');p=await septemberPreview();assert.equal(p.rows[0].ready,350);
+ const before=await unchanged();await septemberApply(p);assert.deepEqual(await unchanged(),before);
+});
+test('September unfinished Money Out prevents completion without editing the debit',async()=>{
+ await bank(20,100,'unmatched','2026-09-15');await bank(21,-50,'unmatched','2026-09-15');
+ await captureSeptember();await db.exec("update bank_statement_imports set closing_balance=50");
+ const before=await unchanged();assert.equal((await septemberApply(await septemberPreview())).completed_statements.length,0);assert.deepEqual(await unchanged(),before);
 });

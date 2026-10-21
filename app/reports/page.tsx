@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { HistoricalCreditCleanup } from "@/components/accounting/historical-credit-cleanup";
-import { historicalStatementRange } from "@/lib/accounting/historical-credit";
+import { historicalStatementRange, septemberStatementRange } from "@/lib/accounting/historical-credit";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
 import { RenovationBankReconciliation } from "@/components/accounting/renovation-bank-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
@@ -354,6 +354,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const selectedStatement = selectedGroup?.root ?? null;
   const selectedStatementId = selectedStatement?.id ?? "";
   const selectedGroupIds = selectedGroup?.statements.map((statement) => statement.id) ?? [];
+  const septemberCleanup = tab === "bank" && bankFlow === "credit" && selectedStatement
+    && septemberStatementRange(selectedStatement.period_start, selectedStatement.period_end);
+  const septemberScopeResult = septemberCleanup
+    ? await createAdminClient().from("september_credit_cleanup_scope").select("statement_line_id")
+      .eq("company_id", company.id).eq("bank_account_id", selectedStatement!.bank_account_id)
+    : { data: [], error: null };
+  if (septemberScopeResult.error) throw new Error("Unable to load the approved September cleanup scope. No records were changed.");
+  const septemberScopeIds = new Set((septemberScopeResult.data ?? []).map(row => row.statement_line_id));
   const mergedHistoryStatements = selectedGroup?.statements.filter((statement) => statement.id !== selectedStatementId) ?? [];
   const statementRentalMonth = selectedStatement?.period_start?.slice(0, 7) ?? selectedMonth;
 
@@ -1284,13 +1292,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 ["super_admin", "admin", "owner"].includes(accountingRole)
                   ? <HistoricalCreditCleanup key={selectedStatement.bank_account_id} bankId={selectedStatement.bank_account_id} />
                   : <p className="rounded border p-4">An authorized administrator can preview and confirm the March–August historical Money In cleanup.</p>
-              ) : <TenantPaymentReconciliation
+              ) : <>{septemberCleanup && septemberScopeIds.size > 0 ? <HistoricalCreditCleanup key={`september-${selectedStatement.bank_account_id}`} bankId={selectedStatement.bank_account_id} scope="september" /> : null}
+              {(!septemberCleanup || accountingBankCredits.some(line => selectedGroupIds.includes(line.statementId) && !line.completed && !septemberScopeIds.has(line.id))) ? <TenantPaymentReconciliation
                 payments={existingTenantPayments}
                 invoices={allInvoiceOptions}
-                banks={accountingBankCredits.filter(line=>selectedGroupIds.includes(line.statementId))}
+                banks={accountingBankCredits.filter(line=>selectedGroupIds.includes(line.statementId) && (!septemberCleanup || !septemberScopeIds.has(line.id)))}
                 locked={selectedStatement.status!=="in_progress"}
                 canUnmatch={["super_admin","admin"].includes(accountingRole)}
-              />}<RenovationBankReconciliation statementIds={selectedGroupIds} bankAccountId={selectedStatement.bank_account_id} locked={selectedStatement.status !== "in_progress"} returnTo={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "credit")} /></> : <Card id="bank-transactions">
+              /> : null}</>}<RenovationBankReconciliation statementIds={selectedGroupIds} bankAccountId={selectedStatement.bank_account_id} locked={selectedStatement.status !== "in_progress"} returnTo={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "credit")} /></> : <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className={String(bankFlow) === "credit" ? "text-emerald-900" : "text-red-900"}>{String(bankFlow) === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>

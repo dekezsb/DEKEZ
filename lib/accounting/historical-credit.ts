@@ -11,10 +11,11 @@ export type HistoricalCreditPreview = {
 export const historicalMonth = (month: string) => /^2026-0[3-8]$/.test(month);
 export const historicalStatementRange = (start: string, end: string) =>
   historicalMonth(start.slice(0, 7)) && historicalMonth(end.slice(0, 7)) && start <= end;
-export function historicalCreditSummary(rows: HistoricalCreditRow[]) {
+export const septemberStatementRange = (start: string, end: string) =>
+  start >= '2026-09-01' && end <= '2026-09-30' && start <= end;
+export function historicalCreditSummary(rows: HistoricalCreditRow[], months = Array.from({ length: 6 }, (_, i) => `2026-${String(i + 3).padStart(2, '0')}`)) {
   const cents = (value: number) => Math.round(Number(value) * 100);
-  return Array.from({ length: 6 }, (_, i) => {
-    const month = `2026-${String(i + 3).padStart(2, '0')}`;
+  return months.map(month => {
     const selected = rows.filter(row => row.month === month);
     return {
       month, count: selected.length,
@@ -33,4 +34,5 @@ export const historicalExclusionLabels: Record<string, string> = {
   known_other_category: 'Existing accounting category retained — no reclassification',
   known_security_liability: 'Recorded tenant security deposit liability retained',
   already_accounted: 'Existing accounting retained — no second receivable credit',
+  source_changed: 'Source changed since the fixed batch was captured — no posting',
 };

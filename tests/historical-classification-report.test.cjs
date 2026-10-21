@@ -3,6 +3,18 @@ Module._extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f
 const read=p=>fs.readFileSync(path.join(__dirname,'..',p),'utf8');
 const {historicalCreditSummary}=require('../lib/accounting/historical-credit.ts');
 const {balanceSnapshot}=require('../lib/accounting/balance-breakdown.ts');
+test('September summary is separate; only frozen scope bypasses the normal matching table',()=>{
+ const {septemberStatementRange,historicalMonth}=require('../lib/accounting/historical-credit.ts');
+ assert.equal(historicalMonth('2026-09'),false);assert.equal(septemberStatementRange('2026-09-01','2026-09-30'),true);
+ assert.equal(septemberStatementRange('2026-08-31','2026-09-30'),false);assert.equal(septemberStatementRange('2026-09-01','2026-10-01'),false);
+ const summary=historicalCreditSummary([{month:'2026-09',amount:1200,allocated:600,remaining:600,ready:600,new_ar_credit:600,reason:null}],['2026-09']);
+ assert.equal(summary.length,1);assert.equal(summary[0].ready,600);assert.equal(summary[0].completed,600);
+ const page=read('app/reports/page.tsx');
+ assert.match(page,/septemberScopeIds.has\(line.id\)/);assert.match(page,/scope="september"/);
+ assert.match(page,/eq\("company_id", company.id\).eq\("bank_account_id", selectedStatement!.bank_account_id\)/);
+ const action=read('app/reports/historical-credit-actions.ts');
+ assert.match(action,/rpc\('preview_september_credit_cleanup'/);assert.match(action,/rpc\('clear_september_credit_cleanup'/);
+});
 test('July example is 83398 already completed, 18360 ready, zero missing-evidence exclusions',()=>{
  const totals=historicalCreditSummary([
  {month:'2026-07',amount:83398,allocated:83398,remaining:0,ready:0,new_ar_credit:0,reason:'already_completed'},
