@@ -4,7 +4,16 @@ const root = path.resolve(__dirname, '..');
 Module._extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }, fileName: f,
 }).outputText, f);
-const { loadWorkingStatementIds, workingStatements, selectedWorkingStatement, groupStatements, workingStatementGroups, completedStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines, bankLineRemaining } = require('../lib/accounting/statement-work-queue.ts');
+const { loadWorkingStatementIds, workingStatements, selectedWorkingStatement, groupStatements, workingStatementGroups, completedStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines, bankLineRemaining, reconciliationDateLabel } = require('../lib/accounting/statement-work-queue.ts');
+test('history formats full audit timestamps in Malaysia without invalid date crashes', () => {
+  assert.equal(reconciliationDateLabel('2026-10-20T23:30:00.123456+00:00'), '21 Oct 2026');
+  assert.equal(reconciliationDateLabel('2026-10-21T07:00:00Z'), '21 Oct 2026');
+  assert.equal(reconciliationDateLabel(null), '—');
+  assert.equal(reconciliationDateLabel('invalid'), 'Date unavailable');
+  const page = fs.readFileSync(path.join(root, 'app/reports/page.tsx'), 'utf8');
+  assert.match(page, /reconciliationDateLabel\(match.created_at\)/);
+  assert.doesNotMatch(page, /dateLabel\(match.created_at\)/);
+});
 function fixtureDb(rows, failAt = -1, allocations = [], failMatches = false) {
   const reads = [];
   const db = { reads, from(table) {

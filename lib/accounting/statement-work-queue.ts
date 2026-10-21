@@ -1,6 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { allReportRows } from './report-data';
 
+// Audit events are timestamps, not date-only bank dates. Preserve the original
+// timestamp and display its Malaysia calendar date without appending midnight.
+export function reconciliationDateLabel(timestamp: string | null | undefined) {
+  if (!timestamp) return '—';
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return 'Date unavailable';
+  return new Intl.DateTimeFormat('en-MY', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kuala_Lumpur' }).format(date);
+}
+
 // Completion is derived from remaining money on BOTH sides, not an import's
 // stale in_progress flag. This read must never lock/repost/delete accounting.
 export function bankLineRemaining(amount: number | string, status: string, allocated = 0) {

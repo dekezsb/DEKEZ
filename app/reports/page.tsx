@@ -4,7 +4,7 @@ import { historicalStatementRange } from "@/lib/accounting/historical-credit";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
 import { RenovationBankReconciliation } from "@/components/accounting/renovation-bank-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
-import { loadWorkingStatementIds, groupStatements, workingStatementGroups, completedStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines, bankLineRemaining } from "@/lib/accounting/statement-work-queue";
+import { loadWorkingStatementIds, groupStatements, workingStatementGroups, completedStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines, bankLineRemaining, reconciliationDateLabel } from "@/lib/accounting/statement-work-queue";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -1586,7 +1586,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           <Table><TableHeader><TableRow><TableHead>Bank date</TableHead><TableHead>Reference / Description</TableHead><TableHead className="text-right">Money In</TableHead><TableHead className="text-right">Money Out</TableHead><TableHead>Retained reconciliation history</TableHead></TableRow></TableHeader><TableBody>{statementLines.map(line => <TableRow key={line.id}>
             <TableCell>{dateLabel(line.transaction_date)}</TableCell><TableCell>{line.reference_number || "—"}<p className="text-xs text-gray-500">{line.description}</p></TableCell>
             <TableCell className="text-right">{Number(line.amount) > 0 ? money(line.amount) : "—"}</TableCell><TableCell className="text-right">{Number(line.amount) < 0 ? money(Math.abs(Number(line.amount))) : "—"}</TableCell>
-            <TableCell><span className="text-xs">{line.status.replaceAll("_", " ")}{line.is_reused ? " · reused original transaction" : ""}</span>{line.ignored_reason ? <p className="text-xs">{line.ignored_reason}</p> : null}{(matchesByLine.get(line.id) ?? []).map(match => <p className="text-xs" key={match.id}>{match.source_type.replaceAll("_", " ")} · {money(Math.abs(Number(match.matched_amount)))} · {dateLabel(match.created_at)}</p>)}</TableCell>
+            <TableCell><span className="text-xs">{line.status.replaceAll("_", " ")}{line.is_reused ? " · reused original transaction" : ""}</span>{line.ignored_reason ? <p className="text-xs">{line.ignored_reason}</p> : null}{(matchesByLine.get(line.id) ?? []).map(match => <p className="text-xs" key={match.id}>{match.source_type.replaceAll("_", " ")} · {money(Math.abs(Number(match.matched_amount)))} · {reconciliationDateLabel(match.created_at)}</p>)}</TableCell>
           </TableRow>)}</TableBody></Table>
         </CardContent></Card> : null}
       </div> : null}
