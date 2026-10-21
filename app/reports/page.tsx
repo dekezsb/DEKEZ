@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { HistoricalCreditCleanup } from "@/components/accounting/historical-credit-cleanup";
+import { historicalStatementRange } from "@/lib/accounting/historical-credit";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
 import { RenovationBankReconciliation } from "@/components/accounting/renovation-bank-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
@@ -1263,13 +1265,17 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                 </Link>
               </div>
 
-              {bankFlow === "credit" ? <><div className="flex justify-end">{selectedStatement.status === "in_progress" ? <form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id}/><Button disabled={unmatchedCount>0||Math.abs(statementDifference)>0.005} type="submit">Finalise whole statement</Button></form> : <Badge>Reconciled and locked</Badge>}</div><TenantPaymentReconciliation
+              {bankFlow === "credit" ? <><div className="flex justify-end">{selectedStatement.status === "in_progress" ? <form action={finalizeBankReconciliation}><input name="statementId" type="hidden" value={selectedStatement.id}/><Button disabled={unmatchedCount>0||Math.abs(statementDifference)>0.005} type="submit">Finalise whole statement</Button></form> : <Badge>Reconciled and locked</Badge>}</div>{historicalStatementRange(selectedStatement.period_start, selectedStatement.period_end) ? (
+                ["super_admin", "admin", "owner"].includes(accountingRole)
+                  ? <HistoricalCreditCleanup key={selectedStatement.bank_account_id} bankId={selectedStatement.bank_account_id} />
+                  : <p className="rounded border p-4">An authorized administrator can preview and confirm the March–August historical Money In cleanup.</p>
+              ) : <TenantPaymentReconciliation
                 payments={existingTenantPayments}
                 invoices={allInvoiceOptions}
                 banks={accountingBankCredits.filter(line=>selectedGroupIds.includes(line.statementId))}
                 locked={selectedStatement.status!=="in_progress"}
                 canUnmatch={["super_admin","admin"].includes(accountingRole)}
-              /><RenovationBankReconciliation statementIds={selectedGroupIds} bankAccountId={selectedStatement.bank_account_id} locked={selectedStatement.status !== "in_progress"} returnTo={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "credit")} /></> : <Card id="bank-transactions">
+              />}<RenovationBankReconciliation statementIds={selectedGroupIds} bankAccountId={selectedStatement.bank_account_id} locked={selectedStatement.status !== "in_progress"} returnTo={bankFlowHref(selectedMonth, selectedPropertyId, selectedStatement.id, "credit")} /></> : <Card id="bank-transactions">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className={String(bankFlow) === "credit" ? "text-emerald-900" : "text-red-900"}>{String(bankFlow) === "credit" ? "Credit / Money In matching" : "Debit / Money Out allocation"}</CardTitle>
