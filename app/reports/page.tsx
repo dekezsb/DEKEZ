@@ -33,6 +33,8 @@ import { CsvDownloadButton } from "@/components/accounting/csv-download-button";
 import { ChartOfAccountsManager } from "@/components/accounting/chart-of-accounts-manager";
 import { ManualJournalForm } from "@/components/accounting/manual-journal-form";
 import { ProfitLossStatement } from "@/components/accounting/profit-loss-statement";
+import { FinancialPdfButton } from "@/components/accounting/financial-pdf-button";
+import { reportCompany, trialBalanceExport } from "@/lib/accounting/financial-report-export";
 import { BankExpenseVoucher } from "@/components/accounting/bank-expense-voucher";
 import { BalanceSheetComparison } from "@/components/accounting/balance-sheet-comparison";
 import { balanceSnapshot, type BalanceBasisLine, type BalanceRow, type BalanceSnapshot } from "@/lib/accounting/balance-breakdown";
@@ -1054,6 +1056,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       {(tab === "profit-loss" || tab === "balance-sheet") && periodError ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{periodError}. Please update the filters and click View.</p> : null}
       {tab === "profit-loss" && !periodError ? (
         <ProfitLossStatement
+          company={reportCompany(company)}
+          accounts={accounts}
           currentReport={currentReport}
           outlets={!selectedPropertyId ? properties.map(({ id, name }) => ({ id, name })) : undefined}
           endDate={pnlDates.endDate}
@@ -1068,7 +1072,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
       {tab === "balance-sheet" && balanceSnapshots && !periodError ? (
         <div className="space-y-5">
-          <BalanceSheetComparison current={balanceSnapshots.current} prior={balanceSnapshots.prior} scope={properties.find((p) => p.id === selectedPropertyId)?.name ?? "All outlets / company"} />
+          <BalanceSheetComparison company={reportCompany(company)} current={balanceSnapshots.current} prior={balanceSnapshots.prior} scope={properties.find((p) => p.id === selectedPropertyId)?.name ?? "All outlets / company"} />
           {!selectedPropertyId ? <OutletBalanceTable outlets={properties.map(({id, name}) => ({id, name}))} entries={balanceSnapshots.current.rows.flatMap((row) => row.details.map((line) => ({propertyId: line.propertyId, section: row.section, label: row.label, amount: line.amount})))} date={endDate} /> : null}
         </div>
       ) : null}
@@ -1077,6 +1081,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <Card>
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div><CardTitle>Trial Balance</CardTitle><CardDescription>{dateLabel(yearStartDate)} to {dateLabel(endDate)} · audit control report showing debit and credit separately.</CardDescription></div>
+            <FinancialPdfButton report={trialBalanceExport({
+              company: reportCompany(company), startDate: yearStartDate, endDate,
+              scope: properties.find((p) => p.id === selectedPropertyId)?.name ?? "All outlets / company",
+              rows: balancedTrialRows, debit: trialDebit, credit: trialCredit, conversionDifference,
+            })} />
             <CsvDownloadButton
               fileName={`DEKEZ-trial-balance-${endDate}.csv`}
               label="Download trial balance CSV"

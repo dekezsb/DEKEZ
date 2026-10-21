@@ -5,6 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { ProfitLossReport, ProfitLossRow } from "@/lib/accounting/report-data";
 import { profitTrend } from "@/lib/accounting/profit-trend";
 import { OutletProfitTable } from "@/components/accounting/outlet-profit-table";
+import { FinancialPdfButton } from "@/components/accounting/financial-pdf-button";
+import { profitLossExport, type ReportAccount, type ReportCompany } from "@/lib/accounting/financial-report-export";
 
 const moneyFormatter = new Intl.NumberFormat("en-MY", {
   style: "currency",
@@ -193,6 +195,8 @@ export function ProfitLossStatement({
   priorStartDate,
   priorEndDate,
   outlets,
+  company,
+  accounts,
 }: {
   currentReport: ProfitLossReport;
   priorReport: ProfitLossReport;
@@ -203,6 +207,8 @@ export function ProfitLossStatement({
   priorStartDate: string;
   priorEndDate: string;
   outlets?: { id: string; name: string }[];
+  company: ReportCompany;
+  accounts: ReportAccount[];
 }) {
   const summaryCsvRows: Array<Array<string | number>> = [
     ["DEKEZ Profit & Loss", `${startDate} to ${endDate}`, "Accrual basis", propertyScope],
@@ -250,6 +256,7 @@ export function ProfitLossStatement({
           <p className="mt-1 text-xs text-gray-600">Compared with {dateLabel(priorStartDate)} to {dateLabel(priorEndDate)} · {propertyScope}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
+          <FinancialPdfButton report={profitLossExport({ company, accounts, report: currentReport, startDate, endDate, scope: propertyScope })} />
           <CsvDownloadButton fileName={`DEKEZ-profit-and-loss-${startDate}-to-${endDate}.csv`} label="Download P&L CSV" rows={summaryCsvRows} />
           <CsvDownloadButton fileName={`DEKEZ-profit-and-loss-ledger-${startDate}-to-${endDate}.csv`} label="Download detailed ledger" rows={ledgerCsvRows} />
         </div>
