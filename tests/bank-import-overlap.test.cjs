@@ -149,7 +149,7 @@ test('memberships and security-invoker statement view preserve company access an
 
 test('all page totals use membership view, work excludes reused lines, archived imports never flag originals as duplicates',()=>{
  const page=fs.readFileSync(path.join(root,'app/reports/page.tsx'),'utf8'),actions=fs.readFileSync(path.join(root,'app/reports/actions.ts'),'utf8');
- assert.match(page,/!line\.is_reused && line\.status === "unmatched"/);
+ assert.match(page,/!line\.is_reused && bankLineRemaining\(line\.amount, line\.status,[\s\S]*?\) > 0/);
  assert.match(page,/bank_statement_transactions[\s\S]*?balanceStatementIds/);
  assert.match(actions,/bank_statement_transactions[\s\S]*?importSummary/);
  assert.match(actions,/finalizeBankReconciliation[\s\S]*?bank_statement_transactions/);

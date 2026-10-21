@@ -4,7 +4,7 @@ import { historicalStatementRange } from "@/lib/accounting/historical-credit";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
 import { RenovationBankReconciliation } from "@/components/accounting/renovation-bank-reconciliation";
 import { loadExistingPayments, loadAccountingBankCredits } from "@/lib/accounting/tenant-reconciliation-data";
-import { loadWorkingStatementIds, groupStatements, workingStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines } from "@/lib/accounting/statement-work-queue";
+import { loadWorkingStatementIds, groupStatements, workingStatementGroups, completedStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines, bankLineRemaining } from "@/lib/accounting/statement-work-queue";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -291,7 +291,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const properties = (await getProperties()).filter((property) => property.company_id === company.id);
   const propertyIds = properties.map((property) => property.id);
   const selectedPropertyId = properties.some((property) => property.id === params.property) ? params.property ?? "" : "";
-  const tab = ["overview", "profit-loss", "balance-sheet", "trial-balance", "bank", "journal", "ledger"].includes(params.tab ?? "") ? params.tab ?? "overview" : "overview";
+  const tab = ["overview", "profit-loss", "balance-sheet", "trial-balance", "bank", "bank-history", "journal", "ledger"].includes(params.tab ?? "") ? params.tab ?? "overview" : "overview";
   const bankFlow: "credit" | "debit" = params.bankFlow === "debit" ? "debit" : "credit";
   const period = ["monthly", "six-months", "yearly", "custom"].includes(params.period ?? "") ? params.period! : "monthly";
   const comparison = params.comparison === "last-year" ? "last-year" : "previous";
@@ -336,6 +336,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   if (statementsResult.error) throw new Error("Unable to load bank statements. Please retry.");
   const statementGroups = groupStatements(statementImports);
   const workingStatementGroupList = workingStatementGroups(statementGroups, workingStatementIds);
+  const completedStatementGroupList = completedStatementGroups(statementGroups, workingStatementIds);
   const accounts = accountsResult.data ?? [];
   const journalEntries = journalEntriesResult.data ?? [];
   const journalEntryIds = journalEntries.map((entry) => entry.id);
@@ -348,7 +349,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   ]));
   // An old bookmark must not bring a finished statement back into the workspace.
   // Other accounting reports retain the complete statement list and balances.
-  const selectedGroup = selectedStatementGroup(tab === "bank" ? workingStatementGroupList : statementGroups, params.statement);
+  const selectedGroup = selectedStatementGroup(tab === "bank" ? workingStatementGroupList : tab === "bank-history" ? completedStatementGroupList : statementGroups, params.statement);
   // The root (widest-period) statement owns the balances; merged partials are history.
   const selectedStatement = selectedGroup?.root ?? null;
   const selectedStatementId = selectedStatement?.id ?? "";
@@ -749,9 +750,11 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const lineIds = statementLines.map((line) => line.id);
   const [existingTenantPayments, accountingBankCredits] = tab === "bank" && bankFlow === "credit"
     ? await Promise.all([loadExistingPayments(supabase, company.id, true, createAdminClient()), loadAccountingBankCredits(supabase, company.id)]) : [[], []];
-  const matches = lineIds.length
-    ? (await supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds)).data ?? []
-    : [];
+  const matchesResult = lineIds.length
+    ? await allReportRows(supabase.from("bank_reconciliation_matches").select("id, statement_line_id, source_type, source_id, matched_amount, match_method, created_at, created_by").in("statement_line_id", lineIds))
+    : { data: [], error: null };
+  if (matchesResult.error) throw new Error("Unable to load reconciliation history. Please retry.");
+  const matches = matchesResult.data;
   const sourceMatches = candidates.length
     ? (await supabase.from("bank_reconciliation_matches").select("source_type, source_id, matched_amount")).data ?? []
     : [];
@@ -771,7 +774,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const statementDifference = selectedStatement ? Number(selectedStatement.opening_balance ?? 0) + statementMovement - Number(selectedStatement.closing_balance ?? 0) : 0;
   const reusedStatementLines = statementLines.filter((line) => line.is_reused);
   const alreadyReconciledCount = reusedStatementLines.filter((line) => line.import_result === "ALREADY RECONCILED").length;
-  const unmatchedLines = statementLines.filter((line) => !line.is_reused && line.status === "unmatched");
+  const unmatchedLines = statementLines.filter((line) => !line.is_reused && bankLineRemaining(line.amount, line.status,
+    (matchesByLine.get(line.id) ?? []).reduce((sum, match) => sum + Math.abs(Number(match.matched_amount)), 0)) > 0);
   const unmatchedCount = unmatchedLines.length;
   const creditLines = unmatchedLines.filter((line) => Number(line.amount) > 0);
   const debitLines = unmatchedLines.filter((line) => Number(line.amount) < 0);
@@ -1153,6 +1157,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
       {tab === "bank" ? (
         <div className="space-y-5">
+          <div className="flex justify-end"><Button asChild variant="outline"><Link href={tabHref("bank-history", selectedMonth, selectedPropertyId)}>Completed statements / History ({completedStatementGroupList.length})</Link></Button></div>
           <details className="rounded-lg border border-[#d7dde5] bg-white">
             <summary className="cursor-pointer list-none px-5 py-4"><span className="font-semibold text-gray-950">How bank reconciliation works</span><span className="ml-2 text-sm text-gray-500">Open only when you need help</span></summary>
           <Card>
@@ -1219,7 +1224,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </CardContent></Card>
           </div>
 
-          {workingStatementGroupList.length ? <Card><CardHeader><CardTitle>Statements</CardTitle><CardDescription>Only statements with money in or money out still to reconcile. Finished items leave this workspace automatically.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">
+          {workingStatementGroupList.length ? <Card><CardHeader><CardTitle>Statements</CardTitle><CardDescription>Active statements only. Money In remaining RM0 + Money Out remaining RM0 = COMPLETED. Completed months leave this workspace automatically and remain in History.</CardDescription></CardHeader><CardContent className="flex flex-wrap gap-2">
             {workingStatementGroupList.map((group) => { const statement = group.root; const account = bankAccounts.find((item) => item.id === statement.bank_account_id); const status = statementGroupStatus(group, workingStatementIds); return <Button asChild key={group.key} variant={statement.id === selectedStatementId ? "default" : "outline"}><Link href={tabHref("bank", selectedMonth, selectedPropertyId, statement.id)}>{account?.bank_name ?? "Bank"} · {rentalMonthLabel(statement.period_end.slice(0, 7))} <Badge className={statusClasses[status] ?? ""}>{status.replaceAll("_", " ")}</Badge></Link></Button>; })}
           </CardContent></Card> : null}
 
@@ -1565,6 +1570,26 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           ) : <Card><CardContent className="pt-5"><p className="text-sm text-gray-600">{statementImports.length ? "No bank transactions left to reconcile. Completed records remain in the ledger." : "Add a bank account and import a CSV statement to start reconciling."}</p></CardContent></Card>}
         </div>
       ) : null}
+
+      {tab === "bank-history" ? <div className="space-y-5">
+        <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">Completed bank statements</h2><Button asChild variant="outline"><Link href={tabHref("bank", selectedMonth, selectedPropertyId)}>Back to active reconciliation</Link></Button></div>
+        <p className="text-sm text-gray-600">Read-only audit history. COMPLETED means Money In remaining RM0 and Money Out remaining RM0 across the whole statement month. Original statements, transactions and reconciliation records are retained; no accounting is changed by this view.</p>
+        {completedStatementGroupList.length ? <Card><CardContent className="flex flex-wrap gap-2 pt-5">{completedStatementGroupList.map(group => {
+          const statement = group.root;
+          const bank = bankAccounts.find(account => account.id === statement.bank_account_id);
+          return <Button asChild key={group.key} variant={statement.id === selectedStatementId ? "default" : "outline"}><Link href={tabHref("bank-history", selectedMonth, selectedPropertyId, statement.id)}>{bank?.bank_name ?? "Bank"} · {bank?.name ?? ""} · {rentalMonthLabel(statement.period_end.slice(0, 7))} · COMPLETED</Link></Button>;
+        })}</CardContent></Card> : <Card><CardContent className="pt-5">No fully completed statement months yet. A month stays active while either side has money remaining.</CardContent></Card>}
+        {selectedStatement ? <Card><CardHeader><CardTitle>{statementAccount?.bank_name ?? "Bank"} · {rentalMonthLabel(selectedStatement.period_end.slice(0, 7))} <Badge className="bg-emerald-100 text-emerald-800">COMPLETED</Badge></CardTitle><CardDescription>Money In remaining: {money(0)} · Money Out remaining: {money(0)}</CardDescription></CardHeader><CardContent className="space-y-4">
+          <p className="text-sm">Opening: {money(selectedStatement.opening_balance)} · Closing: {money(selectedStatement.closing_balance)}</p>
+          {Math.abs(statementDifference) > 0.005 ? <p role="alert" className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Statement balance difference: {money(statementDifference)}. All reconciliation work is complete; this separate balance discrepancy remains recorded for audit and has not been adjusted or hidden.</p> : null}
+          <details><summary className="cursor-pointer font-medium">Original statement records ({selectedGroup?.statements.length ?? 0})</summary><ul className="mt-2 space-y-2 text-sm">{selectedGroup?.statements.map(statement => <li key={statement.id}>{dateLabel(statement.period_start)} – {dateLabel(statement.period_end)} · {statement.original_file_name || "Imported statement"} · Opening {money(statement.opening_balance)} · Closing {money(statement.closing_balance)}</li>)}</ul></details>
+          <Table><TableHeader><TableRow><TableHead>Bank date</TableHead><TableHead>Reference / Description</TableHead><TableHead className="text-right">Money In</TableHead><TableHead className="text-right">Money Out</TableHead><TableHead>Retained reconciliation history</TableHead></TableRow></TableHeader><TableBody>{statementLines.map(line => <TableRow key={line.id}>
+            <TableCell>{dateLabel(line.transaction_date)}</TableCell><TableCell>{line.reference_number || "—"}<p className="text-xs text-gray-500">{line.description}</p></TableCell>
+            <TableCell className="text-right">{Number(line.amount) > 0 ? money(line.amount) : "—"}</TableCell><TableCell className="text-right">{Number(line.amount) < 0 ? money(Math.abs(Number(line.amount))) : "—"}</TableCell>
+            <TableCell><span className="text-xs">{line.status.replaceAll("_", " ")}{line.is_reused ? " · reused original transaction" : ""}</span>{line.ignored_reason ? <p className="text-xs">{line.ignored_reason}</p> : null}{(matchesByLine.get(line.id) ?? []).map(match => <p className="text-xs" key={match.id}>{match.source_type.replaceAll("_", " ")} · {money(Math.abs(Number(match.matched_amount)))} · {dateLabel(match.created_at)}</p>)}</TableCell>
+          </TableRow>)}</TableBody></Table>
+        </CardContent></Card> : null}
+      </div> : null}
 
       {tab === "ledger" ? <ChartOfAccountsManager accounts={accounts} /> : null}
     </section>

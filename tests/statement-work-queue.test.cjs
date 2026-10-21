@@ -4,19 +4,21 @@ const root = path.resolve(__dirname, '..');
 Module._extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }, fileName: f,
 }).outputText, f);
-const { loadWorkingStatementIds, workingStatements, selectedWorkingStatement, groupStatements, workingStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines } = require('../lib/accounting/statement-work-queue.ts');
-function fixtureDb(rows, failAt = -1) {
+const { loadWorkingStatementIds, workingStatements, selectedWorkingStatement, groupStatements, workingStatementGroups, completedStatementGroups, selectedStatementGroup, statementGroupStatus, dedupeStatementLines, bankLineRemaining } = require('../lib/accounting/statement-work-queue.ts');
+function fixtureDb(rows, failAt = -1, allocations = [], failMatches = false) {
   const reads = [];
   const db = { reads, from(table) {
-    assert.equal(table, 'bank_statement_lines');
+    assert.ok(['bank_statement_lines', 'bank_reconciliation_matches'].includes(table));
+    const isLine = table === 'bank_statement_lines';
     const filters = [];
     return {
-      select(columns) { assert.match(columns, /bank_statement_imports!inner\(company_id,status\)/); return this; },
+      select(columns) { assert.match(columns, isLine ? /amount,status,bank_statement_imports!inner\(company_id,status\)/ : /statement_line_id,matched_amount/); return this; },
       eq(key, value) { filters.push(row => row[key] === value); return this; },
       neq(key, value) { filters.push(row => row[key] !== value); return this; },
+      in(key, values) { assert.equal(key, 'statement_line_id'); filters.push(row => values.includes(row[key])); return this; },
       not(key, operator, values) { assert.equal(key, 'status'); assert.equal(operator, 'in'); assert.equal(values, '(matched,adjusted,ignored)'); filters.push(row => !['matched', 'adjusted', 'ignored'].includes(row.status)); return this; },
       order() { return this; },
-      async range(from, to) { reads.push(from); return from === failAt ? { data: [], error: Error('Fixture read failed') } : { data: rows.filter(row => filters.every(f => f(row))).slice(from, to + 1), error: null }; },
+      async range(from, to) { if (isLine) reads.push(from); return (isLine ? from === failAt : failMatches) ? { data: [], error: Error('Fixture read failed') } : { data: (isLine ? rows : allocations).filter(row => filters.every(f => f(row))).slice(from, to + 1), error: null }; },
       update() { assert.fail('Visibility must not write'); }, insert() { assert.fail('Visibility must not write'); }, delete() { assert.fail('Visibility must not delete'); },
     };
   } };
@@ -57,7 +59,7 @@ test('page buttons, selected statement and pending count use working queue; full
   const page = fs.readFileSync(path.join(root, 'app/reports/page.tsx'), 'utf8');
   assert.match(page, /workingStatementGroupList\.map\(\(group\)/);
   assert.doesNotMatch(page, /\{statementImports\.map\(\(statement\)/);
-  assert.match(page, /selectedStatementGroup\(tab === "bank" \? workingStatementGroupList : statementGroups, params\.statement\)/);
+  assert.match(page, /selectedStatementGroup\(tab === "bank" \? workingStatementGroupList : tab === "bank-history" \? completedStatementGroupList : statementGroups, params\.statement\)/);
   assert.match(page, /const unreconciledTotal = workingStatementGroupList\.length/);
   assert.match(page, /for \(const statement of statementImports\)/);
   assert.match(page, /No bank transactions left to reconcile\. Completed records remain in the ledger\./);
@@ -88,10 +90,46 @@ test('group is in progress while any member has work, and an old partial URL sel
   const working = workingStatementGroups(groups, new Set(['sept16']));
   assert.deepEqual(working.map(g => g.root.id), ['sept30']);
   assert.equal(statementGroupStatus(working[0], new Set(['sept16'])), 'in_progress');
-  assert.equal(statementGroupStatus(working[0], new Set()), 'reconciled');
+  assert.equal(statementGroupStatus(working[0], new Set()), 'completed');
   assert.equal(selectedStatementGroup(working, 'sept16').root.id, 'sept30');
   assert.equal(selectedStatementGroup(working, 'aug31').root.id, 'sept30');
   assert.equal(selectedStatementGroup([], 'sept16'), null);
+});
+
+test('fully allocated lines with stale unmatched status cannot keep either side in the active workspace', async () => {
+  const rows = [line('done', 2800), line('done', -100), line('partial-credit', 100), line('partial-debit', -100)];
+  const allocations = [
+    { id: 'a', statement_line_id: 'done-2800', matched_amount: 1500 },
+    { id: 'b', statement_line_id: 'done-2800', matched_amount: 1300 },
+    { id: 'c', statement_line_id: 'done--100', matched_amount: -100 },
+    { id: 'd', statement_line_id: 'partial-credit-100', matched_amount: 99.99 },
+    { id: 'e', statement_line_id: 'partial-debit--100', matched_amount: -99.99 },
+  ];
+  const snapshot = JSON.stringify({ rows, allocations });
+  assert.deepEqual([...await loadWorkingStatementIds(fixtureDb(rows, -1, allocations), 'company')], ['partial-credit', 'partial-debit']);
+  assert.equal(JSON.stringify({ rows, allocations }), snapshot);
+  assert.equal(bankLineRemaining(0.3, 'unmatched', 0.1 + 0.2), 0);
+  assert.equal(bankLineRemaining(-100, 'unmatched', -99.99), 0.01);
+  await assert.rejects(loadWorkingStatementIds(fixtureDb(rows, -1, allocations, true), 'company'), /Unable to check remaining bank allocations/);
+});
+
+test('completed month is marked COMPLETED despite stale import flags and lives only in read-only history', () => {
+  const groups = groupStatements([stmt('july', '2026-07-01', '2026-07-31'), stmt('august', '2026-08-01', '2026-08-31')]);
+  const ids = new Set(['august']);
+  const snapshot = JSON.stringify(groups);
+  const history = completedStatementGroups(groups, ids);
+  assert.deepEqual(history.map(g => g.root.id), ['july']);
+  assert.equal(statementGroupStatus(history[0], ids), 'completed');
+  assert.deepEqual(workingStatementGroups(groups, ids).map(g => g.root.id), ['august']);
+  assert.equal(JSON.stringify(groups), snapshot);
+  const page = fs.readFileSync(path.join(root, 'app/reports/page.tsx'), 'utf8');
+  const historyView = page.slice(page.indexOf('{tab === "bank-history" ? <div'), page.indexOf('{tab === "ledger" ? <Chart'));
+  assert.match(historyView, /Completed bank statements/);
+  assert.match(historyView, /Money In remaining:/);
+  assert.match(historyView, /Money Out remaining:/);
+  assert.match(historyView, /Retained reconciliation history/);
+  assert.doesNotMatch(historyView, /<form|action=|ignoreBankLine|reconcileExistingPayment/);
+  assert.match(historyView, /separate balance discrepancy remains recorded for audit/);
 });
 test('group lines keep each transaction once, preferring its original statement row', () => {
   const rows = [

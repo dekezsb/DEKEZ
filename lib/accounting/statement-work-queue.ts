@@ -1,17 +1,39 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { allReportRows } from './report-data';
 
-// Workspace visibility is not statement finalisation. Never modify statement
-// status, balances, matches or ledger records just to remove a finished card.
+// Completion is derived from remaining money on BOTH sides, not an import's
+// stale in_progress flag. This read must never lock/repost/delete accounting.
+export function bankLineRemaining(amount: number | string, status: string, allocated = 0) {
+  if (['matched', 'adjusted', 'ignored'].includes(status)) return 0;
+  const cents = Math.round(Math.abs(Number(amount)) * 100);
+  if (!Number.isFinite(cents) || !Number.isFinite(allocated)) throw new Error('Unable to determine remaining bank amount.');
+  return Math.max(cents - Math.round(Math.abs(allocated) * 100), 0) / 100;
+}
+
 export async function loadWorkingStatementIds(db: SupabaseClient, companyId: string) {
   const result = await allReportRows(db.from('bank_statement_lines')
-    .select('id,statement_import_id,bank_statement_imports!inner(company_id,status)')
+    .select('id,statement_import_id,amount,status,bank_statement_imports!inner(company_id,status)')
     .eq('bank_statement_imports.company_id', companyId)
     .neq('bank_statement_imports.status', 'void')
     .not('status', 'in', '(matched,adjusted,ignored)')
     .neq('amount', 0));
   if (result.error) throw new Error('Unable to check remaining bank reconciliation work. Please retry; completed statements have not been assumed.');
-  return new Set(result.data.map(line => line.statement_import_id));
+  const allocated = new Map<string, number>();
+  // Separate, paginated reads avoid an embedded-relation row cap silently
+  // omitting allocations and keeping an exhausted statement in the queue.
+  for (let offset = 0; offset < result.data.length; offset += 100) {
+    const ids = result.data.slice(offset, offset + 100).map(line => line.id);
+    const matches = await allReportRows(db.from('bank_reconciliation_matches')
+      .select('id,statement_line_id,matched_amount').in('statement_line_id', ids));
+    if (matches.error) throw new Error('Unable to check remaining bank allocations. Please retry; completed statements have not been assumed.');
+    for (const match of matches.data) {
+      const amount = Math.abs(Number(match.matched_amount));
+      if (!Number.isFinite(amount)) throw new Error('Unable to determine remaining bank amount.');
+      allocated.set(match.statement_line_id, (allocated.get(match.statement_line_id) ?? 0) + amount);
+    }
+  }
+  return new Set(result.data.filter(line => bankLineRemaining(line.amount, line.status, allocated.get(line.id)) > 0)
+    .map(line => line.statement_import_id));
 }
 
 export function workingStatements<T extends { id: string }>(statements: T[], workingIds: Set<string>) {
@@ -66,13 +88,17 @@ export function workingStatementGroups<T extends { id: string }>(groups: Stateme
   return groups.filter(group => group.statements.some(statement => workingIds.has(statement.id)));
 }
 
+export function completedStatementGroups<T extends { id: string }>(groups: StatementGroup<T>[], workingIds: Set<string>) {
+  return groups.filter(group => !group.statements.some(statement => workingIds.has(statement.id)));
+}
+
 export function selectedStatementGroup<T extends { id: string }>(groups: StatementGroup<T>[], requested?: string) {
   return groups.find(group => group.statements.some(statement => statement.id === requested)) ?? groups[0] ?? null;
 }
 
 // A group is in progress while any of its statements still has open bank-line work.
 export function statementGroupStatus<T extends { id: string; status: string }>(group: StatementGroup<T>, workingIds: Set<string>) {
-  return group.statements.some(statement => workingIds.has(statement.id)) ? 'in_progress' : group.root.status;
+  return group.statements.some(statement => workingIds.has(statement.id)) ? 'in_progress' : 'completed';
 }
 
 // A transaction appears once per statement that contains it. Keep one row per
