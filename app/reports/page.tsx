@@ -307,7 +307,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
 
 
-  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult, manualBalanceTransactionsResult, workingStatementIds] = await Promise.all([
+  const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult, manualBalanceTransactionsResult, workingStatementIds, historicalClassificationsResult] = await Promise.all([
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
@@ -322,11 +322,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
     allReportRows(supabase.from("bank_manual_transactions").select("id, amount, offset_account_id, property_id, transaction_date, reference_number, description").eq("company_id", company.id).lte("transaction_date", endDate)),
     loadWorkingStatementIds(supabase, company.id),
+    // Private immutable offsets; role checked above, company scoped here. Bank
+    // continues to come from its existing statements, never from these rows.
+    allReportRows(createAdminClient().from("historical_bank_credit_classifications").select("id, statement_line_id, account_id, amount, classification_date, original_bank_date, reference_number, description").eq("company_id", company.id).lte("classification_date", endDate)),
   ]);
 
   const bankAccounts = bankAccountsResult.data ?? [];
   if (tab === "balance-sheet" && [bankAccountsResult, statementsResult, accountsResult, journalEntriesResult, depositPaymentsResult, liabilitiesResult].some((result) => result.error)) throw new Error("Unable to load all Balance Sheet sources. Please retry; partial balances are not shown.");
   if (manualBalanceTransactionsResult.error) throw new Error("Unable to load bank voucher balances. Please retry.");
+  if (historicalClassificationsResult.error) throw new Error("Unable to load historical bank classifications. Partial accounting balances are not shown.");
+  const historicalClassifications = historicalClassificationsResult.data;
   const statementImports = statementsResult.data ?? [];
   if (statementsResult.error) throw new Error("Unable to load bank statements. Please retry.");
   const statementGroups = groupStatements(statementImports);
@@ -579,6 +584,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     const netDebit = manualNetDebitByAccount.get(account.id) ?? 0;
     return account.normal_balance === "credit" ? -netDebit : netDebit;
   };
+  // Company-level offset only: do not invent an outlet or change tenant bills.
+  if (!selectedPropertyId) for (const entry of historicalClassifications) {
+    manualNetDebitByAccount.set(entry.account_id, (manualNetDebitByAccount.get(entry.account_id) ?? 0) - Number(entry.amount));
+  }
   const receivableInvoices = invoiceOptions.filter((bill) => bill.dueDate <= endDate);
   const rentalReceivable = receivableInvoices.reduce((total, bill) => total + bill.rentOutstanding, 0) + manualNormalBalance("rental_receivable");
   const depositReceivable = receivableInvoices.reduce((total, bill) => total + bill.depositOutstanding, 0) + manualNormalBalance("deposit_receivable");
@@ -673,7 +682,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     const operationalLabels: Record<string, string> = { cash_on_hand: "Bank and cash", rental_receivable: "Rental receivables", deposit_receivable: "Deposit receivables", accounts_payable: "Accounts payable", staff_reimbursement_payable: "Staff reimbursement payable", tenant_security_deposits: "Tenant security deposits held" };
     // The statement already supplies the bank balance. Add only each voucher's
     // offset here, just as in the consolidated balance sheet above.
-    const outletPostingLines = [...journalLines, ...manualBalanceTransactionsResult.data.map((transaction) => ({
+    const outletPostingLines = [...journalLines, ...historicalClassifications.map((entry) => ({account_id: entry.account_id, property_id: null, debit: 0, credit: Number(entry.amount)})), ...manualBalanceTransactionsResult.data.map((transaction) => ({
       account_id: transaction.offset_account_id,
       property_id: transaction.property_id,
       debit: Math.max(-Number(transaction.amount), 0),
@@ -934,6 +943,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       if (entry) addPosting(line.account_id, `journal-${line.id}`, entry.entry_date, entry.entry_number ?? entry.id, line.description ?? entry.description ?? "Journal", line.property_id, Number(line.debit) - Number(line.credit), "Posted journal", `/reports?tab=journal&month=${entry.entry_date.slice(0, 7)}&entry=${entry.id}#journal-${entry.id}`);
     }
     for (const transaction of manualBalanceTransactionsResult.data) addPosting(transaction.offset_account_id, `voucher-${transaction.id}`, transaction.transaction_date, transaction.reference_number ?? transaction.id, transaction.description ?? "Bank voucher", transaction.property_id, -Number(transaction.amount), "Bank voucher / adjustment offset");
+    for (const entry of historicalClassifications) addPosting(entry.account_id, `historical-credit-${entry.id}`, entry.classification_date, entry.reference_number ?? entry.statement_line_id, `${entry.description} · Original bank date ${entry.original_bank_date}`, null, -Number(entry.amount), "Historical bank classification — existing Bank unchanged");
     const makeSnapshot = (date: string, profit: typeof yearToDateReport) => {
       const dated: BalanceBasisLine[] = [...base];
       for (const bank of bankAccounts) {

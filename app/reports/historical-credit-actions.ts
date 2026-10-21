@@ -16,7 +16,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function previewHistoricalCredits(bankId: string) {
   const { user, company, db } = await context();
   if (!uuid.test(bankId)) return { ok: false as const, error: 'Select a valid bank account.' };
-  const { data, error } = await db.rpc('preview_historical_rental_credits', {
+  const { data, error } = await db.rpc('preview_historical_credit_classification', {
     p_company: company.id, p_bank: bankId, p_actor: user.id,
   });
   if (error) return { ok: false as const, error: 'Historical preview is unavailable. Nothing was changed. Check that the approved database update has been installed.' };
@@ -27,7 +27,7 @@ export async function clearHistoricalCredits(bankId: string, runId: string, hash
   if (confirmed !== true || !uuid.test(bankId) || !uuid.test(runId) || !/^[a-f0-9]{32}$/.test(hash)) {
     return { ok: false as const, error: 'Preview and confirm the historical batch first.' };
   }
-  const { data, error } = await db.rpc('clear_historical_rental_credits', {
+  const { data, error } = await db.rpc('clear_historical_credit_classification', {
     p_company: company.id, p_bank: bankId, p_actor: user.id, p_run: runId, p_hash: hash,
   });
   if (error) return { ok: false as const, error: error.message.includes('preview_changed')
