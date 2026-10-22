@@ -5,7 +5,7 @@ import { outletProfit } from "./outlet-profit";
 // Presentation snapshots only. No database client, posting, or alternative
 // accounting calculation belongs in this module.
 export type ReportCompany = { name: string; registration: string; address: string };
-export type ReportPrintRow = { cells: string[]; kind?: "section" | "total" | "final" };
+export type ReportPrintRow = { cells: string[]; kind?: "section" | "total" | "final"; keepWithNext?: number };
 export type FinancialReportExport = {
   company: ReportCompany;
   title: string;
@@ -93,7 +93,7 @@ export function outletProfitExport(input: {
     filename: `DEKEZ_Outlet_PnL_${input.startDate}_to_${input.endDate}.pdf`,
     columns: ["", "Report line", "Amount (RM)"], widths: [15, 365, 135],
     rows: [...outletProfit(input.report, input.outlets).flatMap((row) => [
-      section(row.name), { cells: ["", "Revenue", reportMoney(row.income)] },
+      { ...section(row.name), keepWithNext: 5 }, { cells: ["", "Revenue", reportMoney(row.income)] },
       { cells: ["", "Utilities", reportMoney(row.utilities)] }, { cells: ["", "Operating Expenses", reportMoney(row.operating)] },
       amountRow("Total Expenses", row.totalExpenses), amountRow("Net Profit / (Loss)", row.profit, "final"),
     ]), section("ALL OUTLETS / COMPANY TOTAL"), amountRow("Revenue", input.report.totalRevenue),

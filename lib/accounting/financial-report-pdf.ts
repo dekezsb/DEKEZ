@@ -104,6 +104,8 @@ export async function financialReportPdf(report: FinancialReportExport, generate
       if ((row.kind === "section" && next === index + 1) || candidate.kind === "total" || candidate.kind === "final") following += rowHeight(candidate);
       else break;
     }
+    if (row.keepWithNext) following = Math.max(following, report.rows
+      .slice(index + 1, index + 1 + row.keepWithNext).reduce((sum, next) => sum + rowHeight(next), 0));
     // A group larger than a fresh page must still break safely by whole row.
     if (y - h - Math.min(following, Math.max(0, 650 - h)) < bottom) tablePage();
     renderRow(row.cells, Boolean(row.kind), row.kind === "section");
