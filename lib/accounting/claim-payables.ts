@@ -14,11 +14,11 @@ export async function getClaimPayables(db: SupabaseClient, companyId: string, as
   if(expenseError) throw new Error("Claim expense data unavailable");
   if(!expenses.length) return [];
   const {data: liabilities,error} = await allReportRows(db.from("staff_reimbursement_liabilities")
-    .select("id,expense_id,staff_id,amount,status,payout_id,staff_reimbursement_payouts(paid_on,payment_source)").in("expense_id",expenses.map(e=>e.id)));
+    .select("id,expense_id,staff_id,amount,status,payout_id,staff_reimbursement_payouts!staff_reimbursement_liabilities_payout_id_fkey(paid_on,payment_source)").in("expense_id",expenses.map(e=>e.id)));
   if(error) throw new Error("Claim liability data unavailable");
   if(!liabilities.length) return [];
   const {data: allocations,error: allocationError} = await allReportRows(db.from("staff_reimbursement_allocations")
-    .select("payout_id,liability_id,amount,staff_reimbursement_payouts(paid_on,payment_source)").in("liability_id",liabilities.map(l=>l.id)).order("liability_id"),"payout_id");
+    .select("payout_id,liability_id,amount,staff_reimbursement_payouts!staff_reimbursement_allocations_payout_id_fkey(paid_on,payment_source)").in("liability_id",liabilities.map(l=>l.id)).order("liability_id"),"payout_id");
   if(allocationError) throw new Error("Claim settlement data unavailable");
   const byExpense=new Map(expenses.map(e=>[e.id,e]));
   return liabilities.map(l=>{

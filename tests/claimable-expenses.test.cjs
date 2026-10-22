@@ -105,3 +105,9 @@ test('a completed partial payout refreshes its form identity for the next reimbu
  assert.doesNotMatch(form,/crypto\.randomUUID/);
  assert.match(form,/name="payoutRequestId" type="hidden" value=\{requestId\}/);
 });
+test('report payout embeds identify their FK rather than the new many-to-many allocation route',()=>{
+ const source=fs.readFileSync(path.join(root,'lib/accounting/claim-payables.ts'),'utf8');
+ assert.match(source,/staff_reimbursement_payouts!staff_reimbursement_liabilities_payout_id_fkey/);
+ assert.match(source,/staff_reimbursement_payouts!staff_reimbursement_allocations_payout_id_fkey/);
+ assert.doesNotMatch(source,/staff_reimbursement_payouts\(paid_on/);
+});
