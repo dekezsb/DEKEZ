@@ -106,6 +106,7 @@ export function StaffReimbursementPayoutForm({
   staffId,
   staffName,
   total,
+  requestId,
 }: {
   bankAccountHolder: string | null;
   bankAccountNumber: string | null;
@@ -117,6 +118,7 @@ export function StaffReimbursementPayoutForm({
   staffId: string;
   staffName: string;
   total: number;
+  requestId: string;
 }) {
   const hasSelectableItems = Boolean(items?.length);
   const [selectedIds, setSelectedIds] = useState<string[]>(
@@ -126,7 +128,6 @@ export function StaffReimbursementPayoutForm({
   const [proofName, setProofName] = useState("");
   const [error, setError] = useState("");
   const [partialAmounts, setPartialAmounts] = useState<Record<string, string>>({});
-  const [requestId] = useState(() => crypto.randomUUID());
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedTotal = hasSelectableItems
     ? (items ?? []).reduce(

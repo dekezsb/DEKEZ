@@ -97,3 +97,11 @@ test('historical report balance respects reimbursement dates and never changes o
  assert.equal(m.exports.claimBalanceAt(500,settlements,'2026-10-31'),200);
  assert.equal(m.exports.claimBalanceAt(500,settlements,'2026-11-01'),0);
 });
+test('a completed partial payout refreshes its form identity for the next reimbursement',()=>{
+ const page=fs.readFileSync(path.join(root,'app/expenses/page.tsx'),'utf8');
+ assert.match(page,/key=\{`\$\{staffId\}:\$\{group\.items\.map/);
+ assert.match(page,/requestId=\{randomUUID\(\)\}/);
+ const form=fs.readFileSync(path.join(root,'components/maintenance/staff-reimbursement-payout-form.tsx'),'utf8');
+ assert.doesNotMatch(form,/crypto\.randomUUID/);
+ assert.match(form,/name="payoutRequestId" type="hidden" value=\{requestId\}/);
+});

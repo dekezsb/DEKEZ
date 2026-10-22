@@ -588,7 +588,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                         }
                         bankName={profile?.bank_name ?? null}
                         items={group.items}
-                        key={staffId}
+                        key={`${staffId}:${group.items.map(item => `${item.liabilityId}:${item.amount}`).join(",")}`}
+                        requestId={randomUUID()}
                         liabilityIds={group.liabilityIds}
                         paidOn={malaysiaToday}
                         returnTo="expenses"
