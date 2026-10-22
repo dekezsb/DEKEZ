@@ -25,6 +25,7 @@ import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
 const allowedCreateRoles = [
+  "client_owner",
   "owner",
   "admin",
   "tenant",
@@ -417,7 +418,7 @@ export async function createPortalUser(formData: FormData) {
     );
   }
 
-  if (company && currentUser) {
+  if (company && currentUser && role !== "client_owner") {
     await admin.from("company_users").upsert({
       company_id: company.id,
       profile_id: data.user.id,

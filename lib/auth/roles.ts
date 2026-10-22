@@ -22,6 +22,7 @@ import type { AccessModule } from "./access";
 
 export const appRoles = [
   "super_admin",
+  "client_owner",
   "owner",
   "admin",
   "technician",
@@ -73,6 +74,7 @@ const managementNavigation: NavigationItem[] = [
 ];
 
 export const roleLabels: Record<AppRole, string> = {
+  client_owner: "Client Owner",
   super_admin: "Super Admin",
   owner: "Owner",
   admin: "Management",
@@ -83,6 +85,7 @@ export const roleLabels: Record<AppRole, string> = {
 };
 
 export const roleHome: Record<AppRole, string> = {
+  client_owner: "/owner/home",
   super_admin: "/super-admin",
   owner: "/dashboard",
   admin: "/dashboard",
@@ -93,6 +96,7 @@ export const roleHome: Record<AppRole, string> = {
 };
 
 export const roleNavigation: Record<AppRole, NavigationItem[]> = {
+  client_owner: [],
   super_admin: [
     { label: "Super Admin", href: "/super-admin", icon: ShieldCheck, module: "dashboard" },
     ...adminNavigation,
@@ -142,6 +146,7 @@ export const roleNavigation: Record<AppRole, NavigationItem[]> = {
 };
 
 export const protectedRoutes = [
+  "/owner",
   "/renovation",
   "/dashboard",
   "/admin-setup",

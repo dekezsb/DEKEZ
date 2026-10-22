@@ -67,4 +67,12 @@ Standing requirements:
 
 Release reports must distinguish tested/restored features from outstanding integration work. No real financial submissions during UI verification.
 
+## Client Owner portal boundary
+
+- The client-facing portal uses the separate `client_owner` role. Do not convert existing Owner/Admin accounts or grant client accounts internal module/company access.
+- Client access must remain scoped by the authenticated owner at the database boundary, including direct Data API requests, legacy RPCs, storage, and property/document IDs. Do not weaken the restrictive client policies or API allowlist to fix a UI error. New operational tables/RPCs must preserve this boundary.
+- Owner pages are read-only presentations of existing rental/payment/expense sources. Published statements and payout links are presentation metadata, not new ledger postings. Never create payments, income, expenses or bank movements from owner publishing.
+- Only explicitly approved private documents and reviewed maintenance summaries are owner-visible. Never expose tenant identity or internal technician/staff notes. Sensitive bank/TIN/agreement fields are view-only for clients.
+- Keep `tests/client-owner.test.cjs` and `tests/client-owner-sql.test.cjs` in the mandatory prebuild gate. Before enabling a live client, verify authenticated cross-owner denial and signed-document access after the owner migration is installed. Local fixture UI tests are not live authorization tests.
+
 One verified parent slip may have existing allocations to different invoices. Group by the verified submission, not invoice equality; display all linked invoice allocations. Preserve existing tenant/room/month and duplicate protections. Do not restructure invoices or create new ones to reconcile such a group.

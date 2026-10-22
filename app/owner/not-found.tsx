@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function NotFound(){return <main className="min-h-screen bg-[#f7f3eb] p-8"><h1 className="text-2xl font-semibold">This owner record is unavailable.</h1><p className="my-4">It may not be shared with your account. Please contact management if you need access.</p><Link className="inline-flex min-h-11 items-center rounded-lg bg-[#a77c30] px-6 text-white" href="/owner/home">Owner home</Link></main>;}

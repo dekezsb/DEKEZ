@@ -1,0 +1,1 @@
+export default function Loading(){return <main aria-busy="true" aria-label="Loading owner portal" className="min-h-screen bg-[#f7f3eb] p-6 md:pl-64"><p className="mb-8 text-[#7b6540]">Loading your property information…</p><div className="grid grid-cols-2 gap-4">{[1,2,3,4].map(n=><div key={n} className="h-32 rounded-2xl bg-[#e9e2d5] motion-safe:animate-pulse"/>)}</div></main>;}

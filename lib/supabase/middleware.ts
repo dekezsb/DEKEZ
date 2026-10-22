@@ -74,6 +74,15 @@ export async function updateSession(request: NextRequest) {
       "tenant";
     const module = moduleForPath(request.nextUrl.pathname);
 
+    const ownerRoute = request.nextUrl.pathname === "/owner" || request.nextUrl.pathname.startsWith("/owner/");
+    if ((role === "client_owner" && !ownerRoute) || (role !== "client_owner" && ownerRoute)) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = role === "client_owner" ? "/owner/home" : "/dashboard";
+      redirectUrl.search = "";
+      return NextResponse.redirect(redirectUrl);
+    }
+    if (role === "client_owner") return response;
+
     if (module && role !== "super_admin") {
       const { data: permissionRows } = await supabase
         .from("user_module_permissions")

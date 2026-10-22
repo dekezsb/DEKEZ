@@ -112,6 +112,7 @@ const noAccess = (): UserAccess =>
 
 export function getRoleDefaultAccess(role: AppRole): UserAccess {
   const access = noAccess();
+  if (role === "client_owner") return access;
   access.dashboard = "view";
 
   if (role === "super_admin") {
@@ -201,7 +202,7 @@ export function resolveUserAccess(
     }
   }
 
-  access.dashboard = role === "super_admin" ? "manage" : "view";
+  access.dashboard = role === "client_owner" ? "none" : role === "super_admin" ? "manage" : "view";
   return access;
 }
 

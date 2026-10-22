@@ -1,0 +1,2 @@
+'use client';
+export default function ErrorPage({reset}:{reset:()=>void}) {return <main className="min-h-screen bg-[#f7f3eb] p-8 text-[#292923]"><h1 className="text-2xl font-semibold">Unable to load your property information.</h1><p className="my-4">Please try again. If the problem continues, contact your management team.</p><button onClick={reset} className="min-h-11 rounded-lg bg-[#a77c30] px-6 text-white">Retry</button></main>;}

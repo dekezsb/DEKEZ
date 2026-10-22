@@ -64,6 +64,8 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
     return <>{children}</>;
   }
 
+  if (pathname === "/owner" || pathname.startsWith("/owner/")) return <>{children}</>;
+
   if (pathname.startsWith("/invoices/") || /^\/renovation\/[0-9a-f-]{36}$/i.test(pathname)) {
     return <>{children}</>;
   }
@@ -404,6 +406,7 @@ const navigationTranslationKeys: Record<string, TranslationKey> = {
 };
 
 const roleTranslationKeys: Record<AppRole, TranslationKey> = {
+  client_owner: "role.owner",
   super_admin: "role.superAdmin",
   owner: "role.owner",
   admin: "role.management",

@@ -118,6 +118,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
           Create role accounts, assign property owners, and manage user access.
         </p>
+        <a className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-4 font-medium" href="/admin-setup/client-owners">Client Owner Portal — access & shared records</a>
       </div>
 
       {params.created || params.removed || params.activated ? (
@@ -201,6 +202,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
                 <span className="text-sm font-medium text-gray-700">Role</span>
                 <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="role" defaultValue="tenant">
                   <option value="owner">Owner</option>
+                  <option value="client_owner">Client Owner — separate client portal</option>
                   <option value="admin">Management</option>
                   <option value="tenant">Tenant</option>
                   <option value="maintenance_staff">Maintenance Staff</option>

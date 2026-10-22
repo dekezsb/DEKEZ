@@ -76,6 +76,7 @@ export async function resolveUserModuleAccess(
   if (role === "super_admin") {
     return resolveUserAccess(role);
   }
+  if (role === "client_owner") return resolveUserAccess(role);
 
   let dataClient;
   try {
@@ -112,6 +113,7 @@ export async function requireRole(
   const { access, role } = await getCurrentUserAccess();
 
   if (!allowedRoles.includes(role)) {
+    if (role === "client_owner") redirect("/owner/home");
     redirect(role === "technician" ? "/maintenance" : "/dashboard");
   }
 
