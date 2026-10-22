@@ -510,7 +510,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           className="grid w-full gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:w-auto"
           action="/rent-due-tracker"
         >
-          <div className="min-w-0 sm:w-64">
+          <div className="min-w-0 xl:w-64">
             <label className="mb-1.5 block text-sm font-medium" htmlFor="month">
               Billing month
             </label>
@@ -523,7 +523,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
               className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
             />
           </div>
-          <div className="min-w-0 sm:w-72">
+          <div className="min-w-0 xl:w-72">
             <label className="mb-1.5 block text-sm font-medium" htmlFor="property">
               Property
             </label>

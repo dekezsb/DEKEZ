@@ -3,7 +3,7 @@
 import { LogOut, Menu, X } from "lucide-react";
 import { Link } from "@/components/app-link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { LanguageSelector } from "@/components/language-selector";
 import { useLanguage } from "@/components/language-provider";
@@ -30,6 +30,15 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
+  const managementNav = useRef<HTMLDivElement>(null);
+  // Presentation only: keep the current destination visible in the compact strip.
+  useEffect(() => {
+    const strip = managementNav.current;
+    const active = strip?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (strip && active && window.innerWidth < 1024) {
+      strip.scrollLeft = active.offsetLeft - strip.clientWidth / 2 + active.offsetWidth / 2;
+    }
+  }, [pathname]);
   const navigation: NavigationItem[] =
     role && access
       ? consolidateBillNavigation(roleNavigation[role].filter((item) =>
@@ -61,7 +70,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   if (role === "tenant") {
     return (
-      <div className="tenant-portal-bg min-h-screen text-[#17130d]">
+      <div className="app-responsive tenant-portal-bg min-h-screen text-[#17130d]">
         <PortalLiveSync />
         <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="mx-auto flex h-18 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
@@ -137,10 +146,10 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   if (role === "admin") {
     return (
-      <div className="tenant-portal-bg min-h-screen text-[#17130d]">
+      <div className="app-responsive management-shell tenant-portal-bg min-h-screen text-[#17130d]">
         <PortalLiveSync />
-        <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
-          <div className="mx-auto flex h-18 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        <header className="management-header sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
+          <div className="management-header-inner mx-auto flex h-18 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
             <Link className="flex items-center gap-3" href="/dashboard">
               <BrandLogo className="rounded-md" priority size={46} />
               <span>
@@ -173,15 +182,16 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
           </div>
         </header>
 
-        <main className="mx-auto min-h-[calc(100vh-72px)] max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-8">
+        <main className="management-content mx-auto min-h-[calc(100vh-72px)] max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-8">
           {children}
         </main>
 
         <nav
           aria-label="Management portal"
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-[#d8c28c] bg-white/95 shadow-[0_-8px_24px_rgba(23,19,13,0.08)] backdrop-blur print:hidden"
+          className="management-navigation fixed inset-x-0 bottom-0 z-30 border-t border-[#d8c28c] bg-white/95 shadow-[0_-8px_24px_rgba(23,19,13,0.08)] backdrop-blur print:hidden"
         >
-          <div className="mx-auto grid max-w-4xl grid-cols-6">
+          <div className="management-nav-brand" aria-hidden="true">DEKEZ<span>Management Portal</span></div>
+          <div ref={managementNav} className="management-nav-items mx-auto grid max-w-4xl grid-cols-6">
             {navigation.map((item) => {
               const Icon = item.icon;
               const isActive = navigationItemIsActive(item, pathname);
@@ -190,7 +200,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                 <Link
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "flex min-h-20 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold transition sm:text-xs",
+                    "management-nav-link flex min-h-20 min-w-0 flex-col items-center justify-center gap-1 px-1 text-[10px] font-semibold transition sm:text-xs",
                     isActive
                       ? "text-[#ef5c5c]"
                       : "text-[#17130d] hover:text-[#8a641d]",
@@ -199,7 +209,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
                   key={item.href}
                 >
                   <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.8} />
-                  <span className="max-w-full truncate">
+                  <span className="management-nav-label max-w-full">
                     {t(navigationTranslationKeys[item.label] ?? "nav.dashboard")}
                   </span>
                 </Link>
@@ -212,11 +222,11 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f5f8] text-[#17130d]">
+    <div className="app-responsive internal-shell min-h-screen bg-[#f4f5f8] text-[#17130d]">
       <PortalLiveSync />
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#0b0a07] text-[#f8f0df] shadow-2xl transition-transform lg:translate-x-0 lg:shadow-none",
+          "internal-sidebar fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#0b0a07] text-[#f8f0df] shadow-2xl transition-transform lg:translate-x-0 lg:shadow-none",
           isOpen && "translate-x-0",
         )}
       >
@@ -296,7 +306,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
         />
       ) : null}
 
-      <div className="lg:pl-72">
+      <div className="internal-frame lg:pl-72">
         <header className="sticky top-0 z-20 border-b border-[#e1e5eb] bg-white/90 shadow-[0_1px_2px_rgba(17,19,23,0.04)] backdrop-blur">
           <div className="flex h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -332,7 +342,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
         </header>
 
         <main className="min-h-[calc(100vh-80px)] px-4 py-8 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl pb-20 lg:pb-0">{children}</div>
+          <div className="internal-content mx-auto max-w-7xl pb-20 lg:pb-0">{children}</div>
         </main>
       </div>
 

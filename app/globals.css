@@ -90,6 +90,95 @@ body {
   color: #17130d;
 }
 
+/* Presentation only. Shared internal shell; never applies to print/PDF sheets
+   or the separately scoped Client Owner portal. No zoom/transform scaling. */
+@media screen {
+  .app-responsive { min-height: 100dvh; overflow-wrap: anywhere; }
+  .app-responsive main, .app-responsive main :where(section, article, form, .grid, .flex) { min-width: 0; }
+  .app-responsive main > * { max-width: 100%; }
+  .app-responsive :where(button, select, input:not([type=checkbox]):not([type=radio]):not([type=hidden])) { min-height: 44px; }
+  .app-responsive :where(input, select, textarea) { max-width: 100%; font-size: 16px; }
+  .app-responsive :where(button, a) { touch-action: manipulation; }
+  .app-responsive button { white-space: normal; }
+  .app-responsive main h1 { font-size: clamp(1.5rem, 2.5vw, 2rem); line-height: 1.25; }
+  .app-responsive header { padding-top: env(safe-area-inset-top); }
+  .management-header-inner {
+    width: 100%; max-width: none; height: auto; min-height: 76px;
+    padding: 12px 16px; gap: 12px; flex-wrap: wrap;
+  }
+  .management-header-inner > a { min-width: 0; }
+  .management-header-inner > div { min-width: 0; gap: 8px; margin-left: auto; }
+  .management-header-inner select { max-width: 148px; }
+  .management-content {
+    width: 100%; max-width: 1600px; min-height: calc(100dvh - 76px);
+    padding: 20px 16px calc(144px + env(safe-area-inset-bottom));
+  }
+  .management-navigation { padding-bottom: env(safe-area-inset-bottom); }
+  .management-nav-brand { display: none; }
+  .management-nav-items { display: flex; width: 100%; max-width: none; overflow-x: auto; overscroll-behavior-x: contain; }
+  .management-nav-link { flex: 1 0 96px; min-height: 88px; padding: 8px 6px; font-size: 12px; line-height: 1.25; text-align: center; }
+  .management-nav-link svg { width: 24px; height: 24px; flex-shrink: 0; }
+  .management-nav-label { white-space: normal; overflow-wrap: normal; }
+  .management-nav-link[aria-current=page] { color: #805914; background: #f5ecd8; }
+  .internal-content { width: 100%; max-width: 1600px; }
+  .internal-shell main { min-height: calc(100dvh - 80px); }
+  .internal-shell header > div { height: auto; min-height: 80px; flex-wrap: wrap; padding-block: 12px; }
+  .internal-shell header > div > div { min-width: 0; gap: 8px; }
+  .internal-shell nav.fixed { padding-bottom: env(safe-area-inset-bottom); }
+  .claim-history-card > div { min-width: 0; }
+  .claim-history-card h2 { overflow-wrap: anywhere; }
+  .claim-receipts > a { flex-shrink: 0; }
+  .claim-receipts > a > span:first-child { width: 64px; height: 72px; }
+  .claim-history-card p.text-xs { font-size: 13px; line-height: 1.5; }
+  @media (max-width: 639px) {
+    .management-header-inner > a > span > span:last-child { display: none; }
+    .management-header-inner select { max-width: 140px; }
+  }
+  @media (max-width: 380px) {
+    .management-header-inner > a > span { display: none; }
+  }
+  @media (min-width: 640px) {
+    .management-nav-link { flex-basis: 112px; min-height: 88px; font-size: 13px; padding-inline: 8px; }
+    .management-content { padding-bottom: calc(144px + env(safe-area-inset-bottom)); }
+  }
+  @media (min-width: 768px) {
+    .management-header-inner { padding-inline: 24px; }
+    .management-content { padding: 28px 24px calc(144px + env(safe-area-inset-bottom)); }
+    .app-responsive main { font-size: 16px; }
+    .claim-receipts > a > span:first-child { width: 88px; height: 96px; }
+    .claim-history-card { padding: 24px; }
+  }
+  @media (min-width: 1024px) {
+    .management-shell { padding-left: 224px; }
+    .management-content { padding: 28px; }
+    .management-header-inner { padding-inline: 28px; }
+    .management-navigation {
+      top: 0; right: auto; bottom: 0; left: 0; width: 224px;
+      overflow-y: auto; border-top: 0; border-right: 1px solid #2a261e;
+      background: #101411; color: #f8f0df; box-shadow: none;
+      padding: calc(24px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom));
+    }
+    .management-nav-brand { display: block; padding: 0 16px 24px; color: #d2ad5f; font-size: 23px; font-weight: 700; }
+    .management-nav-brand span { display: block; color: #dfd8c8; font-size: 12px; font-weight: 400; }
+    .management-nav-items { display: flex; flex-direction: column; gap: 8px; overflow: visible; }
+    .management-nav-link { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; min-height: 48px; padding: 12px; font-size: 14px; text-align: left; color: #f8f0df; border-radius: 8px; }
+    .management-nav-link:hover { color: #e8c67e; background: #26251e; }
+    .management-nav-link[aria-current=page] { background: #a77d31; color: #fff; }
+    .management-nav-link svg { width: 22px; height: 22px; }
+    .internal-sidebar { width: 224px; }
+    .internal-frame { padding-left: 224px; }
+    .internal-sidebar nav a { min-height: 44px; }
+    .internal-sidebar nav span.truncate { white-space: normal; overflow: visible; }
+  }
+  @media (min-width: 1440px) {
+    .management-shell { padding-left: 240px; }
+    .management-navigation, .internal-sidebar { width: 240px; }
+    .internal-frame { padding-left: 240px; }
+    .management-content { padding: 32px 36px; }
+    .management-header-inner { padding-inline: 36px; }
+  }
+}
+
 a {
   color: inherit;
   text-decoration: none;

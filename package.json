@@ -8,7 +8,8 @@
     "test:financial-pdfs": "node --test tests/financial-report-pdf.test.cjs tests/profit-loss-groups.test.cjs tests/accounting/outlet-profit.test.mjs",
     "test:historical-classification": "node --test tests/historical-classification-sql.test.cjs tests/historical-classification-report.test.cjs",
     "test:claimable-expenses": "node --test tests/claimable-expenses.test.cjs",
-    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses",
+    "test:responsive-layout": "node --test tests/responsive-layout.test.cjs",
+    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:responsive-layout",
     "build": "next build",
     "start": "next start"
   },

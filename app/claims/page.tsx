@@ -164,7 +164,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
   ).length;
 
   return (
-    <section className="space-y-6">
+    <section className="claims-responsive min-w-0 w-full space-y-6">
       <div>
         <p className="text-xs font-semibold uppercase text-[#b98a2c]">
           Management Claims
@@ -265,7 +265,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
                 );
                 return (
                   <article
-                    className={`grid gap-3 rounded-md border p-4 sm:grid-cols-[1fr_auto] sm:items-center ${
+                    className={`claim-history-card grid min-w-0 gap-4 rounded-md border p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,240px)] md:items-center ${
                       label === "Paid back"
                         ? "border-emerald-200 bg-emerald-50"
                         : "border-[#d7dde5] bg-white"
@@ -328,7 +328,7 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="claim-receipts flex min-w-0 flex-wrap gap-3">
                       {(attachmentsByClaim.get(claim.id) ?? []).map(
                         (attachment) => (
                           <DocumentPreview
