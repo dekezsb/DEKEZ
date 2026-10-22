@@ -63,7 +63,10 @@ test("P&L export copies displayed amounts, dates and scope without mutating sour
     assert.ok(spec.rows.some((printed) => printed.cells[1] === r.label && printed.cells[2] === reportMoney(r.amount)));
   }
   assert.ok(spec.rows.some((r) => r.cells[0] === "OTHER INCOME"));
-  assert.ok(spec.rows.some((r) => r.cells[0] === "OTHER EXPENSES"));
+  assert.ok(spec.rows.some((r) => r.cells[0] === "UTILITIES"));
+  assert.ok(spec.rows.some((r) => r.cells[0] === "OPERATING EXPENSES"));
+  assert.ok(!spec.rows.some((r) => r.kind === "section" && /OTHER EXPENSES|DIRECT COSTS/.test(r.cells[0])));
+  assert.ok(spec.rows.some((r) => r.cells[1] === "Total Expenses" && r.cells[2] === "RM 17,600.00"));
   const scoped = profitLossExport({ company, report, accounts, startDate: "2026-03-15", endDate: "2026-04-12", scope: "KLB only" });
   assert.equal(scoped.scope, "KLB only");
   assert.match(scoped.period, /15 March 2026 to 12 April 2026/);

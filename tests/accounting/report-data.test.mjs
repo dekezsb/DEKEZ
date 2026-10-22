@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getProfitLossReport } from "../../lib/accounting/report-data.ts";
-import { profitTrend } from "../../lib/accounting/profit-trend.ts";
+import load from "../renovation-loader.cjs";
+const { profitTrend } = load("lib/accounting/profit-trend.ts");
 
 test("voucher assets, liabilities and equity do not become P&L expenses", async () => {
   const transactions = ['asset', 'liability', 'equity', 'income', 'expense'].map((type, i) => ({

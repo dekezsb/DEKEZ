@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { outletProfit } from "../../lib/accounting/outlet-profit.ts";
+import load from "../renovation-loader.cjs";
+const { outletProfit } = load("lib/accounting/outlet-profit.ts");
 
 test("outlets are distinct by ID, include no activity and retain shared office costs", () => {
   const report = {

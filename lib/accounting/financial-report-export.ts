@@ -1,4 +1,6 @@
 import type { ProfitLossReport, ProfitLossRow } from "./report-data";
+import { profitLossGroups } from "./profit-loss-groups";
+import { outletProfit } from "./outlet-profit";
 
 // Presentation snapshots only. No database client, posting, or alternative
 // accounting calculation belongs in this module.
@@ -55,8 +57,7 @@ export function profitLossExport(input: {
   });
   const otherIncome = report.revenue.filter((row) => accountFor(row)?.report_group === "other_income");
   const revenue = report.revenue.filter((row) => !otherIncome.includes(row));
-  const otherExpenses = report.expenses.filter((row) => accountFor(row)?.report_group === "other_expense");
-  const operating = report.expenses.filter((row) => !otherExpenses.includes(row));
+  const groups = profitLossGroups(report);
   // Section subtotals sum the very same displayed rows; accounting totals are
   // copied from the report service, not recomputed by the PDF renderer.
   const sum = (rows: ProfitLossRow[]) => rows.reduce((value, row) => value + row.amount, 0);
@@ -64,11 +65,9 @@ export function profitLossExport(input: {
     section("REVENUE / INCOME"), ...revenue.map(rowFor), amountRow("Subtotal revenue / income", sum(revenue)),
     section("OTHER INCOME"), ...otherIncome.map(rowFor), amountRow("Subtotal other income", sum(otherIncome)),
     amountRow("Total revenue / income", report.totalRevenue),
-    section("COST OF SALES / DIRECT COSTS"), ...report.costsOfSales.map(rowFor),
-    amountRow("Total direct costs", report.totalCostOfSales), amountRow("Gross profit / (loss)", report.grossProfit),
-    section("OPERATING EXPENSES"), ...operating.map(rowFor), amountRow("Subtotal operating expenses", sum(operating)),
-    section("OTHER EXPENSES"), ...otherExpenses.map(rowFor), amountRow("Subtotal other expenses", sum(otherExpenses)),
-    amountRow("Total expenses", report.totalExpenses), amountRow("NET PROFIT / (LOSS)", report.netProfit, "final"),
+    section("UTILITIES"), ...groups.utilities.map(rowFor), amountRow("Total Utilities", groups.totalUtilities),
+    section("OPERATING EXPENSES"), ...groups.operating.map(rowFor), amountRow("Total Operating Expenses", groups.totalOperating),
+    amountRow("Total Expenses", groups.totalExpenses), amountRow("NET PROFIT / (LOSS)", report.netProfit, "final"),
   ];
   return {
     company, title: "PROFIT & LOSS STATEMENT",
@@ -78,6 +77,30 @@ export function profitLossExport(input: {
     notes: ["Accrual basis. Refundable tenant deposits are excluded from income.",
       ...(report.revenue.concat(report.costsOfSales, report.expenses).some((row) => !accountFor(row))
         ? ["A dash in Account code denotes a report category without a unique mapped account code; no code has been invented."] : [])],
+    warnings: [],
+  };
+}
+
+export function outletProfitExport(input: {
+  company: ReportCompany; report: ProfitLossReport; outlets: { id: string; name: string }[];
+  startDate: string; endDate: string;
+}): FinancialReportExport {
+  const groups = profitLossGroups(input.report);
+  return {
+    company: input.company, title: "OUTLET / PROPERTY PROFIT & LOSS",
+    period: `For the period ${reportDate(input.startDate)} to ${reportDate(input.endDate)}`,
+    scope: "All outlets / properties; Office / unallocated shown separately",
+    filename: `DEKEZ_Outlet_PnL_${input.startDate}_to_${input.endDate}.pdf`,
+    columns: ["", "Report line", "Amount (RM)"], widths: [15, 365, 135],
+    rows: [...outletProfit(input.report, input.outlets).flatMap((row) => [
+      section(row.name), { cells: ["", "Revenue", reportMoney(row.income)] },
+      { cells: ["", "Utilities", reportMoney(row.utilities)] }, { cells: ["", "Operating Expenses", reportMoney(row.operating)] },
+      amountRow("Total Expenses", row.totalExpenses), amountRow("Net Profit / (Loss)", row.profit, "final"),
+    ]), section("ALL OUTLETS / COMPANY TOTAL"), amountRow("Revenue", input.report.totalRevenue),
+    amountRow("Total Utilities", groups.totalUtilities), amountRow("Total Operating Expenses", groups.totalOperating),
+    amountRow("Total Expenses", groups.totalExpenses), amountRow("Net Profit / (Loss)", input.report.netProfit, "final")],
+    notes: ["Accrual basis. The same property assignments and figures as the on-screen comparison.",
+      "Office / unallocated costs are not distributed to properties. Refundable tenant deposits are excluded from income."],
     warnings: [],
   };
 }

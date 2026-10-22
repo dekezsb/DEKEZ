@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { ProfitLossReport, ProfitLossRow } from "@/lib/accounting/report-data";
 import { profitTrend } from "@/lib/accounting/profit-trend";
+import { profitLossGroups } from "@/lib/accounting/profit-loss-groups";
 import { OutletProfitTable } from "@/components/accounting/outlet-profit-table";
 import { FinancialPdfButton } from "@/components/accounting/financial-pdf-button";
 import { profitLossExport, type ReportAccount, type ReportCompany } from "@/lib/accounting/financial-report-export";
@@ -210,23 +211,26 @@ export function ProfitLossStatement({
   company: ReportCompany;
   accounts: ReportAccount[];
 }) {
+  const currentGroups = profitLossGroups(currentReport);
+  const priorGroups = profitLossGroups(priorReport);
   const summaryCsvRows: Array<Array<string | number>> = [
     ["DEKEZ Profit & Loss", `${startDate} to ${endDate}`, "Accrual basis", propertyScope],
     ["Comparison period", `${priorStartDate} to ${priorEndDate}`],
     ["Section", "Account", "Current RM", "Previous RM", "Difference RM"],
     ...mergeRows(currentReport.revenue, priorReport.revenue).map(({ row, previousAmount }) => ["Revenue", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
     ["Revenue", "Total revenue", currentReport.totalRevenue.toFixed(2), priorReport.totalRevenue.toFixed(2), (currentReport.totalRevenue - priorReport.totalRevenue).toFixed(2)],
-    ...mergeRows(currentReport.costsOfSales, priorReport.costsOfSales).map(({ row, previousAmount }) => ["Cost of sales", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
-    ["Cost of sales", "Gross profit", currentReport.grossProfit.toFixed(2), priorReport.grossProfit.toFixed(2), (currentReport.grossProfit - priorReport.grossProfit).toFixed(2)],
-    ...mergeRows(currentReport.expenses, priorReport.expenses).map(({ row, previousAmount }) => ["Operating expenses", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
-    ["Operating expenses", "Total expenses", currentReport.totalExpenses.toFixed(2), priorReport.totalExpenses.toFixed(2), (currentReport.totalExpenses - priorReport.totalExpenses).toFixed(2)],
+    ...mergeRows(currentGroups.utilities, priorGroups.utilities).map(({ row, previousAmount }) => ["Utilities", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
+    ["Utilities", "Total Utilities", currentGroups.totalUtilities.toFixed(2), priorGroups.totalUtilities.toFixed(2), (currentGroups.totalUtilities - priorGroups.totalUtilities).toFixed(2)],
+    ...mergeRows(currentGroups.operating, priorGroups.operating).map(({ row, previousAmount }) => ["Operating Expenses", row.label, row.amount.toFixed(2), previousAmount.toFixed(2), (row.amount - previousAmount).toFixed(2)]),
+    ["Operating Expenses", "Total Operating Expenses", currentGroups.totalOperating.toFixed(2), priorGroups.totalOperating.toFixed(2), (currentGroups.totalOperating - priorGroups.totalOperating).toFixed(2)],
+    ["Expenses", "Total Expenses", currentGroups.totalExpenses.toFixed(2), priorGroups.totalExpenses.toFixed(2), (currentGroups.totalExpenses - priorGroups.totalExpenses).toFixed(2)],
     ["Result", "Net profit / (loss)", currentReport.netProfit.toFixed(2), priorReport.netProfit.toFixed(2), (currentReport.netProfit - priorReport.netProfit).toFixed(2)],
   ];
   const trend = profitTrend(currentReport, startDate, endDate);
   const trendCsv: Array<Array<string | number>> = [
     ["Monthly profit tracking", `${startDate} to ${endDate}`, propertyScope],
-    ["Month", "Income RM", "Direct costs RM", "Operating expenses RM", "Net profit RM"],
-    ...trend.map((row) => [row.month, row.income.toFixed(2), row.costs.toFixed(2), row.expenses.toFixed(2), row.profit.toFixed(2)]),
+    ["Month", "Revenue RM", "Utilities RM", "Operating Expenses RM", "Total Expenses RM", "Net Profit RM"],
+    ...trend.map((row) => [row.month, row.income.toFixed(2), row.utilities.toFixed(2), row.operating.toFixed(2), row.totalExpenses.toFixed(2), row.profit.toFixed(2)]),
   ];
   const ledgerCsvRows: Array<Array<string | number>> = [
     ["DEKEZ P&L Supporting Ledger", `${startDate} to ${endDate}`, propertyScope],
@@ -262,17 +266,17 @@ export function ProfitLossStatement({
         </div>
       </CardHeader>
       <CardContent>
-        {outlets ? <OutletProfitTable report={currentReport} outlets={outlets} startDate={startDate} endDate={endDate} /> : null}
+        {outlets ? <OutletProfitTable company={company} report={currentReport} outlets={outlets} startDate={startDate} endDate={endDate} /> : null}
         <div className="mb-5 grid gap-3 sm:grid-cols-3">
-          {[{ label: "Income", value: currentReport.totalRevenue }, { label: "Total costs & expenses", value: currentReport.totalCostOfSales + currentReport.totalExpenses }, { label: "Net profit / (loss)", value: currentReport.netProfit }].map((item) => <div key={item.label} className="rounded-lg border border-[#d7dde5] bg-slate-50 p-4"><p className="text-xs text-gray-600">{item.label}</p><p className={`mt-1 text-xl font-semibold ${item.value < 0 ? "text-red-700" : "text-gray-900"}`}>{money(item.value)}</p></div>)}
+          {[{ label: "Revenue", value: currentReport.totalRevenue }, { label: "Total Expenses", value: currentGroups.totalExpenses }, { label: "Net profit / (loss)", value: currentReport.netProfit }].map((item) => <div key={item.label} className="rounded-lg border border-[#d7dde5] bg-slate-50 p-4"><p className="text-xs text-gray-600">{item.label}</p><p className={`mt-1 text-xl font-semibold ${item.value < 0 ? "text-red-700" : "text-gray-900"}`}>{money(item.value)}</p></div>)}
         </div>
         {trend.length > 1 ? <details className="mb-5 rounded-lg border border-[#d7dde5]" open>
           <summary className="cursor-pointer p-4 text-sm font-semibold">Month-by-month profit · {propertyScope}</summary>
           <div className="px-4 pb-4">
             <div className="mb-3"><CsvDownloadButton fileName={`DEKEZ-monthly-profit-${startDate}-to-${endDate}.csv`} label="Download monthly comparison" rows={trendCsv} /></div>
-            <Table><TableHeader><TableRow><TableHead>Month</TableHead><TableHead className="text-right">Income</TableHead><TableHead className="text-right">Direct costs</TableHead><TableHead className="text-right">Operating expenses</TableHead><TableHead className="text-right">Net profit / (loss)</TableHead></TableRow></TableHeader>
-              <TableBody>{trend.map((row) => <TableRow key={row.month}><TableCell>{new Intl.DateTimeFormat("en-MY", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${row.month}-01T00:00:00Z`))}</TableCell><TableCell className="text-right">{money(row.income)}</TableCell><TableCell className="text-right">{money(row.costs)}</TableCell><TableCell className="text-right">{money(row.expenses)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(row.profit)}`}>{money(row.profit)}</TableCell></TableRow>)}
-                <TableRow className="font-semibold"><TableCell>Total</TableCell><TableCell className="text-right">{money(currentReport.totalRevenue)}</TableCell><TableCell className="text-right">{money(currentReport.totalCostOfSales)}</TableCell><TableCell className="text-right">{money(currentReport.totalExpenses)}</TableCell><TableCell className="text-right">{money(currentReport.netProfit)}</TableCell></TableRow>
+            <Table><TableHeader><TableRow><TableHead>Month</TableHead><TableHead className="text-right">Revenue</TableHead><TableHead className="text-right">Utilities</TableHead><TableHead className="text-right">Operating Expenses</TableHead><TableHead className="text-right">Total Expenses</TableHead><TableHead className="text-right">Net profit / (loss)</TableHead></TableRow></TableHeader>
+              <TableBody>{trend.map((row) => <TableRow key={row.month}><TableCell>{new Intl.DateTimeFormat("en-MY", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${row.month}-01T00:00:00Z`))}</TableCell><TableCell className="text-right">{money(row.income)}</TableCell><TableCell className="text-right">{money(row.utilities)}</TableCell><TableCell className="text-right">{money(row.operating)}</TableCell><TableCell className="text-right">{money(row.totalExpenses)}</TableCell><TableCell className={`text-right font-semibold ${differenceClass(row.profit)}`}>{money(row.profit)}</TableCell></TableRow>)}
+                <TableRow className="font-semibold"><TableCell>Total</TableCell><TableCell className="text-right">{money(currentReport.totalRevenue)}</TableCell><TableCell className="text-right">{money(currentGroups.totalUtilities)}</TableCell><TableCell className="text-right">{money(currentGroups.totalOperating)}</TableCell><TableCell className="text-right">{money(currentGroups.totalExpenses)}</TableCell><TableCell className="text-right">{money(currentReport.netProfit)}</TableCell></TableRow>
               </TableBody>
             </Table>
           </div>
@@ -294,13 +298,14 @@ export function ProfitLossStatement({
             <SectionRows currentRows={currentReport.revenue} endDate={endDate} openRowKey={openRowKey} previousRows={priorReport.revenue} startDate={startDate} />
             <TableRow><TableCell className="font-semibold">Total revenue</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(currentReport.totalRevenue)}</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(priorReport.totalRevenue)}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${differenceClass(currentReport.totalRevenue - priorReport.totalRevenue)}`}>{money(currentReport.totalRevenue - priorReport.totalRevenue)}</TableCell></TableRow>
 
-            <TableRow className="bg-amber-50 hover:bg-amber-50"><TableCell className="font-semibold text-amber-900" colSpan={4}>Cost of sales / direct property costs</TableCell></TableRow>
-            {currentReport.costsOfSales.length || priorReport.costsOfSales.length ? <SectionRows currentRows={currentReport.costsOfSales} endDate={endDate} expenseDirection openRowKey={openRowKey} previousRows={priorReport.costsOfSales} startDate={startDate} /> : <TableRow><TableCell className="pl-8 text-gray-500" colSpan={4}>No direct property costs are posted for either period. Tenant rent receipt matching does not create a cost; record or match the landlord/property rent and other direct property bills in their correct service month.</TableCell></TableRow>}
-            <TableRow><TableCell className="font-semibold">Gross profit</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(currentReport.grossProfit)}</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(priorReport.grossProfit)}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${differenceClass(currentReport.grossProfit - priorReport.grossProfit)}`}>{money(currentReport.grossProfit - priorReport.grossProfit)}</TableCell></TableRow>
+            <TableRow className="bg-amber-50 hover:bg-amber-50"><TableCell className="font-semibold text-amber-900" colSpan={4}>Utilities</TableCell></TableRow>
+            <SectionRows currentRows={currentGroups.utilities} endDate={endDate} expenseDirection openRowKey={openRowKey} previousRows={priorGroups.utilities} startDate={startDate} />
+            <TableRow><TableCell className="font-semibold">Total Utilities</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(currentGroups.totalUtilities)}</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(priorGroups.totalUtilities)}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${differenceClass(priorGroups.totalUtilities - currentGroups.totalUtilities)}`}>{money(currentGroups.totalUtilities - priorGroups.totalUtilities)}</TableCell></TableRow>
 
             <TableRow className="bg-red-50 hover:bg-red-50"><TableCell className="font-semibold text-red-900" colSpan={4}>Operating expenses</TableCell></TableRow>
-            {currentReport.expenses.length || priorReport.expenses.length ? <SectionRows currentRows={currentReport.expenses} endDate={endDate} expenseDirection openRowKey={openRowKey} previousRows={priorReport.expenses} startDate={startDate} /> : <TableRow><TableCell className="pl-8 text-gray-500" colSpan={4}>No operating expenses recorded for either period.</TableCell></TableRow>}
-            <TableRow><TableCell className="font-semibold">Total expenses</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(currentReport.totalExpenses)}</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(priorReport.totalExpenses)}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${differenceClass(priorReport.totalExpenses - currentReport.totalExpenses)}`}>{money(currentReport.totalExpenses - priorReport.totalExpenses)}</TableCell></TableRow>
+            <SectionRows currentRows={currentGroups.operating} endDate={endDate} expenseDirection openRowKey={openRowKey} previousRows={priorGroups.operating} startDate={startDate} />
+            <TableRow><TableCell className="font-semibold">Total Operating Expenses</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(currentGroups.totalOperating)}</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(priorGroups.totalOperating)}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${differenceClass(priorGroups.totalOperating - currentGroups.totalOperating)}`}>{money(currentGroups.totalOperating - priorGroups.totalOperating)}</TableCell></TableRow>
+            <TableRow><TableCell className="font-semibold">Total Expenses</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(currentGroups.totalExpenses)}</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(priorGroups.totalExpenses)}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${differenceClass(priorGroups.totalExpenses - currentGroups.totalExpenses)}`}>{money(currentGroups.totalExpenses - priorGroups.totalExpenses)}</TableCell></TableRow>
             <TableRow className="border-t-2 border-gray-900 bg-gray-50 text-base font-bold hover:bg-gray-50"><TableCell>Net profit / (loss)</TableCell><TableCell className="text-right tabular-nums">{money(currentReport.netProfit)}</TableCell><TableCell className="text-right tabular-nums">{money(priorReport.netProfit)}</TableCell><TableCell className={`text-right tabular-nums ${differenceClass(currentReport.netProfit - priorReport.netProfit)}`}>{money(currentReport.netProfit - priorReport.netProfit)}</TableCell></TableRow>
           </TableBody>
         </Table>
