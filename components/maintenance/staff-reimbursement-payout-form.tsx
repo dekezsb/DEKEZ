@@ -125,11 +125,13 @@ export function StaffReimbursementPayoutForm({
   const [preparing, setPreparing] = useState(false);
   const [proofName, setProofName] = useState("");
   const [error, setError] = useState("");
+  const [partialAmounts, setPartialAmounts] = useState<Record<string, string>>({});
+  const [requestId] = useState(() => crypto.randomUUID());
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedTotal = hasSelectableItems
     ? (items ?? []).reduce(
         (sum, item) =>
-          sum + (selected.has(item.liabilityId) ? item.amount : 0),
+          sum + (selected.has(item.liabilityId) ? Number(partialAmounts[item.liabilityId] ?? item.amount) : 0),
         0,
       )
     : total;
@@ -140,6 +142,7 @@ export function StaffReimbursementPayoutForm({
       className="grid gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4"
     >
       <input name="staffId" type="hidden" value={staffId} />
+      <input name="payoutRequestId" type="hidden" value={requestId} />
       <input name="returnTo" type="hidden" value={returnTo} />
       {!hasSelectableItems
         ? liabilityIds.map((id) => (
@@ -264,7 +267,8 @@ export function StaffReimbursementPayoutForm({
                     )}
                   </div>
                   <p className="font-semibold text-gray-950">
-                    {money(item.amount)}
+                    Outstanding {money(item.amount)}
+                    {returnTo === "expenses" && checked ? <label className="mt-2 block text-sm">Reimburse now RM<input aria-label={`Reimburse ${item.description || item.categoryName}`} className="mt-1 w-32 rounded border px-2 py-1" type="number" name={`allocation_${item.liabilityId}`} min="0.01" max={item.amount} step="0.01" required value={partialAmounts[item.liabilityId] ?? item.amount} onChange={event => setPartialAmounts(current => ({...current,[item.liabilityId]:event.target.value}))} /></label> : null}
                   </p>
                 </div>
               );
@@ -389,8 +393,7 @@ export function StaffReimbursementPayoutForm({
         total={selectedTotal}
       />
       <p className="text-xs text-amber-800">
-        This payout records who was paid, marks only the ticked bills as paid
-        back, and keeps the same proof with the permanent audit record.
+        Records reimbursement against the existing payable only. Partial amounts leave the unpaid balance outstanding; the expense is not recorded again. Keep the same proof with the audit record.
       </p>
     </form>
   );

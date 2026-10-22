@@ -867,7 +867,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
   if (!context) redirect(bankActionPath(formData, { error: "staff_batch_line" }, "debit"));
   const { line, statement, remaining } = context;
   const { data: liabilities } = await supabase
-    .from("staff_reimbursement_liabilities")
+    .from("staff_reimbursement_balances")
     .select("id, expense_id, amount")
     .in("id", liabilityIds)
     .eq("staff_id", staffId)
@@ -888,7 +888,7 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
   if (
     (liabilities ?? []).length !== liabilityIds.length ||
     (companyExpenses ?? []).length !== liabilityIds.length ||
-    Math.abs(selectedTotal - Math.abs(remaining)) > 0.005
+    (Math.abs(selectedTotal - Math.abs(remaining)) > 0.005 && !(liabilityIds.length === 1 && selectedTotal > Math.abs(remaining)))
   ) {
     redirect(
       bankActionPath(formData, {
@@ -918,64 +918,13 @@ export async function reconcileStaffPayoutFromBankLine(formData: FormData) {
     );
   }
 
-  const { data: payoutId, error: payoutError } = await supabase.rpc(
-    "record_staff_reimbursement_payout",
-    {
-      target_staff_id: staffId,
-      liability_ids: liabilityIds,
-      payout_source: "company_bank",
-      payout_date: line.transaction_date,
-      payout_reference: line.reference_number || `BANK-${line.id.slice(0, 8)}`,
-      payout_notes: `Created from bank reconciliation. Statement line: ${line.description}`,
-      payout_proof_bucket: "reimbursement-proofs",
-      payout_proof_path: proofPath,
-      payout_proof_content_type: "application/json",
-      payout_recorded_by: user.id,
-    },
-  );
-  if (payoutError || !payoutId) {
-    await supabase.storage.from("reimbursement-proofs").remove([proofPath]);
-    redirect(
-      bankActionPath(formData, {
-        statement: line.statement_import_id,
-        error: "staff_batch_create",
-      }),
-    );
-  }
-
-  const { error: matchError } = await supabase
-    .from("bank_reconciliation_matches")
-    .insert({
-      statement_line_id: line.id,
-      source_type: "staff_reimbursement_payout",
-      source_id: payoutId,
-      matched_amount: remaining,
-      match_method: liabilityIds.length > 1 ? "merge" : "manual",
-      created_by: user.id,
-    });
-  if (matchError) {
-    redirect(
-      bankActionPath(formData, {
-        statement: line.statement_import_id,
-        error: "staff_batch_match",
-      }),
-    );
-  }
-  await supabase.from("accounting_audit_logs").insert({
-    company_id: company.id,
-    entity_type: "bank_statement_line",
-    entity_id: line.id,
-    action: "reconcile_multiple_staff_claims",
-    after_data: {
-      staff_reimbursement_payout_id: payoutId,
-      staff_id: staffId,
-      liability_ids: liabilityIds,
-      amount: Math.abs(remaining),
-    },
-    reason: "One bank transfer reimbursed multiple retained staff claim receipts.",
-    performed_by: user.id,
+  const { error: payoutError } = await supabase.rpc("settle_staff_claims_from_bank", {
+    p_line: line.id, p_actor: user.id, p_staff: staffId, p_ids: liabilityIds, p_proof: proofPath,
   });
-  await refreshLineStatus(supabase, line.id);
+  if (payoutError) {
+    await supabase.storage.from("reimbursement-proofs").remove([proofPath]);
+    redirect(bankActionPath(formData, { statement: line.statement_import_id, error: "staff_batch_create" }));
+  }
   revalidatePath("/reports");
   revalidatePath("/expenses");
   revalidatePath("/claims");

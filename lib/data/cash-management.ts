@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCompanies } from "./organization";
+import { getClaimPayables } from "@/lib/accounting/claim-payables";
 
 export type CompanyCashSummary = {
   companyId: string;
@@ -135,6 +136,7 @@ export async function getCashManagementSummary(): Promise<CashManagementSummary>
     (profiles ?? []).map((profile) => [profile.id, profile.full_name?.trim() || "Admin"]),
   );
   const companyNames = new Map(companies.map((company) => [company.id, company.name]));
+  const claimBalances = new Map(await Promise.all(companies.map(async company => [company.id, await getClaimPayables(supabase, company.id, new Date().toLocaleDateString("en-CA", {timeZone:"Asia/Kuala_Lumpur"}))] as const)));
 
   const companySummaries = companies.map((company) => {
     const companyPayments = payments.filter((payment) => payment.company_id === company.id);
@@ -146,26 +148,12 @@ export async function getCashManagementSummary(): Promise<CashManagementSummary>
     const directCashExpenses = companyExpenses.filter(
       (expense) => expense.funding_source === "company_cash",
     );
-    const cashReimbursements = companyExpenses.filter(
-      (expense) =>
-        expense.funding_source === "staff_personal"
-        && expense.status === "reimbursed"
-        && expense.reimbursement_source === "company_cash",
-    );
     const paidOutOfCash = sum(
-      [...directCashExpenses, ...cashReimbursements].map((expense) =>
+      directCashExpenses.map((expense) =>
         Number(expense.amount ?? 0),
       ),
-    );
-    const owedToStaff = sum(
-      companyExpenses
-        .filter(
-          (expense) =>
-            expense.funding_source === "staff_personal"
-            && expense.status === "verified",
-        )
-        .map((expense) => Number(expense.amount ?? 0)),
-    );
+    ) + sum((claimBalances.get(company.id) ?? []).map(claim => claim.cashReimbursed));
+    const owedToStaff = sum((claimBalances.get(company.id) ?? []).map(claim => claim.remaining));
     const bankedIn = sum(companyBankIns.map((bankIn) => Number(bankIn.amount ?? 0)));
 
     return {

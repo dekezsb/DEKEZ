@@ -1,4 +1,6 @@
 import { FileImage, ReceiptText } from "lucide-react";
+import { randomUUID } from "node:crypto";
+import { getCurrentUser, getFirstCompany } from "@/lib/data/organization";
 import { AddExpenseForm } from "@/components/expenses/add-expense-form";
 import { BillSections } from "@/components/expenses/bill-sections";
 import {
@@ -50,6 +52,7 @@ type ExpenseRecord = {
   uploaded_by: string | null;
   verified_at: string | null;
   created_at: string;
+  updated_at: string;
   expense_categories?: { name: string } | { name: string }[] | null;
   properties?: { name: string } | { name: string }[] | null;
   units?: { name: string } | { name: string }[] | null;
@@ -79,17 +82,19 @@ type PageProps = {
     category?: string;
     status?: string;
     charge_to?: string;
+    claims?: string;
   }>;
 };
 
 const errorMessages: Record<string, string> = {
-  missing: "Please enter amount and category.",
+  missing: "Receipt (PDF/JPG/PNG/WebP, up to 3 MB), expense date and positive amount are required. Select a claimant for a claimable expense. Category and maintenance ticket are optional.",
+  review_category: "Select the accounting category and confirm a positive amount before verification.",
   create: "Expense could not be saved.",
   upload: "Receipt upload failed.",
   category_missing: "Please enter a category name.",
   category_create: "Category could not be created.",
   review_missing: "Choose an expense and review action.",
-  review: "Expense review could not be saved.",
+  review: "Review could not be saved. Check category, claimant and property/room links. Posted, changed or locked-period bills cannot be overwritten; refresh before retrying.",
   payment_missing:
     "Select at least one bill, enter the payment details, and attach a bank slip or card statement up to 3 MB.",
   payment_changed:
@@ -166,9 +171,10 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     "technician",
     "maintenance_staff",
     "cleaning_staff",
-  ]);
+  ], { module: "expenses", level: "view" });
+  const [user, company] = await Promise.all([getCurrentUser(), getFirstCompany()]);
   const params = await searchParams;
-  const supabase = await getAdmin();
+  const supabase = ["super_admin", "admin"].includes(role) ? await getAdmin() : await createClient();
   const currentDate = new Date();
   const malaysiaToday = currentDate.toLocaleDateString("en-CA", {
     timeZone: "Asia/Kuala_Lumpur",
@@ -180,7 +186,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
 
   let expenseQuery = supabase
     .from("expenses")
-    .select("id, property_id, unit_id, room_id, maintenance_ticket_id, claim_id, category_id, expense_date, amount, tax_amount, supplier, description, paid_by, payment_method, funding_source, reimbursement_source, payment_status, paid_at, charge_to, status, tax_claimable, uploaded_by, verified_at, created_at, expense_categories(name), properties(name), units(name), rooms(name, room_number), maintenance_tickets(ticket_number)")
+    .select("id, property_id, unit_id, room_id, maintenance_ticket_id, claim_id, category_id, expense_date, amount, tax_amount, supplier, description, paid_by, payment_method, funding_source, reimbursement_source, payment_status, paid_at, charge_to, status, tax_claimable, uploaded_by, verified_at, created_at, updated_at, expense_categories(name), properties(name), units(name), rooms(name, room_number), maintenance_tickets(ticket_number)")
     .order("expense_date", { ascending: false });
 
   if (selectedMonth && selectedYear) {
@@ -201,6 +207,10 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   if (params.charge_to) {
     expenseQuery = expenseQuery.eq("charge_to", params.charge_to);
   }
+  if (company) expenseQuery = expenseQuery.eq("company_id", company.id);
+  if (!canVerify && user) expenseQuery = expenseQuery.eq("uploaded_by", user.id);
+  if (params.claims === "claimable" || params.claims === "outstanding") expenseQuery = expenseQuery.eq("funding_source", "staff_personal");
+  if (params.claims === "outstanding") expenseQuery = expenseQuery.eq("status", "verified").neq("payment_status", "paid");
 
   const [
     expensesResult,
@@ -224,7 +234,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     supabase.from("rooms").select("id, property_id, unit_id, name, room_number").order("name", { ascending: true }),
     supabase.from("maintenance_tickets").select("id, ticket_number, description, status").order("created_at", { ascending: false }).limit(100),
     supabase.from("claims").select("id, description, status, total_amount").order("submitted_at", { ascending: false }).limit(100),
-    supabase.from("profiles").select("id, full_name, role").order("full_name", { ascending: true }),
+    supabase.from("profiles").select("id, full_name, role").neq("role", "tenant").order("full_name", { ascending: true }),
     canRecordPayments
       ? supabase
           .from("expenses")
@@ -242,16 +252,16 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           .order("created_at", { ascending: false })
           .limit(50)
       : Promise.resolve({ data: [], error: null }),
-    canRecordPayments
+    user
       ? supabase
-          .from("staff_reimbursement_liabilities")
-          .select("id, claim_id, expense_id, staff_id, amount, status, owed_at, paid_at, payout_id")
+          .from("staff_reimbursement_balances")
+          .select("id, claim_id, expense_id, staff_id, amount, original_amount, reimbursed_amount, status, owed_at, paid_at, payout_id")
           .order("owed_at", { ascending: true })
       : Promise.resolve({ data: [], error: null }),
     canRecordPayments
       ? supabase
           .from("staff_reimbursement_payouts")
-          .select("id, staff_id, total_amount, payment_source, paid_on, reference_number, notes, proof_bucket_name, proof_file_path, proof_content_type, retain_until, recorded_by, created_at")
+          .select("id, staff_id, total_amount, payment_source, paid_on, reference_number, notes, proof_bucket_name, proof_file_path, proof_content_type, retain_until, recorded_by, created_at, staff_reimbursement_allocations(liability_id, amount)")
           .order("paid_on", { ascending: false })
           .order("created_at", { ascending: false })
           .limit(20)
@@ -271,7 +281,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const rooms = roomsResult.data ?? [];
   const tickets = ticketsResult.data ?? [];
   const claims = claimsResult.data ?? [];
-  const profiles = profilesResult.data ?? [];
+  const profiles = (profilesResult.data ?? []).filter(profile => canVerify || profile.id === user?.id);
   const profileById = new Map(profiles.map((profile) => [profile.id, profile.full_name ?? profile.id]));
   const profileDetailsById = new Map(
     (payoutProfilesResult.data ?? []).map((profile) => [
@@ -281,6 +291,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   );
   const reimbursementLiabilities =
     reimbursementLiabilitiesResult.data ?? [];
+  const liabilityByExpense = new Map(reimbursementLiabilities.map(item => [item.expense_id, item]));
   const reimbursementPayouts = reimbursementPayoutsResult.data ?? [];
   const payableExpenses: PayableExpense[] = (payableExpensesResult.data ?? []).map(
     (expense) => {
@@ -411,6 +422,11 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       (liabilityCountByPayout.get(liability.payout_id) ?? 0) + 1,
     );
   }
+  for (const payout of reimbursementPayouts) {
+    if (payout.staff_reimbursement_allocations?.length) {
+      liabilityCountByPayout.set(payout.id, payout.staff_reimbursement_allocations.length);
+    }
+  }
 
   const [attachmentsResult, paymentAllocationsResult] = expenses.length
     ? await Promise.all([
@@ -496,8 +512,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       ) : null}
       {params.payout_recorded === "1" ? (
         <div className="rounded-lg border border-[#126b5f]/30 bg-white px-4 py-3 text-sm font-medium text-[#126b5f] shadow-sm">
-          Staff payout recorded. The selected bills are no longer company
-          owing and the bank slip is retained with the payee record.
+          Reimbursement recorded against the existing payable. Any unpaid balance remains outstanding; the original expense is unchanged.
         </div>
       ) : null}
       {params.error ? (
@@ -507,6 +522,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       ) : null}
 
       <AddExpenseForm
+        submissionId={randomUUID()}
         categories={categories}
         claims={claims}
         profiles={profiles}
@@ -784,6 +800,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
               </select>
             </label>
             <Button className="lg:col-span-6" type="submit" variant="outline">Apply filters</Button>
+            <label className="block"><span className="text-sm font-medium">Claim filter</span><select className="mt-2 w-full rounded-md border px-3 py-2" name="claims" defaultValue={params.claims ?? ""}><option value="">All expenses</option><option value="claimable">Claimable Expenses</option><option value="outstanding">Outstanding Claims</option></select></label>
           </form>
         </CardContent>
       </Card>
@@ -807,7 +824,10 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
               </CardHeader>
               <CardContent className="space-y-3">
                 {monthExpenses.map((expense) => {
-                  const category = single(expense.expense_categories)?.name ?? "Other";
+                  const category = single(expense.expense_categories)?.name ?? "Awaiting category";
+                  const liability = liabilityByExpense.get(expense.id);
+                  const claimReceived = Number(liability?.reimbursed_amount ?? (expense.status === "reimbursed" ? expense.amount : 0));
+                  const claimOutstanding = Number(liability?.amount ?? (expense.status === "verified" ? expense.amount : 0));
                   const property = single(expense.properties)?.name ?? "General Company Expense";
                   const room = single(expense.rooms);
                   const ticket = single(expense.maintenance_tickets);
@@ -823,8 +843,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                     expense.funding_source === "staff_personal"
                       ? expense.payment_status === "paid" ||
                         expense.status === "reimbursed"
-                        ? "paid back to staff"
-                        : "owed to staff"
+                        ? "Fully Reimbursed"
+                        : expense.status !== "verified" ? "Claim awaiting verification" : claimReceived > 0 ? "Partially Reimbursed" : "Claim Outstanding"
                       : expense.payment_status === "paid"
                         ? "paid"
                         : expense.status === "verified"
@@ -863,6 +883,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                             {room ? ` - ${room.room_number ?? room.name}` : ""}
                           </p>
                           <p className="text-sm text-[#496386]">Uploaded by {profileById.get(expense.uploaded_by ?? "") ?? "-"}</p>
+                          <p className="text-sm text-[#496386]">Paid by: {expense.funding_source === "staff_personal" ? `Staff / Director — ${profileById.get(expense.paid_by ?? "") ?? "Claimant"}` : "Company"}</p>
+                          {expense.funding_source === "staff_personal" ? <p className="text-sm font-medium">Reimbursed: {money(claimReceived)} · Claim outstanding: {expense.status === "pending_verification" ? "Awaiting verification" : money(claimOutstanding)}</p> : null}
                         </div>
                         <span className="text-sm font-medium text-[#b98a2c]">View details</span>
                       </summary>
@@ -938,9 +960,12 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                                )}
                              </div>
                            ) : null}
-                           {canVerify && !paymentBatchId ? (
+                           {canVerify && !paymentBatchId && ["pending_verification", "draft"].includes(expense.status) ? (
                              <form action={reviewExpense} className="grid gap-3">
                               <input name="expenseId" type="hidden" value={expense.id} />
+                              <input name="version" type="hidden" value={expense.updated_at} />
+                              <input name="claimId" type="hidden" value={expense.claim_id ?? ""} />
+                              <input name="taxAmount" type="hidden" value={Number(expense.tax_amount ?? 0)} />
                               <label className="block">
                                 <span className="text-sm font-medium text-gray-700">
                                   Bill date
@@ -963,6 +988,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                               <label className="block">
                                 <span className="text-sm font-medium text-gray-700">Category</span>
                                 <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="categoryId" defaultValue={expense.category_id ?? ""}>
+                                  <option value="">Choose category before verifying</option>
                                   {categories.map((categoryItem) => <option key={categoryItem.id} value={categoryItem.id}>{categoryItem.name}</option>)}
                                 </select>
                               </label>
@@ -989,24 +1015,13 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
                                   <option value="staff_personal">Staff personal money</option>
                                 </select>
                               </label>
-                              <label className="block">
-                                <span className="text-sm font-medium text-gray-700">When reimbursing, pay from</span>
-                                <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="reimbursementSource" defaultValue={expense.reimbursement_source ?? "company_bank"}>
-                                  <option value="company_bank">Company bank</option>
-                                  <option value="company_cash">Company cash</option>
-                                </select>
-                              </label>
+                              <label className="block">Claimant (required if claimable)<select className="mt-2 w-full rounded-md border px-3 py-2" name="paidBy" defaultValue={expense.paid_by ?? ""}><option value="">Select claimant</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.full_name ?? p.id}</option>)}</select></label>
+                              <label className="block">Unit (optional)<select className="mt-2 w-full rounded-md border px-3 py-2" name="unitId" defaultValue={expense.unit_id ?? ""}><option value="">No unit</option>{units.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+                              <label className="block">Room (optional)<select className="mt-2 w-full rounded-md border px-3 py-2" name="roomId" defaultValue={expense.room_id ?? ""}><option value="">No room</option>{rooms.map(p => <option key={p.id} value={p.id}>{p.room_number ?? p.name}</option>)}</select></label>
+                              <label className="block">Maintenance ticket (optional)<select className="mt-2 w-full rounded-md border px-3 py-2" name="maintenanceTicketId" defaultValue={expense.maintenance_ticket_id ?? ""}><option value="">No ticket</option>{tickets.map(p => <option key={p.id} value={p.id}>{p.ticket_number ?? p.id}</option>)}</select></label>
                               <input className="rounded-md border border-[#d7dde5] px-3 py-2" name="rejectionReason" placeholder="Reason if rejecting" />
                               <div className="grid gap-2 sm:grid-cols-3">
                                 <Button name="decision" type="submit" value="verified">Verify</Button>
-                                {expense.claim_id &&
-                                expense.funding_source === "staff_personal" ? (
-                                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs font-medium text-amber-800">
-                                    Pay through Staff AP Payments above
-                                  </div>
-                                ) : (
-                                  <Button name="decision" type="submit" value="reimbursed" variant="outline">Reimbursed</Button>
-                                )}
                                 <Button className="border-red-200 text-red-700 hover:bg-red-50" name="decision" type="submit" value="rejected" variant="outline">Reject</Button>
                               </div>
                             </form>

@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import { createExpense } from "@/app/expenses/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +25,7 @@ export function AddExpenseForm({
   rooms,
   tickets,
   units,
+  submissionId,
 }: {
   categories: Option[];
   claims: Array<{
@@ -37,7 +42,9 @@ export function AddExpenseForm({
     status: string;
   }>;
   units: Option[];
+  submissionId: string;
 }) {
+  const [fundingSource, setFundingSource] = useState("company_cash");
   const inputClass =
     "mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2";
 
@@ -53,29 +60,32 @@ export function AddExpenseForm({
       </CardHeader>
       <CardContent>
         <form action={createExpense} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <input type="hidden" name="submissionId" value={submissionId} />
           <label className="block md:col-span-2">
             <span className="text-sm font-medium text-gray-700">
               Receipt / invoice
             </span>
             <input
-              accept="image/*,.pdf"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
               capture="environment"
               className={inputClass}
               name="receipt"
+              required
               type="file"
             />
+            <span className="text-xs text-gray-500">PDF, JPG, PNG or WebP, up to 3 MB.</span>
           </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">
               Expense date
             </span>
-            <input className={inputClass} name="expenseDate" type="date" />
+            <input className={inputClass} name="expenseDate" type="date" required />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700">Amount RM</span>
             <input
               className={inputClass}
-              min="0"
+              min="0.01"
               name="amount"
               required
               step="0.01"
@@ -95,9 +105,9 @@ export function AddExpenseForm({
             />
           </label>
           <label className="block">
-            <span className="text-sm font-medium text-gray-700">Category</span>
-            <select className={inputClass} name="categoryId" required>
-              <option value="">Choose category</option>
+            <span className="text-sm font-medium text-gray-700">Category (optional)</span>
+            <select className={inputClass} name="categoryId">
+              <option value="">Admin will select during verification</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
@@ -180,17 +190,18 @@ export function AddExpenseForm({
             </span>
             <input className={inputClass} name="receiptNumber" />
           </label>
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">Paid by</span>
-            <select className={inputClass} name="paidBy">
-              <option value="">Current user</option>
+          {fundingSource === "staff_personal" ? <label className="block">
+            <span className="text-sm font-medium text-gray-700">Claimant — Staff / Director *</span>
+            <select className={inputClass} name="paidBy" required>
+              <option value="">Select claimant</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {profile.full_name ?? profile.id}
                 </option>
               ))}
             </select>
-          </label>
+            <span className="mt-1 block text-xs text-gray-500">Unpaid claim · awaiting admin verification. No company bank payment is recorded.</span>
+          </label> : null}
           <label className="block">
             <span className="text-sm font-medium text-gray-700">
               Payment method
@@ -206,21 +217,21 @@ export function AddExpenseForm({
             </select>
           </label>
           <label className="block">
-            <span className="text-sm font-medium text-gray-700">Paid from</span>
+            <span className="text-sm font-medium text-gray-700">Paid by / Payment source *</span>
             <select
               className={inputClass}
-              defaultValue="company_cash"
+              value={fundingSource}
+              onChange={(event) => setFundingSource(event.target.value)}
               name="fundingSource"
             >
               <option value="company_cash">Company cash in hand</option>
               <option value="company_bank">Company bank / company card</option>
               <option value="staff_personal">
-                Staff personal money (company owes staff)
+                Staff / Director - Claimable
               </option>
             </select>
             <span className="mt-1 block text-xs text-gray-500">
-              Bank and company-card bills wait for payment proof. Cash purchases
-              are treated as paid immediately.
+              All submissions await admin review. Company cash follows the existing cash flow after verification; claimable bills create a payable, not a company bank payment.
             </span>
           </label>
           <label className="block">
@@ -237,7 +248,7 @@ export function AddExpenseForm({
           </label>
           <label className="block md:col-span-2 xl:col-span-3">
             <span className="text-sm font-medium text-gray-700">
-              Description
+              Claim reference / notes (optional)
             </span>
             <textarea
               className={`${inputClass} min-h-24`}
@@ -248,11 +259,14 @@ export function AddExpenseForm({
             <input name="taxClaimable" type="checkbox" />
             Tax claimable
           </label>
-          <Button className="md:col-span-2 xl:col-span-4" type="submit">
-            Submit expense
-          </Button>
+          <SubmitExpenseButton />
         </form>
       </CardContent>
     </Card>
   );
+}
+
+function SubmitExpenseButton() {
+  const { pending } = useFormStatus();
+  return <Button className="md:col-span-2 xl:col-span-4" type="submit" disabled={pending}>{pending ? "Submitting…" : "Submit for verification"}</Button>;
 }

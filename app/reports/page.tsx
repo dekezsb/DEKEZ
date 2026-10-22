@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getClaimPayables } from "@/lib/accounting/claim-payables";
 import { HistoricalCreditCleanup } from "@/components/accounting/historical-credit-cleanup";
 import { historicalStatementRange, septemberStatementRange } from "@/lib/accounting/historical-credit";
 import { TenantPaymentReconciliation } from "@/components/accounting/tenant-payment-reconciliation";
@@ -257,7 +258,7 @@ const errorMessages: Record<string, string> = {
   paid_receipts_match: "The paid receipt group could not be matched to this statement line.",
   staff_batch_details: "Choose one staff member and the claim receipts covered by this transfer.",
   staff_batch_line: "This bank line is no longer available for staff reimbursement.",
-  staff_batch_total: "The selected claims must belong to one staff member and equal the remaining bank amount exactly.",
+  staff_batch_total: "Select claims for one payee. One claim may be reimbursed partially; multiple selected claims must total the remaining bank amount.",
   staff_batch_proof: "The retained statement link for this staff payout could not be saved.",
   staff_batch_create: "The combined staff reimbursement could not be recorded.",
   staff_batch_match: "The staff payout was saved, but its bank match needs review. It remains available under recorded payments.",
@@ -316,7 +317,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     allReportRows(supabase.from("bank_statement_imports").select("*").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false })),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, description, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
     getBankCandidates(supabase, company.id),
-    supabase.from("staff_reimbursement_liabilities").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
+    supabase.from("staff_reimbursement_balances").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
     allReportRows(supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false })),
     allReportRows(supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate)),
     supabase.from("bank_reconciliation_rules").select("id, bank_account_id, direction, bank_description_key, accounting_account_id, property_id, default_description, use_count").eq("company_id", company.id),
@@ -604,12 +605,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const companyPayable = companyBatchRows
     .filter((expense) => expense.expense_date <= endDate)
     .reduce((total, expense) => total + Number(expense.amount ?? 0), 0) + manualNormalBalance("accounts_payable");
-  const staffPayableAsOf = companyLiabilities.reduce((total, liability) => {
-    const expense = liabilityExpenses.get(liability.expense_id);
-    return expense?.expense_date && expense.expense_date <= endDate
-      ? total + Number(liability.amount ?? 0)
-      : total;
-  }, 0) + manualNormalBalance("staff_reimbursement_payable");
+  const datedClaimPayables = (await getClaimPayables(supabase, company.id, endDate))
+    .filter(claim => !selectedPropertyId || claim.expense.property_id === selectedPropertyId);
+  const staffPayableAsOf = datedClaimPayables.reduce((total, claim) => total + claim.remaining, 0) + manualNormalBalance("staff_reimbursement_payable");
   const bankAccountLedgerIds = new Set(bankAccounts.map((account) => account.accounting_account_id).filter(Boolean));
   const latestStatementByBank = new Map<string, (typeof statementImports)[number]>();
   for (const statement of statementImports) {
@@ -938,10 +936,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     }
     for (const payment of depositPaymentsResult.data ?? []) base.push({...depositHeld, id: `deposit-${payment.id}`, date: payment.payment_date, reference: payment.id, description: "Confirmed tenant deposit receipt", propertyId: payment.property_id, propertyName: propertyName(payment.property_id), amount: Number(payment.amount), source: "Deposit payment"});
     for (const expense of companyBatchRows) base.push({...companyAP, id: `bill-${expense.id}`, date: expense.expense_date, reference: expense.id, description: [expense.supplier, expense.description].filter(Boolean).join(" · "), propertyId: expense.property_id, propertyName: propertyName(expense.property_id), amount: Number(expense.amount), source: "Verified bill currently unpaid"});
-    for (const liability of companyLiabilities) {
-      const expense = liabilityExpenses.get(liability.expense_id);
-      if (!expense) continue;
-      base.push({...staffAP, id: `staff-${liability.id}`, date: expense.expense_date, reference: expense.id, description: `${staffNames.get(liability.staff_id) ?? "Staff"} · ${expense.description ?? expense.supplier ?? "Claim"}`, propertyId: expense.property_id, propertyName: propertyName(expense.property_id), amount: Number(liability.amount), source: "Claim currently awaiting reimbursement"});
+    for (const claim of datedClaimPayables) {
+      const expense = claim.expense;
+      base.push({...staffAP, id: `staff-${claim.id}`, date: expense.expense_date, reference: expense.id, description: `${staffNames.get(claim.staffId) ?? "Staff / Director"} · ${expense.description ?? expense.supplier ?? "Claim"}`, propertyId: expense.property_id, propertyName: propertyName(expense.property_id), amount: claim.remaining, source: "Claim less reimbursements up to report date"});
     }
     const addPosting = (accountId: string, id: string, date: string, reference: string, description: string, propertyId: string | null, netDebit: number, source: string, sourceHref?: string) => {
       const account = byId.get(accountId);

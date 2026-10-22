@@ -406,12 +406,14 @@ export function BankReceiptBatchForm({
             selectedCount={selectedCount}
             selectedTotal={selectedTotal}
             target={target}
+            partialClaim={selectedCount === 1 && selectedTotal > target}
           />
-          <CategoryLineSummary items={selectedItems} />
+          <p className="text-sm text-blue-800">Settlement of existing Staff / Director Claim Payable only. Expense categories and amounts remain unchanged.</p>
           <SubmitBatch
-            disabled={!staffId || !selectedCount || !exact}
+            disabled={!staffId || !selectedCount || (!exact && !(selectedCount === 1 && selectedTotal > target))}
             label={`Pay staff, clear ${selectedCount} claim${selectedCount === 1 ? "" : "s"} & reconcile`}
           />
+          {selectedCount === 1 && selectedTotal > target ? <p className="text-sm text-amber-800">Partial reimbursement: apply {currency.format(target)} to the selected claim and leave {currency.format(selectedTotal-target)} outstanding. No second expense is recorded.</p> : null}
         </form>
       )}
 
@@ -457,11 +459,13 @@ function BatchSummary({
   selectedCount,
   selectedTotal,
   target,
+  partialClaim = false,
 }: {
   difference: number;
   selectedCount: number;
   selectedTotal: number;
   target: number;
+  partialClaim?: boolean;
 }) {
   const exact = Math.abs(difference) < 0.005;
   return (
@@ -475,9 +479,9 @@ function BatchSummary({
         <strong className="mt-1 block text-lg">{currency.format(selectedTotal)}</strong>
       </div>
       <div>
-        <span className="text-gray-600">Difference must be RM0.00</span>
-        <strong className={`mt-1 block text-lg ${exact ? "text-emerald-700" : "text-red-600"}`}>
-          {currency.format(difference)}
+        <span className="text-gray-600">{partialClaim ? "Claim remaining after reimbursement" : "Difference must be RM0.00"}</span>
+        <strong className={`mt-1 block text-lg ${exact || partialClaim ? "text-emerald-700" : "text-red-600"}`}>
+          {currency.format(partialClaim ? -difference : difference)}
         </strong>
       </div>
     </div>

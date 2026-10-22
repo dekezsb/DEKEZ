@@ -60,8 +60,8 @@ export async function getBankCandidates(
       .in("payment_method", ["company_bank", "company_card", "cheque"]),
     supabase
       .from("staff_reimbursement_payouts")
-      .select("id, paid_on, total_amount, reference_number, payment_source")
-      .eq("payment_source", "company_bank"),
+      .select("id, company_id, staff_id, paid_on, total_amount, reference_number, payment_source")
+      .eq("payment_source", "company_bank").or(`company_id.eq.${companyId},company_id.is.null`),
     supabase
       .from("cash_bank_ins")
       .select("id, banked_on, amount, reference_number, bank_name, status")
@@ -100,12 +100,12 @@ export async function getBankCandidates(
     payoutIds.length
       ? supabase
           .from("staff_reimbursement_liabilities")
-          .select("payout_id, staff_id, amount, expenses(supplier, description)")
+          .select("payout_id, staff_id, amount, expenses(supplier, description, company_id)")
           .in("payout_id", payoutIds)
       : Promise.resolve({ data: [] }),
   ]);
   const payoutStaffIds = Array.from(
-    new Set((payoutLiabilities ?? []).map((item) => item.staff_id).filter(Boolean)),
+    new Set((payoutsResult.data ?? []).map((item) => item.staff_id).filter(Boolean)),
   );
   const { data: payoutStaffProfiles } = payoutStaffIds.length
     ? await supabase.from("profiles").select("id, full_name").in("id", payoutStaffIds)
@@ -126,11 +126,13 @@ export async function getBankCandidates(
   }
   const payoutItems = new Map<string, string[]>();
   const payoutPayee = new Map<string, string>();
+  const legacyCompanyPayoutIds = new Set<string>();
   for (const liability of payoutLiabilities ?? []) {
     if (!liability.payout_id) continue;
     const expense = Array.isArray(liability.expenses)
       ? liability.expenses[0]
       : liability.expenses;
+    if (expense?.company_id === companyId) legacyCompanyPayoutIds.add(liability.payout_id);
     const values = payoutItems.get(liability.payout_id) ?? [];
     values.push(
       `${expense?.supplier || expense?.description || "Claim receipt"} ${numberValue(liability.amount).toFixed(2)}`,
@@ -237,13 +239,16 @@ export async function getBankCandidates(
   }
 
   for (const payout of payoutsResult.data ?? []) {
-    const items = payoutItems.get(payout.id) ?? [];
+    if (payout.company_id !== companyId && !legacyCompanyPayoutIds.has(payout.id)) continue;
+    // Legacy payouts covered whole bills. New payouts can be partial, so do
+    // not label a partial transfer with the bill's original full amount.
+    const items = payout.company_id ? [] : payoutItems.get(payout.id) ?? [];
     candidates.push({
       sourceType: "staff_reimbursement_payout",
       sourceId: payout.id,
       date: payout.paid_on,
       amount: -Math.abs(numberValue(payout.total_amount)),
-      description: `Staff reimbursement · ${payoutPayee.get(payout.id) ?? "Staff member"} · ${items.length} claim${items.length === 1 ? "" : "s"}${items.length ? ` · ${items.slice(0, 3).join(" + ")}${items.length > 3 ? " + more" : ""}` : ""}`,
+      description: `Staff / Director reimbursement · ${payoutStaffNames.get(payout.staff_id) ?? payoutPayee.get(payout.id) ?? "Claimant"} · existing payable settlement${items.length ? ` · ${items.slice(0, 3).join(" + ")}` : ""}`,
       referenceNumber: payout.reference_number,
       propertyId: null,
     });

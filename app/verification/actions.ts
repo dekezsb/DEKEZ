@@ -809,10 +809,11 @@ export async function recordStaffReimbursementPayout(formData: FormData) {
   }
 
   const { error: payoutError } = await supabase.rpc(
-    "record_staff_reimbursement_payout",
+    "record_staff_reimbursement_partial",
     {
+      p_id: textValue(formData, "payoutRequestId") || crypto.randomUUID(),
       target_staff_id: staffId,
-      liability_ids: liabilityIds,
+      p_allocations: liabilityIds.map(id => ({ id, amount: textValue(formData, `allocation_${id}`) || null })),
       payout_source: paymentSource,
       payout_date: paidOn,
       payout_reference: referenceNumber,
