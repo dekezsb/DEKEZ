@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { DocumentPreview } from "@/components/ui/document-preview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
+import { signFileUrls } from "@/lib/storage/signed-urls";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -309,22 +310,13 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       };
     },
   );
-  const paymentBatches = await Promise.all(
-    (paymentBatchesResult.data ?? []).map(async (batch) => {
-      const { data } = await supabase.storage
-        .from(batch.proof_bucket_name)
-        .createSignedUrl(batch.proof_file_path, 60 * 10);
-      return { ...batch, signedUrl: data?.signedUrl ?? null };
-    }),
-  );
-  const reimbursementPayoutsWithProof = await Promise.all(
-    reimbursementPayouts.map(async (payout) => {
-      const { data } = await supabase.storage
-        .from(payout.proof_bucket_name)
-        .createSignedUrl(payout.proof_file_path, 60 * 10);
-      return { ...payout, signedUrl: data?.signedUrl ?? null };
-    }),
-  );
+  const batchRows = paymentBatchesResult.data ?? [];
+  const proofUrls = await signFileUrls(supabase, [...batchRows, ...reimbursementPayouts]
+    .map(p => ({ bucket: p.proof_bucket_name, path: p.proof_file_path })), 60 * 10);
+  const paymentBatches = batchRows.map((batch, index) => ({ ...batch, signedUrl: proofUrls[index] }));
+  const reimbursementPayoutsWithProof = reimbursementPayouts.map((payout, index) => ({
+    ...payout, signedUrl: proofUrls[batchRows.length + index],
+  }));
 
   const owedLiabilities = reimbursementLiabilities.filter(
     (liability) => liability.status === "owed",
@@ -351,17 +343,13 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       expense,
     ]),
   );
-  const liabilityAttachmentsWithUrls = await Promise.all(
-    (liabilityAttachmentsResult.data ?? []).map(async (attachment) => {
-      const { data } = await supabase.storage
-        .from(attachment.bucket_name || "expense-receipts")
-        .createSignedUrl(attachment.file_path, 60 * 10);
-      return {
-        ...attachment,
-        signedUrl: data?.signedUrl ?? null,
-      };
-    }),
-  );
+  const liabilityAttachmentRows = liabilityAttachmentsResult.data ?? [];
+  const liabilityUrls = await signFileUrls(supabase, liabilityAttachmentRows.map(a => ({
+    bucket: a.bucket_name || "expense-receipts", path: a.file_path,
+  })), 60 * 10);
+  const liabilityAttachmentsWithUrls = liabilityAttachmentRows.map((attachment, index) => ({
+    ...attachment, signedUrl: liabilityUrls[index],
+  }));
   const liabilityReceiptsByExpense = new Map<
     string,
     { fileName: string; url: string }[]
@@ -451,14 +439,13 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     paymentBatches.map((batch) => [batch.id, batch]),
   );
 
-  const attachmentsWithUrls = await Promise.all(
-    ((attachmentsData ?? []) as AttachmentRecord[]).map(async (attachment) => {
-      const { data } = await supabase.storage
-        .from("expense-receipts")
-        .createSignedUrl(attachment.file_path, 60 * 10);
-      return { ...attachment, signedUrl: data?.signedUrl ?? null };
-    }),
-  );
+  const attachmentRows = (attachmentsData ?? []) as AttachmentRecord[];
+  const receiptUrls = await signFileUrls(supabase, attachmentRows.map(a => ({
+    bucket: "expense-receipts", path: a.file_path,
+  })), 60 * 10);
+  const attachmentsWithUrls = attachmentRows.map((attachment, index) => ({
+    ...attachment, signedUrl: receiptUrls[index],
+  }));
   const attachmentsByExpense = new Map<string, AttachmentRecord[]>();
   for (const attachment of attachmentsWithUrls) {
     const list = attachmentsByExpense.get(attachment.expense_id) ?? [];

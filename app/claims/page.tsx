@@ -16,6 +16,7 @@ import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { signFileUrls } from "@/lib/storage/signed-urls";
 
 type PageProps = {
   searchParams: Promise<{
@@ -123,12 +124,11 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
   );
   const payoutProofs = new Map<string, string | null>();
   const storageAdmin = createAdminClient();
-  for (const payout of payouts ?? []) {
-    const { data } = await storageAdmin.storage
-      .from(payout.proof_bucket_name)
-      .createSignedUrl(payout.proof_file_path, 60 * 10);
-    payoutProofs.set(payout.id, data?.signedUrl ?? null);
-  }
+  const [payoutUrls, attachmentUrls] = await Promise.all([
+    signFileUrls(storageAdmin, (payouts ?? []).map(p => ({ bucket: p.proof_bucket_name, path: p.proof_file_path })), 60 * 10),
+    signFileUrls(supabase, (attachmentsResult.data ?? []).map(a => ({ bucket: a.bucket_name, path: a.file_path })), 60 * 10),
+  ]);
+  (payouts ?? []).forEach((payout, index) => payoutProofs.set(payout.id, payoutUrls[index]));
   const attachmentsByClaim = new Map<
     string,
     {
@@ -139,16 +139,13 @@ export default async function ClaimsPage({ searchParams }: PageProps) {
     }[]
   >();
 
-  for (const attachment of attachmentsResult.data ?? []) {
-    const { data } = await supabase.storage
-      .from(attachment.bucket_name)
-      .createSignedUrl(attachment.file_path, 60 * 10);
+  for (const [index, attachment] of (attachmentsResult.data ?? []).entries()) {
     const list = attachmentsByClaim.get(attachment.claim_id) ?? [];
     list.push({
       id: attachment.id,
       contentType: attachment.content_type,
       fileName: attachment.file_path.split("/").at(-1) ?? "Receipt",
-      url: data?.signedUrl ?? null,
+      url: attachmentUrls[index],
     });
     attachmentsByClaim.set(attachment.claim_id, list);
   }

@@ -10,6 +10,7 @@ import { formatMalaysiaDate } from "@/lib/date-format";
 import { money } from "@/lib/e-tenancy";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { createClient } from "@/lib/supabase/server";
+import { signFileUrls } from "@/lib/storage/signed-urls";
 import {
   createMaintenanceTicket,
   updateMaintenanceTicketStatus,
@@ -181,18 +182,13 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
       : Promise.resolve({ data: [] }),
   ]);
 
-  const signedTicketAttachments = await Promise.all(
-    (ticketAttachments ?? []).map(async (attachment) => {
-      const { data } = await supabase.storage
-        .from(attachment.bucket_name)
-        .createSignedUrl(attachment.file_path, 60 * 10);
-      return {
-        ...attachment,
-        fileName: attachment.file_path.split("/").at(-1) ?? "Maintenance photo",
-        signedUrl: data?.signedUrl ?? null,
-      };
-    }),
-  );
+  const allAttachments = [...(ticketAttachments ?? []), ...(claimAttachments ?? [])];
+  const attachmentUrls = await signFileUrls(supabase, allAttachments.map(a => ({ bucket: a.bucket_name, path: a.file_path })), 60 * 10);
+  const signedTicketAttachments = (ticketAttachments ?? []).map((attachment, index) => ({
+    ...attachment,
+    fileName: attachment.file_path.split("/").at(-1) ?? "Maintenance photo",
+    signedUrl: attachmentUrls[index],
+  }));
   const attachmentsByTicket = new Map<
     string,
     typeof signedTicketAttachments
@@ -203,18 +199,11 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
     attachmentsByTicket.set(attachment.ticket_id, list);
   }
 
-  const signedClaimAttachments = await Promise.all(
-    (claimAttachments ?? []).map(async (attachment) => {
-      const { data } = await supabase.storage
-        .from(attachment.bucket_name)
-        .createSignedUrl(attachment.file_path, 60 * 10);
-      return {
-        ...attachment,
-        fileName: attachment.file_path.split("/").at(-1) ?? "Claim receipt",
-        signedUrl: data?.signedUrl ?? null,
-      };
-    }),
-  );
+  const signedClaimAttachments = (claimAttachments ?? []).map((attachment, index) => ({
+    ...attachment,
+    fileName: attachment.file_path.split("/").at(-1) ?? "Claim receipt",
+    signedUrl: attachmentUrls[(ticketAttachments?.length ?? 0) + index],
+  }));
   const attachmentsByClaim = new Map<
     string,
     {

@@ -48,6 +48,7 @@ import { PnlPeriodFields } from "@/components/accounting/pnl-period-fields";
 import { reportPeriod } from "@/lib/accounting/report-period";
 import { ReconciliationSubmitButton } from "@/components/accounting/reconciliation-submit-button";
 import { getBankCandidates } from "@/lib/accounting/bank-candidates";
+import { reportLoadPlan, loadProfitComparison } from "@/lib/accounting/report-loading";
 import {
   bankDescriptionKey,
   bankTenantNameMatchScore,
@@ -308,15 +309,16 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   }
 
 
+  const loadPlan = reportLoadPlan(tab);
   const [currentReport, priorReport, yearToDateReport, bankAccountsResult, statementsResult, accountsResult, candidates, liabilitiesResult, journalEntriesResult, depositPaymentsResult, reconciliationRulesResult, manualBalanceTransactionsResult, workingStatementIds, historicalClassificationsResult] = await Promise.all([
-    getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" }),
-    getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null }),
+    loadProfitComparison(loadPlan.profitComparison, () => getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.startDate : startDate, endDate: tab === "profit-loss" ? pnlDates.endDate : endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "profit-loss" })),
+    loadProfitComparison(loadPlan.profitComparison, () => getProfitLossReport(supabase, { companyId: company.id, startDate: tab === "profit-loss" ? pnlDates.priorStartDate : priorDates.startDate, endDate: tab === "profit-loss" ? pnlDates.priorEndDate : priorDates.endDate, propertyId: selectedPropertyId || null })),
     getProfitLossReport(supabase, { companyId: company.id, startDate: yearStartDate, endDate, propertyId: selectedPropertyId || null, includeDetails: tab === "balance-sheet" }),
     supabase.from("bank_accounts").select("id, name, bank_name, account_number, account_number_last4, opening_balance, opening_balance_date, is_active, accounting_account_id, accounting_accounts(code, name)").eq("company_id", company.id).eq("is_active", true).order("name"),
     // "*" keeps this read working before merged_into_statement_id is migrated; grouping then falls back to month.
     allReportRows(supabase.from("bank_statement_imports").select("*").eq("company_id", company.id).neq("status", "void").order("period_end", { ascending: false })),
     supabase.from("accounting_accounts").select("id, code, name, account_type, report_group, normal_balance, description, system_key, is_system, is_active").eq("company_id", company.id).eq("is_active", true).order("sort_order").order("code"),
-    getBankCandidates(supabase, company.id),
+    loadPlan.bankCandidates ? getBankCandidates(supabase, company.id) : Promise.resolve([]),
     supabase.from("staff_reimbursement_balances").select("id, staff_id, amount, status, expense_id, owed_at, payout_id").eq("status", "owed"),
     allReportRows(supabase.from("accounting_journal_entries").select("id, entry_date, entry_number, source_type, reference_number, description, status, posted_at, created_at").eq("company_id", company.id).eq("status", "posted").lte("entry_date", endDate).order("entry_date", { ascending: false }).order("created_at", { ascending: false })),
     allReportRows(supabase.from("payments").select("id, amount, payment_date, property_id").eq("company_id", company.id).eq("category", "deposit").eq("status", "confirmed").is("reversed_at", null).lte("payment_date", endDate)),

@@ -10,7 +10,8 @@
     "test:claimable-expenses": "node --test tests/claimable-expenses.test.cjs",
     "test:client-owner": "node --test tests/client-owner.test.cjs tests/client-owner-sql.test.cjs",
     "test:responsive-layout": "node --test tests/responsive-layout.test.cjs tests/owner-responsive.test.cjs",
-    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout",
+    "test:performance-loading": "node --test tests/performance-loading.test.cjs",
+    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading",
     "build": "next build",
     "start": "next start"
   },

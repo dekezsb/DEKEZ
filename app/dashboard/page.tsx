@@ -1,4 +1,5 @@
 import { Link } from "@/components/app-link";
+import { Suspense } from "react";
 import {
   Banknote,
   BarChart3,
@@ -470,10 +471,7 @@ async function OwnerDashboard() {
   );
 }
 
-async function AdminDashboard({
-  query,
-}: {
-  query: {
+type AdminDashboardQuery = {
     cash_error?: string;
     cash_saved?: string;
     cash_cancelled?: string;
@@ -485,25 +483,31 @@ async function AdminDashboard({
     phone_release_fixed?: string;
     topup_submitted?: string;
     topup_error?: string;
-  };
-}) {
-  const [
-    summary,
-    rentDueSummary,
-    depositSummary,
-    cashSummary,
-    agreementReminders,
-    checkoutHistory,
-    topUpCandidates,
-  ] = await Promise.all([
-    getDashboardSummary(),
-    getRentDueSummary(),
-    getDepositOutstandingSummary(),
-    getCashManagementSummary(),
-    getAgreementRenewalReminders(),
-    getTenantCheckoutHistory(query.checkoutMonth),
-    getStaffElectricityTopUpCandidates(),
-  ]);
+};
+
+function DashboardSectionLoading({ label }: { label: string }) {
+  return <div aria-busy="true" role="status" className="min-h-40 rounded-xl border bg-white p-6">
+    <p className="text-sm text-slate-600">{label}</p>
+    <div className="mt-4 h-16 rounded bg-slate-100 motion-safe:animate-pulse" />
+  </div>;
+}
+
+function AdminDashboard({ query }: { query: AdminDashboardQuery }) {
+  // Sibling server components load in parallel. Slow follow-up queries no
+  // longer hold back occupancy and the property overview; no data is cached
+  // across users, and all existing queries/actions stay in their own sections.
+  return <div className="space-y-6">
+    <Suspense fallback={<DashboardSectionLoading label="Loading property overview…" />}>
+      <AdminOverview query={query} />
+    </Suspense>
+    <Suspense fallback={<DashboardSectionLoading label="Loading rent, deposits and follow-ups…" />}>
+      <AdminFollowUps query={query} />
+    </Suspense>
+  </div>;
+}
+
+async function AdminOverview({ query }: { query: AdminDashboardQuery }) {
+  const summary = await getDashboardSummary();
   const occupancyRate = summary.totalRooms
     ? Math.round((summary.occupiedRooms / summary.totalRooms) * 100)
     : 0;
@@ -592,6 +596,22 @@ async function AdminDashboard({
         <StatCard label="Maintenance Rooms" value={summary.maintenanceRooms} detail="Rooms under maintenance" />
         <StatCard label="Properties" value={summary.totalProperties} detail="Managed properties" />
       </div>
+
+    </section>
+  );
+}
+
+async function AdminFollowUps({ query }: { query: AdminDashboardQuery }) {
+  const [rentDueSummary, depositSummary, cashSummary, agreementReminders, checkoutHistory, topUpCandidates] = await Promise.all([
+    getRentDueSummary(),
+    getDepositOutstandingSummary(),
+    getCashManagementSummary(),
+    getAgreementRenewalReminders(),
+    getTenantCheckoutHistory(query.checkoutMonth),
+    getStaffElectricityTopUpCandidates(),
+  ]);
+  return (
+    <section className="space-y-6">
 
       <CompanyCashInHand
         cashCancelled={query.cash_cancelled === "1"}
