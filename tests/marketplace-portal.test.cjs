@@ -10,7 +10,7 @@ test('all 13 foundation sections render with honest unavailable state and five m
     const html = renderToStaticMarkup(React.createElement(ContractorPortal, { section }));
     assert.ok(html.includes(model.sectionTitles[section].replaceAll('&', '&amp;')), section);
     assert.match(html, /Foundation preview/);
-    assert.match(html, /Live records, uploads, login and payments are not connected/);
+    assert.match(html, /Live records, uploads and payments are not connected/);
     assert.doesNotMatch(html, /<form|<input|<button|4\.8\s*\/\s*5|RM\s*199|CS Renovation/);
     const nav = html.match(/<nav class="bottomNav"[^>]*>(.*?)<\/nav>/s)[1];
     assert.equal((nav.match(/<a /g) || []).length, 5);
@@ -34,13 +34,13 @@ test('all marketplace route entry points authenticate server-side before renderi
       'next/navigation': { notFound() { throw Error('NOT_FOUND'); }, redirect() { throw Error('REDIRECT'); } },
     })(file).default;
     await assert.rejects(() => page({ children: 'protected', params: Promise.resolve({ segments: ['dashboard'] }) }), /DENIED/);
-    assert.deepEqual(calls, [['super_admin']]);
+    assert.deepEqual(calls, [file === 'app/admin/marketplace/page.tsx' ? ['super_admin'] : ['super_admin', 'contractor_preview']]);
   }
 });
 
 test('preview validates requested sections and redirects only to its own dashboard', async () => {
   const page = makeLoader({
-    '@/lib/auth/session': { requireRole: async roles => assert.deepEqual(roles, ['super_admin']) },
+    '@/lib/auth/session': { requireRole: async roles => { assert.deepEqual(roles, ['super_admin', 'contractor_preview']); return 'contractor_preview'; } },
     'next/navigation': { notFound() { throw Error('NOT_FOUND'); }, redirect(url) { throw Error('REDIRECT:' + url); } },
   })('app/admin/marketplace/contractor-preview/[[...segments]]/page.tsx').default;
   await assert.rejects(() => page({ params: Promise.resolve({}) }), /REDIRECT:\/admin\/marketplace\/contractor-preview\/dashboard/);
@@ -49,6 +49,14 @@ test('preview validates requested sections and redirects only to its own dashboa
   }
   const element = await page({ params: Promise.resolve({ segments: ['profile', 'services'] }) });
   assert.equal(element.props.section, 'profile/services');
+  assert.equal(element.props.pilot, true);
+});
+
+test('pilot has logout on desktop/mobile and no management link or fake business records', () => {
+  const html = renderToStaticMarkup(React.createElement(ContractorPortal, {section:'dashboard',pilot:true}));
+  assert.match(html,/restricted test access/);
+  assert.match(html,/action="\/logout" method="post"/);
+  assert.doesNotMatch(html,/href="\/admin\/marketplace"|Admin preview|Back to management/);
 });
 
 test('shell uses fluid content, one primary navigation, safe areas and scoped styles', () => {

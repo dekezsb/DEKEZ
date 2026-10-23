@@ -78,6 +78,8 @@ export type TenantRecordSummary = {
 
 export const getCurrentUser = cache(async () => {
   const context = await getOptionalUserAccess();
+  // Operational loaders/actions must never treat the read-only pilot as staff.
+  if (context?.role === "contractor_preview") return null;
   return context?.user ?? null;
 });
 

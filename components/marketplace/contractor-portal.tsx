@@ -40,6 +40,11 @@ function Empty({ title, children, icon = <BriefcaseBusiness /> }: { title: strin
 function ActionLink({ section, children }: { section: string; children: ReactNode }) {
   return <Link className={styles.action} href={href(section)}>{children}<ArrowRight size={17} aria-hidden /></Link>;
 }
+function AccountExit({ pilot, sidebar = false }: { pilot: boolean; sidebar?: boolean }) {
+  const icon = sidebar ? <ArrowLeft size={18} aria-hidden /> : <ShieldCheck size={18} aria-hidden />;
+  if (pilot) return <form className={sidebar ? styles.back : undefined} action="/logout" method="post"><button type="submit" aria-label="Sign out" className={sidebar ? "flex min-h-11 items-center gap-3" : styles.adminBadge}>{icon}<span>Sign out</span></button></form>;
+  return <Link className={sidebar ? styles.back : styles.adminBadge} href="/admin/marketplace">{icon}<span>{sidebar ? "Back to management" : "Admin preview"}</span></Link>;
+}
 function Membership() {
   return <Card title="Membership Status" icon={<ShieldCheck aria-hidden />}>
     <span className={styles.badge}>Billing not configured</span>
@@ -77,7 +82,7 @@ function Dashboard() {
   </>;
 }
 
-function Profile({ section }: { section: ContractorSection }) {
+function Profile({ section, pilot }: { section: ContractorSection; pilot: boolean }) {
   let content: ReactNode;
   if (section === "profile/services") content = <Card title="Your services and coverage" icon={<MapPin aria-hidden />}><Empty title="Service categories are not configured" icon={<MapPin />}>Admin will configure service categories and areas. Your selected services, coverage and qualifications determine which invitations you can receive.</Empty></Card>;
   else if (section === "profile/portfolio") content = <Card title="Showcase your work" icon={<ImagePlus aria-hidden />}><Empty title="No portfolio connected" icon={<ImagePlus />}>Project photos and descriptions will appear here after secure uploads are enabled. No files are uploaded in this foundation preview.</Empty></Card>;
@@ -85,14 +90,14 @@ function Profile({ section }: { section: ContractorSection }) {
   else if (section === "reviews") content = <Card title="Reviews" icon={<Star aria-hidden />}><Empty title="No reviews connected" icon={<Star />}>Reviews are linked to real jobs and eligible completion. Both parties can share their experience independently.</Empty></Card>;
   else content = <div className={styles.twoColumns}>
     <Card title="Basic information" icon={<Building2 aria-hidden />}><dl className={styles.details}>{["Company / business name", "SSM registration number", "Contact person", "Phone number", "Email", "Business address", "Company description"].map(label => <div key={label}><dt>{label}</dt><dd>Not connected</dd></div>)}</dl><p className={styles.note}>No company profile has been created. Profile editing will be enabled after the secure data foundation is installed.</p></Card>
-    <div className={styles.stack}><Card title="Your workspace"><div className={styles.menuLinks}>{[{ section: "my-jobs", label: "My Jobs" }, { section: "subscription", label: "Subscription" }, { section: "subscription/billing", label: "Billing History" }, { section: "support", label: "Help & Support" }].map(item => <ActionLink key={item.section} section={item.section}>{item.label}</ActionLink>)}</div></Card><Card title="Your account" icon={<UserRound aria-hidden />}><p className={styles.muted}>You are viewing the Contractor layout through your existing Admin session. This does not create a contractor identity or change your permissions.</p><p className={styles.note}>Phone and temporary-password sign-in is planned for the controlled pilot. WhatsApp OTP is deferred.</p></Card></div>
+    <div className={styles.stack}><Card title="Your workspace"><div className={styles.menuLinks}>{[{ section: "my-jobs", label: "My Jobs" }, { section: "subscription", label: "Subscription" }, { section: "subscription/billing", label: "Billing History" }, { section: "support", label: "Help & Support" }].map(item => <ActionLink key={item.section} section={item.section}>{item.label}</ActionLink>)}</div></Card><Card title="Your account" icon={<UserRound aria-hidden />}><p className={styles.muted}>{pilot ? "You are signed in with restricted test access. This account cannot access Admin, rental records or financial data." : "You are viewing the Contractor layout through your existing Admin session. Your permissions are unchanged."}</p><p className={styles.note}>Approved test accounts use phone and temporary-password sign-in. WhatsApp OTP is deferred.</p></Card></div>
   </div>;
   return <><nav className={styles.tabs} aria-label="Company profile sections">{profileTabs.map(tab => <Link key={tab.section} aria-current={tab.section === section ? "page" : undefined} href={href(tab.section)}>{tab.label}</Link>)}</nav>{content}</>;
 }
 
-function Content({ section }: { section: ContractorSection }) {
+function Content({ section, pilot }: { section: ContractorSection; pilot: boolean }) {
   if (section === "dashboard") return <Dashboard />;
-  if (section.startsWith("profile") || section === "reviews") return <Profile section={section} />;
+  if (section.startsWith("profile") || section === "reviews") return <Profile section={section} pilot={pilot} />;
   if (section === "jobs") return <><div className={styles.explainer}><ShieldCheck aria-hidden /><p>Invitations are based on service, location, qualifications, verification and membership—not first-click wins.</p></div><Card title="Eligible opportunities"><Empty title="Job opportunities are not connected">No live jobs are loaded in this preview. After setup, only valid invitations for your business will be shown.</Empty><ActionLink section="profile/services">Review services and areas</ActionLink></Card></>;
   if (section === "quotations") return <Card title="Quotation workspace" icon={<FileText aria-hidden />}><Empty title="No quotations connected" icon={<FileText />}>Your drafts, submitted versions and accepted quotations will be managed here. The quotation editor will be connected in the next delivery phases.</Empty><ActionLink section="jobs">Browse opportunities</ActionLink><p className={styles.note}>A quotation is not a DEKEZ invoice and does not create an accounting entry.</p></Card>;
   if (section === "my-jobs") return <Card title="Your accepted projects" icon={<ClipboardList aria-hidden />}><Empty title="No accepted jobs connected" icon={<ClipboardList />}>Selected projects, progress photos and owner completion confirmations will appear here. Existing accepted-job access will remain available if membership expires.</Empty><ActionLink section="jobs">Explore job opportunities</ActionLink></Card>;
@@ -103,19 +108,19 @@ function Content({ section }: { section: ContractorSection }) {
     <details open><summary>How do job invitations work?</summary><p>Eligible, verified members receive invitations in configurable batches. Service coverage, qualifications and invitation history help distribute opportunities fairly.</p></details>
     <details><summary>Does membership guarantee a job?</summary><p>No. Owners compare quotations and choose their contractor. Membership gives access to eligible opportunities, not guaranteed awards.</p></details>
     <details><summary>Does DEKEZ collect project payments?</summary><p>No. Project payment arrangements are directly between owner and contractor. DEKEZ charges membership fees only.</p></details>
-    <details><summary>Why are actions not available in this preview?</summary><p>This is the portal foundation. Secure profile storage, login, job records, messaging and billing must be installed and tested before their actions are enabled.</p></details>
+    <details><summary>Why are actions not available in this preview?</summary><p>This is the portal foundation. Secure profile storage, job records, messaging and billing must be installed and tested before their actions are enabled.</p></details>
   </div><p className={styles.note}>The support contact will be shown after Admin configures it. No support message is submitted here.</p></Card>;
 }
 
 /** Read-only Phase 1 shell. No sample business records or optimistic live metrics. */
-export function ContractorPortal({ section }: { section: ContractorSection }) {
+export function ContractorPortal({ section, pilot = false }: { section: ContractorSection; pilot?: boolean }) {
   const mobileActive = contractorMobileSection(section);
   return <div className={styles.portal}>
     <a className={styles.skip} href="#contractor-content">Skip to content</a>
-    <aside className={styles.sidebar}><Link className={styles.brand} href={href("dashboard")}><BrandLogo size={40} /><span><b>DEKEZ</b><small>Contractor Portal</small></span></Link><nav aria-label="Contractor portal">{navigation.map(item => <Link key={item.section} href={href(item.section)} aria-current={section === item.section || section.startsWith(`${item.section}/`) ? "page" : undefined}><item.icon size={19} aria-hidden /><span>{item.label}</span></Link>)}</nav><Link className={styles.back} href="/admin/marketplace"><ArrowLeft size={18} aria-hidden />Back to management</Link></aside>
-    <div className={styles.main}><header className={styles.header}><div><p className={styles.eyebrow}>DEKEZ HOME SERVICES</p><h1>{sectionTitles[section]}</h1><p className={styles.subtitle}>Find more jobs. Grow your business.</p></div><Link className={styles.adminBadge} href="/admin/marketplace"><ShieldCheck size={18} aria-hidden /><span>Admin preview</span></Link></header>
-      <div className={styles.previewNotice}><span className={styles.previewDot} /><p><strong>Foundation preview.</strong> Navigation is ready to explore. Live records, uploads, login and payments are not connected.</p></div>
-      <main id="contractor-content" className={styles.content}><Content section={section} /></main>
+    <aside className={styles.sidebar}><Link className={styles.brand} href={href("dashboard")}><BrandLogo size={40} /><span><b>DEKEZ</b><small>Contractor Portal</small></span></Link><nav aria-label="Contractor portal">{navigation.map(item => <Link key={item.section} href={href(item.section)} aria-current={section === item.section || section.startsWith(`${item.section}/`) ? "page" : undefined}><item.icon size={19} aria-hidden /><span>{item.label}</span></Link>)}</nav><AccountExit pilot={pilot} sidebar /></aside>
+    <div className={styles.main}><header className={styles.header}><div><p className={styles.eyebrow}>DEKEZ HOME SERVICES</p><h1>{sectionTitles[section]}</h1><p className={styles.subtitle}>Find more jobs. Grow your business.</p></div><AccountExit pilot={pilot} /></header>
+      <div className={styles.previewNotice}><span className={styles.previewDot} /><p><strong>Foundation preview.</strong> Navigation is ready to explore. Live records, uploads and payments are not connected.{pilot ? " You are signed in with restricted test access." : " Restricted Contractor test login is available."}</p></div>
+      <main id="contractor-content" className={styles.content}><Content section={section} pilot={pilot} /></main>
       <footer className={styles.footer}>DEKEZ SDN BHD · Home Services Marketplace<span>Project payments are arranged directly with owners.</span></footer>
     </div>
     <nav className={styles.bottomNav} aria-label="Contractor mobile navigation">{primary.map(item => <Link key={item.section} href={href(item.section)} aria-current={mobileActive === item.section ? "page" : undefined}><item.icon size={21} aria-hidden /><span>{item.mobile}</span></Link>)}</nav>

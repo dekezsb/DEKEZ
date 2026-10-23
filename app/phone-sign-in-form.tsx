@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 
-export function PhoneSignInForm() {
+export function PhoneSignInForm({ contractorPreview = false }: { contractorPreview?: boolean }) {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -61,14 +61,13 @@ export function PhoneSignInForm() {
           className="mt-2 h-11 w-full rounded-md border border-[#cfd8e5] bg-white px-3 text-gray-950 outline-none transition focus:border-[#b8892c] focus:ring-2 focus:ring-[#b8892c]/20"
           inputMode="numeric"
           onChange={(event) => setPassword(event.target.value)}
-          placeholder="Last 4 digits of your phone"
+          placeholder={contractorPreview ? "Temporary password" : "Last 4 digits of your phone"}
           required
           type="password"
           value={password}
         />
         <span className="mt-1.5 block text-xs leading-5 text-gray-500">
-          New users use the last 4 digits of the registered phone number.
-          Existing Admin accounts may continue with their current password.
+          {contractorPreview ? "Use the temporary password provided for your test account." : "New users use the last 4 digits of the registered phone number. Existing Admin accounts may continue with their current password."}
         </span>
       </label>
 

@@ -4,10 +4,10 @@ import { requireRole } from "@/lib/auth/session";
 import { contractorPreviewPath, contractorSection } from "@/lib/marketplace/portal";
 
 export default async function ContractorPreview({ params }: { params: Promise<{ segments?: string[] }> }) {
-  await requireRole(["super_admin"]);
+  const role = await requireRole(["super_admin", "contractor_preview"]);
   const { segments = [] } = await params;
   if (!segments.length) redirect(`${contractorPreviewPath}/dashboard`);
   const section = contractorSection(segments.join("/"));
   if (!section) notFound();
-  return <ContractorPortal section={section} />;
+  return <ContractorPortal section={section} pilot={role === "contractor_preview"} />;
 }

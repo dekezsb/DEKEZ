@@ -47,6 +47,37 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith(route),
   );
 
+  // Preview users have no operational routes, even outside protectedRoutes.
+  // Server pages/actions and database policies independently enforce this role.
+  let sessionProfile: { role: string; registration_status: string } | null = null;
+  if (claims?.sub) {
+    const { data: previewProfile } = await supabase.from("profiles")
+      .select("role, registration_status").eq("id", claims.sub).maybeSingle();
+    sessionProfile = previewProfile;
+    const previewRole = previewProfile?.role === "contractor_preview"
+      || claims.app_metadata?.role === "contractor_preview";
+    if (previewRole) {
+      const path = request.nextUrl.pathname;
+      const allowed = path === "/logout" || path === "/auth/sign-in"
+        || path === "/login/contractor"
+        || path === "/admin/marketplace/contractor-preview"
+        || path.startsWith("/admin/marketplace/contractor-preview/");
+      if (previewProfile?.role !== "contractor_preview" || previewProfile.registration_status !== "approved") {
+        if (path === "/logout" || path === "/login/contractor" || path === "/auth/sign-in") return response;
+        return NextResponse.redirect(new URL("/login/contractor", request.url));
+      }
+      if (!allowed) {
+        if (request.method !== "GET" && request.method !== "HEAD")
+          return NextResponse.json({ error: "Contractor preview access only." }, { status: 403 });
+        return NextResponse.redirect(new URL("/admin/marketplace/contractor-preview/dashboard", request.url));
+      }
+      // Preview has no server actions, regardless of the route supplied.
+      if (request.method !== "GET" && request.method !== "HEAD" && path !== "/auth/sign-in" && path !== "/logout")
+        return NextResponse.json({ error: "Read-only preview." }, { status: 403 });
+      return response;
+    }
+  }
+
   if (isProtectedRoute && !claims?.sub) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/";
@@ -55,11 +86,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (isProtectedRoute && claims?.sub) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("registration_status, role")
-      .eq("id", claims.sub)
-      .maybeSingle();
+    const profile = sessionProfile;
 
     if (profile?.registration_status !== "approved") {
       const redirectUrl = request.nextUrl.clone();

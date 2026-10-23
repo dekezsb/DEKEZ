@@ -11,6 +11,7 @@ export const localeNames: Record<AppLocale, string> = {
 
 const messages = {
   en: {
+    "role.contractorPreview": "Contractor Preview",
     "nav.smartDevices": "Smart Devices",
     "nav.referrals": "Referral Rewards",
     "portal.tenant": "Tenant Portal",
@@ -51,6 +52,7 @@ const messages = {
     "nav.bills": "Bills",
   },
   ms: {
+    "role.contractorPreview": "Pratonton Kontraktor",
     "nav.smartDevices": "Peranti Pintar",
     "nav.referrals": "Ganjaran Rujukan",
     "portal.tenant": "Portal Penyewa",
@@ -91,6 +93,7 @@ const messages = {
     "nav.bills": "Bil",
   },
   zh: {
+    "role.contractorPreview": "承包商预览",
     "nav.smartDevices": "Smart Devices",
     "nav.referrals": "推荐奖励",
     "portal.tenant": "租户门户",
@@ -131,6 +134,7 @@ const messages = {
     "nav.bills": "账单",
   },
   ta: {
+    "role.contractorPreview": "ஒப்பந்ததாரர் முன்னோட்டம்",
     "nav.smartDevices": "Smart Devices",
     "nav.referrals": "பரிந்துரை வெகுமதிகள்",
     "portal.tenant": "வாடகையாளர் தளம்",

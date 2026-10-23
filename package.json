@@ -11,7 +11,7 @@
     "test:client-owner": "node --test tests/client-owner.test.cjs tests/client-owner-sql.test.cjs",
     "test:responsive-layout": "node --test tests/responsive-layout.test.cjs tests/owner-responsive.test.cjs",
     "test:performance-loading": "node --test tests/performance-loading.test.cjs",
-    "test:marketplace": "node --test tests/marketplace-foundation.test.cjs tests/marketplace-portal.test.cjs",
+    "test:marketplace": "node --test tests/marketplace-foundation.test.cjs tests/marketplace-portal.test.cjs tests/contractor-preview-auth.test.cjs tests/contractor-preview-sql.test.cjs tests/contractor-preview-provision.test.cjs",
     "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading && npm run test:marketplace",
     "build": "next build",
     "start": "next start"

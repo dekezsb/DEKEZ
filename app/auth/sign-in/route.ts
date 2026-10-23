@@ -9,6 +9,7 @@ import { normalizeRole, roleHome } from "@/lib/auth/roles";
 import { activateTenantAccount } from "@/lib/auth/tenant-account";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSupabaseUrl } from "@/lib/supabase/config";
+import { previewPassword } from "@/lib/marketplace/preview-credential";
 
 type CookieToSet = {
   name: string;
@@ -77,6 +78,33 @@ export async function POST(request: NextRequest) {
     admin = null;
   }
 
+  let profileLookup: { id: string; role: string; registration_status: string } | null = null;
+  if (admin) {
+    const { data } = await admin.from("profiles").select("id, role, registration_status")
+      .in("normalized_phone", phone.lookupDigits).maybeSingle();
+    profileLookup = data;
+  }
+  if (admin && profileLookup?.role === "contractor_preview") {
+    // This approved pilot uses the existing session infrastructure but has no
+    // operational permissions. Fail closed if the durable limiter is unavailable.
+    if (request.headers.get("origin") !== request.nextUrl.origin)
+      return NextResponse.json({ error: "Please sign in from the DEKEZ website." }, { status: 403 });
+    const { data: allowed, error: limitError } = await admin.rpc("contractor_preview_attempt", {
+      p_key: `contractor-preview:${phoneRateLimitKey(phone)}`,
+    });
+    if (limitError) return NextResponse.json({ error: "Sign-in is temporarily unavailable. Please try again later." }, { status: 503 });
+    if (!allowed) return NextResponse.json({ error: "Too many sign-in attempts. Please wait 15 minutes." }, { status: 429 });
+    const derived = previewPassword(phone, password);
+    const { data: account } = await admin.auth.admin.getUserById(profileLookup.id);
+    if (!derived || !account.user?.email || account.user.app_metadata?.role !== "contractor_preview"
+      || profileLookup.registration_status !== "approved")
+      return NextResponse.json({ error: "Invalid phone number or PIN/password." }, { status: 401 });
+    const result = await supabase.auth.signInWithPassword({ email: account.user.email, password: derived });
+    if (result.error || result.data.user?.id !== profileLookup.id)
+      return NextResponse.json({ error: "Invalid phone number or PIN/password." }, { status: 401 });
+    return responseWithCookies({ redirectTo: roleHome.contractor_preview, role: "contractor_preview" }, cookiesToSet);
+  }
+
   const rateLimitKey = admin ? phoneRateLimitKey(phone) : null;
   if (admin && rateLimitKey) {
     const { data: rateLimit } = await admin
@@ -101,19 +129,11 @@ export async function POST(request: NextRequest) {
   const pinPassword = /^\d{4}$/.test(password)
     ? derivePinPassword(phone, password)
     : null;
-  let profileLookup: { id: string } | null = null;
   let signInResult:
     | Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>
     | null = null;
 
   if (admin) {
-    const { data } = await admin
-      .from("profiles")
-      .select("id")
-      .in("normalized_phone", phone.lookupDigits)
-      .maybeSingle();
-    profileLookup = data;
-
     if (!profileLookup && pinPassword) {
       const { data: activeTenants, error: tenantLookupError } = await admin
         .from("tenants")
@@ -137,7 +157,7 @@ export async function POST(request: NextRequest) {
           null,
         );
         if (activation.ok) {
-          profileLookup = { id: activation.profileId };
+          profileLookup = { id: activation.profileId, role: "tenant", registration_status: "approved" };
         }
       }
     }

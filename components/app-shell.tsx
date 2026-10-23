@@ -409,6 +409,7 @@ const navigationTranslationKeys: Record<string, TranslationKey> = {
 };
 
 const roleTranslationKeys: Record<AppRole, TranslationKey> = {
+  contractor_preview: "role.contractorPreview",
   client_owner: "role.owner",
   super_admin: "role.superAdmin",
   owner: "role.owner",
