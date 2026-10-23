@@ -2,6 +2,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireRole } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 type Company = {
   id: string;
@@ -52,6 +54,7 @@ export default async function SuperAdminPage() {
 
   return (
     <section className="space-y-6">
+      <Button asChild variant="outline" size="lg"><Link href="/admin/marketplace">Services Marketplace · Foundation preview</Link></Button>
       <div>
         <p className="text-xs font-semibold uppercase text-[#126b5f]">
           Backend Control

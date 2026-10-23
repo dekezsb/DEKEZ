@@ -66,6 +66,9 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   if (pathname === "/owner" || pathname.startsWith("/owner/")) return <>{children}</>;
 
+  // The server layout protects this read-only preview; avoid duplicating navigation.
+  if (pathname === "/admin/marketplace/contractor-preview" || pathname.startsWith("/admin/marketplace/contractor-preview/")) return <>{children}</>;
+
   if (pathname.startsWith("/invoices/") || /^\/renovation\/[0-9a-f-]{36}$/i.test(pathname)) {
     return <>{children}</>;
   }
