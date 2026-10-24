@@ -58,10 +58,11 @@ export async function updateSession(request: NextRequest) {
       || claims.app_metadata?.role === "contractor_preview";
     if (previewRole) {
       const path = request.nextUrl.pathname;
+      const chatApi = process.env.DEKEZ_CHAT_ENABLED === "true" && (path === "/api/dekez-chat" || path === "/api/dekez-chat/files") && ["GET", "POST"].includes(request.method);
       const allowed = path === "/logout" || path === "/auth/sign-in"
         || path === "/login/contractor"
         || path === "/admin/marketplace/contractor-preview"
-        || path.startsWith("/admin/marketplace/contractor-preview/");
+        || path.startsWith("/admin/marketplace/contractor-preview/") || chatApi;
       if (previewProfile?.role !== "contractor_preview" || previewProfile.registration_status !== "approved") {
         if (path === "/logout" || path === "/login/contractor" || path === "/auth/sign-in") return response;
         return NextResponse.redirect(new URL("/login/contractor", request.url));
@@ -72,7 +73,7 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(new URL("/admin/marketplace/contractor-preview/dashboard", request.url));
       }
       // Preview has no server actions, regardless of the route supplied.
-      if (request.method !== "GET" && request.method !== "HEAD" && path !== "/auth/sign-in" && path !== "/logout")
+      if (request.method !== "GET" && request.method !== "HEAD" && path !== "/auth/sign-in" && path !== "/logout" && !chatApi)
         return NextResponse.json({ error: "Read-only preview." }, { status: 403 });
       return response;
     }

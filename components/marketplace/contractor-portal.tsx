@@ -95,7 +95,8 @@ function Profile({ section, pilot }: { section: ContractorSection; pilot: boolea
   return <><nav className={styles.tabs} aria-label="Company profile sections">{profileTabs.map(tab => <Link key={tab.section} aria-current={tab.section === section ? "page" : undefined} href={href(tab.section)}>{tab.label}</Link>)}</nav>{content}</>;
 }
 
-function Content({ section, pilot }: { section: ContractorSection; pilot: boolean }) {
+function Content({ section, pilot, messageContent }: { section: ContractorSection; pilot: boolean; messageContent?: ReactNode }) {
+  if (section === "messages" && messageContent) return messageContent;
   if (section === "dashboard") return <Dashboard />;
   if (section.startsWith("profile") || section === "reviews") return <Profile section={section} pilot={pilot} />;
   if (section === "jobs") return <><div className={styles.explainer}><ShieldCheck aria-hidden /><p>Invitations are based on service, location, qualifications, verification and membership—not first-click wins.</p></div><Card title="Eligible opportunities"><Empty title="Job opportunities are not connected">No live jobs are loaded in this preview. After setup, only valid invitations for your business will be shown.</Empty><ActionLink section="profile/services">Review services and areas</ActionLink></Card></>;
@@ -113,14 +114,14 @@ function Content({ section, pilot }: { section: ContractorSection; pilot: boolea
 }
 
 /** Read-only Phase 1 shell. No sample business records or optimistic live metrics. */
-export function ContractorPortal({ section, pilot = false }: { section: ContractorSection; pilot?: boolean }) {
+export function ContractorPortal({ section, pilot = false, messageContent }: { section: ContractorSection; pilot?: boolean; messageContent?: ReactNode }) {
   const mobileActive = contractorMobileSection(section);
   return <div className={styles.portal}>
     <a className={styles.skip} href="#contractor-content">Skip to content</a>
     <aside className={styles.sidebar}><Link className={styles.brand} href={href("dashboard")}><BrandLogo size={40} /><span><b>DEKEZ</b><small>Contractor Portal</small></span></Link><nav aria-label="Contractor portal">{navigation.map(item => <Link key={item.section} href={href(item.section)} aria-current={section === item.section || section.startsWith(`${item.section}/`) ? "page" : undefined}><item.icon size={19} aria-hidden /><span>{item.label}</span></Link>)}</nav><AccountExit pilot={pilot} sidebar /></aside>
     <div className={styles.main}><header className={styles.header}><div><p className={styles.eyebrow}>DEKEZ HOME SERVICES</p><h1>{sectionTitles[section]}</h1><p className={styles.subtitle}>Find more jobs. Grow your business.</p></div><AccountExit pilot={pilot} /></header>
       <div className={styles.previewNotice}><span className={styles.previewDot} /><p><strong>Foundation preview.</strong> Navigation is ready to explore. Live records, uploads and payments are not connected.{pilot ? " You are signed in with restricted test access." : " Restricted Contractor test login is available."}</p></div>
-      <main id="contractor-content" className={styles.content}><Content section={section} pilot={pilot} /></main>
+      <main id="contractor-content" className={styles.content}><Content section={section} pilot={pilot} messageContent={messageContent} /></main>
       <footer className={styles.footer}>DEKEZ SDN BHD · Home Services Marketplace<span>Project payments are arranged directly with owners.</span></footer>
     </div>
     <nav className={styles.bottomNav} aria-label="Contractor mobile navigation">{primary.map(item => <Link key={item.section} href={href(item.section)} aria-current={mobileActive === item.section ? "page" : undefined}><item.icon size={21} aria-hidden /><span>{item.mobile}</span></Link>)}</nav>

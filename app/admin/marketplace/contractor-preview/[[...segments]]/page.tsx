@@ -9,5 +9,10 @@ export default async function ContractorPreview({ params }: { params: Promise<{ 
   if (!segments.length) redirect(`${contractorPreviewPath}/dashboard`);
   const section = contractorSection(segments.join("/"));
   if (!section) notFound();
-  return <ContractorPortal section={section} pilot={role === "contractor_preview"} />;
+  let messageContent;
+  if (section === "messages" && process.env.DEKEZ_CHAT_ENABLED === "true") {
+    const { ChatEntry } = await import("@/components/chat/entry");
+    messageContent = <ChatEntry/>;
+  }
+  return <ContractorPortal section={section} pilot={role === "contractor_preview"} messageContent={messageContent} />;
 }

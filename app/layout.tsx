@@ -48,7 +48,7 @@ async function RootLayoutContent({
     <html lang="en-MY">
       <body>
         <LanguageProvider role={role}>
-          <AppShell access={access} role={role} userName={userName}>
+          <AppShell access={access} role={role} userName={userName} chatEnabled={process.env.DEKEZ_CHAT_ENABLED === "true"}>
             {children}
           </AppShell>
         </LanguageProvider>

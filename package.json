@@ -12,7 +12,9 @@
     "test:responsive-layout": "node --test tests/responsive-layout.test.cjs tests/owner-responsive.test.cjs",
     "test:performance-loading": "node --test tests/performance-loading.test.cjs",
     "test:marketplace": "node --test tests/marketplace-foundation.test.cjs tests/marketplace-portal.test.cjs tests/contractor-preview-auth.test.cjs tests/contractor-preview-sql.test.cjs tests/contractor-preview-provision.test.cjs",
-    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading && npm run test:marketplace",
+    "test:dekez-chat": "node --test tests/dekez-chat-sql.test.cjs tests/dekez-chat-requests.test.cjs tests/dekez-chat-api.test.cjs tests/dekez-chat-client.test.cjs tests/dekez-chat-files-access.test.cjs tests/dekez-chat-files-api.test.cjs tests/dekez-chat-gateway.test.cjs tests/dekez-chat-desks.test.cjs",
+    "test:dekez-chat-browser": "node tests/dekez-chat-browser.cjs",
+    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading && npm run test:marketplace && npm run test:dekez-chat",
     "build": "next build",
     "start": "next start"
   },

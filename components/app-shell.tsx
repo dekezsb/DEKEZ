@@ -24,9 +24,10 @@ type AppShellProps = {
   access: UserAccess | null;
   role: AppRole | null;
   userName?: string | null;
+  chatEnabled?: boolean;
 };
 
-export function AppShell({ access, children, role, userName }: AppShellProps) {
+export function AppShell({ access, children, role, userName, chatEnabled = false }: AppShellProps) {
   const pathname = usePathname();
   const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
@@ -76,7 +77,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   if (role === "tenant") {
     return (
       <div className="app-responsive tenant-portal-bg min-h-screen text-[#17130d]">
-        <PortalLiveSync />
+        {pathname === "/messages" ? null : <PortalLiveSync />}
         <header className="sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="mx-auto flex h-18 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
             <Link className="flex items-center gap-3" href="/dashboard">
@@ -91,6 +92,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
               </span>
             </Link>
             <div className="flex items-center gap-3">
+              {chatEnabled ? <Link className="inline-flex min-h-11 items-center text-sm text-[#f0d49c]" href="/messages">Messages</Link> : null}
               <LanguageSelector dark />
               <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
                 {userName ?? t("role.tenant")}
@@ -152,7 +154,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
   if (role === "admin") {
     return (
       <div className="app-responsive management-shell tenant-portal-bg min-h-screen text-[#17130d]">
-        <PortalLiveSync />
+        {pathname === "/messages" ? null : <PortalLiveSync />}
         <header className="management-header sticky top-0 z-20 border-b border-[#28231b] bg-[#090806] text-white shadow-sm print:hidden">
           <div className="management-header-inner mx-auto flex h-18 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
             <Link className="flex items-center gap-3" href="/dashboard">
@@ -167,6 +169,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
               </span>
             </Link>
             <div className="flex items-center gap-3">
+              {chatEnabled ? <Link className="inline-flex min-h-11 items-center text-sm text-[#f0d49c]" href="/messages">Messages</Link> : null}
               <LanguageSelector dark />
               <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
                 {userName ?? t("role.management")}
@@ -228,7 +231,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
 
   return (
     <div className="app-responsive internal-shell min-h-screen bg-[#f4f5f8] text-[#17130d]">
-      <PortalLiveSync />
+        {pathname === "/messages" ? null : <PortalLiveSync />}
       <div
         className={cn(
           "internal-sidebar fixed inset-y-0 left-0 z-40 w-72 -translate-x-full border-r border-[#211b11] bg-[#0b0a07] text-[#f8f0df] shadow-2xl transition-transform lg:translate-x-0 lg:shadow-none",
@@ -332,6 +335,7 @@ export function AppShell({ access, children, role, userName }: AppShellProps) {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {chatEnabled ? <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[#805c1e]" href="/messages">Messages</Link> : null}
               {role !== "super_admin" ? <LanguageSelector /> : null}
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-semibold text-gray-950">{userName ?? (role ? t(roleTranslationKeys[role]) : "User")}</p>
