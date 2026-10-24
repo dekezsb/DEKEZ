@@ -13,12 +13,13 @@ test.before(async()=>{
  await db.exec(definition('20261023075136_contractor_preview_access.sql','marketplace_private.check_request'));
  await db.exec(source('20261024030355_dekez_chat_gateway_and_realtime.sql'));
  await db.exec(source('20261024060911_dekez_chat_contact_desks.sql'));
+ await db.exec(source('20261024152754_dekez_chat_mvp.sql'));
 });
 test.after(async()=>db?.close());
 async function check(n,path,method){await db.as(n,"select set_config('request.path',$1,false),set_config('request.method',$2,false)",[path,method]);return db.as(n,'select dekez_chat_private.check_request()');}
 test('gateway admits only narrow chat RPCs for enrolled Owner and Contractor; legacy boundaries remain',async()=>{
  for(const actor of [1,4]){
-  for(const [path,method]of [['rpc/dekez_chat_history','GET'],['rpc/dekez_chat_send','POST'],['rpc/dekez_chat_file_access','POST']])await check(actor,path,method);
+  for(const [path,method]of [['rpc/dekez_chat_summary','GET'],['rpc/dekez_chat_history','GET'],['rpc/dekez_chat_send','POST'],['rpc/dekez_chat_file_access','POST']])await check(actor,path,method);
   for(const [path,method]of [['rpc/dekez_chat_send','GET'],['rpc/dekez_chat_file_uploaded','POST'],['rpc/dekez_chat_anything','POST'],['dekez_messages','GET'],['payments','GET'],['rpc/verify_payment','POST'],['whatsapp_messages','GET']])await assert.rejects(check(actor,path,method));
   await check(actor,'profiles','GET');
  }

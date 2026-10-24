@@ -59,6 +59,7 @@ export function chatCommand(input: unknown): ChatCommand | null {
 
 export function chatQuery(params: URLSearchParams): ChatCommand | null {
   const view = params.get("view") ?? "inbox";
+  if (view === "summary") return { rpc: "dekez_chat_summary", args: {} };
   if (view === "desks") return { rpc: "dekez_chat_desks", args: {} };
   if (view === "setup-options") {
     const kind=params.get("kind"), property=params.get("property"), after=params.get("after");

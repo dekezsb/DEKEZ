@@ -2,14 +2,14 @@
 const { PGlite } = require('@electric-sql/pglite');
 const fs = require('node:fs'), path = require('node:path');
 const id = n => `00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
-module.exports = async function database({ desks = true } = {}) {
+module.exports = async function database({ desks = true, mvp = true } = {}) {
  const db = new PGlite();
  await db.exec(`create role anon; create role authenticated; create role service_role bypassrls; create schema auth;
  create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('test.uid',true),'')::uuid$$;
  grant usage on schema auth to authenticated;
  create table profiles(id uuid primary key,role text,registration_status text default 'approved',full_name text,organization_id uuid);
  create table properties(id uuid primary key,name text,company_id uuid default '${id(11)}',organization_id uuid);
- create table rooms(id uuid primary key,property_id uuid);
+ create table rooms(id uuid primary key,property_id uuid,room_number text default 'D1');
  create table tenancies(id uuid primary key,tenant_id uuid,property_id uuid,room_id uuid,status text);
  create table tenants(id uuid primary key,profile_id uuid);
  create table property_owners(owner_id uuid,property_id uuid,start_date date,end_date date);
@@ -30,7 +30,7 @@ module.exports = async function database({ desks = true } = {}) {
  ('${id(3)}','admin','Fixture Management'),('${id(4)}','contractor_preview','Fixture Contractor'),
  ('${id(5)}','super_admin','Fixture Admin'),('${id(7)}','client_owner','Unrelated Owner');
  insert into properties(id,name) values('${id(20)}','Synthetic property — local test');
- insert into rooms values('${id(22)}','${id(20)}');
+ insert into rooms(id,property_id) values('${id(22)}','${id(20)}');
  insert into tenants values('${id(23)}','${id(2)}');
  insert into tenancies values('${id(24)}','${id(23)}','${id(20)}','${id(22)}','active');
  insert into maintenance_tickets values('${id(30)}','${id(20)}','${id(22)}','in_progress','FIXTURE-JOB-1','${id(23)}');
@@ -44,6 +44,7 @@ module.exports = async function database({ desks = true } = {}) {
  if (desks) {
   await db.exec('create schema marketplace_private; create function marketplace_private.check_request() returns void language sql as $$select$$;');
   await db.exec(fs.readFileSync(path.resolve(__dirname,'../../../supabase/migrations/20261024060911_dekez_chat_contact_desks.sql'),'utf8'));
+  if(mvp) await db.exec(fs.readFileSync(path.resolve(__dirname,'../../../supabase/migrations/20261024152754_dekez_chat_mvp.sql'),'utf8'));
  }
  await db.exec(`insert into dekez_chat_private.members(user_id,profile_role,chat_role,enabled,approved_by)
  select id,role,case role when 'client_owner' then 'owner' when 'tenant' then 'tenant' when 'admin' then 'management' when 'super_admin' then 'admin' else 'contractor' end,true,'${id(5)}' from profiles;

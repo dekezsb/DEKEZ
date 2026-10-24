@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChatLauncher } from "@/components/chat/launcher";
 import type { ReactNode } from "react";
 import {
   ArrowLeft, ArrowRight, BriefcaseBusiness, Building2, Check, CheckCheck,
@@ -119,7 +120,7 @@ export function ContractorPortal({ section, pilot = false, messageContent }: { s
   return <div className={styles.portal}>
     <a className={styles.skip} href="#contractor-content">Skip to content</a>
     <aside className={styles.sidebar}><Link className={styles.brand} href={href("dashboard")}><BrandLogo size={40} /><span><b>DEKEZ</b><small>Contractor Portal</small></span></Link><nav aria-label="Contractor portal">{navigation.map(item => <Link key={item.section} href={href(item.section)} aria-current={section === item.section || section.startsWith(`${item.section}/`) ? "page" : undefined}><item.icon size={19} aria-hidden /><span>{item.label}</span></Link>)}</nav><AccountExit pilot={pilot} sidebar /></aside>
-    <div className={styles.main}><header className={styles.header}><div><p className={styles.eyebrow}>DEKEZ HOME SERVICES</p><h1>{sectionTitles[section]}</h1><p className={styles.subtitle}>Find more jobs. Grow your business.</p></div><AccountExit pilot={pilot} /></header>
+    <div className={styles.main}><header className={styles.header}><div><p className={styles.eyebrow}>DEKEZ HOME SERVICES</p><h1>{sectionTitles[section]}</h1><p className={styles.subtitle}>Find more jobs. Grow your business.</p></div>{process.env.DEKEZ_CHAT_ENABLED === "true" ? <ChatLauncher href={href("messages")} /> : null}<AccountExit pilot={pilot} /></header>
       <div className={styles.previewNotice}><span className={styles.previewDot} /><p><strong>Foundation preview.</strong> Navigation is ready to explore. Live records, uploads and payments are not connected.{pilot ? " You are signed in with restricted test access." : " Restricted Contractor test login is available."}</p></div>
       <main id="contractor-content" className={styles.content}><Content section={section} pilot={pilot} messageContent={messageContent} /></main>
       <footer className={styles.footer}>DEKEZ SDN BHD · Home Services Marketplace<span>Project payments are arranged directly with owners.</span></footer>

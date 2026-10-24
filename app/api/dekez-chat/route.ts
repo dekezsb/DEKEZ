@@ -19,6 +19,7 @@ async function execute(command: ChatCommand | null) {
     // enforce membership, current role, job state and selected support evidence.
     const { data, error } = await client.rpc(command.rpc, command.args);
     if (error) { const safe = chatError(error.code); return respond({ error: safe.message }, safe.status); }
+    if (command.rpc === "dekez_chat_summary") return respond({ data: (data ?? []).map((row: { user_id: string; unread_count: number }) => ({ ...row, realtime_enabled: process.env.DEKEZ_CHAT_REALTIME_ENABLED === "true" })) });
     // Keep one application shape for singleton composite RPC responses.
     const singleton = command.rpc === "dekez_chat_send" || command.rpc === "dekez_chat_file_send" || command.rpc === "dekez_chat_evidence";
     return respond({ data: singleton && Array.isArray(data) ? data[0] ?? null : data });

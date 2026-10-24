@@ -2,6 +2,7 @@
 
 import { LogOut, Menu, X } from "lucide-react";
 import { Link } from "@/components/app-link";
+import { ChatLauncher } from "@/components/chat/launcher";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";
@@ -92,7 +93,7 @@ export function AppShell({ access, children, role, userName, chatEnabled = false
               </span>
             </Link>
             <div className="flex items-center gap-3">
-              {chatEnabled ? <Link className="inline-flex min-h-11 items-center text-sm text-[#f0d49c]" href="/messages">Messages</Link> : null}
+              {chatEnabled ? <ChatLauncher /> : null}
               <LanguageSelector dark />
               <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
                 {userName ?? t("role.tenant")}
@@ -169,7 +170,7 @@ export function AppShell({ access, children, role, userName, chatEnabled = false
               </span>
             </Link>
             <div className="flex items-center gap-3">
-              {chatEnabled ? <Link className="inline-flex min-h-11 items-center text-sm text-[#f0d49c]" href="/messages">Messages</Link> : null}
+              {chatEnabled ? <ChatLauncher /> : null}
               <LanguageSelector dark />
               <p className="hidden max-w-56 truncate text-sm font-medium sm:block">
                 {userName ?? t("role.management")}
@@ -335,7 +336,7 @@ export function AppShell({ access, children, role, userName, chatEnabled = false
               </div>
             </div>
             <div className="flex items-center gap-4">
-              {chatEnabled ? <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-[#805c1e]" href="/messages">Messages</Link> : null}
+              {chatEnabled ? <ChatLauncher /> : null}
               {role !== "super_admin" ? <LanguageSelector /> : null}
               <div className="hidden text-right sm:block">
                 <p className="text-sm font-semibold text-gray-950">{userName ?? (role ? t(roleTranslationKeys[role]) : "User")}</p>

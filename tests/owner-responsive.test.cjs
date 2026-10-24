@@ -10,9 +10,11 @@ test('owner layout fix preserves all rendering logic, calculations, queries, rou
  };
  // The only approved rendering addition is a disabled-by-default Messages link.
  // Strip exactly that addition; the original financial, document and route baseline remains enforced.
- const chatLink='{process.env.DEKEZ_CHAT_ENABLED==="true"?<Link className={styles.button} href="/owner/messages">Messages</Link>:null}';
+ const chatLink='{process.env.DEKEZ_CHAT_ENABLED==="true"?<ChatLauncher href="/owner/messages"/>:null}';
+ const chatImport="import { ChatLauncher } from '@/components/chat/launcher';\n";
+ assert.equal(read('components/owner/portal.tsx').split(chatImport).length,2);
  assert.equal(read('components/owner/portal.tsx').split(chatLink).length,2);
- for(const [file,hash] of Object.entries(before))assert.equal(crypto.createHash('sha256').update(file==='components/owner/portal.tsx'?read(file).replace(chatLink,''):read(file)).digest('hex'),hash,file+' changed beyond presentation; review baseline deliberately');
+ for(const [file,hash] of Object.entries(before))assert.equal(crypto.createHash('sha256').update(file==='components/owner/portal.tsx'?read(file).replace(chatLink,'').replace(chatImport,''):read(file)).digest('hex'),hash,file+' changed beyond presentation; review baseline deliberately');
 });
 test('owner shell is fluid, navigation changes at 1024, inputs remain readable, tabs scroll locally',()=>{
  const css=read('components/owner/portal.module.css').replace(/\s+/g,'');

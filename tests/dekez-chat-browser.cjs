@@ -9,7 +9,7 @@ async function run(){
  const output=fs.mkdtempSync(path.join(os.tmpdir(),'dekez-chat-qa-'));
  let db,server,browser;const saved=process.env.DEKEZ_CHAT_ENABLED,savedFiles=process.env.DEKEZ_CHAT_FILES_ENABLED;
  try {
-  const compiler=webpack({mode:'development',devtool:false,entry:path.join(fixtures,'entry.jsx'),output:{path:output,filename:'fixture.js'},resolve:{extensions:['.tsx','.ts','.jsx','.js'],alias:{'@/lib/chat/realtime':path.join(fixtures,'realtime.js'),'@':root}},module:{rules:[{test:/\.[jt]sx?$/,exclude:/node_modules/,use:path.join(__dirname,'fixtures/payment-rows/loader.cjs')},{test:/\.css$/,use:path.join(fixtures,'css-loader.cjs')}]}});
+  const compiler=webpack({mode:'development',devtool:false,entry:path.join(fixtures,'entry.jsx'),output:{path:output,filename:'fixture.js'},resolve:{extensions:['.tsx','.ts','.jsx','.js'],alias:{'next/link':path.join(fixtures,'link.jsx'),'@/lib/chat/realtime':path.join(fixtures,'realtime.js'),'@':root}},module:{rules:[{test:/\.[jt]sx?$/,exclude:/node_modules/,use:path.join(__dirname,'fixtures/payment-rows/loader.cjs')},{test:/\.css$/,use:path.join(fixtures,'css-loader.cjs')}]}});
   await new Promise((resolve,reject)=>compiler.run((error,stats)=>compiler.close(()=>error||stats.hasErrors()?reject(error||Error(stats.toString({all:false,errors:true}))):resolve())));
   db=await require('./fixtures/chat/database.cjs')();
   const actor=new AsyncLocalStorage();process.env.DEKEZ_CHAT_ENABLED='true';process.env.DEKEZ_CHAT_FILES_ENABLED='true';
@@ -31,7 +31,7 @@ async function run(){
      res.writeHead(result.status,Object.fromEntries(result.headers));return res.end(Buffer.from(await result.arrayBuffer()));
     }
     if(/^\/[a-zA-Z0-9_.-]+\.js$/.test(url.pathname)){res.setHeader('Content-Type','text/javascript');return res.end(fs.readFileSync(path.join(output,url.pathname.slice(1))));}
-    if(url.pathname==='/style.css'){res.setHeader('Content-Type','text/css');return res.end('body{margin:0;padding:16px;background:#f6f3ed}'+fs.readFileSync(path.join(root,'components/chat/workspace.module.css'),'utf8'));}
+    if(url.pathname==='/style.css'){res.setHeader('Content-Type','text/css');return res.end('body{margin:0;padding:16px;background:#f6f3ed}'+fs.readFileSync(path.join(root,'components/chat/workspace.module.css'),'utf8')+fs.readFileSync(path.join(root,'components/chat/launcher.module.css'),'utf8'));}
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"></head><body><p>LOCAL SYNTHETIC TEST — NOT LIVE DATA</p><div id="root"></div><script src="/fixture.js"></script></body></html>');
    }catch(error){console.error(error);res.writeHead(500);res.end('Fixture server failure');}
   });
@@ -42,9 +42,11 @@ async function run(){
   const errors=[];for(const page of [owner,contractor])page.on('pageerror',e=>errors.push(e.message));
   const url=`http://127.0.0.1:${server.address().port}`;
   await owner.goto(url+'/?actor=1');
+  await owner.getByRole('link',{name:'Messages, 85 unread',exact:true}).waitFor();
   await owner.getByRole('button',{name:/Fixture Contractor/}).click();
   await owner.getByLabel('Message',{exact:true}).waitFor();
   assert.equal(await owner.locator('.history article').count(),40);
+  await owner.getByRole('link',{name:'Messages',exact:true}).waitFor();
   await owner.getByRole('button',{name:'Load older messages'}).click();
   await owner.waitForFunction(()=>document.querySelectorAll('.history article').length===80);
   await owner.getByRole('button',{name:'New chat',exact:true}).click();
@@ -177,25 +179,27 @@ async function run(){
   await owner.getByRole('button',{name:'New chat',exact:true}).click();
   await contacts.getByRole('button',{name:/^Fixture Management management/}).waitFor();
   assert.doesNotMatch(await contacts.innerText(),/Fixture Contractor/);
-  // The basic contact desk remains usable without an active maintenance job.
+  // Contractor contacts disappear after closure; Owner/Admin desk remains scoped.
   await contractor.getByRole('button',{name:'New chat',exact:true}).click();
-  await contractor.getByRole('button',{name:/DEKEZ Support/}).click();
-  await contractor.getByLabel('Message',{exact:true}).fill('Contractor general support question');
-  await contractor.getByRole('button',{name:'Send message',exact:true}).click();
-  await contractor.locator('.history').getByText('Contractor general support question',{exact:true}).waitFor();
+  await contractor.getByText('No new contacts are available.',{exact:false}).waitFor();
+  assert.equal(await contractor.getByRole('button',{name:/DEKEZ Support/}).count(),0);
+  await contacts.getByRole('button',{name:/DEKEZ Support/}).click();
+  await owner.getByLabel('Message',{exact:true}).fill('Owner support question');
+  await owner.getByRole('button',{name:'Send message',exact:true}).click();
+  await owner.locator('.history').getByText('Owner support question',{exact:true}).waitFor();
   const deskAdmin=await browser.newPage({viewport:{width:1440,height:900}});
   deskAdmin.on('pageerror',e=>errors.push(e.message));
   await deskAdmin.goto(url+'/?actor=5');
-  await deskAdmin.getByRole('button',{name:/Fixture Contractor/}).click();
-  await deskAdmin.locator('.history').getByText('Contractor general support question',{exact:true}).waitFor();
-  await deskAdmin.getByLabel('Message',{exact:true}).fill('Admin desk reply without job');
+  await deskAdmin.getByRole('button',{name:/Fixture Owner/}).click();
+  await deskAdmin.locator('.history').getByText('Owner support question',{exact:true}).waitFor();
+  await deskAdmin.getByLabel('Message',{exact:true}).fill('Admin desk reply');
   await deskAdmin.getByRole('button',{name:'Send message',exact:true}).click();
-  await deskAdmin.locator('.history').getByText('Admin desk reply without job',{exact:true}).waitFor();
-  await contractor.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
-  await contractor.locator('.history').getByText('Admin desk reply without job',{exact:true}).waitFor();
+  await deskAdmin.locator('.history').getByText('Admin desk reply',{exact:true}).waitFor();
+  await owner.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await owner.locator('.history').getByText('Admin desk reply',{exact:true}).waitFor();
   await deskAdmin.screenshot({path:path.join(output,'contact-desk-desktop.png'),fullPage:true});
-  await contractor.setViewportSize({width:390,height:844});
-  await contractor.screenshot({path:path.join(output,'contact-desk-mobile.png'),fullPage:true});
+  await owner.setViewportSize({width:390,height:844});
+  await owner.screenshot({path:path.join(output,'contact-desk-mobile.png'),fullPage:true});
   assert.deepEqual(errors,[]);
   assert.ok(network.every(r=>['GET','POST'].includes(r.method)));
   console.log(JSON.stringify({passed:true,viewports:sizes,screenshots:output,checks:['40-message initial page','older pagination','authorized contacts only','retry retains draft and key','owner sends','contractor replies','scoped invalidation updates UI','selected support evidence','metadata-only dispatch','temporary case assignment','assigned evidence view audited','closed support case clears evidence','closed job read-only','closed-job API denial','contact removed after closure','no browser exceptions'],boundary:'Synthetic auth + actual UI/API/SQL; NOT live Supabase Realtime, Storage or production auth'},null,2));
