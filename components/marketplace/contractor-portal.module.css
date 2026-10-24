@@ -1,4 +1,4 @@
-.portal { --gold:#9d772e; --ink:#252823; --muted:#666b65; color:var(--ink); background:#f7f6f1; min-height:100vh; min-height:100dvh; font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:1.6; }
+.portal { --gold:#8a641d; --ink:#17130d; --muted:#6b665c; color:var(--ink); background:#fbf8f1; min-height:100vh; min-height:100dvh; font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:1.6; }
 .portal * { box-sizing:border-box; }
 .portal a { text-decoration:none; }
 .portal a:focus-visible,.portal summary:focus-visible { outline:3px solid #a77c26; outline-offset:4px; }
@@ -69,3 +69,21 @@
 @media (min-width:1280px) { .welcome { flex-direction:row; align-items:center; }.metrics { grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }.metric { padding:16px 14px; } }
 @media (min-width:1440px) { .header { padding-inline:36px; }.content { padding:28px 36px; }.previewNotice,.footer { padding-inline:36px; }.metric { padding:20px; }.card { padding:24px; } }
 @media (prefers-reduced-motion:reduce) { .portal * { scroll-behavior:auto; } }
+
+/* Brand colours only. Keep every existing responsive dimension and status colour. */
+.welcome { background:linear-gradient(110deg,#f6edd9,#fbf8f1 65%,#f3ead7); border-color:#e8e1d5; }
+.goldButton { background:#8a641d; }
+.goldButton:hover { background:#755419; }
+.goldButton,.action,.textLink { border-color:#e8e1d5; }
+.action,.textLink,.gold { color:#8a641d; }
+.gold,.tabs a[aria-current=page] { background:#f6edd9; }
+.metric,.card { border-color:#e8e1d5; }
+.metric:hover { border-color:#b8892c; }
+.tabs a[aria-current=page],.bottomNav a[aria-current=page] { color:#8a641d; }
+.bottomNav { background:#fffdf8; border-color:#e8e1d5; }
+.bottomNav a[aria-current=page] svg { background:#f6edd9; box-shadow:0 0 0 5px #f6edd9; }
+@media (min-width:1024px) {
+  .sidebar { background:#17130d; }
+  .sidebar nav a:hover { background:#2a2417; }
+  .sidebar nav a[aria-current=page] { background:#8a641d; }
+}

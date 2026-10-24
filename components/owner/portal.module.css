@@ -1,12 +1,12 @@
 .portal{
   box-sizing:border-box;
-  --gold:#a77c30;
-  --ink:#292923;
+  --gold:#8a641d;
+  --ink:#17130d;
   --border:#e8e1d5;
   width:100%;
   min-width:0;
   min-height:100dvh;
-  background:#f7f3eb;
+  background:#fbf8f1;
   color:var(--ink);
   font-family:Arial,sans-serif;
   font-size:15px;
@@ -134,7 +134,7 @@
                                                         gap:8px;
                                                         min-height:44px;
                                                         padding:10px 18px;
-                                                        background:linear-gradient(110deg,#b68b40,#96702d);
+                                                        background:linear-gradient(110deg,#987124,#8a641d);
                                                         color:white;
                                                         border-radius:9px;
                                                         font-weight:600;
@@ -358,7 +358,7 @@
                                                                                                                                               background:#fffcf7;
                                                                                                                                               font-size:13px}
                                                                                                                                               .tabs .selected{
-                                                                                                                                                background:#ad8236;
+                                                                                                                                                background:#8a641d;
                                                                                                                                                 color:white;
                                                                                                                                                 border-color:#ad8236}
                                                                                                                                                 .records{
@@ -467,7 +467,7 @@
                                                                                                                                                                                             width:22px;
                                                                                                                                                                                             height:22px}
                                                                                                                                                                                             .bottomNav [aria-current=page]{
-                                                                                                                                                                                              color:#9d732c;
+                                                                                                                                                                                              color:#8a641d;
                                                                                                                                                                                               font-weight:700}
                                                                                                                                                                                               .skip{
                                                                                                                                                                                                 position:fixed;
@@ -522,7 +522,7 @@
                                                                                                                                                                                                                             inset:0 auto 0 0;
                                                                                                                                                                                                                             width:232px;
                                                                                                                                                                                                                             overflow-y:auto;
-                                                                                                                                                                                                                            background:#262722;
+                                                                                                                                                                                                                            background:#17130d;
                                                                                                                                                                                                                             color:#efeadf;
                                                                                                                                                                                                                             flex-direction:column;
                                                                                                                                                                                                                             padding:calc(30px + env(safe-area-inset-top)) 16px 24px;
@@ -557,7 +557,7 @@
                                                                                                                                                                                                                                         .sidebar nav svg{
                                                                                                                                                                                                                                           width:21px}
                                                                                                                                                                                                                                           .sidebar [aria-current=page]{
-                                                                                                                                                                                                                                            background:linear-gradient(110deg,#967339,#b38b41);
+                                                                                                                                                                                                                                            background:linear-gradient(110deg,#8a641d,#987124);
                                                                                                                                                                                                                                             color:white}
                                                                                                                                                                                                                                             .sidebarFoot{
                                                                                                                                                                                                                                               margin-top:auto;
