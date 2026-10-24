@@ -72,18 +72,20 @@
 
 /* Brand colours only. Keep every existing responsive dimension and status colour. */
 .welcome { background:linear-gradient(110deg,#f6edd9,#fbf8f1 65%,#f3ead7); border-color:#e8e1d5; }
-.goldButton { background:#8a641d; }
-.goldButton:hover { background:#755419; }
+.goldButton,.goldButton:hover { background:linear-gradient(110deg,#987124,#8a641d); }
 .goldButton,.action,.textLink { border-color:#e8e1d5; }
 .action,.textLink,.gold { color:#8a641d; }
 .gold,.tabs a[aria-current=page] { background:#f6edd9; }
 .metric,.card { border-color:#e8e1d5; }
+.metric { background:#fffcf7; }
+.card { background:#fffdf8; }
 .metric:hover { border-color:#b8892c; }
 .tabs a[aria-current=page],.bottomNav a[aria-current=page] { color:#8a641d; }
-.bottomNav { background:#fffdf8; border-color:#e8e1d5; }
+.bottomNav { background:#fffcf7f5; border-color:#e8e1d5; }
+.bottomNav a { color:#69665f; }
 .bottomNav a[aria-current=page] svg { background:#f6edd9; box-shadow:0 0 0 5px #f6edd9; }
 @media (min-width:1024px) {
   .sidebar { background:#17130d; }
   .sidebar nav a:hover { background:#2a2417; }
-  .sidebar nav a[aria-current=page] { background:#8a641d; }
+  .sidebar nav a[aria-current=page] { background:linear-gradient(110deg,#8a641d,#987124); }
 }

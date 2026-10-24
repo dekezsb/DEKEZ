@@ -190,12 +190,25 @@ a {
   .app-responsive [class~="border-[#e1e5eb]"] { border-color: #e8e1d5; }
   .app-responsive [class~="border-[#eef0f4]"] { border-color: #f0e9dc; }
   .internal-shell > .internal-frame > header { background-color: #fffdf8; }
-  .management-nav-link[aria-current=page] { color: #8a641d; background-color: #f6edd9; }
-  .app-responsive nav.fixed:not(.management-navigation) { border-color: #3b3020; }
-  .internal-shell > nav.fixed a { color: #d9d1c2; }
-  .internal-shell > nav.fixed a[class~="text-[#c99a3e]"] { color: #e2b559; }
+  /* Owner portal is the approved visual reference; no geometry overrides. */
+  .app-responsive main .rounded-xl.bg-white { background-color: #fffdf8; }
+  .app-responsive main :is(button, a)[class~="bg-[#b8892c]"] {
+    background: linear-gradient(110deg, #987124, #8a641d); color: #ffffff;
+  }
+  .app-responsive > header, .internal-sidebar { background-color: #17130d; }
+  .internal-sidebar nav a[class~="bg-[#241d0e]"] {
+    background: linear-gradient(110deg, #8a641d, #987124); color: #ffffff;
+  }
+  .app-responsive > nav.fixed { background-color: #fffcf7f5; border-color: #e8e1d5; }
+  .app-responsive > nav.fixed a { color: #69665f; }
+  .app-responsive > nav.fixed a[aria-current=page],
+  .internal-shell > nav.fixed a[class~="text-[#c99a3e]"] { color: #8a641d; }
+  .management-nav-link[aria-current=page] { background-color: transparent; }
   @media (min-width: 1024px) {
-    .management-navigation { background-color: #17130d; }
-    .management-nav-link[aria-current=page] { background-color: #8a641d; color: #ffffff; }
+    .app-responsive > .management-navigation { background-color: #17130d; }
+    .app-responsive > .management-navigation a { color: #efeadf; }
+    .app-responsive > .management-navigation a[aria-current=page] {
+      background: linear-gradient(110deg, #8a641d, #987124); color: #ffffff;
+    }
   }
 }

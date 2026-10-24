@@ -105,7 +105,13 @@ function measure() {
         assert.equal(response.status(),200,`${portal} rendering failed`);
         await page.evaluate(()=>document.fonts.ready);
         const measured=await page.evaluate(measure);
-        if(variant==='after') assert.equal(await page.locator('.app-responsive,.portal').first().evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(251, 248, 241)',`${portal}: golden-white background not applied`);
+        if(variant==='after') {
+          assert.equal(await page.locator('.app-responsive,.portal').first().evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(251, 248, 241)',`${portal}: golden-white background not applied`);
+          const card = page.locator(portal==='owner'||portal==='contractor'?'.card':'main .rounded-xl.bg-white').first();
+          if(await card.count()) assert.equal(await card.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(255, 253, 248)',`${portal}: card must match approved Owner ivory`);
+          const button = page.locator(portal==='owner'?'.button':portal==='contractor'?'.goldButton':'main button[class~="bg-[#b8892c]"]').first();
+          if(await button.count()) assert.equal(await button.evaluate(el=>getComputedStyle(el).backgroundImage),'linear-gradient(110deg, rgb(152, 113, 36), rgb(138, 100, 29))',`${portal}: button must match approved Owner gold`);
+        }
         if(variant==='before') original=measured;
         else assert.deepEqual(measured,original,`${portal}/${route} ${width}x${height}: geometry/content changed`);
         if([390,820,1440].includes(width) && pages.find(p=>p[0]===portal)?.[1]===route) {
