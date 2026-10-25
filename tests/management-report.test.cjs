@@ -8,7 +8,7 @@ const now=new Date('2026-10-25T12:00:00Z');
 function enable(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60168173911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'true',DEKEZ_REPORT_TEST_ENABLED:'true',DEKEZ_REPORT_SCHEDULE_ENABLED:'true'});}
 const fakeClient={rpc:async(name,args)=>{
  dbCalls.push(name);const values=Object.values(args),placeholders=values.map((_,i)=>'$'+(i+1)).join(',');
- try{return {data:(await db.query(`select public.${name}(${placeholders}) result`,values)).rows[0].result,error:null};}
+ try{return {data:(await db.rpcQuery(`select public.${name}(${placeholders}) result`,values)).rows[0].result,error:null};}
  catch(error){return {data:null,error};}
 }};
 const service=loader({'server-only':{},'@/lib/supabase/admin':{createAdminClient:()=>fakeClient}})('lib/management-report/service.ts');
@@ -51,6 +51,12 @@ test('real service -> real SQL -> mocked Whapi own-number send -> accepted log; 
  assert.equal(calls[0].url,'https://gate.whapi.cloud/messages/text');assert.equal(calls[0].options.redirect,'error');assert.equal(calls[0].options.headers.Authorization,'Bearer synthetic-only-token');
  const body=JSON.parse(calls[0].options.body);assert.equal(body.to,'60168173911');assert.equal(body.no_link_preview,true);assert.match(body.body,/\[TEST\]/);
  const log=(await db.query('select * from dekez_reports_private.delivery_attempts')).rows[0];assert.equal(log.state,'accepted');assert.equal(log.provider_message_id,'fixture-id');
+});
+test('daily schedule service still claims and finalizes through functions with no direct table grants',async()=>{
+ enable();assert.equal((await service.deliverManagementReport('daily',null,now)).state,'accepted');
+ assert.equal((await service.deliverManagementReport('daily',null,now)).duplicate,true);assert.equal(calls.length,1);
+ assert.doesNotMatch(JSON.parse(calls[0].options.body).body,/\[TEST\]/);
+ assert.equal((await db.query('select state from dekez_reports_private.report_runs')).rows[0].state,'accepted');
 });
 test('timeouts after possible acceptance and 500/malformed success block retries',async()=>{
  enable();for(const responseFactory of [()=>{throw Error('secret provider network failure');},()=>new Response('private provider error',{status:500}),()=>Response.json({sent:true}),()=>Response.json({sent:false})]){

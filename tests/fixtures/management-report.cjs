@@ -2,9 +2,14 @@
 const {PGlite}=require('@electric-sql/pglite');
 const fs=require('node:fs'),path=require('node:path');
 const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
-module.exports=async()=>{
+module.exports=async({fullMigration=false}={})=>{
  const db=new PGlite();db.id=id;
  await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
+ -- A production-like migration role, without altering PGlite's bootstrap user.
+ create role fixture_migrator nologin createrole createdb bypassrls;`);
+ await db.exec('grant usage,create on schema public to fixture_migrator');
+ await db.exec('set role fixture_migrator');
+ await db.exec(`
  create table companies(id uuid primary key);
  create table profiles(id uuid primary key,role text,registration_status text default 'approved');
  create table properties(id uuid primary key,company_id uuid);
@@ -41,7 +46,31 @@ module.exports=async()=>{
  insert into payment_submissions values('${id(301)}','${id(10)}',250,'verified'),('${id(302)}','${id(10)}',700,'pending_verification'),('${id(303)}','${id(20)}',900,'pending_verification');
  insert into rooms values('${id(401)}','${id(10)}','occupied'),('${id(402)}','${id(10)}','vacant'),('${id(403)}','${id(10)}','reserved'),('${id(404)}','${id(10)}','maintenance'),('${id(405)}','${id(20)}','occupied');
  insert into maintenance_tickets values('${id(501)}','${id(10)}','submitted','urgent','repair'),('${id(502)}','${id(10)}','waiting_for_parts','normal','maintenance'),('${id(503)}','${id(10)}','closed','urgent','repair'),('${id(504)}','${id(10)}','assigned','urgent','cleaning'),('${id(505)}','${id(20)}','assigned','urgent','repair');
- grant select on all tables in schema public to service_role;`);
- await db.exec(fs.readFileSync(path.resolve(__dirname,'../../supabase/migrations/20261025055210_whapi_management_reports.sql'),'utf8'));
+ grant select on all tables in schema public to service_role;
+ -- Match the live migration role and Supabase public-function defaults.
+ alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;`);
+ db.migrationIdentity=(await db.query('select current_user,rolsuper from pg_roles where rolname=current_user')).rows[0];
+ const migration=fs.readFileSync(path.resolve(__dirname,'../../supabase/migrations/20261025055210_whapi_management_reports.sql'),'utf8');
+ // PGlite runs in template1 and cannot GRANT database CREATE there ("tuple
+ // concurrently deleted"). Bootstrap ONLY schema creation with the same owner;
+ // all role creation, table/RLS/function DDL and grants run as non-superuser.
+ // Production postgres database CREATE is independently verified read-only.
+ if(fullMigration){await db.exec('reset role');await db.exec(migration);}
+ else{
+  const [beforeSchema,afterSchema]=migration.split('create schema dekez_reports_private;');
+  if(!beforeSchema||!afterSchema)throw Error('Migration schema boundary changed');
+  await db.exec(beforeSchema);
+  await db.exec('reset role; create schema dekez_reports_private authorization fixture_migrator; set role fixture_migrator;');
+  await db.exec(afterSchema);
+ }
+ await db.exec('reset role');
+ // Serialize each simulated PostgREST request, including transaction-local role.
+ // Source-fixture maintenance remains on the separate migration-owner context.
+ let queue=Promise.resolve();
+ db.rpcQuery=(query,params)=>{const run=queue.then(async()=>{
+  await db.exec('begin; set local role service_role;');
+  try{const result=await db.query(query,params);await db.exec('commit');return result;}
+  catch(error){await db.exec('rollback');throw error;}
+ });queue=run.catch(()=>{});return run;};
  return db;
 };

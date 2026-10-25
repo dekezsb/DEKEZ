@@ -70,9 +70,33 @@ Creates only:
 - Three new public RPC entrypoints: `dekez_management_report_snapshot`,
   `dekez_management_report_claim`, `dekez_management_report_finish`.
 
-Private schema and tables deny PUBLIC/anon/authenticated access; RLS enabled, no
-ordinary-user policies. RPCs use SECURITY INVOKER, empty search_path, and EXECUTE
-granted only to service_role. They never replace existing functions or RLS.
+Private schema and tables deny PUBLIC/anon/authenticated access. **service_role
+has no direct table privileges either**: it can only call reporting functions.
+The three public RPCs remain SECURITY INVOKER with empty search_path and EXECUTE
+granted only to service_role. Claim/finish delegate to two private SECURITY DEFINER
+functions owned by a dedicated `dekez_report_executor` role. That role cannot log
+in, inherit roles, bypass RLS, create roles/databases, or access operational tables.
+It receives SELECT/INSERT/UPDATE on the two new tables only, with six corresponding
+executor-only RLS policies. Both tables FORCE RLS; the executor is not their owner
+and cannot DELETE/TRUNCATE them. No existing table policies or functions change.
+
+The private definers have empty search_path, fully qualified table references,
+row_security=on, bounded statement timeout, no dynamic SQL, and explicit service-only
+EXECUTE grants. They verify PostgreSQL's actual SET ROLE, not JWT metadata. The
+public claim wrapper checks approved Super Admin identity for test mode using the
+server's existing profile-read access; the executor does not read profiles.
+The private schema must remain outside the exposed Data API schemas.
+
+Migration role ownership-transfer privileges are temporary: executor schema CREATE
+and the creator's SET/INHERIT membership are removed before commit. The creator
+retains role administration only. Runtime roles have no executor membership. Like
+all database controls, this boundary does not restrict privileged database
+administrators who can intentionally change ownership/grants. Migration installation
+requires the existing postgres migration role's CREATEROLE, database/schema CREATE
+and companies/profiles REFERENCES privileges. A pre-existing executor/schema/function
+name fails safely rather than reusing an unknown object. Installation is transactional
+with a 5-second lock timeout and 30-second statement timeout.
+
 Report Admin UI/actions require the existing super_admin role/admin_setup manage
 permission plus fresh getUser and approved profile checks; other portal roles are
 denied. Super Admin's existing all-company authorization is narrowed to the one
@@ -143,12 +167,26 @@ for audit. Roll back the additive UI/API if necessary; do not drop tables, sourc
 records or existing policies. A Vercel code rollback alone may not remove cron
 configuration—verify it separately. Before any later schema cleanup, export and
 review the report audit history and obtain explicit approval.
+Keep the executor and private functions while retaining the reporting tables.
+If permanent removal is later approved, first preserve audit data, remove only the
+three reporting entrypoints and two private implementations, revoke their specific
+grants/policies and remove the now-unused role after checking dependencies. Do not
+use broad DROP OWNED/CASCADE cleanup or change existing operational policies.
 
 ## Verification
 
 `npm run test:management-report` executes the actual new SQL migration in disposable
 PGlite with synthetic source records, and the real TypeScript sender/service/API
 against a mocked provider. It never connects to production or sends WhatsApp.
+The complete unmodified migration runs atomically under PGlite's bootstrap role.
+A second fixture verifies role creation, ownership transfer, all table/function DDL
+and grants under a non-superuser migration role. PGlite's template1 database cannot
+grant database CREATE reliably, so only schema creation in that fixture is bootstrapped
+with the same owner; the real production migration role's database CREATE privilege
+is separately inspected read-only. This is not a claim of a production installation.
+Security regression tests deny direct service-role table operations, executor role
+assumption, ordinary-user RPCs, forged JWT elevation and search-path poisoning while
+exercising successful daily/test claim/finalization and duplicate/retry protection.
 `npm run build` includes these tests and all existing prebuild gates. Type checking
 is `npx tsc --noEmit`. Production provider delivery, production RLS gateway integration,
 real scheduler invocation and production query latency remain approval-gated.

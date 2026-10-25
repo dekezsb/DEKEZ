@@ -1,8 +1,16 @@
 -- REVIEW ONLY. No schedules, external sends or changes to operational records.
 begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
+-- Fresh, migration-owned role; fail on collision rather than reusing privileges.
+create role dekez_report_executor nologin noinherit nosuperuser nocreatedb
+  nocreaterole noreplication nobypassrls;
+-- Temporary ownership-transfer authority, removed before commit.
+grant dekez_report_executor to current_user with inherit false, set true;
 create schema dekez_reports_private;
 revoke all on schema dekez_reports_private from public, anon, authenticated;
-grant usage on schema dekez_reports_private to service_role;
+grant usage on schema dekez_reports_private to service_role, dekez_report_executor;
+grant create on schema dekez_reports_private to dekez_report_executor;
 
 create table dekez_reports_private.report_runs (
   id uuid primary key default gen_random_uuid(),
@@ -33,9 +41,17 @@ create table dekez_reports_private.delivery_attempts (
 );
 alter table dekez_reports_private.report_runs enable row level security;
 alter table dekez_reports_private.delivery_attempts enable row level security;
-revoke all on all tables in schema dekez_reports_private from public, anon, authenticated;
-grant select, insert, update on all tables in schema dekez_reports_private to service_role;
--- No ordinary-user policy: service-only access, never a public report directory.
+alter table dekez_reports_private.report_runs force row level security;
+alter table dekez_reports_private.delivery_attempts force row level security;
+revoke all on all tables in schema dekez_reports_private from public, anon, authenticated, service_role;
+grant select, insert, update on all tables in schema dekez_reports_private to dekez_report_executor;
+-- The executor is not a table owner and cannot bypass RLS, DELETE or TRUNCATE.
+create policy report_executor_select on dekez_reports_private.report_runs for select to dekez_report_executor using (true);
+create policy report_executor_insert on dekez_reports_private.report_runs for insert to dekez_report_executor with check (true);
+create policy report_executor_update on dekez_reports_private.report_runs for update to dekez_report_executor using (true) with check (true);
+create policy report_executor_select on dekez_reports_private.delivery_attempts for select to dekez_report_executor using (true);
+create policy report_executor_insert on dekez_reports_private.delivery_attempts for insert to dekez_report_executor with check (true);
+create policy report_executor_update on dekez_reports_private.delivery_attempts for update to dekez_report_executor using (true) with check (true);
 
 create function public.dekez_management_report_snapshot(p_company uuid, p_as_of timestamptz)
 returns jsonb language plpgsql stable security invoker set search_path = '' set statement_timeout = '15s' as $$
@@ -107,17 +123,18 @@ begin
  return result;
 end $$;
 
-create function public.dekez_management_report_claim(p_company uuid,p_date date,p_recipient text,p_kind text,
+create function dekez_reports_private.claim(p_company uuid,p_date date,p_recipient text,p_kind text,
  p_snapshot jsonb,p_body text,p_actor uuid default null)
-returns jsonb language plpgsql security invoker set search_path = '' set statement_timeout = '10s' as $$
+returns jsonb language plpgsql security definer set search_path = '' set statement_timeout = '10s' set row_security = on as $$
 declare r dekez_reports_private.report_runs; a dekez_reports_private.delivery_attempts; n integer;
 begin
+ -- PostgreSQL's actual SET ROLE, not editable JWT/profile metadata. Cron has no auth.uid().
+ if current_setting('role',true) is distinct from 'service_role' then
+   raise insufficient_privilege using message='Reporting server role required';
+ end if;
  if p_kind is null or p_kind not in ('daily','test') or p_date is null or p_snapshot is null
    or p_snapshot->>'company_id' is distinct from p_company::text
    or p_snapshot->>'report_date' is distinct from p_date::text then raise exception 'Invalid report'; end if;
- if p_kind='test' and not exists(select 1 from public.profiles where id=p_actor and role::text='super_admin' and registration_status='approved') then
-   raise exception 'Administrator required';
- end if;
  insert into dekez_reports_private.report_runs(company_id,report_date,recipient,kind,state,snapshot,message_body,requested_by)
  values(p_company,p_date,p_recipient,p_kind,'sending',p_snapshot,p_body,p_actor)
  on conflict(company_id,report_date,recipient,kind) do nothing;
@@ -143,11 +160,14 @@ begin
  return jsonb_build_object('claimed',true,'run_id',r.id,'attempt_id',a.id,'body',r.message_body);
 end $$;
 
-create function public.dekez_management_report_finish(p_attempt uuid,p_state text,p_provider_id text default null,
+create function dekez_reports_private.finish(p_attempt uuid,p_state text,p_provider_id text default null,
  p_http_status integer default null,p_error text default null)
-returns void language plpgsql security invoker set search_path = '' as $$
+returns void language plpgsql security definer set search_path = '' set statement_timeout = '10s' set row_security = on as $$
 declare a dekez_reports_private.delivery_attempts;
 begin
+ if current_setting('role',true) is distinct from 'service_role' then
+   raise insufficient_privilege using message='Reporting server role required';
+ end if;
  if p_state is null or p_state not in ('accepted','rejected','uncertain') or (p_state='accepted' and nullif(p_provider_id,'') is null)
    or length(p_provider_id)>200 then raise exception 'Invalid outcome'; end if;
  select * into a from dekez_reports_private.delivery_attempts where id=p_attempt;
@@ -159,6 +179,43 @@ begin
  update dekez_reports_private.delivery_attempts set state=p_state,provider_message_id=p_provider_id,
    http_status=p_http_status,error_code=p_error,finished_at=now() where id=a.id;
  update dekez_reports_private.report_runs set state=p_state,updated_at=now() where id=a.run_id;
+end $$;
+
+-- Privileged implementations remain in the non-exposed private schema. No
+-- dynamic SQL, source-table access, user-controlled object names or public owner.
+revoke all on function dekez_reports_private.claim(uuid,date,text,text,jsonb,text,uuid) from public,anon,authenticated,service_role;
+revoke all on function dekez_reports_private.finish(uuid,text,text,integer,text) from public,anon,authenticated,service_role;
+grant execute on function dekez_reports_private.claim(uuid,date,text,text,jsonb,text,uuid) to service_role;
+grant execute on function dekez_reports_private.finish(uuid,text,text,integer,text) to service_role;
+alter function dekez_reports_private.claim(uuid,date,text,text,jsonb,text,uuid) owner to dekez_report_executor;
+alter function dekez_reports_private.finish(uuid,text,text,integer,text) owner to dekez_report_executor;
+revoke create on schema dekez_reports_private from dekez_report_executor;
+-- Keep migration administration only; no runtime inheritance or SET ROLE path.
+grant dekez_report_executor to current_user with inherit false, set false;
+
+-- Existing PostgREST signatures stay unchanged. The invoker checks use the
+-- server's existing source permissions; the private executor has none of them.
+create function public.dekez_management_report_claim(p_company uuid,p_date date,p_recipient text,p_kind text,
+ p_snapshot jsonb,p_body text,p_actor uuid default null)
+returns jsonb language plpgsql security invoker set search_path = '' set statement_timeout = '10s' as $$
+begin
+ if current_user <> 'service_role' then
+   raise insufficient_privilege using message='Reporting server role required';
+ end if;
+ if p_kind='test' and not exists(select 1 from public.profiles where id=p_actor and role::text='super_admin' and registration_status='approved') then
+   raise exception 'Administrator required';
+ end if;
+ return dekez_reports_private.claim(p_company,p_date,p_recipient,p_kind,p_snapshot,p_body,p_actor);
+end $$;
+
+create function public.dekez_management_report_finish(p_attempt uuid,p_state text,p_provider_id text default null,
+ p_http_status integer default null,p_error text default null)
+returns void language plpgsql security invoker set search_path = '' set statement_timeout = '10s' as $$
+begin
+ if current_user <> 'service_role' then
+   raise insufficient_privilege using message='Reporting server role required';
+ end if;
+ perform dekez_reports_private.finish(p_attempt,p_state,p_provider_id,p_http_status,p_error);
 end $$;
 
 revoke all on function public.dekez_management_report_snapshot(uuid,timestamptz) from public,anon,authenticated;
