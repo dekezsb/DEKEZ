@@ -1,8 +1,21 @@
 export type ChatFile = { id: string; message_id: string; file_name: string; mime_type: string; byte_size: number };
-export type ChatMessage = { id: string; conversation_id: string; sender_id: string; seq: number; body: string; created_at: string; attachments?: ChatFile[] };
-export type InboxItem = { conversation_id: string; status: "active" | "closed"; last_message_at: string; unread_count: number; preview: string | null; contact_name: string };
+export type MessageType = "MANUAL_ADMIN" | "USER_MESSAGE" | "AUTO_REMINDER" | "WELCOME_MESSAGE" | "SYSTEM_NOTICE" | "AI_ASSISTANT";
+export type InboxFilter = "all" | "unread" | "tenant" | "owner" | "contractor" | "automated" | "needs_reply" | "ai_answered";
+export type ChatMessage = { id: string; conversation_id: string; sender_id: string; seq: number; body: string; created_at: string; system_label?: "DEKEZ Admin" | "DEKEZ Assistant" | null; message_type?: MessageType | null; attachments?: ChatFile[] };
+export type InboxItem = { conversation_id: string; status: "active" | "closed"; last_message_at: string; unread_count: number; preview: string | null; contact_name: string; contact_role?: string; property_name?: string; ticket_number?: string | null; latest_message_type?: MessageType | null; needs_reply?: boolean; message_time?: string | null };
 export type ChatContact = { relationship_id: string; contact_id: string; contact_name: string; chat_role: string; property_id: string; maintenance_ticket_id: string | null };
-export type ChatDetail = { conversation_id: string; status: "active" | "closed"; contact_name: string; property_name: string; ticket_number: string | null };
+export type ChatDetail = { conversation_id: string; status: "active" | "closed"; contact_name: string; property_name: string; ticket_number: string | null; contact_role?: string };
+
+export function messageSourceLabel(type?: MessageType | null): string | null {
+  switch (type) {
+    case "AI_ASSISTANT": return "Automated Assistant";
+    case "AUTO_REMINDER": return "Automated Reminder";
+    case "WELCOME_MESSAGE": return "Automated Welcome";
+    case "SYSTEM_NOTICE": return "System Notice";
+    case "MANUAL_ADMIN": return "Manual Admin message";
+    default: return null; // Do not guess how historical messages were sent.
+  }
+}
 
 export class ChatRequestError extends Error {
   constructor(message: string, public status: number) { super(message); }

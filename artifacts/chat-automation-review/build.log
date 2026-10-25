@@ -1,0 +1,800 @@
+
+> dekez@1.0.0 prebuild
+> npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading && npm run test:marketplace && npm run test:dekez-chat
+
+
+> dekez@1.0.0 test:release-regressions
+> node --test tests/historical-credit.test.cjs tests/historical-credit-sql.test.cjs tests/rental-cutover.test.cjs tests/payment-allocation.test.cjs tests/payment-allocation-sql.test.cjs tests/statement-work-queue.test.cjs tests/verification-bank-reference.test.cjs tests/bank-room-scope.test.cjs tests/reconciliation-filters.test.cjs tests/tenant-reconciliation.test.cjs tests/payment-voucher-ui.test.cjs tests/booking-fee-allocation.test.cjs tests/booking-fee-verification.test.cjs tests/single-slip-reservation.test.cjs tests/tenant-movements.test.cjs tests/room-availability-access.test.cjs tests/balance-sheet-ui.test.cjs tests/ta-followup.test.cjs tests/payment-reference-save-sql.test.cjs tests/payment-verification-row.test.cjs tests/room-invoice-from-bank.test.cjs tests/expense-bill-navigation.test.cjs tests/bank-import-overlap.test.cjs tests/electricity-top-up-meter.test.cjs tests/renovation.test.cjs tests/renovation-pdf.test.cjs tests/renovation-workflows.test.cjs tests/renovation-sql.test.cjs tests/accounting/report-data.test.mjs
+
+(node:10028) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/User/Documents/Codex/2026-07-30/can/work/chat-automation-review-20261025/lib/accounting/report-data.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\User\Documents\Codex\2026-07-30\can\work\chat-automation-review-20261025\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ voucher assets, liabilities and equity do not become P&L expenses (8.4954ms)
+✔ renovation invoice recognises general-company income once; verified and matched receipts only settle AR (4.0092ms)
+✔ annual totals and supporting ledger include more than 1000 invoices and stay property scoped (416.3039ms)
+✔ a July 5050 bank adjustment appears in July COGS and never leaks into September (4.4252ms)
+✔ matched bank income and expense use the correct P&L direction (1.5669ms)
+✔ matching a tenant receipt settles assets but does not create COGS (1.3676ms)
+✔ Balance Sheet renders expandable account breakdowns, comparisons and transparent limitations (124.4232ms)
+✔ repair preserves completed links, suppresses only exact duplicate rows, retains full statement totals and audit (4255.9638ms)
+✔ overlap reuses pending and partial originals; only new lines create bank records (1926.0864ms)
+✔ completed bank credits and debits stay completed across reordered files; formatting is normalized, leading zeroes preserved (979.3578ms)
+✔ different account, date, sign, amount, reference or description must not merge (819.5349ms)
+✔ identical-looking repeated occurrences within a file stay separate; later files reuse occurrences without multiplying them (804.498ms)
+✔ same-import retry is idempotent and a failing bulk insert rolls back reused memberships and new lines together (777.7503ms)
+✔ real multi-row INSERT preserves repeated occurrences before AFTER triggers fire, then reuses them in a second bulk import (784.0789ms)
+✔ date/amount without meaningful identity is not enough; void imports are not reused (766.7306ms)
+✔ repair fails atomically instead of hiding independently reconciled copies (739.3276ms)
+✔ memberships and security-invoker statement view preserve company access and deny browser writes (756.8715ms)
+✔ all page totals use membership view, work excludes reused lines, archived imports never flag originals as duplicates (3.7317ms)
+✔ every current property code constrains room and month even when payment is weeks apart (9.3398ms)
+✔ letters, punctuation and repeated room references work; conflicting rooms fail closed (0.8899ms)
+✔ dropdown is immediately visible and contains only identified room and month; filters remain (38.6099ms)
+✔ paid invoices and invoice-only rooms remain visible without inventing another payment (21.3021ms)
+✔ split amounts stay in the correct room for review and duplicate receipts never become ready (0.8631ms)
+✔ month and code are loaded, paid invoices are passed to UI, and no posting functions change (6.6633ms)
+✔ bank property and room populate property and invoice columns for every property, even without a selectable payment (94.2288ms)
+✔ booking fee is shown as its original payment type (1.7257ms)
+✔ booking fee defaults to rent allocation without becoming rent (0.4216ms)
+✔ ordinary purpose changes still need a correction reason (0.2058ms)
+✔ legacy rent and deposit labels keep their correct allocation side (0.2468ms)
+✔ booking fees use their protected atomic verification path (1.9891ms)
+✔ booking verification retains the source type and posts one allocation (0.6ms)
+✔ booking verification changes the bill and audit in the same function (0.3169ms)
+✔ request with no meter_id uses the room's current active meter, so the page shows the meter-credit flow (38.794ms)
+✔ room with no active electricity meter shows the payment-recorded flow (1.6393ms)
+✔ resolver mirrors the RPC lookup: exact meter_id first, latest updated_at, no room fallback when meter_id is set (3226.2348ms)
+✔ credit RPC no longer requires a meter, so the old meter_missing handling is gone (1394.7727ms)
+✔ Verification page derives open-request meter flow from the shared resolver (2.2786ms)
+✔ one Expense Bills entry replaces the two sidebar entries without removing other navigation (3.9569ms)
+✔ utility-only and expense-only permissions retain one accessible destination, neither grants nothing (0.9409ms)
+✔ both existing URLs highlight the same bill entry (0.7102ms)
+✔ bill sections preserve property filter, highlight selection and respect permissions (21.4421ms)
+✔ both existing bill pages retain their data and controls; shared shell handles desktop and mobile (21.1603ms)
+✔ existing paid invoice settles once: links only, both-side completion, retry is idempotent (4332.6286ms)
+✔ proven 1190 offset reclassifies DR1190 CR1100 at current date; original bank and locked history unchanged (289.8083ms)
+✔ existing 1100 offset links only without any additional receivable credit (125.1852ms)
+✔ no source, transfers, true/mixed deposits and non-rental offsets never post (93.2144ms)
+✔ deposit category protects a slip even when bank description says rent (85.5913ms)
+✔ full-name evidence works without bank code and no user matching; paid_amount must establish settlement (81.7113ms)
+✔ cutoff is bank date; September, February, Money Out, void and duplicate imports excluded (97.9518ms)
+✔ unresolved debit prevents month completion and is never changed (153.7964ms)
+✔ partial existing payment leaves bank remainder open; never credits unknown remainder to AR (111.9819ms)
+✔ current locked period blocks adjustment; missing and changed previews abort without writes (71.1555ms)
+✔ source claimed by two banks excluded; exact duplicate bank rows excluded too (61.9648ms)
+✔ stale hash, wrong actor and wrong bank rejected; RPC/table unavailable to public roles (85.3062ms)
+✔ failure after journal creation rolls back journal, matches, status and audit together (85.0985ms)
+✔ no financial master mutations or bank/income posting code in batch (1.0539ms)
+✔ historical UI applies only to fully bounded March-August 2026 statements (1.8754ms)
+✔ preview totals distinguish prior allocation, existing link, new AR credit and excluded remainder exactly (1.8994ms)
+✔ empty preview retains all six zero-amount months (0.4316ms)
+✔ server authority, confirmation and retry identity remain server-controlled (3.9734ms)
+✔ RM480 bank links existing RM380 + RM100 on a paid monthly invoice; tenant records unchanged (4146.6945ms)
+✔ RM100 then RM300 consumes existing RM400 once; partial remains available with paid invoice (169.9592ms)
+✔ partial combined slip followed by remaining amount works even first portion is already full (90.3027ms)
+✔ duplicate bank reference/date/amount, wrong room/month/actor and mixed tenancy are rejected (174.1589ms)
+✔ second portion failure rolls back first link, states, bank status and audit (85.6418ms)
+✔ deferred guard refuses to mark an incompletely allocated bank as matched (55.2788ms)
+✔ audited unmatch removes all portions of that bank only, retains other bank and reopens remaining (124.359ms)
+✔ two concurrent requests allocate at most the remaining master, leaving bank remainder visible (150.0871ms)
+✔ RM500 bank to RM380 payment leaves RM120 bank for another verified payment (108.375ms)
+✔ RM480 verified against RM300 bank leaves RM180 verified for the next bank (68.631ms)
+✔ new functions are private invoker RPCs; no financial master mutations in migration (3.9363ms)
+✔ same verified slip covers two paid invoices without changing either invoice or payment (94.2023ms)
+✔ single RM480 bank combines verified allocations to two already-paid invoices (74.3613ms)
+✔ different-invoice child keeps month and historical duplicate protections before any partial write (48.1625ms)
+✔ one verified RM480 slip combines existing RM380 and RM100, enables Reconcile, keeps one invoice (61.1195ms)
+✔ partial bank transfer consumes only remaining verified amount irrespective of paid invoice (0.6078ms)
+✔ one verified slip across different paid invoices is one usable group with both invoice details (14.9482ms)
+✔ multi-invoice group checks every child month and retains the unpaid reconciliation remainder (0.9143ms)
+✔ one exhausted portion does not hide the remaining portion of the same slip (0.5053ms)
+✔ never merge separate slips or tenants merely because invoice or amount matches (2.0583ms)
+✔ partial bank remains visible even after one payment is fully reconciled to it (9.5485ms)
+✔ unique identified slip enables Reconcile for either larger or smaller bank amount (18.3899ms)
+✔ bank loader exposes remaining amount and keeps modern partial bank usable (1.7408ms)
+✔ data loader keeps trusted partial payments available and legacy partials locked (4.186ms)
+✔ canBulkGroupPayments: same tenant + distinct amounts group; different tenants or an equal-amount pair never do (1.0843ms)
+✔ canBulkGroupPayments: an identical explicitly-saved bank code groups a tenant renting more than one room, even with equal amounts (0.9933ms)
+✔ bulk panel combines a same-tenant deposit and rent invoice identified on one bank line into one multi-payment item (18.2406ms)
+✔ bulk panel never auto-groups different tenants or an equal-amount pair identified on the same bank line (17.7289ms)
+✔ verified backfill updates source and both existing allocations, no financial changes, one audit (6844.0645ms)
+✔ bad codes and non-admin callers cannot write (23.6527ms)
+✔ stale row cannot overwrite another users code (16.4306ms)
+✔ same-tenancy duplicate fails atomically; punctuation normalization matches existing folder rule (14.4535ms)
+✔ standalone confirmed payment with same company/date/amount/code is blocked (12.6864ms)
+✔ legitimate shared QR identifiers across different scopes/date/amount remain allowed (12.1177ms)
+✔ rejected duplicate excluded; existing siblings are not competing payments (12.5276ms)
+✔ conflicting linked reference cannot silently overwrite history (17.667ms)
+✔ folder verification and reference saving roll back together when allocation fails (16.8015ms)
+✔ normal verification reference writes hit the same duplicate trigger (12.9818ms)
+✔ reference RPC is service-only, not an authenticated public privilege bypass (1.6332ms)
+✔ one bank code may fund two rooms up to the real bank amount (23.9552ms)
+✔ bank_reference_exceeds_amount: total under one code cannot exceed the bank transaction amount (25.1693ms)
+✔ cap matches the bank line even when its text formats the code with spaces/hyphens (12.81ms)
+✔ same person paying two rooms with one code is allowed even when the slips share a tenant record (15.177ms)
+✔ two different invoices of the same tenancy may share one code within the bank amount (13.5337ms)
+✔ the same rent bill receiving the same code twice is duplicate_bank_reference (26.3926ms)
+✔ payments without an invoice: same slot is a duplicate, a different payment type is not (16.8332ms)
+✔ multiple rooms/invoices whose combined total exceeds the bank amount are blocked (15.599ms)
+✔ rejected slips neither count toward the cap nor make a duplicate (13.9ms)
+✔ folder upload: two different invoices of the same tenancy may share one bank code within the bank amount (20.6518ms)
+✔ folder upload: the same invoice receiving the same bank code twice is a duplicate and rolls back (17.9025ms)
+✔ folder upload: invoices whose combined total exceeds the bank amount are blocked and roll back (18.025ms)
+✔ folder upload: rejected slips neither count nor duplicate; the same file is still blocked (16.2135ms)
+✔ one row per slip with all columns; old verified missing-code row has input and Save, not Verify (111.6071ms)
+✔ blue existing-tenant and green check-in rows retain their colour independently of verification status (36.9132ms)
+✔ existing leading-zero and usable QR codes display without manual entry (40.6771ms)
+✔ pending slip exposes Verify and missing-code input without any folder expansion (4.9738ms)
+✔ Verify actions stay in the second column beside the slip, before tenant and bank code (15.967ms)
+✔ receipt thumbnail opens an accessible same-page dialog, never a new tab, for both image and PDF (72.2319ms)
+✔ filters apply to each slip, keep old verified slips findable and never leak sibling months/status (1.0784ms)
+✔ usable QR code is reused; generic labels are not mistaken for transaction codes; cash optional (0.3747ms)
+✔ Save calls only reference RPC with leading zeroes and previous value, never verification (3.5735ms)
+✔ duplicate message is explicit; invalid code and permission failures never write (1.6182ms)
+✔ duplicate bank-code message names the same invoice / payment, not the tenancy (11.8728ms)
+✔ folder upload pre-check: a bank code is a duplicate only on the same invoice (3.0154ms)
+✔ every voucher displays all account groups and future custom accounts (27.4155ms)
+✔ all five filters stay in sticky header with counts and highest confidence first (57.2465ms)
+✔ filters combine with search and show a reset hint for an empty group (160.0121ms)
+✔ unsafe selected matches remain review and filters never mutate payments (77.5862ms)
+✔ translations preserve every numerical amount, identity and item code, and reject changed specifications (10.9169ms)
+✔ amount words and totals are calculated rather than translated (2.1062ms)
+✔ saved translations are complete, source-bound and never accept financial fields or changed specifications (4.9445ms)
+✔ English, Malay and Chinese PDFs embed Unicode fonts and paginate the same saved document (5004.1564ms)
+✔ historical bank receipts clear AR without new money, journal, upload or changed matches (3636.1222ms)
+✔ existing-receipt linking rejects tenant, cross-company, stale, duplicate and unconfirmed requests without partial changes (165.3664ms)
+✔ existing receipt linking rejects locked periods, overpayment and rental account classification (169.9464ms)
+✔ a linked bank receipt cannot be assigned to another invoice and browser roles cannot call the function (170.2379ms)
+✔ expanded item library is explicit, versioned, company scoped and never changes document snapshots (99.0919ms)
+✔ tax, client snapshot, remarks and row translations survive edit and quotation conversion (155.5ms)
+✔ controlled invoice correction preserves original journal, snapshots, payment ids and allocations (156.9408ms)
+✔ issuance refuses inconsistent stored totals instead of forcing item prices (85.5353ms)
+✔ corrections enforce actor permissions and locked-period rollback including audit (87.8034ms)
+✔ void and rejection preserve originals, prevent paid invoice voids and reverse unpaid balances once (126.0322ms)
+✔ admin upload atomically records once without pending verification or new income (98.1808ms)
+✔ missing reference can be filled once without payment, allocation or journal mutations (95.5244ms)
+✔ bulk reference rechecks identity, remaining balances and ambiguity under lock (107.3946ms)
+✔ draft and issued quotation post nothing; discounted approval posts once and retains quotation (91.4139ms)
+✔ draft edit is optimistic; issued revision preserves old quote and blocks its approval (70.1892ms)
+✔ locked accounting period rolls back approval, invoice and journals atomically (48.0004ms)
+✔ server rejects tampered totals, invalid discounts, stages, cross-company clients and unauthorized actors (51.1465ms)
+✔ pending proof changes no money; verification uses existing bank receipt + AR, never duplicate income (86.8062ms)
+✔ overpayments, wrong banks and duplicate slip are blocked; rejection frees retry but keeps proof (70.2976ms)
+✔ bank matching is partial/idempotent/account-scoped and never changes invoice paid balances or journal count (69.2384ms)
+✔ anonymous/authenticated roles cannot read clients or invoke money mutations (38.0222ms)
+✔ multiple verified renovation receipts share one bank line without duplication or over-allocation (62.7185ms)
+✔ general-accounting corrections cannot corrupt renovation invoice or verified receipt history (52.3611ms)
+✔ unmatching is audited and restores bank work without reversing payment verification or income (63.7052ms)
+✔ service role can perform the complete flow, while original non-renovation duplicate guard is retained (56.8554ms)
+✔ existing bank receipt has no upload prompt or verification/reconciliation controls (273.0784ms)
+✔ link action uses authenticated company and actor, existing receipt IDs only, with confirmation (165.7616ms)
+✔ payment loader scopes bank lines to selected company statements and subtracts existing allocations (71.215ms)
+✔ workflow redirects keep only permitted filters and force the correct workspace (0.8242ms)
+✔ renovation Reports receipt shows payment records only, never bank status or reconciliation controls (74.1023ms)
+✔ central verification defaults to pending and never offers reapproval of verified receipts (46.8618ms)
+✔ missing proof and view-only users cannot approve; forbidden users load no renovation data (96.3735ms)
+✔ bank workspace shows only same-bank verified remaining receipts and scopes statement lines (49.3964ms)
+✔ verification and matching use existing scoped RPCs and invalidate the actual invoice (244.4252ms)
+✔ admin receipts never appear in verification, even under all or verified filters (55.1029ms)
+✔ saved PDF translations require manage access and the current company/version; append audit only (131.9167ms)
+✔ bank-code bulk candidates reject ambiguous/exhausted/other-bank receipts and preview running consumption (3.7569ms)
+✔ converted quotations leave the active list but remain unchanged in their client folder (3.7684ms)
+✔ issued conversion link hides a quote; draft invoice does not archive an open quote (0.492ms)
+✔ client folders preserve company scope, filters and invoice-only outstanding (3.5796ms)
+✔ overview renders client folders once; invoices and quotations remain inside the selected folder (262.0124ms)
+✔ quantity/rate rounding, percentage and fixed discount agree with cents-based totals (0.6943ms)
+✔ stage rounding allocates every sen exactly once (0.6469ms)
+✔ outstanding ignores pending/rejected slips and bank matching does not subtract twice (3.4608ms)
+✔ renovation receipts cannot recur as new income in other months (5.0533ms)
+✔ cutoff is company-scoped and leaves original input date unchanged (1.7785ms)
+✔ 15 December tenancy bills from March on the 15th, without a second deposit or tenancy changes (27.5339ms)
+✔ fallback cycle uses real start day rather than the cutoff day (1.8364ms)
+✔ standalone tenant record retains original contract and recurring cycle (1.1931ms)
+✔ a genuine March check-in still gets its original check-in date and deposit (0.7138ms)
+✔ existing March bill is never recreated or overwritten (0.7203ms)
+✔ no invoices before cutover or for a tenancy ending before it (0.8419ms)
+✔ maintenance roles can view all room states without property controls or tenant details (61.7186ms)
+✔ operational admin with Properties disabled can see the map but not property management (17.6591ms)
+✔ tenants and disabled maintenance accounts cannot load the room map (2.4104ms)
+✔ main portal retains tenant details and existing property actions (56.0981ms)
+✔ shared route relies on page authorization, and both staff dashboards have an entry (5.1624ms)
+✔ room changed tenants mid-year: an August transaction resolves the OLD tenant, not the room's current occupant (3220.9236ms)
+✔ room changed tenants mid-year: a September transaction resolves the NEW, still-active tenant as a normal tenant-facing invoice (50.3582ms)
+✔ an existing invoice for the resolved tenancy+month is reused, never duplicated (42.6322ms)
+✔ partial bank amount against a fresh invoice leaves the remaining balance available (55.7085ms)
+✔ no tenancy ever occupied this room on the bank date is rejected, not guessed at (43.9854ms)
+✔ an ambiguous bank reference (no single room code) is rejected (27.8612ms)
+✔ draft tenancies (never actually started) are never used to attribute a bank transaction (27.6463ms)
+✔ a bank amount larger than the resolved invoice balance is rejected, nothing changed (31.323ms)
+✔ an already-verified payment slip for this room/month blocks direct invoice creation (existing_slip) (41.7639ms)
+✔ tenancy_for_room_at_date prefers the checked-out tenancy exactly on its last day, and the next tenancy from its first day (43.6269ms)
+[register/complete] missing uploads left for Admin review {
+  accountType: 'tenant',
+  missingKeys: [ 'icFront', 'icBack' ],
+  userId: 'actor'
+}
+[register/complete] missing uploads left for Admin review {
+  accountType: 'tenant',
+  missingKeys: [ 'paymentSlip' ],
+  userId: 'actor'
+}
+[register/start] registration preparation failed {
+  accountType: 'tenant',
+  error: 'draft changed',
+  hasApplication: false,
+  propertyModel: 'tenancy'
+}
+[register/start] registration preparation failed {
+  accountType: 'tenant',
+  error: 'Test failure',
+  hasApplication: true,
+  propertyModel: 'tenancy'
+}
+✔ public reservation has one deposit slip plus optional IC front/back uploads (37.9428ms)
+✔ staff reservation has optional identity files and one payment slip/amount (22.1288ms)
+✔ both reservation forms offer passport upload without requiring it (14.3116ms)
+✔ normal check-in retains rent/deposit split and identity photos (18.0136ms)
+✔ public BDS/PTT cannot force reservation mode (42.7891ms)
+✔ booking deposit validation accepts RM50 independently of later rent/security terms (2.7691ms)
+✔ reservation saves IC or passport on its existing application before one deposit submission (18.002ms)
+✔ identity upload/save failures stop booking; completion retry reuses saved identity (16.9941ms)
+✔ identity attachments reject other bookings/users, unknown keys and duplicate keys (8.1712ms)
+✔ reservation completion ignores old split fields and calls atomic submission, not receipt/invoice inserts (5.4729ms)
+✔ missing slip, wrong booking path and wrong identity bucket cannot submit a reservation (3.9812ms)
+✔ atomic conflict is not reported as successful registration (1.6653ms)
+✔ normal check-in payment validation remains unchanged (1.5724ms)
+✔ own authenticated failed reservation resumes the draft without creating another user/application (8.685ms)
+✔ tenant self-registration resumes its own failed check-in, preserving the profile and historical tables (7.3909ms)
+✔ check-in continuation blocks anonymous callers, another session, money, live history and identity changes (9.1739ms)
+✔ lookup failure and concurrent draft changes cannot create or delete accounts (2.6651ms)
+✔ tenant duplicate warning offers in-page login, never staff override or another tenant record (26.5265ms)
+✔ phone knowledge cannot resume another account or an already-paid draft (3.5391ms)
+✔ already submitted own reservation returns its existing status without resubmission (1.9768ms)
+✔ failure during resume never deletes the pre-existing user (11.1735ms)
+✔ reservation amount/slip is validated before creating a new account (1.1955ms)
+✔ start signs identity uploads separately from the single payment receipt (2.0966ms)
+✔ start rejects unrelated reservation attachments before creating an account (0.8836ms)
+✔ staff reservation saves optional IC/passport on same booking before payment submission (12.866ms)
+✔ staff identity failure cannot submit money and cleans only its new draft files (3.5432ms)
+✔ staff lost submission response preserves documents of successfully submitted booking (1.3526ms)
+✔ history formats full audit timestamps in Malaysia without invalid date crashes (83.5021ms)
+✔ history month links keep the selected statement instead of always opening the newest month (40.3707ms)
+✔ finished money-in and money-out hide the statement even if in progress and balance difference is nonzero (7.7687ms)
+✔ either unfinished side keeps its statement; completed rows and zero money do not keep it alive (1.6555ms)
+✔ old completed URL selects next working statement or clears all detail panels when nothing remains (0.4848ms)
+✔ authorized unmatch brings the same statement back without recreating it (0.7811ms)
+✔ work query is company-scoped, excludes void imports, pages all work and fails rather than hides on read errors (4.4599ms)
+✔ page buttons, selected statement and pending count use working queue; full accounting statement records stay intact (75.2442ms)
+✔ same bank and month show as one group rooted at the full-month statement, via merge links or month fallback (2.8848ms)
+✔ merge chains walk to the root, tolerate voided parents and loops, and never drop a statement (0.7959ms)
+✔ group is in progress while any member has work, and an old partial URL selects its month group (0.6772ms)
+✔ fully allocated lines with stale unmatched status cannot keep either side in the active workspace (1.0506ms)
+✔ completed month is marked COMPLETED despite stale import flags and lives only in read-only history (23.9879ms)
+✔ group lines keep each transaction once, preferring its original statement row (0.7427ms)
+✔ page queries every statement in the group, dedupes, and keeps balances on the root statement (57.2239ms)
+✔ upload links only covered, non-void statements of the same account, audits it, and never loops (2505.1201ms)
+✔ expired unsigned history can be signed; signed, rejected, replaced, draft and terminated cannot (19.5218ms)
+✔ 30-day rule includes unsigned predecessors and preserves six versus twelve months (3.7475ms)
+✔ existing next version suppresses duplicates; signed processing and rejected copies are not renewed (2.1264ms)
+✔ actual six-month renewal outranks an overlapping twelve-month original; ambiguous durations stop (0.722ms)
+✔ portal background maintenance is authenticated and never sends messages or fabricates consent for standby (5.5457ms)
+✔ real standby flow creates one offer with no consent, notification or financial mutation, and repeat is idempotent (780.6546ms)
+✔ non-renewing or signed-processing sources are left alone by real maintenance (675.5579ms)
+✔ historical or older terms cannot roll dates, rent or deposits backward (0.6362ms)
+✔ never-signed followup includes expired V1 and ready V2 regardless of stale status label (2.205ms)
+✔ signed-in-process tenants and previous occupants are excluded from never-signed list (0.7972ms)
+✔ management followup identifies the current room after transfer without rewriting historical agreement snapshots (1.9835ms)
+✔ overlapping historical copies are flagged, not silently offered as consecutive terms (0.5645ms)
+✔ server retains ownership, active tenant, no signature and compare-and-set guards (3.8723ms)
+✔ scheduled maintenance does not recreate original after a renewal and management list has no eight-row cutoff (2.9193ms)
+Monthly tenant movement report could not be loaded.
+Monthly tenant movement report could not be loaded.
+Monthly tenant movement report could not be loaded.
+✔ month boundaries and invalid month input are deterministic in Malaysia (4.2875ms)
+✔ report uses saved check-in date, retains same-month departures, excludes holds, future dates, other months and duplicates (36.3514ms)
+✔ checkout audit snapshots survive phone release and later room changes (0.5761ms)
+✔ data loader scopes privileged reads to RLS properties and selected outlet (5.7043ms)
+✔ unauthorized roles never load report data; no properties never reads historical records (1.8127ms)
+✔ report pages through records and fails visibly rather than showing false zero totals (138.2614ms)
+✔ monthly page renders compact separate tables, filters and linked navigation without mutation controls (14.6384ms)
+✔ reservations are discoverable and reuse existing controls only for authorized managers (287.3115ms)
+✔ suggestions use exact amount with date, reference, identity and document in priority order (5.9584ms)
+✔ same amount / date for two tenants is manual review, not an automatic match (1.4388ms)
+✔ amount differences, duplicate references and conflicting room references require review (1.8246ms)
+✔ already linked, legacy-linked, reversed and unconfirmed masters cannot be suggested (1.1398ms)
+✔ clear matches with a slip or receipt are ready without a separate selection click (49.5572ms)
+✔ missing proof, ambiguous identities, mismatched rooms and duplicates still require manual review (41.7528ms)
+✔ duplicate bank detection includes account, amount, date and reference; amount alone does not block (0.9192ms)
+✔ non-QR full tenant name selects the correct existing slip among equal amounts (19.8131ms)
+✔ unnamed transfers without an exact bank code never offer amount/date-only direct matching (27.2191ms)
+✔ partial names and same-name receipts remain manual, while a correct QR room remains supported (1.7725ms)
+✔ compact working UI displays original receipt, slip, AR and bank details (22.5745ms)
+✔ completed rows leave both working lists with no duplicate history, and return after unmatch (17.3936ms)
+✔ completed legacy bank rows are hidden but incomplete allocations remain for review (7.8129ms)
+✔ bank loader distinguishes completed statuses from an incomplete locked allocation without writes (2.8169ms)
+✔ loader pages every payment, uses correct state primary key, and keeps orphan slips read-only (8.0263ms)
+✔ refresh suggestions writes only internal reconciliation state, never tenant records (9.1648ms)
+✔ reports use a separate private accounting connection only for reconciliation states (3.7395ms)
+✔ reconciliation RPCs contain no tenant or journal mutation; old tenant-creation action is disabled (17.7963ms)
+Booking fee verification failed. {
+  submissionId: 'submission',
+  code: 'P0001',
+  message: 'bank_reference_exceeds_amount'
+}
+✔ references retain zeroes; blank, omitted and rejection forms cannot erase them (66.7023ms)
+✔ every confirmation shows an editable reference, including Admin and Rent + Deposit / booking fees (62.0256ms)
+✔ normal verification persists the reference on the existing submission for all allocations (6.318ms)
+✔ booking verification passes reference into the atomic allocator without a separate update (1.9828ms)
+✔ bad references and already verified submissions stop before writes; rejection preserves reference (1.3155ms)
+✔ inline Verify returns missing-code, verified and scope errors without financial writes (1.5217ms)
+✔ inline unchanged hashed slip preserves atomic reference-plus-folder verification (1.176ms)
+✔ Verify shows the specific over-allocation message when the bank-code guard refuses the total (7.5254ms)
+✔ exact bank reference suggests a ready match without tenant name, but never matches substrings (4.6506ms)
+✔ a saved bank code with fewer leading zeroes than the bank's own QR reference still matches (1.3005ms)
+✔ bank codes allow reviewed partial allocation but never bypass room/month, duplicate or already reconciled protections (1.0155ms)
+✔ payment propagation and protected booking transaction remain wired into release (4.0234ms)
+ℹ tests 294
+ℹ suites 0
+ℹ pass 294
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12842.8173
+
+> dekez@1.0.0 test:historical-classification
+> node --test tests/historical-classification-sql.test.cjs tests/historical-classification-report.test.cjs
+
+✔ September summary is separate; only frozen scope bypasses the normal matching table (3.7959ms)
+✔ July example is 83398 already completed, 18360 ready, zero missing-evidence exclusions (0.2294ms)
+✔ v2 is the active server path; confirmation and current lock warning are retained (1.7142ms)
+✔ report source is private, company-scoped, current-date AR-only; P&L does not read it (2.1529ms)
+✔ current-date classification reduces AR once, leaves past snapshot/Bank/profit unchanged (13.5667ms)
+✔ unidentified July money, no payment/receipt/invoice/code: full RM18360 ready and credited exactly once (1289.9508ms)
+✔ completed credits and debit allocations stay byte-for-byte unchanged; unresolved debit keeps month active (56.9435ms)
+✔ partial allocations are retained and only the unallocated remainder is classified (50.8984ms)
+✔ deposit words alone are not exclusions; explicitly linked refundable deposit is protected (47.5241ms)
+✔ known manual liability/non-rental offset and posted journal category stay unchanged (43.6863ms)
+✔ existing transfer/deposit portions remain untouched; their unallocated remainder is not presumed non-rental (46.6671ms)
+✔ already posted AR is not credited twice even if reconciliation flag is stale (42.7681ms)
+✔ exact recorded deposit reference and transfer retain their category without requiring any new match (25.5738ms)
+✔ no fuzzy-duplicate exclusion; known duplicate imports alone are skipped (28.1793ms)
+✔ March and August included, February/September and money out untouched (34.2283ms)
+✔ prior locked periods unchanged; current locked date refuses entire batch (31.3551ms)
+✔ stale confirmation and unauthorised roles rejected without partial mutation (32.5995ms)
+✔ classified source and audit offset are immutable and cannot be reconciled again (33.4068ms)
+✔ September grouped receipts, delayed bank dates and non-equal amounts preserve already recorded accounting (56.9451ms)
+✔ September already allocated grouped receipt does not exclude a genuinely unallocated remainder (50.7924ms)
+✔ September fixed scope: future imports and previously completed sources cannot enter the batch (48.5974ms)
+✔ September no-evidence remainder credits 1100 once, keeps dates, and completes a zero-work statement (51.8578ms)
+✔ September known liability, valid other category and existing AR payments are not posted twice (46.5422ms)
+✔ September partial allocations stay intact and completed-during-preview causes stale batch rejection (44.08ms)
+✔ September current lock, wrong role and changed source all fail without partial postings (35.4112ms)
+✔ September manifest is immutable, service cannot widen it, and classification cannot bypass allowlist (26.655ms)
+✔ September removed old allocation cannot increase approved remainder; new allocation decreases it safely (46.7942ms)
+✔ September unfinished Money Out prevents completion without editing the debit (47.269ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2422.4496
+
+> dekez@1.0.0 test:financial-pdfs
+> node --test tests/financial-report-pdf.test.cjs tests/profit-loss-groups.test.cjs tests/accounting/outlet-profit.test.mjs
+
+✔ outlets are distinct by ID, include no activity and retain shared office costs (14.7053ms)
+✔ P&L export copies displayed amounts, dates and scope without mutating source data (31.88ms)
+✔ missing account mappings are explicit; company data and monetary errors are not invented (1.7929ms)
+✔ Balance Sheet uses the same rows/totals and preserves filters, comparison and basis limitations (4.1397ms)
+✔ Trial Balance cannot hide a difference behind the existing conversion display row (3.7947ms)
+✔ PDFs are searchable A4 documents with metadata, safe multipage rows and Unicode support (1256.0158ms)
+✔ export entrypoints are presentation only, authenticated screen snapshots, not alternate queries (4.8041ms)
+✔ two groups preserve all original costs, credits, sources and net profit without mutation (2.2082ms)
+✔ utilities remain on exact property IDs, never distributed from unallocated or merged by name (13.1876ms)
+✔ monthly view uses the same groups; mid-month ranges do not skip February (1.2644ms)
+✔ screen, main PDF and property PDF use identical two-group presentation and source figures (18.8823ms)
+✔ PDF and UI grouping functions are read-only and preserve the original report service (4.3457ms)
+✔ generate multipage two-group PDFs for visual review (75.2366ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2017.5319
+
+> dekez@1.0.0 test:claimable-expenses
+> node --test tests/claimable-expenses.test.cjs
+
+✔ receipt/date/amount with no category, ticket or claim submits pending and posts no payable (1236.8733ms)
+✔ verification requires category; same existing expense creates one payable without Bank or second expense (42.4249ms)
+✔ 500 less 300 partial reimbursement leaves 200; second 200 settles; retries never duplicate (51.8813ms)
+✔ overpayment, duplicate selected bill, missing proof and locked period roll back (37.9891ms)
+✔ paid bill amounts/payee/history and settlement allocations cannot be overwritten (32.2732ms)
+✔ company paid follows existing cash/payment flow and creates no staff liability (26.2189ms)
+✔ tenant, foreign claimant, staff self-approval and public RPC access fail (24.9085ms)
+✔ frontend requires receipt/date but not category/ticket; admin category has explicit blank choice (18.9871ms)
+✔ bank partial settlement consumes existing debit once; leaves 200 AP, 500 expense and same Bank source (40.1361ms)
+✔ failure to save bank match rolls back the payout and AP allocation atomically (35.7376ms)
+✔ duplicate bill selections, stale review version and missing receipt are rejected (31.5619ms)
+✔ legacy paid liabilities stay settled without backfill; original balances remain unchanged (26.3674ms)
+✔ historical report balance respects reimbursement dates and never changes original expense (264.0112ms)
+✔ a completed partial payout refreshes its form identity for the next reimbursement (18.5519ms)
+✔ report payout embeds identify their FK rather than the new many-to-many allocation route (18.3575ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2076.5364
+
+> dekez@1.0.0 test:client-owner
+> node --test tests/client-owner.test.cjs tests/client-owner-sql.test.cjs
+
+✔ owner A receives only A and no tenant/staff fields; deposits excluded from collections (1248.098ms)
+✔ cross-owner URL property request is denied; B cannot see A (10.1235ms)
+✔ raw legacy permissive access is denied to clients, unchanged for existing Owner (10.8984ms)
+✔ legacy RPCs and direct tables blocked at API boundary; snapshot/profile GET allowed (11.9525ms)
+✔ client cannot invoke management RPC, self-enable, rewrite role or publish another owner document (6.8761ms)
+✔ private document publication is owner-scoped and revocation removes access (22.2102ms)
+✔ disabled client and non-client cannot get portal projection (6.8083ms)
+✔ published claim uses reviewed summary and explicit partial amount, without changing source (13.0742ms)
+✔ payout links existing bank only, prevents duplicates and leaves all financial sources unchanged (23.7318ms)
+✔ client owner has no internal module rights even with old permission overrides (1.241ms)
+✔ potential is configured rent; vacancies, occupied and reserved are separate; zero rooms safe (0.8854ms)
+✔ actual receipts separate from billed income/potential; partial statement coverage not a portfolio payout (0.3568ms)
+✔ statuses handle overdue, partial payment, no vacancy, terminated and expiring agreements (23.239ms)
+✔ safe month parsing and navigation retain property/month across all sections (0.6395ms)
+✔ document endpoint checks scoped snapshot and never accepts bucket/path from URL (1.1784ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1510.7404
+
+> dekez@1.0.0 test:responsive-layout
+> node --test tests/responsive-layout.test.cjs tests/owner-responsive.test.cjs
+
+✔ owner layout fix preserves all rendering logic, calculations, queries, routes and document security (6.5006ms)
+✔ owner shell is fluid, navigation changes at 1024, inputs remain readable, tabs scroll locally (2.1754ms)
+✔ browser matrix covers every section, finance subtab, detail, requested size and ultrawide (15.3894ms)
+✔ Claims approved batch loading and Rent Due Tracker retain reviewed non-layout baselines (84.2634ms)
+✔ Claims batching preserves original database queries, displayed amounts, statuses and controls (8.2631ms)
+✔ same management navigation, links, permissions and logout action remain (1.4236ms)
+✔ responsive rules reflow rather than scale, isolate tables and preserve print (1.9034ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 405.236
+
+> dekez@1.0.0 test:performance-loading
+> node --test tests/performance-loading.test.cjs
+
+✔ admin overview streams separately without dropping any follow-up loader or action (2.0802ms)
+✔ real React stream sends overview while follow-up data is still pending (128.3396ms)
+✔ report tab matrix skips only unused comparisons and matching candidates (2.2447ms)
+✔ batch signing preserves order, duplicate references, bucket boundaries and expiry (6.1535ms)
+✔ 500 file references require 10 requests, never more than 3 concurrent requests (1.4824ms)
+✔ denied and missing files stay unavailable; no credential fallback or fabricated URL (0.6282ms)
+✔ private links are not cached across requests or clients; empty input does no IO (0.7828ms)
+✔ installed Supabase SDK preserves credentials, paths and denied-file responses for batch signing (72.8523ms)
+✔ storage optimization never introduces a write or changes record queries (2.7034ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2485.2035
+
+> dekez@1.0.0 test:marketplace
+> node --test tests/marketplace-foundation.test.cjs tests/marketplace-portal.test.cjs tests/contractor-preview-auth.test.cjs tests/contractor-preview-sql.test.cjs tests/contractor-preview-provision.test.cjs
+
+✔ preview role cannot gain internal modules even with explicit permission rows (1.3679ms)
+✔ pilot can navigate only preview/login/logout; all other GETs redirect, actions are denied (194.3154ms)
+✔ approved Admin middleware keeps access and makes no duplicate profile query (40.7858ms)
+✔ pilot login reserves attempt before verifying and returns only restricted destination (54.3803ms)
+✔ pilot login fails closed for cross-origin, limiter outage, exhausted attempts and bad credentials (210.8092ms)
+✔ only fresh signed-in Super Admin may create restricted preview; blocked before DB work (161.974ms)
+✔ provisioning creates banned identity, finalizes/audits then enables only that new preview account (19.3434ms)
+✔ existing account, missing confirmation and invalid input cannot create, reset or convert an identity (71.8461ms)
+✔ finalization and audit failures leave the new identity banned, never reset or delete an existing user (24.8025ms)
+✔ pilot and provisioning identity cannot read/write operational rows or private files (1443.9659ms)
+✔ API guard blocks legacy RPCs, views, writes and unknown paths; only profile reads allowed (18.8123ms)
+✔ existing staff and tenant RLS behavior remains unchanged; guard delegates existing Owner rule (6.7061ms)
+✔ durable limiter is service-only, bounded, parallel-safe and resets after its window (20.4167ms)
+✔ provisioning is service-only, requires a new banned identity, preserves existing people and audits once (14.1171ms)
+✔ verified billing and business verification are independent requirements (1.8091ms)
+✔ membership must have a valid current term; equality at expiry is expired (1.5023ms)
+✔ quotation requires the current invitation for the same contractor and job (0.4719ms)
+✔ closed jobs, deadlines, duplicate submissions and invalid capacity deny new quotations (0.3929ms)
+✔ owner submission, admin moderation and worker invitations form separate transitions (0.4152ms)
+✔ only the selected contractor starts/reports work; only the actual owner confirms completion (0.2924ms)
+✔ selection cannot replace an existing match; exceptional transitions require a reason (0.217ms)
+✔ expired membership cannot erase accepted jobs or essential communication (0.2298ms)
+✔ reviews require real owner-confirmed completion, participation and no prior review by that reviewer (0.3175ms)
+✔ quotation totals round line amounts to cents and tax once, with no floating point drift (1.6534ms)
+✔ invalid, negative, unsafe and excessive quotation inputs cannot produce totals (1.2802ms)
+✔ phone normalization gives the same starter PIN without changing existing auth helpers (0.439ms)
+✔ personal PIN replaces the guessable starter; only contractor credentials can enter contractor flow (0.3973ms)
+✔ all 13 foundation sections render with honest unavailable state and five mobile tabs (208.2585ms)
+✔ all marketplace route entry points authenticate server-side before rendering (184.6153ms)
+✔ preview validates requested sections and redirects only to its own dashboard (91.5637ms)
+✔ pilot has logout on desktop/mobile and no management link or fake business records (29.3543ms)
+✔ shell uses fluid content, one primary navigation, safe areas and scoped styles (2.0175ms)
+ℹ tests 32
+ℹ suites 0
+ℹ pass 32
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1690.5292
+
+> dekez@1.0.0 test:dekez-chat
+> node --test tests/dekez-chat-sql.test.cjs tests/dekez-chat-requests.test.cjs tests/dekez-chat-api.test.cjs tests/dekez-chat-client.test.cjs tests/dekez-chat-files-access.test.cjs tests/dekez-chat-files-api.test.cjs tests/dekez-chat-gateway.test.cjs tests/dekez-chat-desks.test.cjs tests/dekez-chat-reminders.test.cjs tests/dekez-chat-reminders-api.test.cjs tests/dekez-chat-admin-center.test.cjs tests/dekez-chat-assistant.test.cjs tests/dekez-chat-assistant-api.test.cjs
+
+✔ manual Admin and user messages are classified by backend; old history stays unchanged (4468.4538ms)
+✔ automatic reminder, tenant reply and manual Admin reply share one audited conversation (351.0097ms)
+✔ reading clears unread and needs reply without creating a separate queue (88.4896ms)
+✔ role filters and scoped details never grant Admin or strangers private access (186.6444ms)
+✔ owner/tenant creation and completed contractor sending stay blocked (37.6545ms)
+✔ welcome is disabled by default; reopening existing chat cannot resend it (64.7575ms)
+✔ new authorized Admin–Tenant chat welcomes once, creates unread, preserves actor and allows replies (161.5159ms)
+✔ ordinary users cannot enable welcomes, forge types or alter delivery history (23.942ms)
+✔ filters apply before paging; cursor stays bounded and actual message time is retained (215.7383ms)
+✔ disabled chat does not connect to a backend (10.7201ms)
+✔ server rejects missing session and cross-origin sends (4.2063ms)
+✔ server forwards only validated commands with the end-user client (6.6548ms)
+✔ backend privacy denial is preserved and raw errors are not exposed (2.8052ms)
+✔ large chunked JSON payloads cannot bypass the body limit (2.4617ms)
+DEKEZ Assistant processing unavailable
+✔ clear common questions map to bounded intents, never free-form answers (4.201ms)
+✔ decisions, complaints, mixed messages, foreign records and injection fail closed (0.8875ms)
+✔ unconfigured model uses explicit template mode without a provider call (0.621ms)
+✔ model only confirms intent, cannot invent values or expand permission (12.5784ms)
+✔ worker submits only intent and original lease identity, no model-composed reply (1.1828ms)
+✔ cron is private and inert until explicitly enabled; errors leak no details (66.6175ms)
+✔ disabled assistant queues and sends nothing (3843.0813ms)
+✔ manual reply while disabled still preserves human takeover on later activation (107.9125ms)
+✔ expired worker lease can retry but cannot create a second reply (250.3817ms)
+✔ closed conversations are skipped and removed from the worker queue (127.9891ms)
+✔ delayed queue, actual due date, assistant label, unread and duplicate prevention (238.4405ms)
+✔ manual Admin reply cancels queued answer and pauses until explicit re-enable (273.4139ms)
+✔ newer user message invalidates in-flight answer (157.6357ms)
+✔ a simple follow-up cannot conceal an earlier unanswered complaint (144.8898ms)
+✔ multiple current invoices are escalated rather than choosing one (106.3247ms)
+✔ complaint escalates once; reading does not dismiss Admin follow-up (215.6149ms)
+✔ outstanding is actual remaining balance and fresh data is rechecked before reply (91.128ms)
+✔ pending payment is not called confirmed, recorded payment needs actual record (137.9649ms)
+✔ unrecorded I already paid goes to Admin, not a false confirmation (69.1588ms)
+✔ signed TA date is read-only; absent TA never invents an expiry (117.9536ms)
+✔ active maintenance ticket status is returned, without creating a duplicate (71.1032ms)
+✔ checked-out or ambiguous tenancy cannot receive guessed financial answers (70.1584ms)
+✔ after-hours acknowledgement occurs at most once per 24 hours with configured hours only (114.3839ms)
+✔ automated reminders never trigger human takeover or assistant loops (108.2462ms)
+✔ tenant/unrelated Admin cannot control assistant, claim records or forge replies (37.5025ms)
+✔ partial or malformed office schedules cannot silently bypass configuration checks (13.9758ms)
+✔ end-to-end reminder, assistant, escalation and human reply keep one thread and never write source data (242.928ms)
+✔ message source labels distinguish automatic and manual; legacy history is not guessed (52.3602ms)
+✔ unread badge and short identity presentation (17.0462ms)
+✔ messages merge by identity in sequence order without duplicating events (1.6256ms)
+✔ client rejects login redirects and malformed responses without rendering raw content (1.4403ms)
+✔ realtime filters only the caller signal without subscribing to message bodies; bursts coalesce (547.2456ms)
+✔ closed/unselected conversations retain only caller inbox subscription (155.8541ms)
+✔ header and workspace share one channel; final unmount removes it (657.9564ms)
+✔ portal chat entries stay gated and never join portal-wide refresh subscriptions (458.725ms)
+✔ new summary cannot be read anonymously or with disabled chat membership (3506.6307ms)
+✔ upgrading an existing contractor desk closes sending without deleting historical messages (1922.4277ms)
+✔ unread summary is caller-scoped and uses all authorized counters, not just inbox page (23.8452ms)
+✔ tenant display label uses only the authorized room scope and short name (61.4447ms)
+✔ Owner can contact authorized Admin desk without changing job records (83.0984ms)
+✔ desk contact list is scoped, not a global account directory (26.7268ms)
+✔ bootstrap is self-only, idempotent, does not restore disabled or changed-role membership (15.3762ms)
+✔ desk support remains selected-evidence-only, company-scoped and revocable (62.2437ms)
+✔ disabled staff desk rejects new messages and retains participant history (42.9643ms)
+✔ account setup uses existing approved company-linked accounts with empty organization fields and explicit Super Admin authority (4273.5608ms)
+✔ scope setup checks ownership, tenancy, management company and active contractor assignment (158.6044ms)
+✔ uploads require active participant access, are idempotent and cannot be self-attested (192.1792ms)
+✔ an upload cannot retroactively alter an existing text message (65.6605ms)
+✔ private file metadata and bytes authorization never grant ordinary Admin access (52.6786ms)
+✔ support sees only selected files, logs every access and loses access when closed (88.1873ms)
+✔ identical support retries deduplicate and direct access to the unbounded helper is denied (134.9397ms)
+✔ realtime signals contain no content and RLS exposes only the caller row (9.1398ms)
+✔ job closure prevents uploads and sends but preserves authorized attachment history (45.0353ms)
+✔ file validator checks actual bytes, strips image metadata, sanitizes names and bounds streams (3703.9517ms)
+✔ file API blocks origin forgery and unrelated accounts before any storage writes (50.8455ms)
+✔ actual upload API -> reservation -> immutable storage -> service attestation -> end-user message (187.3078ms)
+✔ support file delivery is reauthorized after storage I/O and denied if case closes during fetch (60.3212ms)
+✔ gateway admits only narrow chat RPCs for enrolled Owner and Contractor; legacy boundaries remain (4529.7751ms)
+✔ disabled or changed-role contractor loses chat gateway access; old endpoint policies still run (29.0123ms)
+✔ publication contains only the minimal caller signal and no messages or legacy tables (14.2088ms)
+✔ HTTP middleware permits exact chat APIs only when enabled, not arbitrary preview actions (714.8854ms)
+DEKEZ chat reminder worker failed; no success assumed.
+DEKEZ chat reminder worker failed; no success assumed.
+✔ missing, malformed and wrong cron credentials never connect to database (55.6989ms)
+✔ disabled reminder deployment has no backend calls (3.1229ms)
+✔ enabled worker defaults to read-only preview and ignores caller sender/date/body (1.7967ms)
+✔ send requires explicit switch; authorized operator can still force safe preview (1.5801ms)
+✔ backend failure returns safe retry response with no secrets/raw SQL (5.917ms)
+✔ 7 / 3 / 1 / deadline / overdue use real calendar dates, without intervening stages (4326.2232ms)
+✔ preview does not send, create conversations, increment unread, or write delivery state (97.6527ms)
+✔ reminder uses normal Admin chat, trusted label, preview, unread and realtime signal; Admin can reply (208.5653ms)
+✔ retry and later overdue runs never duplicate a source/type/stage (344.1515ms)
+✔ payment on 29 Oct stops 30/31 reminders without changing the invoice (77.9487ms)
+✔ partial payment uses remaining amount; confirmed but unsynchronized payment suppresses nag (75.8411ms)
+✔ pending verification, cancelled/waived/hidden/removed bills do not receive reminders (49.3434ms)
+✔ checkout and ended/terminated tenancy stop all normal reminders (32.4229ms)
+✔ no matching existing Admin chat is skipped, never provisioned (60.4236ms)
+✔ revoked or disabled participant still fails existing send authorization (67.5964ms)
+✔ unlinked invoice does not guess tenant identity (20.457ms)
+✔ unsigned TA without an actual reviewed signing deadline does not invent one (74.148ms)
+✔ signed TA stops all remaining signing stages (67.9862ms)
+✔ actual agreement expiry is used; prepared next-term agreement does not imply renewal completed (57.3815ms)
+✔ completed renew/not-renew decision stops expiry and renewal deadline reminders (20.3989ms)
+✔ auto-renew warning quotes verified actual clause, never changes dates or auto-renews (87.7452ms)
+✔ non-automatic agreement, fabricated quote and stale agreement version cannot create warnings (21.9441ms)
+✔ message failure rolls back delivery ledger, counters and restores identity (77.8262ms)
+✔ ordinary users cannot invoke worker, view sources/ledger, configure terms, or forge system labels (79.8811ms)
+✔ database switch is disabled by default and service entry rejects missing trusted role (13.1734ms)
+✔ real scheduled entry derives Malaysia date and ignores caller date/sender identities (15.8984ms)
+✔ migration changes no WhatsApp/accounting sources, chat policies or permissions (11.0291ms)
+✔ bounded batches advance past missing conversations and do not starve later sources (585.7506ms)
+✔ committed dedupe row and message cannot diverge; unique stage is enforced by database (51.2684ms)
+✔ commands never accept caller-supplied identity or arbitrary RPCs (2.7644ms)
+✔ message, read and evidence validation is bounded (0.5238ms)
+✔ support actions require explicit reasons and bounded temporary grants (1.5817ms)
+✔ history and inbox queries are bounded, cursor-based, and cannot select another user (0.7707ms)
+✔ Admin filters are validated and only add filters to the same bounded participant inbox (1.0632ms)
+✔ assistant endpoint exposes only participant controls, never worker or reply injection (1.6025ms)
+✔ errors contain no SQL or raw backend details; API is disabled by default and uses end-user session (3.9838ms)
+✔ Owner–Tenant creation is blocked in both directions, even with a forged relationship (3932.8437ms)
+✔ authorized Tenant–Management and Owner–Management work (48.7478ms)
+✔ active assigned contractor can chat, reply, and retry idempotently (323.8676ms)
+✔ unrelated owner, contractor, tenant and ordinary Admin cannot read or send (67.4945ms)
+✔ conversation detail and contact labels expose only an authorized participant scope (43.6804ms)
+✔ no global contact directory and no raw writes or self-granted access (35.9166ms)
+✔ read receipts are monotonic, bounded and only change the caller (53.2681ms)
+✔ support report validates evidence; only assigned staff can read selected messages and every view is audited (133.4075ms)
+✔ resolved/closed support cases immediately revoke evidence access (12.026ms)
+✔ support dispatcher sees metadata only; assignment, views and closure are auditable and scoped (76.4217ms)
+✔ history loads at most 50 with non-overlapping older pages (191.9954ms)
+✔ completed job closes chat, blocks direct RPC, preserves history and removes contact (38.2885ms)
+✔ new job with same people requires a new grant and creates a separate chat (75.3756ms)
+✔ migration never touches WhatsApp, authentication, financial tables or existing API guards (2.0366ms)
+✔ anonymous users have no chat table or RPC access (2.7273ms)
+✔ an Admin can chat only when explicitly enrolled as a participant (71.6449ms)
+✔ expired grants deny sending and contacts while retaining participant history (84.0027ms)
+✔ profile role changes invalidate existing chat capabilities (18.6173ms)
+✔ database rate limit prevents burst sends and resets after its window (75.0318ms)
+ℹ tests 130
+ℹ suites 0
+ℹ pass 130
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6862.0747
+
+> dekez@1.0.0 build
+> next build
+
+▲ Next.js 16.2.10 (Turbopack)
+- Experiments (use with caution):
+  · serverActions
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 24.7s
+  Running TypeScript ...
+  Finished TypeScript in 27.3s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/52) ...
+  Generating static pages using 15 workers (13/52) 
+  Generating static pages using 15 workers (26/52) 
+  Generating static pages using 15 workers (39/52) 
+✓ Generating static pages using 15 workers (52/52) in 506ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /about
+├ ƒ /admin-setup
+├ ƒ /admin-setup/client-owners
+├ ƒ /admin-setup/users/[id]
+├ ƒ /admin/marketplace
+├ ƒ /admin/marketplace/chat-access
+├ ƒ /admin/marketplace/contractor-preview/[[...segments]]
+├ ƒ /admin/marketplace/support
+├ ƒ /admin/marketplace/test-login
+├ ƒ /api/dekez-chat
+├ ƒ /api/dekez-chat-assistant
+├ ƒ /api/dekez-chat-reminders
+├ ƒ /api/dekez-chat/files
+├ ƒ /api/document-archive
+├ ƒ /api/register/complete
+├ ƒ /api/register/start
+├ ƒ /api/rent-reminders
+├ ƒ /api/rental-billing
+├ ƒ /api/tenancy-agreements/[id]/pdf
+├ ƒ /api/tenancy-renewals
+├ ƒ /api/webhooks/ttlock
+├ ƒ /api/webhooks/whatsapp
+├ ƒ /auth/callback
+├ ƒ /auth/sign-in
+├ ƒ /claims
+├ ƒ /dashboard
+├ ƒ /e-tenancy
+├ ƒ /e-tenancy/[id]
+├ ƒ /expenses
+├ ƒ /invoices/[id]
+├ ƒ /login/[role]
+├ ƒ /login/contractor
+├ ƒ /login/tenant-phone
+├ ƒ /logout
+├ ƒ /maintenance
+├ ƒ /messages
+├ ƒ /onboarding
+├ ƒ /owner/[[...segments]]
+├ ƒ /owner/documents/[id]
+├ ƒ /owner/messages
+├ ƒ /payment-verification
+├ ƒ /payments
+├ ƒ /preview/bds-electricity-top-up
+├ ƒ /privacy
+├ ƒ /properties
+├ ƒ /properties/[id]
+├ ƒ /properties/[id]/register-tenant
+├ ƒ /properties/[id]/rooms/[roomId]
+├ ƒ /referrals
+├ ƒ /register
+├ ƒ /register-tenant
+├ ƒ /registration-status
+├ ƒ /renovation
+├ ƒ /renovation/[id]
+├ ƒ /renovation/items
+├ ƒ /renovation/new
+├ ƒ /rent-due-tracker
+├ ƒ /rental-invoices
+├ ƒ /reports
+├ ƒ /reservations
+├ ƒ /reset-password
+├ ƒ /room-availability
+├ ƒ /rooms
+├ ƒ /settings
+├ ƒ /setup
+├ ƒ /smart-devices
+├ ƒ /staff/profile
+├ ƒ /super-admin
+├ ƒ /tenancy-agreements
+├ ƒ /tenancy-agreements/preview/[tenancyId]
+├ ƒ /tenant-movements
+├ ƒ /tenant-verification
+├ ƒ /tenant/profile
+├ ƒ /tenants
+├ ƒ /tenants/[id]
+├ ƒ /terms
+├ ƒ /units
+├ ƒ /utility-bills
+└ ƒ /verification
+
+
+ƒ Proxy (Middleware)
+
+ƒ  (Dynamic)  server-rendered on demand
+

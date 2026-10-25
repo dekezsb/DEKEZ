@@ -2,6 +2,15 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const loader=require('./marketplace-component-loader.cjs');
 const {mergeMessages,requestChat,ChatRequestError}=loader()('lib/chat/client.ts');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+
+test('message source labels distinguish automatic and manual; legacy history is not guessed',()=>{
+ const {messageSourceLabel}=loader()('lib/chat/client.ts');
+ assert.equal(messageSourceLabel('AUTO_REMINDER'),'Automated Reminder');
+ assert.equal(messageSourceLabel('WELCOME_MESSAGE'),'Automated Welcome');
+ assert.equal(messageSourceLabel('SYSTEM_NOTICE'),'System Notice');
+ assert.equal(messageSourceLabel('MANUAL_ADMIN'),'Manual Admin message');
+ assert.equal(messageSourceLabel('USER_MESSAGE'),null);assert.equal(messageSourceLabel(null),null);
+});
 test('unread badge and short identity presentation',()=>{
  const {unreadLabel,shortChatName,chatInitials}=loader()('lib/chat/display.ts');
  assert.equal(unreadLabel(0),'');assert.equal(unreadLabel(99),'99');assert.equal(unreadLabel(100),'99+');

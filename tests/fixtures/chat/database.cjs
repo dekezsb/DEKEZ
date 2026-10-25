@@ -66,7 +66,7 @@ module.exports = async function database({ desks = true, mvp = true } = {}) {
     const entries=Object.entries(args);
     if(entries.some(([key])=>!/^p_[a-z_]+$/.test(key)))throw Error('Invalid argument');
     const {rows}=await db.query(`select * from public.${name}(${entries.map(([key],i)=>`${key} => $${i+1}`).join(',')})`,entries.map(([,value])=>value));
-    return {data:['dekez_chat_bootstrap','dekez_chat_desk_open','dekez_chat_open','dekez_chat_report','dekez_chat_read','dekez_chat_support_manifest','dekez_chat_support_assign','dekez_chat_support_status','dekez_chat_member_setup','dekez_chat_relationship_setup','dekez_chat_relationship_revoke','dekez_chat_file_reserve','dekez_chat_file_uploaded','dekez_chat_file_access'].includes(name)?rows[0]?.[name]:['dekez_chat_send','dekez_chat_evidence','dekez_chat_file_send'].includes(name)?rows[0]:rows,error:null};
+    return {data:['dekez_chat_assistant','dekez_chat_bootstrap','dekez_chat_desk_open','dekez_chat_open','dekez_chat_report','dekez_chat_read','dekez_chat_support_manifest','dekez_chat_support_assign','dekez_chat_support_status','dekez_chat_member_setup','dekez_chat_relationship_setup','dekez_chat_relationship_revoke','dekez_chat_file_reserve','dekez_chat_file_uploaded','dekez_chat_file_access'].includes(name)?rows[0]?.[name]:['dekez_chat_send','dekez_chat_evidence','dekez_chat_file_send'].includes(name)?rows[0]:rows,error:null};
    } catch(error) { return {data:null,error:{code:error.code,message:error.message}}; }
    finally { await db.exec('reset role; reset test.uid'); }
   });
