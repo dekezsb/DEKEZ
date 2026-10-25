@@ -115,7 +115,7 @@ test('schedule remains pending, existing cron definitions preserved, sources con
   {path:'/api/tenancy-renewals',schedule:'0 7 * * *'},
   {path:'/api/document-archive',schedule:'*/10 * * * *'}
  ]);
- assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false});
+ assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false,'security/dependency-remediation-20261025':false});
  assert.deepEqual(JSON.parse(fs.readFileSync('config/management-report-cron.pending.json','utf8')),{path:'/api/management-report',schedule:'0 12 * * *'});
  const sql=fs.readFileSync('supabase/migrations/20261025083739_whapi_management_reports.sql','utf8');assert.doesNotMatch(sql,/\b(update|insert into|delete from|alter table) public\.(payments|rent_bills|tenancies|whatsapp_)/i);
 });

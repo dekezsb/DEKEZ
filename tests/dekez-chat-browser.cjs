@@ -159,6 +159,10 @@ async function run(){
   await owner.getByRole('button',{name:/Fixture Contractor/}).click();
   await owner.getByLabel('Message',{exact:true}).waitFor();
   assert.equal(await owner.locator('.history article').count(),40);
+  // Reading requires viewing the latest message. Explicitly scroll as a user
+  // would; this fixture must not depend on initial requestAnimationFrame timing.
+  await owner.locator('.history').evaluate(element=>{element.scrollTop=element.scrollHeight;});
+  await owner.waitForFunction(()=>{const history=document.querySelector('.history');return history.scrollHeight-history.scrollTop-history.clientHeight<=24;});
   await owner.getByRole('link',{name:'Messages',exact:true}).waitFor();
   await owner.getByRole('button',{name:'Load older messages'}).click();
   await owner.waitForFunction(()=>document.querySelectorAll('.history article').length===80);
