@@ -7,12 +7,15 @@ const {webpack}=require('next/dist/compiled/webpack/webpack');
 const sizes=[[320,568],[375,812],[390,844],[430,932],[768,1024],[820,1180],[1024,768],[1024,1366],[1280,800],[1366,768],[1440,900],[1920,1080]];
 async function run(){
  const output=fs.mkdtempSync(path.join(os.tmpdir(),'dekez-chat-qa-'));
- let db,server,browser;const saved=process.env.DEKEZ_CHAT_ENABLED,savedFiles=process.env.DEKEZ_CHAT_FILES_ENABLED;
+ let db,server,browser;const saved=process.env.DEKEZ_CHAT_ENABLED,savedFiles=process.env.DEKEZ_CHAT_FILES_ENABLED,savedRealtime=process.env.DEKEZ_CHAT_REALTIME_ENABLED;
  try {
   const compiler=webpack({mode:'development',devtool:false,entry:path.join(fixtures,'entry.jsx'),output:{path:output,filename:'fixture.js'},resolve:{extensions:['.tsx','.ts','.jsx','.js'],alias:{'next/link':path.join(fixtures,'link.jsx'),'@/lib/chat/realtime':path.join(fixtures,'realtime.js'),'@':root}},module:{rules:[{test:/\.[jt]sx?$/,exclude:/node_modules/,use:path.join(__dirname,'fixtures/payment-rows/loader.cjs')},{test:/\.css$/,use:path.join(fixtures,'css-loader.cjs')}]}});
   await new Promise((resolve,reject)=>compiler.run((error,stats)=>compiler.close(()=>error||stats.hasErrors()?reject(error||Error(stats.toString({all:false,errors:true}))):resolve())));
   db=await require('./fixtures/chat/database.cjs')();
-  const actor=new AsyncLocalStorage();process.env.DEKEZ_CHAT_ENABLED='true';process.env.DEKEZ_CHAT_FILES_ENABLED='true';
+  const reminderConversation=await require('./fixtures/chat/reminders.cjs')(db);
+  await require('./fixtures/chat/admin-center.cjs')(db);
+  await require('./fixtures/chat/assistant.cjs')(db);
+  const actor=new AsyncLocalStorage();process.env.DEKEZ_CHAT_ENABLED='true';process.env.DEKEZ_CHAT_FILES_ENABLED='true';process.env.DEKEZ_CHAT_REALTIME_ENABLED='true';
   const storage=require('./fixtures/chat/storage.cjs')(db,()=>actor.getStore());
   const load=require('./marketplace-component-loader.cjs')({'@/lib/supabase/server':{createClient:async()=>{
    const n=actor.getStore();return {auth:{getUser:async()=>({data:{user:{id:db.id(n)}}})},rpc:(name,args)=>db.rpc(n,name,args)};
@@ -41,6 +44,116 @@ async function run(){
   const owner=await browser.newPage({viewport:{width:1280,height:800}}),contractor=await browser.newPage();
   const errors=[];for(const page of [owner,contractor])page.on('pageerror',e=>errors.push(e.message));
   const url=`http://127.0.0.1:${server.address().port}`;
+  // Actual reminder worker -> normal API -> unread/preview/UI, with local
+  // invalidation standing in for the Supabase transport (not a live WS test).
+  const tenant=await browser.newPage({viewport:{width:390,height:844}});
+  tenant.on('pageerror',e=>errors.push(e.message));
+  await tenant.goto(url+'/?actor=2');
+  await tenant.getByRole('button',{name:/Fixture Admin/}).waitFor();
+  await tenant.evaluate(()=>{window.reminderNavigationToken='unchanged';});
+  await db.exec("update dekez_chat_private.reminder_control set enabled=true");
+  const reminderResult=(await db.query("select dekez_chat_private.reminder_batch('2026-10-24',false) as result")).rows[0].result;
+  assert.equal(reminderResult.sent,1);
+  await tenant.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await tenant.getByRole('link',{name:'Messages, 1 unread',exact:true}).waitFor();
+  await tenant.getByRole('button',{name:/Fixture Admin/}).filter({hasText:'Rental payment due'}).waitFor();
+  await tenant.getByRole('button',{name:/Fixture Admin/}).click();
+  await tenant.locator('.history article strong').getByText('DEKEZ Admin',{exact:true}).waitFor();
+  await tenant.locator('.history').getByText(/Remaining unpaid: RM500.00/).waitFor();
+  await tenant.locator('.history').getByText('Automated Reminder',{exact:true}).waitFor();
+  await tenant.getByRole('link',{name:'Messages',exact:true}).waitFor();
+  assert.equal(await tenant.evaluate(()=>window.reminderNavigationToken),'unchanged');
+  for(const [width,height] of [[390,844],[820,1180],[1440,900]]) {
+   await tenant.setViewportSize({width,height});
+   assert.ok(await tenant.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   await tenant.screenshot({path:path.join(output,`reminder-${width}.png`),fullPage:true});
+  }
+  const center=await browser.newPage({viewport:{width:1440,height:900}});
+  center.on('pageerror',e=>errors.push(e.message));
+  await center.goto(url+'/?actor=5');
+  await center.getByLabel('Filter conversations').selectOption('automated');
+  await center.getByRole('button',{name:/Fixture/}).filter({hasText:'Rental payment due'}).waitFor();
+  assert.equal(await center.getByRole('button',{name:/Fixture Contractor/}).count(),0);
+  await center.evaluate(()=>{window.centerNavigationToken='unchanged';});
+  await tenant.getByLabel('Message',{exact:true}).fill('I will pay tomorrow.');
+  await tenant.getByRole('button',{name:'Send message',exact:true}).click();
+  await tenant.locator('.history').getByText('I will pay tomorrow.',{exact:true}).waitFor();
+  await center.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await center.getByRole('link',{name:'Messages, 1 unread',exact:true}).waitFor();
+  await center.getByRole('button',{name:/Fixture/}).filter({hasText:'I will pay tomorrow.'}).waitFor();
+  await center.getByLabel('Filter conversations').selectOption('needs_reply');
+  const incoming=center.getByRole('button',{name:/Fixture/}).filter({hasText:'Needs Reply'});
+  await incoming.waitFor();
+  await center.screenshot({path:path.join(output,'admin-needs-reply.png'),fullPage:true});
+  await incoming.click();
+  await center.locator('.history').getByText('I will pay tomorrow.',{exact:true}).waitFor();
+  await center.getByRole('link',{name:'Messages',exact:true}).waitFor();
+  await center.getByText('No conversations match this filter.',{exact:true}).waitFor();
+  await center.getByLabel('Message',{exact:true}).fill('Admin can reply in this same reminder conversation.');
+  await center.getByRole('button',{name:'Send message',exact:true}).click();
+  await center.locator('.history').getByText('Admin can reply in this same reminder conversation.',{exact:true}).waitFor();
+  await center.locator('.history').getByText('Manual Admin message',{exact:true}).waitFor();
+  await center.getByLabel('Filter conversations').selectOption('all');
+  for(const [width,height] of sizes) {
+   await center.setViewportSize({width,height});
+   await center.locator('.history').evaluate(element=>{element.scrollTop=element.scrollHeight;});
+   assert.ok(await center.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Admin center overflow at ${width}`);
+   if([390,820,1440].includes(width)) await center.screenshot({path:path.join(output,`admin-center-${width}.png`),fullPage:true});
+  }
+  assert.equal(await center.evaluate(()=>window.centerNavigationToken),'unchanged');
+  await tenant.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await tenant.locator('.history').getByText('Admin can reply in this same reminder conversation.',{exact:true}).waitFor();
+  assert.equal(await tenant.evaluate(()=>window.reminderNavigationToken),'unchanged');
+  // Assistant: actual queue -> scoped current records -> same history. The model
+  // classifier is deterministic here; this test never calls a paid provider.
+  const assistant=require('./marketplace-component-loader.cjs')()('lib/chat/assistant.ts');
+  async function assistantTick() {
+   await db.exec("update dekez_chat_private.assistant_state set due_at=now()-interval '1 second';set \"request.jwt.claims\"='{\"role\":\"service_role\"}'");
+   try { return await assistant.runAssistantBatch({rpc:(name,args)=>db.rpc(5,name,args,true)},async q=>assistant.safeIntent(q)); }
+   finally {await db.exec('reset "request.jwt.claims"');}
+  }
+  await db.exec('update dekez_chat_private.assistant_control set enabled=true');
+  assert.equal((await db.rpc(5,'dekez_chat_assistant',{p_action:'resume',p_conversation:reminderConversation})).error,null);
+  await tenant.getByLabel('Message',{exact:true}).fill('When is my rental due?');
+  await tenant.getByRole('button',{name:'Send message',exact:true}).click();
+  await tenant.locator('.history').getByText('When is my rental due?',{exact:true}).waitFor();
+  assert.equal((await assistantTick()).sent,1);
+  await tenant.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await tenant.locator('.history').getByText('DEKEZ Assistant',{exact:true}).waitFor();
+  await tenant.locator('.history').getByText(/Your current invoice.*31 Oct 2026/).waitFor();
+  await center.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await center.getByLabel('Filter conversations').selectOption('ai_answered');
+  await center.getByRole('button',{name:/Fixture/}).filter({hasText:'Automated Assistant'}).waitFor();
+  await center.getByText('AI ACTIVE',{exact:true}).waitFor();
+  for(const [width,height] of sizes) {
+   await center.setViewportSize({width,height});
+   await center.locator('.history').evaluate(el=>{el.scrollTop=el.scrollHeight;});
+   assert.ok(await center.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Assistant controls overflow at ${width}`);
+   if([320,820,1440].includes(width)) await center.screenshot({path:path.join(output,`assistant-admin-${width}.png`),fullPage:true});
+  }
+  await center.setViewportSize({width:1440,height:900});
+  await tenant.setViewportSize({width:390,height:844});
+  await tenant.locator('.history').evaluate(el=>{el.scrollTop=el.scrollHeight;});
+  await tenant.screenshot({path:path.join(output,'assistant-tenant.png'),fullPage:true});
+  await tenant.getByLabel('Message',{exact:true}).fill('I am angry about this');
+  await tenant.getByRole('button',{name:'Send message',exact:true}).click();
+  await tenant.locator('.history').getByText('I am angry about this',{exact:true}).waitFor();
+  assert.equal((await assistantTick()).escalated,1);
+  await center.evaluate(()=>window.dispatchEvent(new Event('fixture-chat-change')));
+  await center.getByLabel('Filter conversations').selectOption('needs_reply');
+  await center.getByText('NEEDS ADMIN REPLY · Assistant paused',{exact:true}).waitFor();
+  await center.getByRole('button',{name:/Fixture/}).filter({hasText:'Needs Reply'}).waitFor();
+  await center.getByLabel('Message',{exact:true}).fill('Management is reviewing your complaint.');
+  await center.getByRole('button',{name:'Send message',exact:true}).click();
+  await center.getByText('ADMIN TAKEOVER',{exact:true}).waitFor();
+  await center.getByRole('button',{name:'Re-enable assistant',exact:true}).click();
+  await center.getByText('AI ACTIVE',{exact:true}).waitFor();
+  await center.getByRole('button',{name:'Take over',exact:true}).click();
+  await center.getByText('ADMIN TAKEOVER',{exact:true}).waitFor();
+  assert.equal(await center.evaluate(()=>window.centerNavigationToken),'unchanged');
+  await db.exec('update dekez_chat_private.assistant_control set enabled=false');
+  await center.close();
+  await tenant.close();
   await owner.goto(url+'/?actor=1');
   await owner.getByRole('link',{name:'Messages, 85 unread',exact:true}).waitFor();
   await owner.getByRole('button',{name:/Fixture Contractor/}).click();
@@ -203,7 +316,13 @@ async function run(){
   assert.deepEqual(errors,[]);
   assert.ok(network.every(r=>['GET','POST'].includes(r.method)));
   console.log(JSON.stringify({passed:true,viewports:sizes,screenshots:output,checks:['40-message initial page','older pagination','authorized contacts only','retry retains draft and key','owner sends','contractor replies','scoped invalidation updates UI','selected support evidence','metadata-only dispatch','temporary case assignment','assigned evidence view audited','closed support case clears evidence','closed job read-only','closed-job API denial','contact removed after closure','no browser exceptions'],boundary:'Synthetic auth + actual UI/API/SQL; NOT live Supabase Realtime, Storage or production auth'},null,2));
- } catch(error) { console.error('Browser check failed:',error); throw error; }
- finally {await browser?.close();if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await db?.close();if(saved===undefined)delete process.env.DEKEZ_CHAT_ENABLED;else process.env.DEKEZ_CHAT_ENABLED=saved;if(savedFiles===undefined)delete process.env.DEKEZ_CHAT_FILES_ENABLED;else process.env.DEKEZ_CHAT_FILES_ENABLED=savedFiles;}
+ } catch(error) {
+  if(browser) for(const [i,page] of browser.contexts().flatMap(context=>context.pages()).entries()) {
+   await page.screenshot({path:path.join(output,`failure-${i}.png`),fullPage:true}).catch(()=>{});
+   console.error('Failure page',i,await page.locator('body').innerText().catch(()=>''));
+  }
+  console.error('Browser check failed:',output,error); throw error;
+ }
+ finally {await browser?.close();if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await db?.close();if(saved===undefined)delete process.env.DEKEZ_CHAT_ENABLED;else process.env.DEKEZ_CHAT_ENABLED=saved;if(savedFiles===undefined)delete process.env.DEKEZ_CHAT_FILES_ENABLED;else process.env.DEKEZ_CHAT_FILES_ENABLED=savedFiles;if(savedRealtime===undefined)delete process.env.DEKEZ_CHAT_REALTIME_ENABLED;else process.env.DEKEZ_CHAT_REALTIME_ENABLED=savedRealtime;}
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

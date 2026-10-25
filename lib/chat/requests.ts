@@ -9,8 +9,10 @@ export function chatCommand(input: unknown): ChatCommand | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const p = input as Record<string, unknown>;
   // Reject identity/scope injection rather than accidentally forwarding it.
-  if (["sender_id", "user_id", "role", "participants", "assigned_to", "scope_id"].some(k => k in p)) return null;
+  if (["sender_id", "user_id", "role", "participants", "assigned_to", "scope_id", "message_type", "system_label"].some(k => k in p)) return null;
   switch (p.action) {
+    case "assistant-control":
+      return uuid(p.conversationId) && ["pause", "resume"].includes(String(p.mode)) ? { rpc: "dekez_chat_assistant", args: { p_action: p.mode, p_conversation: p.conversationId } } : null;
     case "bootstrap":
       return { rpc: "dekez_chat_bootstrap", args: {} };
     case "open-desk":
@@ -59,6 +61,10 @@ export function chatCommand(input: unknown): ChatCommand | null {
 
 export function chatQuery(params: URLSearchParams): ChatCommand | null {
   const view = params.get("view") ?? "inbox";
+  if (view === "assistant") {
+    const conversation = params.get("conversation");
+    return uuid(conversation) ? { rpc: "dekez_chat_assistant", args: { p_action: "status", p_conversation: conversation } } : null;
+  }
   if (view === "summary") return { rpc: "dekez_chat_summary", args: {} };
   if (view === "desks") return { rpc: "dekez_chat_desks", args: {} };
   if (view === "setup-options") {
@@ -68,7 +74,7 @@ export function chatQuery(params: URLSearchParams): ChatCommand | null {
   }
   if (view === "detail") {
     const conversation = params.get("conversation");
-    return uuid(conversation) ? { rpc: "dekez_chat_detail", args: { p_conversation: conversation } } : null;
+    return uuid(conversation) ? { rpc: "dekez_chat_detail", args: { p_conversation: conversation, ...(params.get("context") === "true" ? { p_context: true } : {}) } } : null;
   }
   if (view === "history") {
     const conversation = params.get("conversation"), before = params.get("before");
@@ -82,7 +88,9 @@ export function chatQuery(params: URLSearchParams): ChatCommand | null {
   if (view === "inbox" || view === "support-queue") {
     const before = params.get("before"), beforeId = params.get("beforeId");
     if (before !== null && (!Number.isFinite(Date.parse(before)) || !uuid(beforeId))) return null;
-    return { rpc: view === "inbox" ? "dekez_chat_inbox" : "dekez_chat_support_queue", args: { p_before: before, p_before_id: beforeId, p_limit: 25 } };
+    const filter = params.get("filter");
+    if (filter !== null && (view !== "inbox" || !["all", "unread", "tenant", "owner", "contractor", "automated", "needs_reply", "ai_answered"].includes(filter))) return null;
+    return { rpc: view === "inbox" ? "dekez_chat_inbox" : "dekez_chat_support_queue", args: { p_before: before, p_before_id: beforeId, p_limit: 25, ...(filter !== null ? { p_filter: filter } : {}) } };
   }
   return null;
 }

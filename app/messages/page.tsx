@@ -3,6 +3,6 @@ import { ChatEntry } from "@/components/chat/entry";
 
 export const dynamic = "force-dynamic";
 export default async function Messages() {
-  await requireRole(["super_admin", "admin", "owner", "tenant", "technician", "maintenance_staff", "cleaning_staff"]);
-  return <ChatEntry/>;
+  const role = await requireRole(["super_admin", "admin", "owner", "tenant", "technician", "maintenance_staff", "cleaning_staff"]);
+  return <ChatEntry adminCenter={role === "super_admin" || role === "admin"}/>;
 }

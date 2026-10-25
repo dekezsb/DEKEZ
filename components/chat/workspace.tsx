@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ChatRequestError, chatErrorMessage, chatHistory, chatFileRequest, mergeMessages, requestChat, type ChatContact, type ChatDetail, type ChatMessage, type InboxItem } from "@/lib/chat/client";
+import { ChatRequestError, chatErrorMessage, chatHistory, chatFileRequest, mergeMessages, messageSourceLabel, requestChat, type ChatContact, type ChatDetail, type ChatMessage, type InboxItem, type InboxFilter } from "@/lib/chat/client";
 import { ChatFileCard } from "./file-card";
+import { AssistantControls } from "./assistant-controls";
 import { chatInitials, shortChatName, unreadLabel } from "@/lib/chat/display";
 import styles from "./workspace.module.css";
 
@@ -14,10 +15,12 @@ const reasons = [
 const query = (values: Record<string, string>) => new URLSearchParams(values);
 const date = (value: string) => new Date(value).toLocaleString("en-MY", { dateStyle: "medium", timeStyle: "short" });
 
-export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEnabled = false, filesEnabled = false }: {
-  userId: string; endpoint?: string; realtimeEnabled?: boolean; filesEnabled?: boolean;
+export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEnabled = false, filesEnabled = false, adminCenter = false }: {
+  userId: string; endpoint?: string; realtimeEnabled?: boolean; filesEnabled?: boolean; adminCenter?: boolean;
 }) {
   const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const currentFilter = useRef<InboxFilter>("all");
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const [desks, setDesks] = useState<{ desk_id: string; label: string }[]>([]);
   const [showContacts, setShowContacts] = useState(false);
@@ -69,7 +72,10 @@ export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEn
     void requestChat(endpoint, { action: "read", conversationId: target, sequence: highest }).then(() => {
       lastRead.current[target] = highest;
       window.dispatchEvent(new Event("dekez-chat-read"));
-      if (mounted.current && turn === generation.current) setInbox(previous => previous.map(c => c.conversation_id === target ? { ...c, unread_count: 0 } : c));
+      if (mounted.current && turn === generation.current) setInbox(previous => previous
+        .map(c => c.conversation_id === target ? { ...c, unread_count: 0 } : c)
+        .filter(c => currentFilter.current !== "unread" || c.unread_count > 0));
+      if (mounted.current) window.dispatchEvent(new Event("dekez-chat-read-inbox"));
     }).catch(cause => { if (mounted.current && turn === generation.current) loseAccess(cause); })
       .finally(() => { delete reading.current[target]; });
   }, [endpoint, loseAccess]);
@@ -81,8 +87,8 @@ export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEn
     const flight = { turn, signal }; fetching.current = flight;
     try {
       const [items, thread, recent] = await Promise.all([
-        requestChat<InboxItem[]>(endpoint, query({ view: "inbox" }), signal),
-        target ? requestChat<ChatDetail[]>(endpoint, query({ view: "detail", conversation: target }), signal) : Promise.resolve([]),
+        requestChat<InboxItem[]>(endpoint, query({ view: "inbox", filter: currentFilter.current }), signal),
+        target ? requestChat<ChatDetail[]>(endpoint, query({ view: "detail", conversation: target, context: "true" }), signal) : Promise.resolve([]),
         target ? chatHistory(endpoint, query({ view: "history", conversation: target }), filesEnabled, signal) : Promise.resolve([]),
       ]);
       if (!mounted.current || signal?.aborted || turn !== generation.current) return;
@@ -128,7 +134,7 @@ export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEn
     const controller = new AbortController(); const target = selected;
     setLoading(true); setDetail(null); setMessages([]); setReporting(false); setEvidence([]); setFileEvidence([]); setError("");
     void Promise.all([
-      requestChat<ChatDetail[]>(endpoint, query({ view: "detail", conversation: target }), controller.signal),
+      requestChat<ChatDetail[]>(endpoint, query({ view: "detail", conversation: target, context: "true" }), controller.signal),
       chatHistory(endpoint, query({ view: "history", conversation: target }), filesEnabled, controller.signal),
     ]).then(([thread, recent]) => {
       if (controller.signal.aborted || current.current !== target) return;
@@ -157,7 +163,8 @@ export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEn
   useEffect(() => {
     const visible = () => { if (document.visibilityState === "visible") void refresh(); };
     window.addEventListener("online", visible); document.addEventListener("visibilitychange", visible);
-    return () => { window.removeEventListener("online", visible); document.removeEventListener("visibilitychange", visible); };
+    window.addEventListener("dekez-chat-read-inbox", visible);
+    return () => { window.removeEventListener("online", visible); window.removeEventListener("dekez-chat-read-inbox", visible); document.removeEventListener("visibilitychange", visible); };
   }, [refresh]);
 
   function selectConversation(id: string | null) {
@@ -203,10 +210,12 @@ export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEn
   }
   async function moreInbox() {
     const last = inbox.at(-1); if (!last) return; setBusy(true);
+    const turn = generation.current;
     try {
-      const older = await requestChat<InboxItem[]>(endpoint, query({ view: "inbox", before: last.last_message_at, beforeId: last.conversation_id }));
+      const older = await requestChat<InboxItem[]>(endpoint, query({ view: "inbox", filter: currentFilter.current, before: last.last_message_at, beforeId: last.conversation_id }));
+      if (!mounted.current || turn !== generation.current) return;
       setInbox(previous => [...new Map([...previous, ...older].map(c => [c.conversation_id, c])).values()]); setHasMoreInbox(older.length === 25);
-    } catch (cause) { loseAccess(cause); } finally { setBusy(false); }
+    } catch (cause) { if (mounted.current && turn === generation.current) loseAccess(cause); } finally { setBusy(false); }
   }
   async function send(event: FormEvent) {
     event.preventDefault(); if (!selected || detail?.status !== "active" || busy) return;
@@ -255,25 +264,35 @@ export function ChatWorkspace({ userId, endpoint = "/api/dekez-chat", realtimeEn
     </section> : null}
     <div className={`${styles.columns} ${selected ? styles.open : ""}`}>
       <aside className={styles.inbox} aria-label="Your conversations"><h2>Conversations</h2>
+        {adminCenter ? <label className={styles.inboxFilter}>Filter conversations<select value={inboxFilter} onChange={event => {
+          const filter = event.target.value as InboxFilter;
+          generation.current++; currentFilter.current = filter; setInboxFilter(filter); setInbox([]); setHasMoreInbox(false); setLoading(true); void refresh();
+        }}><option value="all">All</option><option value="unread">Unread</option><option value="tenant">Tenant</option><option value="owner">Owner</option><option value="contractor">Contractor</option><option value="automated">Automated Reminder</option><option value="needs_reply">Needs Reply</option><option value="ai_answered">AI Answered</option></select></label> : null}
         {loading && !selected && !inbox.length ? <p role="status">Loading conversations…</p> : null}
-        {!loading && !inbox.length ? <p>No conversations yet. Choose New chat to see authorized contacts.</p> : null}
+        {!loading && !inbox.length ? <p>{inboxFilter === "all" ? "No conversations yet. Choose New chat to see authorized contacts." : "No conversations match this filter."}</p> : null}
         {inbox.map(item => <button key={item.conversation_id} className={styles.conversation} aria-pressed={selected === item.conversation_id} onClick={() => selectConversation(item.conversation_id)}>
           <span><span className={styles.identity}><span className={styles.avatar} aria-hidden>{chatInitials(item.contact_name)}</span><strong>{shortChatName(item.contact_name)}</strong></span>{item.unread_count > 0 ? <b className={styles.badge} aria-label={`${item.unread_count} unread messages`}>{unreadLabel(item.unread_count)}</b> : null}</span>
-          <small>{item.status === "closed" ? "Closed · Read-only" : "Active"}</small><p>{item.preview || "No messages yet"}</p><time dateTime={item.last_message_at}>{date(item.last_message_at)}</time>
+          <small className={styles.role}>{item.contact_role ? `${item.contact_role} · ` : ""}{item.status === "closed" ? "Closed · Read-only" : "Active"}</small>
+          {adminCenter && item.needs_reply ? <small className={styles.source}>Needs Reply</small> : null}
+          {messageSourceLabel(item.latest_message_type) ? <small className={styles.source}>{messageSourceLabel(item.latest_message_type)}</small> : null}
+          <p>{item.preview || "No messages yet"}</p><time dateTime={item.message_time || item.last_message_at}>{date(item.message_time || item.last_message_at)}</time>
         </button>)}
         {hasMoreInbox ? <button disabled={busy} onClick={() => void moreInbox()}>Older conversations</button> : null}
       </aside>
       <section className={styles.thread} aria-label="Conversation">
         {!selected ? <div className={styles.empty}><h2>Your conversations stay here</h2><p>Select a conversation or start a new authorized chat.</p></div> : <>
-          <header className={styles.threadHeader}><button className={styles.back} onClick={() => selectConversation(null)}>Back</button><div><h2>{detail ? shortChatName(detail.contact_name) : "Conversation"}</h2><p>{detail ? `${detail.property_name}${detail.ticket_number ? ` · ${detail.ticket_number}` : ""}` : "Loading details…"}</p></div>
+          <header className={styles.threadHeader}><button className={styles.back} onClick={() => selectConversation(null)}>Back</button><div><h2>{detail ? shortChatName(detail.contact_name) : "Conversation"}</h2><p className={styles.role}>{detail?.contact_role}</p><p>{detail ? `${detail.property_name}${detail.ticket_number ? ` · ${detail.ticket_number}` : ""}` : "Loading details…"}</p></div>
             {detail ? <button onClick={() => { setReporting(value => !value); setEvidence([]); setFileEvidence([]); }} disabled={busy}>Request support</button> : null}</header>
+          {adminCenter && selected && detail?.contact_role === "tenant" && detail.status === "active" ? <AssistantControls key={selected} endpoint={endpoint} conversation={selected} revision={`${messages.at(-1)?.seq ?? 0}:${inbox.find(item => item.conversation_id === selected)?.last_message_at ?? ""}`} onChange={() => void refresh()}/> : null}
           {detail?.status === "closed" ? <p className={styles.closed} role="status">Conversation closed · Read-only. The job or chat authorization has ended. Your history is preserved.</p> : null}
           <div className={styles.history} ref={historyElement} onScroll={() => { markVisibleRead(); if (!loading && !busy && hasOlder && (historyElement.current?.scrollTop ?? 100) < 24) void loadOlder(); }} aria-label="Message history" aria-busy={loading}>
             {hasOlder ? <button disabled={busy} onClick={() => void loadOlder()}>Load older messages</button> : null}
             {loading ? <p role="status">Loading messages…</p> : null}
             {!loading && !messages.length ? <p>No messages yet.</p> : null}
             {messages.map(message => <article key={message.id} className={`${styles.message} ${message.sender_id === userId ? styles.mine : ""}`}>
-              <strong>{message.sender_id === userId ? "You" : detail ? shortChatName(detail.contact_name) : "Participant"}</strong><p>{message.body}</p><time dateTime={message.created_at}>{date(message.created_at)}</time>
+              <strong>{message.system_label === "DEKEZ Assistant" ? "DEKEZ Assistant" : message.system_label === "DEKEZ Admin" ? "DEKEZ Admin" : message.sender_id === userId ? "You" : detail ? shortChatName(detail.contact_name) : "Participant"}</strong>
+              {messageSourceLabel(message.message_type) ? <small className={styles.source}>{messageSourceLabel(message.message_type)}</small> : null}
+              <p>{message.body}</p><time dateTime={message.created_at}>{date(message.created_at)}</time>
               {message.attachments?.map(file => <div key={file.id}><ChatFileCard file={file} endpoint={endpoint}/>{reporting ? <label className={styles.evidence}><input type="checkbox" checked={fileEvidence.includes(file.id)} disabled={!fileEvidence.includes(file.id) && fileEvidence.length >= 50} onChange={e => setFileEvidence(previous => e.target.checked ? [...previous,file.id] : previous.filter(id => id !== file.id))}/>Include this file as support evidence</label> : null}</div>)}
               {reporting ? <label className={styles.evidence}><input type="checkbox" checked={evidence.includes(message.id)} disabled={!evidence.includes(message.id) && evidence.length >= 50} onChange={e => setEvidence(previous => e.target.checked ? [...previous, message.id] : previous.filter(id => id !== message.id))}/>Include this message as support evidence</label> : null}
             </article>)}
