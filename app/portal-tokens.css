@@ -1,0 +1,21 @@
+/* Shared presentation tokens, taken from the approved Owner Portal.
+   Semantic status colours and all authorization remain with their components. */
+:root {
+  --dekez-canvas: #fbf8f1;
+  --dekez-surface: #fffdf8;
+  --dekez-field: #fffdfa;
+  --dekez-ink: #17130d;
+  --dekez-muted: #706e67;
+  --dekez-line: #e8e1d5;
+  --dekez-field-line: #d6cdbd;
+  --dekez-gold: #8a641d;
+  --dekez-gold-soft: #f6edd9;
+  --dekez-primary: linear-gradient(110deg, #987124, #8a641d);
+  --dekez-active: linear-gradient(110deg, #8a641d, #987124);
+  --dekez-header: radial-gradient(ellipse at 100% 0%, #e9ddc4 0, transparent 62%), #fbf8f2;
+  --dekez-card-radius: 16px;
+  --dekez-control-radius: 9px;
+  --dekez-card-shadow: 0 3px 14px #4d402205;
+  --dekez-font: Arial, Helvetica, sans-serif;
+  --dekez-sidebar-width: 232px;
+}

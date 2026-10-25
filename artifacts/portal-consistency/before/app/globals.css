@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f5f8;
+  --foreground: #17130d;
+  --muted: #6b7280;
+  --panel: #ffffff;
+  --line: #dde2ea;
+  --brand: #b8892c;
+  --brand-strong: #8a641d;
+  --brand-soft: #f6edd9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+/* Quieter scrollbars for the dense admin tables/lists */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c7ccd6 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #c7ccd6;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tenant-portal-bg {
+  background-color: #f4f6f8;
+  background-image:
+    radial-gradient(circle at 0 100%, transparent 21px, rgba(184, 137, 44, 0.1) 22px, rgba(184, 137, 44, 0.1) 23px, transparent 24px),
+    radial-gradient(circle at 22px 100%, transparent 21px, rgba(184, 137, 44, 0.1) 22px, rgba(184, 137, 44, 0.1) 23px, transparent 24px);
+  background-position: 0 0, 0 11px;
+  background-size: 44px 22px;
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+    size: A4 portrait;
+  }
+
+  .tenant-portal-bg {
+    background: white;
+  }
+
+  .invoice-sheet {
+    width: 100%;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+::selection {
+  background: #ead8ad;
+  color: #17130d;
+}
+
+/* Presentation only. Shared internal shell; never applies to print/PDF sheets
+   or the separately scoped Client Owner portal. No zoom/transform scaling. */
+@media screen {
+  .app-responsive { min-height: 100dvh; overflow-wrap: anywhere; }
+  .app-responsive main, .app-responsive main :where(section, article, form, .grid, .flex) { min-width: 0; }
+  .app-responsive main > * { max-width: 100%; }
+  .app-responsive :where(button, select, input:not([type=checkbox]):not([type=radio]):not([type=hidden])) { min-height: 44px; }
+  .app-responsive :where(input, select, textarea) { max-width: 100%; font-size: 16px; }
+  .app-responsive :where(button, a) { touch-action: manipulation; }
+  .app-responsive button { white-space: normal; }
+  .app-responsive main h1 { font-size: clamp(1.5rem, 2.5vw, 2rem); line-height: 1.25; }
+  .app-responsive header { padding-top: env(safe-area-inset-top); }
+  .management-header-inner {
+    width: 100%; max-width: none; height: auto; min-height: 76px;
+    padding: 12px 16px; gap: 12px; flex-wrap: wrap;
+  }
+  .management-header-inner > a { min-width: 0; }
+  .management-header-inner > div { min-width: 0; gap: 8px; margin-left: auto; }
+  .management-header-inner select { max-width: 148px; }
+  .management-content {
+    width: 100%; max-width: 1600px; min-height: calc(100dvh - 76px);
+    padding: 20px 16px calc(144px + env(safe-area-inset-bottom));
+  }
+  .management-navigation { padding-bottom: env(safe-area-inset-bottom); }
+  .management-nav-brand { display: none; }
+  .management-nav-items { display: flex; width: 100%; max-width: none; overflow-x: auto; overscroll-behavior-x: contain; }
+  .management-nav-link { flex: 1 0 96px; min-height: 88px; padding: 8px 6px; font-size: 12px; line-height: 1.25; text-align: center; }
+  .management-nav-link svg { width: 24px; height: 24px; flex-shrink: 0; }
+  .management-nav-label { white-space: normal; overflow-wrap: normal; }
+  .management-nav-link[aria-current=page] { color: #805914; background: #f5ecd8; }
+  .internal-content { width: 100%; max-width: 1600px; }
+  .internal-shell main { min-height: calc(100dvh - 80px); }
+  .internal-shell header > div { height: auto; min-height: 80px; flex-wrap: wrap; padding-block: 12px; }
+  .internal-shell header > div > div { min-width: 0; gap: 8px; }
+  .internal-shell nav.fixed { padding-bottom: env(safe-area-inset-bottom); }
+  .claim-history-card > div { min-width: 0; }
+  .claim-history-card h2 { overflow-wrap: anywhere; }
+  .claim-receipts > a { flex-shrink: 0; }
+  .claim-receipts > a > span:first-child { width: 64px; height: 72px; }
+  .claim-history-card p.text-xs { font-size: 13px; line-height: 1.5; }
+  @media (max-width: 639px) {
+    .management-header-inner > a > span > span:last-child { display: none; }
+    .management-header-inner select { max-width: 140px; }
+  }
+  @media (max-width: 380px) {
+    .management-header-inner > a > span { display: none; }
+  }
+  @media (min-width: 640px) {
+    .management-nav-link { flex-basis: 112px; min-height: 88px; font-size: 13px; padding-inline: 8px; }
+    .management-content { padding-bottom: calc(144px + env(safe-area-inset-bottom)); }
+  }
+  @media (min-width: 768px) {
+    .management-header-inner { padding-inline: 24px; }
+    .management-content { padding: 28px 24px calc(144px + env(safe-area-inset-bottom)); }
+    .app-responsive main { font-size: 16px; }
+    .claim-receipts > a > span:first-child { width: 88px; height: 96px; }
+    .claim-history-card { padding: 24px; }
+  }
+  @media (min-width: 1024px) {
+    .management-shell { padding-left: 224px; }
+    .management-content { padding: 28px; }
+    .management-header-inner { padding-inline: 28px; }
+    .management-navigation {
+      top: 0; right: auto; bottom: 0; left: 0; width: 224px;
+      overflow-y: auto; border-top: 0; border-right: 1px solid #2a261e;
+      background: #101411; color: #f8f0df; box-shadow: none;
+      padding: calc(24px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom));
+    }
+    .management-nav-brand { display: block; padding: 0 16px 24px; color: #d2ad5f; font-size: 23px; font-weight: 700; }
+    .management-nav-brand span { display: block; color: #dfd8c8; font-size: 12px; font-weight: 400; }
+    .management-nav-items { display: flex; flex-direction: column; gap: 8px; overflow: visible; }
+    .management-nav-link { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; min-height: 48px; padding: 12px; font-size: 14px; text-align: left; color: #f8f0df; border-radius: 8px; }
+    .management-nav-link:hover { color: #e8c67e; background: #26251e; }
+    .management-nav-link[aria-current=page] { background: #a77d31; color: #fff; }
+    .management-nav-link svg { width: 22px; height: 22px; }
+    .internal-sidebar { width: 224px; }
+    .internal-frame { padding-left: 224px; }
+    .internal-sidebar nav a { min-height: 44px; }
+    .internal-sidebar nav span.truncate { white-space: normal; overflow: visible; }
+  }
+  @media (min-width: 1440px) {
+    .management-shell { padding-left: 240px; }
+    .management-navigation, .internal-sidebar { width: 240px; }
+    .internal-frame { padding-left: 240px; }
+    .management-content { padding: 32px 36px; }
+    .management-header-inner { padding-inline: 36px; }
+  }
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* DEKEZ visual polish: screen colours only; geometry and print remain unchanged. */
+@media screen {
+  .app-responsive { background-color: #fbf8f1; }
+  .app-responsive [class~="border-[#e1e5eb]"] { border-color: #e8e1d5; }
+  .app-responsive [class~="border-[#eef0f4]"] { border-color: #f0e9dc; }
+  .internal-shell > .internal-frame > header { background-color: #fffdf8; }
+  /* Owner portal is the approved visual reference; no geometry overrides. */
+  .app-responsive main .rounded-xl.bg-white { background-color: #fffdf8; }
+  .app-responsive main :is(button, a)[class~="bg-[#b8892c]"] {
+    background: linear-gradient(110deg, #987124, #8a641d); color: #ffffff;
+  }
+  .app-responsive > header, .internal-sidebar { background-color: #17130d; }
+  .internal-sidebar nav a[class~="bg-[#241d0e]"] {
+    background: linear-gradient(110deg, #8a641d, #987124); color: #ffffff;
+  }
+  .app-responsive > nav.fixed { background-color: #fffcf7f5; border-color: #e8e1d5; }
+  .app-responsive > nav.fixed a { color: #69665f; }
+  .app-responsive > nav.fixed a[aria-current=page],
+  .internal-shell > nav.fixed a[class~="text-[#c99a3e]"] { color: #8a641d; }
+  .management-nav-link[aria-current=page] { background-color: transparent; }
+  @media (min-width: 1024px) {
+    .app-responsive > .management-navigation { background-color: #17130d; }
+    .app-responsive > .management-navigation a { color: #efeadf; }
+    .app-responsive > .management-navigation a[aria-current=page] {
+      background: linear-gradient(110deg, #8a641d, #987124); color: #ffffff;
+    }
+  }
+}

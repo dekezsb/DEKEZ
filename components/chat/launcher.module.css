@@ -1,4 +1,4 @@
-.launcher{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:44px;min-height:44px;color:inherit;border-radius:8px}
+.launcher{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:44px;min-height:44px;color:var(--dekez-ink,#17130d);border:1px solid var(--dekez-line,#e8e1d5);background:#fffaf1;border-radius:12px}
 .launcher:hover{background:rgba(181,138,52,.12)}
 .launcher:focus-visible{outline:3px solid #b58a34;outline-offset:2px}
 .badge{position:absolute;top:0;right:0;min-width:19px;height:19px;padding:0 4px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:#c62828;color:#fff;font:700 11px/1 Arial,sans-serif}

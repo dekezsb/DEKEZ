@@ -4,15 +4,15 @@ import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b8892c] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:translate-y-px",
+  "dekez-button inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b8892c] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:translate-y-px",
   {
     variants: {
       variant: {
-        default: "bg-[#b8892c] text-[#17130d] hover:bg-[#c99a3e] shadow-sm",
-        secondary: "bg-[#17130d] text-white hover:bg-[#2a2417] shadow-sm",
-        outline: "border border-[#d7dde5] bg-white text-gray-700 hover:border-[#c7ccd6] hover:bg-gray-50",
-        ghost: "text-gray-600 hover:bg-gray-100 hover:text-gray-950",
-        destructive: "bg-red-600 text-white hover:bg-red-700 shadow-sm",
+        default: "dekez-primary bg-[#b8892c] text-[#17130d] hover:bg-[#c99a3e] shadow-sm",
+        secondary: "dekez-secondary bg-[#17130d] text-white hover:bg-[#2a2417] shadow-sm",
+        outline: "dekez-outline border border-[#d7dde5] bg-white text-gray-700 hover:border-[#c7ccd6] hover:bg-gray-50",
+        ghost: "dekez-ghost text-gray-600 hover:bg-gray-100 hover:text-gray-950",
+        destructive: "dekez-danger bg-red-600 text-white hover:bg-red-700 shadow-sm",
       },
       size: {
         default: "h-10 px-4 py-2",

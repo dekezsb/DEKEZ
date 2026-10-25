@@ -84,6 +84,13 @@
 .bottomNav { background:#fffcf7f5; border-color:#e8e1d5; }
 .bottomNav a { color:#69665f; }
 .bottomNav a[aria-current=page] svg { background:#f6edd9; box-shadow:0 0 0 5px #f6edd9; }
+/* Same Owner-derived tokens; keep all Contractor content and routes. */
+.portal { --gold:var(--dekez-gold,#8a641d); --ink:var(--dekez-ink,#17130d); --muted:var(--dekez-muted,#706e67); background:var(--dekez-canvas,#fbf8f1); font-family:var(--dekez-font,Arial,sans-serif); line-height:1.5; }
+.header { background:var(--dekez-header,radial-gradient(ellipse at 100% 0%,#e9ddc4 0,transparent 62%),#fbf8f2); border-bottom:1px solid var(--dekez-line,#e8e1d5); }
+.card { border-radius:var(--dekez-card-radius,16px); background:var(--dekez-surface,#fffdf8); box-shadow:var(--dekez-card-shadow,0 3px 14px #4d402205); }
+.metric { border-radius:14px; box-shadow:0 3px 10px #4d402207; }
+.goldButton { background:var(--dekez-primary,linear-gradient(110deg,#987124,#8a641d)); border-radius:var(--dekez-control-radius,9px); }
+.bottomNav a[aria-current=page] svg { background:transparent; box-shadow:none; }
 @media (min-width:1024px) {
   .sidebar { background:#17130d; }
   .sidebar nav a:hover { background:#2a2417; }
