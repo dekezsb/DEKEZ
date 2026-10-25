@@ -2,8 +2,9 @@
 
 ## Status and boundaries
 
-Local implementation only. No migration has been applied to production, no real
-message sent, no deployment performed, and no daily report cron activated.
+Application implementation remains undeployed. The approved migration was applied
+to production on 25 October 2026; source version is now aligned with production
+history at `20261025083739`. No real message was sent and no daily report cron activated.
 Existing Meta WhatsApp, in-app chat, accounting, tenancy and payment code stays
 unchanged. Reporting reads source rows; only the new private delivery tables are
 written. The new Admin page is `/admin-setup/management-report`, linked from Admin
@@ -60,7 +61,13 @@ or preview environments that do not need to send. All switches require exactly
 
 ## Migration and authorization
 
-Review `supabase/migrations/20261025055210_whapi_management_reports.sql` before use.
+Canonical file: `supabase/migrations/20261025083739_whapi_management_reports.sql`.
+The original reviewed filename was `20261025055210_whapi_management_reports.sql`.
+Only its filename changed after Supabase recorded execution version `20261025083739`;
+the SQL is byte-identical to approved commit `e5f5295` and the production history
+statement (SHA-256 `3dd63a191dc0a0901dde637c3b8e4a51beccfc5a2658a184d1466ea9356c0b75`).
+The old filename is removed, not duplicated. No production history repair or SQL
+rerun was needed. This migration is already applied; do not apply it again.
 Creates only:
 
 - `dekez_reports_private.report_runs`: immutable report snapshot/body, scope/date/
@@ -148,8 +155,10 @@ After review and explicit production approval:
    do not add source-table indexes without measured need. Confirm missing identity
    links and mixed-charge labels meet operational expectations.
 3. Verify configured company and recipient; review channel status/token privately.
-4. Apply only this additive migration in a controlled release. Ensure custom Data
-   API pre-request hooks permit the service-role RPC while denying ordinary users.
+4. Verify history contains `20261025083739` and matches the canonical source file;
+   **skip migration execution on this production project**. It is already applied.
+   Ensure custom Data API pre-request hooks permit the service-role RPC while
+   denying ordinary users. New isolated environments may apply the canonical file.
 5. Deploy with SEND/TEST/SCHEDULE=false and no new cron entry. Check Admin access
    and compare read-only preview totals to existing source records.
 6. Obtain permission for **one real test message**. Set SEND=true, TEST=true,
@@ -188,5 +197,20 @@ Security regression tests deny direct service-role table operations, executor ro
 assumption, ordinary-user RPCs, forged JWT elevation and search-path poisoning while
 exercising successful daily/test claim/finalization and duplicate/retry protection.
 `npm run build` includes these tests and all existing prebuild gates. Type checking
-is `npx tsc --noEmit`. Production provider delivery, production RLS gateway integration,
-real scheduler invocation and production query latency remain approval-gated.
+is `npx tsc --noEmit`. Production catalog/role checks and a read-only snapshot RPC
+passed after migration. Production provider delivery, authenticated HTTP gateway
+integration, real scheduler invocation and load/latency testing remain approval-gated.
+
+## Pre-merge deployment safety
+
+Vercel project `dekez` environment metadata was inspected without decrypting any
+secrets: the three `DEKEZ_REPORT_*_ENABLED` variables and `WHAPI_TOKEN` are absent,
+with zero hidden production environment variables reported. Thus all sending gates
+remain false and provider configuration incomplete. No settings were changed.
+Recheck these immediately before a later approved release. Do not configure any
+enable flag as true until separately approved.
+
+The review branch deployment guard does **not** disable main auto-deployments.
+Merging into main can trigger deployment. Do not merge until the user approves that
+release consequence, or separately approves arranging a deployment hold. This PR
+preparation neither merges nor changes deployment settings.

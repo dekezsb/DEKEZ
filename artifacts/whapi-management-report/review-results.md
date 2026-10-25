@@ -1,5 +1,10 @@
 # Whapi management report — implementation review
 
+Historical implementation/security review at commit e5f5295. The later approved
+production migration and source-version reconciliation supersede the pre-migration
+status statements below; see `production-migration-result.md` and
+`pre-merge-results.md` in this directory for current status.
+
 Date: 25 October 2026. Review branch: `feature/whapi-report-review-20261025`.
 Based on current production main `fc5a3a366e90ce61fe4c9a3f9fa9ab9c607dfd92`.
 
@@ -73,7 +78,7 @@ New runtime/UI files:
 
 New migration/config/documentation:
 
-- `supabase/migrations/20261025055210_whapi_management_reports.sql`
+- `supabase/migrations/20261025083739_whapi_management_reports.sql` (canonical filename after production-version reconciliation; SQL unchanged)
 - `config/management-report-cron.pending.json`
 - `docs/whapi-management-report.md`
 

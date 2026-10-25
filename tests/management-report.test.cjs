@@ -98,6 +98,13 @@ test('authorization verifies fresh identity/profile; never trusts role metadata 
  profile=null;assert.equal(await auth.reportAdministrator(),null);profile={role:'super_admin',registration_status:'rejected'};assert.equal(await auth.reportAdministrator(),null);
  profile={role:'super_admin',registration_status:'approved'};authUser=null;assert.equal(await auth.reportAdministrator(),null);
 });
+test('production migration version is reconciled exactly once without changing approved SQL',()=>{
+ const names=fs.readdirSync('supabase/migrations').filter(name=>name.endsWith('_whapi_management_reports.sql'));
+ assert.deepEqual(names,['20261025083739_whapi_management_reports.sql']);
+ const sql=fs.readFileSync('supabase/migrations/'+names[0],'utf8').replace(/\r\n/g,'\n');
+ assert.equal(require('node:crypto').createHash('sha256').update(sql).digest('hex'),'3dd63a191dc0a0901dde637c3b8e4a51beccfc5a2658a184d1466ea9356c0b75');
+});
+
 test('schedule remains pending, existing cron definitions preserved, sources contain no Meta/financial write paths',()=>{
  const vercel=JSON.parse(fs.readFileSync('vercel.json','utf8')),crons=vercel.crons;
  assert.deepEqual(crons,[
@@ -110,5 +117,5 @@ test('schedule remains pending, existing cron definitions preserved, sources con
  ]);
  assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false});
  assert.deepEqual(JSON.parse(fs.readFileSync('config/management-report-cron.pending.json','utf8')),{path:'/api/management-report',schedule:'0 12 * * *'});
- const sql=fs.readFileSync('supabase/migrations/20261025055210_whapi_management_reports.sql','utf8');assert.doesNotMatch(sql,/\b(update|insert into|delete from|alter table) public\.(payments|rent_bills|tenancies|whatsapp_)/i);
+ const sql=fs.readFileSync('supabase/migrations/20261025083739_whapi_management_reports.sql','utf8');assert.doesNotMatch(sql,/\b(update|insert into|delete from|alter table) public\.(payments|rent_bills|tenancies|whatsapp_)/i);
 });

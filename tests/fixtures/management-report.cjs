@@ -50,7 +50,7 @@ module.exports=async({fullMigration=false}={})=>{
  -- Match the live migration role and Supabase public-function defaults.
  alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;`);
  db.migrationIdentity=(await db.query('select current_user,rolsuper from pg_roles where rolname=current_user')).rows[0];
- const migration=fs.readFileSync(path.resolve(__dirname,'../../supabase/migrations/20261025055210_whapi_management_reports.sql'),'utf8');
+ const migration=fs.readFileSync(path.resolve(__dirname,'../../supabase/migrations/20261025083739_whapi_management_reports.sql'),'utf8');
  // PGlite runs in template1 and cannot GRANT database CREATE there ("tuple
  // concurrently deleted"). Bootstrap ONLY schema creation with the same owner;
  // all role creation, table/RLS/function DDL and grants run as non-superuser.
