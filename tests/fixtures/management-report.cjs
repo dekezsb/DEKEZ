@@ -2,7 +2,7 @@
 const {PGlite}=require('@electric-sql/pglite');
 const fs=require('node:fs'),path=require('node:path');
 const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
-module.exports=async({fullMigration=false}={})=>{
+module.exports=async({fullMigration=false,singleUseMigration=false}={})=>{
  const db=new PGlite();db.id=id;
  await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
  -- A production-like migration role, without altering PGlite's bootstrap user.
@@ -64,6 +64,11 @@ module.exports=async({fullMigration=false}={})=>{
   await db.exec(afterSchema);
  }
  await db.exec('reset role');
+ if(singleUseMigration){
+  await db.exec('set role fixture_migrator');
+  await db.exec(fs.readFileSync(path.resolve(__dirname,'../../supabase/migrations/20261025145221_whapi_single_use_test_authorization.sql'),'utf8'));
+  await db.exec('reset role');
+ }
  // Serialize each simulated PostgREST request, including transaction-local role.
  // Source-fixture maintenance remains on the separate migration-owner context.
  let queue=Promise.resolve();

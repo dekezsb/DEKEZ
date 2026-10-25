@@ -2,9 +2,11 @@
 
 ## Status and boundaries
 
-Application implementation remains undeployed. The approved migration was applied
+The original reporting implementation has been released. The approved migration was applied
 to production on 25 October 2026; source version is now aligned with production
 history at `20261025083739`. No real message was sent and no daily report cron activated.
+The new single-use test mechanism is a separate, **not yet deployed** review change;
+see [single-use test design and release prerequisites](whapi-single-use-test.md).
 Existing Meta WhatsApp, in-app chat, accounting, tenancy and payment code stays
 unchanged. Reporting reads source rows; only the new private delivery tables are
 written. The new Admin page is `/admin-setup/management-report`, linked from Admin
@@ -17,15 +19,17 @@ Setup, and uses existing Card/Button styling.
 | `WHAPI_TOKEN` | Sensitive channel token for FALCON-D9NS9; never put in code, chat, logs, PRs or a NEXT_PUBLIC variable. |
 | `WHAPI_REPORT_TO` | `60168173911` (default intended self-number; configurable international digits, without +). |
 | `DEKEZ_REPORT_COMPANY_ID` | Verified existing DEKEZ company UUID. Required; never inferred from the first row or request parameters. |
-| `DEKEZ_REPORT_SEND_ENABLED` | `false` — master external-send switch. |
-| `DEKEZ_REPORT_TEST_ENABLED` | `false` — manual Admin test switch, independent of schedule. |
+| `DEKEZ_REPORT_SEND_ENABLED` | `false` — ordinary sender switch; reviewed single-use Admin tests have a separate database gate. |
+| `DEKEZ_REPORT_TEST_ENABLED` | `false` — ordinary manual test switch, independent of schedule. |
 | `DEKEZ_REPORT_SCHEDULE_ENABLED` | `false` — daily worker switch. |
 | `CRON_SECRET` | Preserve existing secret used by other cron jobs. Missing/wrong secret is denied. |
 
 Uses existing server-side Supabase URL/service role configuration. No new provider
 SDK or runtime dependency. Never copy production tokens into local test fixtures
 or preview environments that do not need to send. All switches require exactly
-`true`; presence of a token alone enables nothing.
+`true`; presence of a token alone enables nothing. The proposed one-time path
+requires a fresh Admin authorization and explicit confirmation instead of toggling
+SEND/TEST, and refuses to run while SCHEDULE is enabled.
 
 ## Metrics and scope
 
@@ -161,9 +165,12 @@ After review and explicit production approval:
    denying ordinary users. New isolated environments may apply the canonical file.
 5. Deploy with SEND/TEST/SCHEDULE=false and no new cron entry. Check Admin access
    and compare read-only preview totals to existing source records.
-6. Obtain permission for **one real test message**. Set SEND=true, TEST=true,
-   SCHEDULE=false; redeploy and click Send Test Report. Confirm own-number arrival,
-   provider message ID and accepted audit log. Disable TEST afterwards.
+6. Follow the separately reviewed single-use test migration/release procedure in
+   `docs/whapi-single-use-test.md`. After that change is approved and released,
+   obtain separate permission for **one real test message**, keep all flags false,
+   and use Request one-time test → review → explicit confirmation. Confirm own-number
+   arrival, provider message ID and audit log. Do not toggle environment variables
+   for a temporary test: existing deployment environment values are not live switches.
 7. Only after test acceptance and schedule approval, append the pending entry to
    existing `crons` (never replace them), set SCHEDULE=true and keep SEND=true.
    Confirm Vercel plan supports within-minute execution; Hobby timing is not exact.
@@ -201,13 +208,13 @@ is `npx tsc --noEmit`. Production catalog/role checks and a read-only snapshot R
 passed after migration. Production provider delivery, authenticated HTTP gateway
 integration, real scheduler invocation and load/latency testing remain approval-gated.
 
-## Pre-merge deployment safety
+## Historical base-PR deployment check
 
-Vercel project `dekez` environment metadata was inspected without decrypting any
+At the original PR review, Vercel project `dekez` environment metadata was inspected without decrypting any
 secrets: the three `DEKEZ_REPORT_*_ENABLED` variables and `WHAPI_TOKEN` are absent,
-with zero hidden production environment variables reported. Thus all sending gates
-remain false and provider configuration incomplete. No settings were changed.
-Recheck these immediately before a later approved release. Do not configure any
+with zero hidden production environment variables reported. That historical check
+is not current production-configuration evidence; credentials were configured later.
+No settings were changed during that check. Recheck privately before a later approved release. Do not configure any
 enable flag as true until separately approved.
 
 The review branch deployment guard does **not** disable main auto-deployments.
