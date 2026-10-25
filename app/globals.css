@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./portal-tokens.css";
 
 :root {
   --background: #f4f5f8;
@@ -10,6 +11,7 @@
   --brand-strong: #8a641d;
   --brand-soft: #f6edd9;
 }
+
 
 * {
   box-sizing: border-box;
@@ -210,5 +212,82 @@ a {
     .app-responsive > .management-navigation a[aria-current=page] {
       background: linear-gradient(110deg, #8a641d, #987124); color: #ffffff;
     }
+  }
+}
+
+/* Shared Owner-derived UI. Screen-only: invoice/print layouts are untouched.
+   Role navigation and actions remain in AppShell; these rules only reflow them. */
+@media screen {
+  .app-responsive { background:var(--dekez-canvas); color:var(--dekez-ink); font-family:var(--dekez-font); font-size:15px; line-height:1.5; }
+  .app-responsive main h1 { font-size:clamp(24px,3vw,34px); line-height:1.2; }
+  .app-responsive .dekez-card { border-radius:var(--dekez-card-radius); background:var(--dekez-surface); box-shadow:var(--dekez-card-shadow); }
+  .app-responsive .dekez-card[class~="border-[#e1e5eb]"] { border-color:var(--dekez-line); }
+  .app-responsive .dekez-button { border-radius:var(--dekez-control-radius); min-height:44px; height:auto; }
+  .app-responsive .dekez-primary { background:var(--dekez-primary); color:white; }
+  .app-responsive .dekez-secondary,.app-responsive .dekez-outline { background:var(--dekez-field); border:1px solid var(--dekez-field-line); color:var(--dekez-ink); }
+  .app-responsive .dekez-secondary:hover,.app-responsive .dekez-outline:hover,.app-responsive .dekez-ghost:hover { background:var(--dekez-gold-soft); }
+  .app-responsive main :where(input:not([type=checkbox]):not([type=radio]):not([type=hidden]),select,textarea) {
+    border-color:var(--dekez-field-line); border-radius:var(--dekez-control-radius); background-color:var(--dekez-field); color:var(--dekez-ink);
+  }
+  .app-responsive main :where(input,select,textarea):focus-visible { outline:2px solid var(--dekez-gold); outline-offset:2px; }
+  .app-responsive .dekez-table-scroll { border-radius:12px; overscroll-behavior-x:contain; }
+  .app-responsive .dekez-table { font-variant-numeric:tabular-nums; }
+  .app-responsive .dekez-table thead { background:#f6f0e3; border-color:var(--dekez-line); }
+  .app-responsive .dekez-table th { color:var(--dekez-muted); text-transform:none; letter-spacing:normal; }
+  .app-responsive .dekez-table td { border-color:var(--dekez-line); }
+  .app-responsive .portal-header,.internal-shell > .internal-frame > .portal-header {
+    background:var(--dekez-header); color:var(--dekez-ink); border-color:var(--dekez-line); box-shadow:none;
+  }
+  .portal-header [class~="text-[#d7c6a8]"],.portal-header [class~="text-gray-400"] { color:var(--dekez-muted); }
+  .portal-header [class~="text-[#c99a3e]"] { color:var(--dekez-gold); }
+  .portal-header select { background:var(--dekez-field); color:var(--dekez-ink); border-color:var(--dekez-field-line); border-radius:9px; }
+  .portal-header .dekez-outline { background:#fffaf1; color:var(--dekez-ink); border-color:var(--dekez-line); }
+  .tenant-header-inner { max-width:none; min-height:76px; height:auto; padding:12px 16px; flex-wrap:wrap; gap:12px; }
+  .tenant-header-inner > div { min-width:0; margin-left:auto; gap:8px; }
+  .tenant-content,.management-content,.internal-content { width:100%; max-width:none; }
+  .tenant-content { padding:20px 16px calc(100px + env(safe-area-inset-bottom)); min-height:calc(100dvh - 76px); }
+  .tenant-navigation { padding:6px 4px calc(6px + env(safe-area-inset-bottom)); }
+  .tenant-nav-brand { display:none; }
+  .tenant-nav-items { max-width:none; }
+  .tenant-nav-link { min-height:56px; font-size:11px; font-weight:400; }
+  .tenant-nav-link svg { width:22px; height:22px; }
+  .tenant-nav-link[aria-current=page] { font-weight:700; }
+  .internal-shell > nav.fixed { background:#fffcf7f5; border-color:var(--dekez-line); box-shadow:0 -4px 20px #30250f08; }
+  .internal-shell > nav.fixed a { color:#69665f; }
+  .internal-shell > nav.fixed a[aria-current=page] { color:var(--dekez-gold); font-weight:700; }
+  .internal-sidebar { background:var(--dekez-ink); }
+  .internal-sidebar nav a[aria-current=page] { background:var(--dekez-active); color:white; }
+  .internal-sidebar nav a[aria-current=page] svg { color:inherit; }
+  .internal-sidebar nav a[aria-current=page] > span.absolute { display:none; }
+  @media (min-width:768px) {
+    .tenant-header-inner { padding-inline:24px; }
+    .tenant-content { padding:24px 24px calc(104px + env(safe-area-inset-bottom)); }
+    .tenant-nav-link { min-height:60px; font-size:13px; }
+  }
+  @media (min-width:1024px) {
+    .tenant-shell,.management-shell { padding-left:var(--dekez-sidebar-width); }
+    .internal-frame { padding-left:var(--dekez-sidebar-width); }
+    .internal-sidebar,.management-navigation { width:var(--dekez-sidebar-width); }
+    .tenant-navigation {
+      inset:0 auto 0 0; width:var(--dekez-sidebar-width); overflow-y:auto; background:var(--dekez-ink)!important;
+      color:#efeadf; border:0; border-right:1px solid #2a2417; box-shadow:none;
+      padding:calc(30px + env(safe-area-inset-top)) 16px 24px;
+    }
+    .tenant-nav-brand,.management-nav-brand { display:flex; align-items:center; gap:12px; padding:0 8px 30px; color:#e4c585; font-size:20px; font-weight:700; }
+    .tenant-nav-brand small,.management-nav-brand span { display:block; font-size:12px; font-weight:400; color:#efeadf; }
+    .tenant-nav-items { display:flex; flex-direction:column; gap:8px; }
+    .tenant-navigation .tenant-nav-link,.management-navigation .management-nav-link { display:flex; flex-direction:row; justify-content:flex-start; min-height:48px; gap:14px; padding:10px 16px; text-align:left; font-size:15px; border-radius:8px; color:#efeadf!important; }
+    .tenant-navigation .tenant-nav-link[aria-current=page] { background:var(--dekez-active); color:white; }
+    .tenant-nav-link:hover { background:#2a2417; }
+    .tenant-content,.management-content { padding:24px 28px; }
+    .tenant-header-inner,.management-header-inner { padding-inline:28px; }
+    .internal-sidebar nav a { font-size:15px; min-height:48px; }
+    .internal-sidebar nav svg { width:21px; height:21px; }
+  }
+  @media (min-width:1440px) {
+    .tenant-content,.management-content { padding:28px 36px; }
+    .tenant-header-inner,.management-header-inner { padding-inline:36px; }
+    .internal-frame > main { padding-inline:36px; }
+    .internal-frame > header > div { padding-inline:36px; }
   }
 }
