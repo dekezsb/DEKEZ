@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": {
+      "feature/whapi-report-review-20261025": false
+    }
+  },
   "regions": ["sin1"],
   "buildCommand": "npm run build",
   "installCommand": "npm install",
