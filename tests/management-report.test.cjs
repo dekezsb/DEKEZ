@@ -5,25 +5,37 @@ const keys=['WHAPI_TOKEN','WHAPI_REPORT_TO','DEKEZ_REPORT_COMPANY_ID','DEKEZ_REP
 const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));const originalFetch=global.fetch;
 let calls=[],response,db,id,dbCalls=[];
 const now=new Date('2026-10-25T12:00:00Z');
-function enable(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60168173911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'true',DEKEZ_REPORT_TEST_ENABLED:'true',DEKEZ_REPORT_SCHEDULE_ENABLED:'true'});}
+function enable(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60198894911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'true',DEKEZ_REPORT_TEST_ENABLED:'true',DEKEZ_REPORT_SCHEDULE_ENABLED:'true'});}
 const fakeClient={rpc:async(name,args)=>{
  dbCalls.push(name);const values=Object.values(args),placeholders=values.map((_,i)=>'$'+(i+1)).join(',');
  try{return {data:(await db.rpcQuery(`select public.${name}(${placeholders}) result`,values)).rows[0].result,error:null};}
  catch(error){return {data:null,error};}
 }};
 const service=loader({'server-only':{},'@/lib/supabase/admin':{createAdminClient:()=>fakeClient}})('lib/management-report/service.ts');
-test.before(async()=>{db=await require('./fixtures/management-report.cjs')();id=db.id;});
+test.before(async()=>{db=await require('./fixtures/management-report.cjs')({recipientMigration:true});id=db.id;});
 test.beforeEach(async()=>{
  calls=[];dbCalls=[];for(const k of keys)delete process.env[k];
  response=()=>Response.json({sent:true,message:{id:'fixture-id',status:'pending'}});
  global.fetch=async(url,options)=>{calls.push({url,options});return response();};
- await db.exec('truncate dekez_reports_private.delivery_attempts,dekez_reports_private.report_runs');
+ await db.exec('truncate dekez_reports_private.test_authorizations,dekez_reports_private.delivery_attempts,dekez_reports_private.report_runs');
 });
 test.after(async()=>{global.fetch=originalFetch;for(const k of keys){if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}await db?.close();});
-test('all send switches default off, intended recipient configurable, malformed scope/recipient rejected',()=>{
- assert.equal(config.reportConfig().recipient,'60168173911');assert.equal(config.reportConfig().configured,false);assert.equal(config.reportConfig().sendEnabled,false);
- enable();assert.equal(config.reportConfig().configured,true);process.env.WHAPI_REPORT_TO='60123456789';assert.equal(config.reportConfig().recipient,'60123456789');
- for(const value of ['+60168173911','123','60168173911@evil','https://evil']){process.env.WHAPI_REPORT_TO=value;assert.equal(config.reportConfig().configured,false);}
+test('all send switches default off; only the approved recipient is configured',()=>{
+ const initial=config.reportConfig();assert.equal(initial.recipient,'60198894911');assert.equal(initial.configured,false);
+ assert.equal(initial.sendEnabled,false);assert.equal(initial.testEnabled,false);assert.equal(initial.scheduleEnabled,false);
+ enable();assert.equal(config.reportConfig().configured,true);
+ for(const value of ['60168173911','60123456789','+60198894911','123','60198894911@evil','https://evil']){
+  process.env.WHAPI_REPORT_TO=value;assert.equal(config.reportConfig().recipient,value);assert.equal(config.reportConfig().configured,false);
+ }
+});
+
+test('old or arbitrary configured recipients cannot send ordinary daily or test reports even with all gates enabled',async()=>{
+ for(const recipient of ['60168173911','60123456789']){
+  enable();process.env.WHAPI_REPORT_TO=recipient;
+  assert.equal((await service.deliverManagementReport('daily',null,now)).state,'disabled');
+  assert.equal((await service.deliverManagementReport('test',id(3),now)).state,'disabled');
+ }
+ assert.deepEqual(calls,[]);assert.deepEqual(dbCalls,[]);
 });
 test('Malaysia calendar and daily time window handle year/month/leap-day boundaries',()=>{
  for(const [iso,date] of [['2026-12-31T16:00:00Z','2027-01-01'],['2028-02-29T15:59:59Z','2028-02-29'],['2028-02-29T16:00:00Z','2028-03-01']])assert.equal(model.malaysiaReportDate(new Date(iso)),date);
@@ -40,16 +52,16 @@ test('scheduled and test gates are independent; scheduling never catches up outs
 });
 test('read-only preview has real aggregate fixture totals, no PII and no delivery reservation',async()=>{
  enable();const s=await service.reportPreview(now),body=model.formatReport(s,'test');
- assert.match(body,/RM250.00/);assert.match(body,/RM450.00/);assert.match(body,/20:00 MYT/);assert.doesNotMatch(body,/00000000|synthetic-only-token|60168173911/);
+ assert.match(body,/RM250.00/);assert.match(body,/RM450.00/);assert.match(body,/20:00 MYT/);assert.doesNotMatch(body,/00000000|synthetic-only-token|60168173911|60198894911/);
  assert.equal(calls.length,0);assert.deepEqual(dbCalls,['dekez_management_report_snapshot']);
  assert.equal((await db.query('select count(*)::int n from dekez_reports_private.report_runs')).rows[0].n,0);
  s.overdue=null;assert.match(model.formatReport(s,'test'),/Overdue invoice balance\*: Unavailable/);
 });
-test('real service -> real SQL -> mocked Whapi own-number send -> accepted log; duplicate invocation never sends twice',async()=>{
+test('real service -> real SQL -> mocked Whapi approved-recipient send -> accepted log; duplicate invocation never sends twice',async()=>{
  enable();assert.equal((await service.deliverManagementReport('test',id(3),now)).state,'accepted');
  assert.equal((await service.deliverManagementReport('test',id(3),now)).duplicate,true);assert.equal(calls.length,1);
  assert.equal(calls[0].url,'https://gate.whapi.cloud/messages/text');assert.equal(calls[0].options.redirect,'error');assert.equal(calls[0].options.headers.Authorization,'Bearer synthetic-only-token');
- const body=JSON.parse(calls[0].options.body);assert.equal(body.to,'60168173911');assert.equal(body.no_link_preview,true);assert.match(body.body,/\[TEST\]/);
+ const body=JSON.parse(calls[0].options.body);assert.equal(body.to,'60198894911');assert.equal(body.no_link_preview,true);assert.match(body.body,/\[TEST\]/);
  const log=(await db.query('select * from dekez_reports_private.delivery_attempts')).rows[0];assert.equal(log.state,'accepted');assert.equal(log.provider_message_id,'fixture-id');
 });
 test('daily schedule service still claims and finalizes through functions with no direct table grants',async()=>{
@@ -60,7 +72,7 @@ test('daily schedule service still claims and finalizes through functions with n
 });
 test('timeouts after possible acceptance and 500/malformed success block retries',async()=>{
  enable();for(const responseFactory of [()=>{throw Error('secret provider network failure');},()=>new Response('private provider error',{status:500}),()=>Response.json({sent:true}),()=>Response.json({sent:false})]){
-  await db.exec('truncate dekez_reports_private.delivery_attempts,dekez_reports_private.report_runs');calls=[];response=responseFactory;
+  await db.exec('truncate dekez_reports_private.test_authorizations,dekez_reports_private.delivery_attempts,dekez_reports_private.report_runs');calls=[];response=responseFactory;
   assert.equal((await service.deliverManagementReport('daily',null,now)).state,'uncertain');
   assert.equal((await service.deliverManagementReport('daily',null,now)).duplicate,true);assert.equal(calls.length,1);
  }
@@ -76,8 +88,8 @@ test('failure saving provider result returns uncertain; reservation still preven
 test('missing company or database failure fails closed before sending',async()=>{
  enable();process.env.DEKEZ_REPORT_COMPANY_ID=id(999);await assert.rejects(service.deliverManagementReport('daily',null,now),/unavailable/);assert.equal(calls.length,0);
 });
-test('Whapi validation rejects arbitrary recipients and empty body without network',async()=>{
- await assert.rejects(whapi.sendWhapiReport('x','https://evil','body'));await assert.rejects(whapi.sendWhapiReport('x','60168173911',''));assert.equal(calls.length,0);
+test('Whapi transport rejects malformed recipients and empty body without network',async()=>{
+ await assert.rejects(whapi.sendWhapiReport('x','https://evil','body'));await assert.rejects(whapi.sendWhapiReport('x','60198894911',''));assert.equal(calls.length,0);
 });
 test('cron fails closed on missing/wrong secret; authenticated caller cannot override report parameters',async()=>{
  let received=[];const api=loader({'@/lib/management-report/service':{deliverManagementReport:async(...args)=>{received.push(args);return {state:'disabled'};}}})('app/api/management-report/route.ts');

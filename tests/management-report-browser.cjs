@@ -8,7 +8,7 @@ async function run(){
  try{
   db=await require('./fixtures/management-report.cjs')();
   const snapshot=(await db.query("select dekez_management_report_snapshot($1,'2026-10-25T12:00:00Z') result",[db.id(1)])).rows[0].result;
-  const load=require('./marketplace-component-loader.cjs')({'server-only':{},'@/lib/auth/session':{requireRole:async()=> 'super_admin'},'@/lib/management-report/authorization':{reportAdministrator:async()=>db.id(3)},'@/lib/management-report/config':{reportConfig:()=>({recipient:'60168173911',configured:true,scopeReady:true,sendEnabled:false,testEnabled:false,scheduleEnabled:false})},'@/lib/management-report/service':{reportPreview:async()=>snapshot},'./actions':{oneTimeTestAction:async()=>{throw Error('Live authorization or sending prohibited');}}});
+  const load=require('./marketplace-component-loader.cjs')({'server-only':{},'@/lib/auth/session':{requireRole:async()=> 'super_admin'},'@/lib/management-report/authorization':{reportAdministrator:async()=>db.id(3)},'@/lib/management-report/config':{reportConfig:()=>({recipient:'60198894911',configured:true,scopeReady:true,sendEnabled:false,testEnabled:false,scheduleEnabled:false})},'@/lib/management-report/service':{reportPreview:async()=>snapshot},'./actions':{oneTimeTestAction:async()=>{throw Error('Live authorization or sending prohibited');}}});
   const html=renderToStaticMarkup(await load('app/admin-setup/management-report/page.tsx').default());
   const cssDir=path.join(root,'.next/static/chunks');
   const css=fs.readdirSync(cssDir).filter(f=>f.endsWith('.css')).map(f=>fs.readFileSync(path.join(cssDir,f),'utf8')).join('\n');
