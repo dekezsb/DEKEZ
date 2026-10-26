@@ -1,15 +1,18 @@
-# Whapi single-use Admin test — controlled personal-recipient release
+# Whapi single-use Admin test — personal recipient and daily activation
 
-## Scope and release hold
+## Current scope and activation status
 
 The original single-use mechanism is deployed and its migration is already applied.
 The personal-recipient migration below was applied under explicit production
-approval on 26 October 2026; its matching code is the controlled release in this
-change. Do not rerun any of the three applied reporting migrations. A real test
-authorization/send still requires separate approval; all reporting flags stay false.
+approval on 26 October 2026 and its matching code is released. Do not rerun any of
+the three applied reporting migrations. The user subsequently confirmed receipt
+of the personal-recipient `[TEST]` report and approved daily activation. Production
+activation uses SEND=true, SCHEDULE=true, TEST=false; source/example defaults stay
+false. The one-time request/execute path is unavailable while SCHEDULE is true.
+No additional test authorization or manual message is part of daily activation.
 The feature branch `feature/whapi-single-use-test-20261025` has automatic Vercel
 deployment disabled in `vercel.json`. The six existing cron entries are unchanged;
-the proposed management-report schedule remains in the unconsumed pending file.
+the approved seventh entry runs `/api/management-report` at `0 12 * * *`.
 
 The previously released report generator, snapshot calculations, ordinary sender,
 Whapi client, authentication and existing reporting migration are unchanged. The
@@ -17,6 +20,9 @@ new flow writes only private reporting authorizations and existing report/attemp
 logs. It does not write rental, payment, tenant, maintenance or Meta WhatsApp data.
 
 ## Admin workflow
+
+This workflow is for separately authorized tests while the daily schedule is disabled.
+It must not be used to send an extra message during daily-report activation.
 
 1. In Admin Setup → Daily Management Report, select **Request one-time test**.
    This authenticates the approved Super Admin, reads the existing company-scoped
@@ -34,7 +40,8 @@ logs. It does not write rental, payment, tenant, maintenance or Meta WhatsApp da
 5. **Cancel authorization** revokes an unused authorization immediately. Unused
    authorizations expire without a cleanup job. Requests after expiry are denied.
 
-The three existing switches remain `false` (also their defaults):
+The original single-use test release kept all three switches `false`, still their
+source/example defaults:
 `DEKEZ_REPORT_SEND_ENABLED`, `DEKEZ_REPORT_TEST_ENABLED`,
 `DEKEZ_REPORT_SCHEDULE_ENABLED`. This new narrowly scoped path intentionally bypasses
 only SEND/TEST and additionally refuses to operate if SCHEDULE is enabled. A token
@@ -130,7 +137,11 @@ native multi-session PostgreSQL lock-contention or production HTTP/session testi
 Those remain isolated-staging/release verification requirements. No live provider
 send, live grant, live configuration check or production migration is part of this PR.
 
-## Approval-gated deployment prerequisites
+## Historical single-use deployment prerequisites (completed before daily activation)
+
+This checklist records the original test-only release. It is not an instruction to
+rerun migrations or revert the separately approved daily production configuration.
+For the current activation, follow `docs/whapi-management-report.md` instead.
 
 1. Reconfirm current main/production code and unchanged six cron entries. Review
    the full PR and this migration; do not assume PR approval also authorizes sending.

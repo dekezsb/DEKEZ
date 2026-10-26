@@ -1,4 +1,4 @@
-# DEKEZ daily management report — review / disabled release
+# DEKEZ daily management report — controlled daily activation
 
 ## Status and boundaries
 
@@ -6,9 +6,13 @@ The original reporting implementation has been released. The approved migration 
 to production on 25 October 2026; source version is now aligned with production
 history at `20261025083739`. No daily report cron was activated by that release.
 The single-use test mechanism is also released. The personal-recipient migration
-is applied and this code is its approved controlled release; the old recipient's
-existing reporting history is preserved. Sending still needs separate approval.
-see [single-use test design and release prerequisites](whapi-single-use-test.md).
+is applied and released; the old recipient's existing reporting history is preserved.
+After confirming the personal-recipient `[TEST]` report arrived, the user approved
+daily activation on 26 October 2026. This change registers the 20:00 Malaysia cron;
+production must use SEND=true, SCHEDULE=true and TEST=false. Local/example defaults
+remain false, and deployment/configuration must be verified before claiming it active.
+No additional manual test, authorization or cron invocation is part of this release.
+See [single-use test design and release prerequisites](whapi-single-use-test.md).
 Existing Meta WhatsApp, in-app chat, accounting, tenancy and payment code stays
 unchanged. Reporting reads source rows; only the new private delivery tables are
 written. The new Admin page is `/admin-setup/management-report`, linked from Admin
@@ -16,20 +20,20 @@ Setup, and uses existing Card/Button styling.
 
 ## Vercel configuration (enter privately in the dashboard)
 
-| Variable | Initial value / purpose |
+| Variable | Approved production value / purpose |
 | --- | --- |
 | `WHAPI_TOKEN` | Sensitive channel token for FALCON-D9NS9; never put in code, chat, logs, PRs or a NEXT_PUBLIC variable. |
 | `WHAPI_REPORT_TO` | `60198894911` (approved personal recipient, international digits without +; exact-match restriction). |
 | `DEKEZ_REPORT_COMPANY_ID` | Verified existing DEKEZ company UUID. Required; never inferred from the first row or request parameters. |
-| `DEKEZ_REPORT_SEND_ENABLED` | `false` — ordinary sender switch; reviewed single-use Admin tests have a separate database gate. |
+| `DEKEZ_REPORT_SEND_ENABLED` | `true` — approved daily sender; source/example default remains `false`. |
 | `DEKEZ_REPORT_TEST_ENABLED` | `false` — ordinary manual test switch, independent of schedule. |
-| `DEKEZ_REPORT_SCHEDULE_ENABLED` | `false` — daily worker switch. |
+| `DEKEZ_REPORT_SCHEDULE_ENABLED` | `true` — approved daily worker; source/example default remains `false`. |
 | `CRON_SECRET` | Preserve existing secret used by other cron jobs. Missing/wrong secret is denied. |
 
 Uses existing server-side Supabase URL/service role configuration. No new provider
 SDK or runtime dependency. Never copy production tokens into local test fixtures
 or preview environments that do not need to send. All switches require exactly
-`true`; presence of a token alone enables nothing. The proposed one-time path
+`true`; presence of a token alone enables nothing. The one-time path
 requires a fresh Admin authorization and explicit confirmation instead of toggling
 SEND/TEST, and refuses to run while SCHEDULE is enabled. The recipient is separate
 from the unchanged DEKEZ Whapi business sender/channel and token. A different
@@ -145,41 +149,39 @@ messages are visibly labeled. Test click spam cannot make arbitrary extra report
   operational failure, not silently resent the next day. Error logs contain only
   run IDs/states, never provider bodies, message bodies, financial totals or secrets.
 
-## Schedule preparation and activation sequence
+## Approved daily schedule and release verification
 
-All six existing `vercel.json` cron entries are unchanged. A branch-specific
-`git.deploymentEnabled` rule disables automatic deployment only for
-`feature/whapi-report-review-20261025`, so opening this review PR does not deploy.
-Main and other branches retain their existing behavior. Proposed cron entry lives in
-`config/management-report-cron.pending.json` and is **not automatically consumed**:
-`/api/management-report` at `0 12 * * *` (20:00 Malaysia). Worker also checks the
-Malaysia 20:00–20:59 window and ignores URL date/recipient overrides.
+All six existing `vercel.json` cron entries and their schedules are unchanged.
+The seventh entry is `/api/management-report` at `0 12 * * *` (12:00 UTC = 20:00
+Asia/Kuala_Lumpur, UTC+08:00). The old unconsumed pending JSON has been retired;
+`vercel.json` is the only deployed cron definition. Existing branch-specific
+deployment guards are preserved. The worker also checks the Malaysia 20:00–20:59
+window and ignores URL date/recipient overrides. Test and daily run keys are separate,
+so an earlier `[TEST]` does not suppress the first approved daily report.
 
-After review and explicit production approval:
+For this user-approved activation:
 
 1. Re-fetch/review latest production main. Run all existing release tests and build.
 2. Inspect actual source schema/permissions and benchmark the read-only aggregate
    against production-like data. Existing payment/company indexes are reused;
    do not add source-table indexes without measured need. Confirm missing identity
    links and mixed-charge labels meet operational expectations.
-3. Verify configured company and recipient; review channel status/token privately.
-4. Verify history contains `20261025083739` and matches the canonical source file;
-   **skip migration execution on this production project**. It is already applied.
-   Ensure custom Data API pre-request hooks permit the service-role RPC while
-   denying ordinary users. New isolated environments may apply the canonical file.
-5. Deploy with SEND/TEST/SCHEDULE=false and no new cron entry. Check Admin access
-   and compare read-only preview totals to existing source records.
-6. Follow the separately reviewed single-use test migration/release procedure in
-   `docs/whapi-single-use-test.md`. After that change is approved and released,
-   obtain separate permission for **one real test message**, keep all flags false,
-   and use Request one-time test → review → explicit confirmation. Confirm approved-recipient
-   arrival, provider message ID and audit log. Do not toggle environment variables
-   for a temporary test: existing deployment environment values are not live switches.
-7. Only after test acceptance and schedule approval, append the pending entry to
-   existing `crons` (never replace them), set SCHEDULE=true and keep SEND=true.
-   Confirm Vercel plan supports within-minute execution; Hobby timing is not exact.
-8. Monitor the first scheduled result and sanitized Vercel errors. Alerting or
-   automated provider reconciliation can be added later without blind retries.
+3. Verify the prior accepted test attempt, provider message ID and confirmed arrival
+   at `60198894911`. Preserve the existing Whapi business channel/token and company.
+4. Verify the three already-applied reporting migrations and current function-only
+   access. **No migration is needed for activation; do not rerun any applied SQL.**
+5. Confirm the Vercel plan supports seven cron jobs and within-minute daily execution;
+   stop on any platform limit. Preserve the existing `CRON_SECRET` and all six jobs.
+6. Set production SEND=true and SCHEDULE=true only; keep TEST=false. Do not change
+   recipient, company, sender/token, other settings or source defaults. Existing
+   deployments retain their environment snapshot, so use the normal Git/Vercel
+   production workflow for the reviewed activation commit.
+7. Verify Ready production deployment, the seventh registered cron, live Admin
+   configuration and denied unauthorized access. Do not manually invoke the cron,
+   request a test authorization or send another message during verification.
+8. Confirm no new send/run/attempt occurred during the release and report the next
+   scheduled 20:00 Malaysia run. Inspect scheduled results through existing private
+   logs; failure reconciliation requires review, never a blind retry or deletion.
 
 Rollback/stop: set SEND=false and SCHEDULE=false, deploy; disable/remove only the
 new report cron. Existing cron schedules remain. Preserve report/attempt history
@@ -209,8 +211,9 @@ assumption, ordinary-user RPCs, forged JWT elevation and search-path poisoning w
 exercising successful daily/test claim/finalization and duplicate/retry protection.
 `npm run build` includes these tests and all existing prebuild gates. Type checking
 is `npx tsc --noEmit`. Production catalog/role checks and a read-only snapshot RPC
-passed after migration. Production provider delivery, authenticated HTTP gateway
-integration, real scheduler invocation and load/latency testing remain approval-gated.
+passed after migration. The personal-recipient live test was confirmed before daily
+activation approval. The first real scheduled invocation remains pending until its
+normal scheduled time; local tests do not claim scheduler delivery or load testing.
 
 ## Historical base-PR deployment check
 
