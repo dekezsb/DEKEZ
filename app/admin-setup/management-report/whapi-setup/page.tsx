@@ -15,7 +15,7 @@ export default async function TemporaryWhapiSetupPage() {
     <Card><CardHeader><CardTitle>Approved incoming command activation</CardTitle>
       <CardDescription>Temporary, expiring Admin control. Existing daily reporting and business records are not changed.</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm">Channel: FALCON-D9NS9 · Sender: 60168173911 · Authorized reporting contact: 60198894911</p>
+        <p className="text-sm">Channel: FALCON-D9NS9 · Configured sender: 60168173911 · Authorized reporting contact: 60198894911</p>
         <p className="text-sm break-all">Callback: https://dekez.vercel.app/api/webhooks/whapi-reporting</p>
         <p className="text-sm">Event: messages.post · Authentication: dedicated Bearer secret · Commands remain disabled until the cleanup release.</p>
         <TemporarySetupControl />
