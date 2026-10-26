@@ -37,6 +37,12 @@ const FAILURE_MESSAGES = {
   HEALTH_NOT_AUTHENTICATED: "The channel does not report the required authenticated status.",
   SENDER_PHONE_UNAVAILABLE: "The provider did not return a sender phone that can be verified.",
   SENDER_PHONE_MISMATCH: "The sender phone does not match the approved sender.",
+  CONTACT_REQUEST_FAILED: "The read-only own-contact request could not complete.",
+  CONTACT_HTTP_FAILED: "The own-contact endpoint did not return a successful response.",
+  CONTACT_RESPONSE_INVALID: "The own-contact response could not be safely read.",
+  CONTACT_IDENTITY_MISMATCH: "The returned contact does not match the authenticated channel user.",
+  CONTACT_PHONE_UNAVAILABLE: "The own-contact response did not include a verifiable phone number.",
+  CONTACT_PHONE_MISMATCH: "The own-contact phone does not match the approved sender.",
   SETTINGS_REQUEST_FAILED: "The channel settings request could not complete.",
   SETTINGS_HTTP_FAILED: "The channel settings endpoint did not return a successful response.",
   SETTINGS_RESPONSE_INVALID: "The channel settings response could not be safely read.",
@@ -144,8 +150,10 @@ function desiredSettings(current: Settings, config: Config): { next: Settings; e
   return { exists: matches.length === 1, next: matches.length ? current : { ...current, webhooks: [...current.webhooks, approved] } };
 }
 
-async function provider(config: Config, path: "/settings" | "/health?wakeup=false", body?: Settings): Promise<unknown> {
+async function provider(config: Config, path: "/settings" | "/health?wakeup=false" | `/contacts/${string}`, body?: Settings): Promise<unknown> {
+  if (body && path !== "/settings") throw new SetupFailure("INVALID_REQUEST");
   const isHealth = path === "/health?wakeup=false";
+  const isContact = path.startsWith("/contacts/");
   let result: Response;
   try {
     result = await fetch(`${ORIGIN}${path}`, {
@@ -153,8 +161,8 @@ async function provider(config: Config, path: "/settings" | "/health?wakeup=fals
       headers: { Authorization: `Bearer ${config.token}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(10_000),
     });
-  } catch { throw new SetupFailure(isHealth ? "HEALTH_REQUEST_FAILED" : "SETTINGS_REQUEST_FAILED"); }
-  if (result.status !== 200) throw new SetupFailure(isHealth ? "HEALTH_HTTP_FAILED" : "SETTINGS_HTTP_FAILED");
+  } catch { throw new SetupFailure(isHealth ? "HEALTH_REQUEST_FAILED" : isContact ? "CONTACT_REQUEST_FAILED" : "SETTINGS_REQUEST_FAILED"); }
+  if (result.status !== 200) throw new SetupFailure(isHealth ? "HEALTH_HTTP_FAILED" : isContact ? "CONTACT_HTTP_FAILED" : "SETTINGS_HTTP_FAILED");
   try {
     if (!result.headers.get("content-type")?.toLowerCase().startsWith("application/json")
       || Number(result.headers.get("content-length")) > MAX_BYTES || !result.body) throw new Error();
@@ -171,7 +179,25 @@ async function provider(config: Config, path: "/settings" | "/health?wakeup=fals
       }
     } finally { reader.releaseLock(); }
     return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-  } catch { throw new SetupFailure(isHealth ? "HEALTH_RESPONSE_INVALID" : "SETTINGS_RESPONSE_INVALID"); }
+  } catch { throw new SetupFailure(isHealth ? "HEALTH_RESPONSE_INVALID" : isContact ? "CONTACT_RESPONSE_INVALID" : "SETTINGS_RESPONSE_INVALID"); }
+}
+
+const OWN_CONTACT_ID = /^\d{7,15}(?:@lid|@s\.whatsapp\.net)?$/;
+async function verifyOwnContact(config: Config, ownId: Json | undefined) {
+  // Only the authenticated health response selects this one read-only lookup.
+  // Never query the configured sender as a substitute for a missing identity.
+  if (typeof ownId !== "string" || !OWN_CONTACT_ID.test(ownId)) throw new SetupFailure("SENDER_PHONE_UNAVAILABLE");
+  const contact = await provider(config, `/contacts/${encodeURIComponent(ownId)}`);
+  if (!object(contact)) throw new SetupFailure("CONTACT_RESPONSE_INVALID");
+  if (typeof contact.id !== "string" || !OWN_CONTACT_ID.test(contact.id)) throw new SetupFailure("CONTACT_IDENTITY_MISMATCH");
+  // Bare phone IDs and the documented full phone JID identify the same contact.
+  // LIDs remain opaque: they require an exact match, never suffix stripping.
+  const matches = ownId.endsWith("@lid") || contact.id.endsWith("@lid")
+    ? contact.id === ownId
+    : contact.id.replace(/@s\.whatsapp\.net$/, "") === ownId.replace(/@s\.whatsapp\.net$/, "");
+  if (!matches) throw new SetupFailure("CONTACT_IDENTITY_MISMATCH");
+  if (typeof contact.phone !== "string" || !contact.phone) throw new SetupFailure("CONTACT_PHONE_UNAVAILABLE");
+  if (contact.phone.replace(/^\+/, "") !== SENDER) throw new SetupFailure("CONTACT_PHONE_MISMATCH");
 }
 
 async function health(config: Config) {
@@ -180,13 +206,16 @@ async function health(config: Config) {
   if (result.channel_id !== CHANNEL) throw new SetupFailure("CHANNEL_MISMATCH");
   if (!object(result.status) || result.status.text !== "AUTH") throw new SetupFailure("HEALTH_NOT_AUTHENTICATED");
   if (!object(result.user)) throw new SetupFailure("SENDER_PHONE_UNAVAILABLE");
-  // Whapi documents this complete WhatsApp user ID. It is an alternative only
-  // when phone is absent, never a way to override a present invalid phone.
-  if (!Object.prototype.hasOwnProperty.call(result.user, "phone")) {
-    if (result.user.id === `${SENDER}@s.whatsapp.net`) return;
-    throw new SetupFailure("SENDER_PHONE_UNAVAILABLE");
+  // Retain the already-reviewed documented full phone-JID proof when phone
+  // is absent. A bare ID or LID is never treated as an inferred phone number.
+  if (!Object.prototype.hasOwnProperty.call(result.user, "phone") && result.user.id === `${SENDER}@s.whatsapp.net`) return;
+  // Missing/empty phone metadata can be resolved through this channel's own
+  // contact only. A present conflicting phone must never be overridden.
+  if (result.user.phone === undefined || result.user.phone === null || result.user.phone === "") {
+    await verifyOwnContact(config, result.user.id);
+    return;
   }
-  if (typeof result.user.phone !== "string" || !result.user.phone) throw new SetupFailure("SENDER_PHONE_UNAVAILABLE");
+  if (typeof result.user.phone !== "string") throw new SetupFailure("SENDER_PHONE_UNAVAILABLE");
   if (result.user.phone.replace(/^\+/, "") !== SENDER) throw new SetupFailure("SENDER_PHONE_MISMATCH");
 }
 

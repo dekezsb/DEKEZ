@@ -10,7 +10,7 @@ const SECRET = 'synthetic_webhook_secret_0123456789_ABCD';
 const TOKEN = 'synthetic_channel_token_NEVER_UI';
 const ADMIN = '00000000-0000-0000-0000-000000000003';
 const URL = 'https://dekez.vercel.app/api/webhooks/whapi-reporting';
-let actor, now, current, health, calls, authCalls, handler, patchHandler, authHandler;
+let actor, now, current, health, contact, calls, authCalls, handler, patchHandler, authHandler;
 const clone = value => JSON.parse(JSON.stringify(value));
 const desired = () => ({ url: URL, mode:'body', events:[{type:'messages',method:'post'}],
   headers:{Authorization:`Bearer ${SECRET}`}, webhook_max_age_seconds:900 });
@@ -29,11 +29,13 @@ test.beforeEach(()=>{
   for(const key of KEYS) delete process.env[key]; configure();
   actor=ADMIN;now=Date.parse('2026-10-26T15:00:00Z');Date.now=()=>now;
   current={webhooks:[]};health={channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{phone:'60168173911'}};
+  contact=null;
   calls=[];authCalls=0;handler=null;patchHandler=null;authHandler=null;
   global.fetch=async(url,options)=>{
     calls.push({url,options});
     if(handler)return handler(url,options);
     if(url==='https://gate.whapi.cloud/health?wakeup=false')return Response.json(health);
+    if(url.startsWith('https://gate.whapi.cloud/contacts/')){assert.equal(options.method,'GET');return Response.json(contact);}
     assert.equal(url,'https://gate.whapi.cloud/settings');
     if(options.method==='GET')return Response.json(current);
     assert.equal(options.method,'PATCH');
@@ -83,7 +85,7 @@ test('health binds exact channel, AUTH state and sender metadata; does not guess
     {channel_id:'OTHER',status:{text:'AUTH'},user:{phone:'60168173911'}},
     {channel_id:'FALCON-D9NS9',status:{text:'DISCONNECTED'},user:{phone:'60168173911'}},
     {channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{phone:'60198894911'}},
-    {channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{id:'60168173911@lid'}},
+    {channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{id:'invalid@lid'}},
     {channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{phone:'++60168173911'}},
   ]){health=bad;const state=await setup.runSetup('preview');assert.equal(state.phase,'blocked');noSecrets(state);}
   assert.ok(calls.every(call=>call.url==='https://gate.whapi.cloud/health?wakeup=false'));
@@ -91,17 +93,106 @@ test('health binds exact channel, AUTH state and sender metadata; does not guess
   assert.equal((await setup.runSetup('preview')).phase,'preview');
 });
 
-test('documented full user id is accepted only when sender phone is absent',async()=>{
-  health.user={id:'60168173911@s.whatsapp.net'};
-  assert.equal((await setup.runSetup('preview')).phase,'preview');
-  for(const phone of [null,'',123,'60198894911','++60168173911','60168173911@s.whatsapp.net']){
+test('present invalid or mismatching health phone cannot fall back to an otherwise matching contact',async()=>{
+  contact={id:'60168173911@s.whatsapp.net',phone:'60168173911'};
+  for(const phone of [123,false,{},[],'60198894911','++60168173911','60168173911@s.whatsapp.net',' ']){
     health.user={phone,id:'60168173911@s.whatsapp.net'};
     const state=await setup.runSetup('preview');assert.equal(state.phase,'blocked');noSecrets(state);
   }
-  for(const id of ['60168173911','+60168173911@s.whatsapp.net','60168173911@lid','60168173911@c.us',
-    '60198894911@s.whatsapp.net','60168173911@s.whatsapp.net.evil',null]){
+  assert.ok(calls.every(call=>call.url.includes('/health?')));assert.equal(patchCount(),0);
+});
+
+test('unproven missing phone requires explicit verified own-contact phone; bare IDs and LIDs are not phone proof',async()=>{
+  for(const [id,returnedId] of [
+    ['60168173911','60168173911@s.whatsapp.net'],['60168173911@s.whatsapp.net','60168173911'],
+    ['123456789012345@lid','123456789012345@lid'],
+  ]){
+    for(const unavailable of [{},{phone:null},{phone:''}]){
+      health.user={id,...unavailable};contact={id:returnedId,phone:'+60168173911'};
+      calls=[];const state=await setup.runSetup('preview');assert.equal(state.phase,'preview');noSecrets(state);
+      const alreadyProven=id==='60168173911@s.whatsapp.net'&&!Object.hasOwn(unavailable,'phone');
+      assert.deepEqual(calls.map(call=>call.url),['https://gate.whapi.cloud/health?wakeup=false',
+        ...(alreadyProven?[]:[`https://gate.whapi.cloud/contacts/${encodeURIComponent(id)}`]),'https://gate.whapi.cloud/settings']);
+      assert.ok(calls.every(call=>call.options.method==='GET'&&call.options.redirect==='error'&&call.options.cache==='no-store'));
+    }
+  }
+  health.user={id:'60168173911'};contact={id:'60168173911'};
+  const missing=await setup.runSetup('preview');assert.equal(missing.phase,'blocked');assert.equal(missing.code,'CONTACT_PHONE_UNAVAILABLE');
+  assert.equal(patchCount(),0);
+});
+
+test('existing exact full sender JID proof with absent phone remains read-only without a contact lookup',async()=>{
+  health.user={id:'60168173911@s.whatsapp.net'};contact=null;
+  assert.equal((await setup.runSetup('preview')).phase,'preview');
+  assert.deepEqual(calls.map(call=>call.url),['https://gate.whapi.cloud/health?wakeup=false','https://gate.whapi.cloud/settings']);
+  assert.equal(patchCount(),0);
+});
+
+test('malformed health own IDs never reach contacts or substitute the configured sender',async()=>{
+  for(const id of ['+60168173911@s.whatsapp.net','60168173911@c.us','60168173911@s.whatsapp.net.evil',
+    '123456','1234567890123456','60168173911/other','../settings','60168173911?full=true','60168173911%40lid',
+    'https://evil.example/contact',' 60168173911','60168173911\n',null,123,{},undefined]){
     health.user={id};const state=await setup.runSetup('preview');assert.equal(state.phase,'blocked');
     assert.equal(state.code,'SENDER_PHONE_UNAVAILABLE');
+  }
+  assert.ok(calls.every(call=>call.url.includes('/health?')));assert.equal(patchCount(),0);
+});
+
+test('own-contact identity and explicit phone must both match with no cross-LID equivalence',async()=>{
+  const cases=[
+    ['123456789012345@lid',{id:'123456789012345',phone:'60168173911'},'CONTACT_IDENTITY_MISMATCH'],
+    ['123456789012345@lid',{id:'999999999999999@lid',phone:'60168173911'},'CONTACT_IDENTITY_MISMATCH'],
+    ['60168173911',{id:'60168173911@lid',phone:'60168173911'},'CONTACT_IDENTITY_MISMATCH'],
+    ['60168173911',{id:'60198894911',phone:'60168173911'},'CONTACT_IDENTITY_MISMATCH'],
+    ['60168173911',{id:'60168173911@s.whatsapp.net.evil',phone:'60168173911'},'CONTACT_IDENTITY_MISMATCH'],
+    ['60168173911',{phone:'60168173911'},'CONTACT_IDENTITY_MISMATCH'],
+    ['60168173911',{id:'60168173911',phone:'60198894911'},'CONTACT_PHONE_MISMATCH'],
+    ['60168173911',{id:'60168173911',phone:'++60168173911'},'CONTACT_PHONE_MISMATCH'],
+    ['60168173911',{id:'60168173911',phone:60168173911},'CONTACT_PHONE_UNAVAILABLE'],
+    ['60168173911',{id:'60168173911',phone:null},'CONTACT_PHONE_UNAVAILABLE'],
+    ['60168173911',{id:'60168173911',phone:''},'CONTACT_PHONE_UNAVAILABLE'],
+    ['60168173911',null,'CONTACT_RESPONSE_INVALID'],
+  ];
+  for(const [id,result,code] of cases){
+    health.user={id};contact=result;calls=[];const state=await setup.runSetup('preview');
+    assert.equal(state.phase,'blocked');assert.equal(state.code,code);noSecrets(state);
+    assert.equal(calls.length,2);assert.equal(calls[1].url,`https://gate.whapi.cloud/contacts/${encodeURIComponent(id)}`);
+    assert.doesNotMatch(JSON.stringify(state),/60168173911|60198894911|123456789012345|999999999999999/);
+  }
+  assert.equal(patchCount(),0);
+});
+
+test('contact fallback stays behind Admin, configuration, channel and authenticated-status gates',async()=>{
+  health.user={id:'123456789012345@lid'};contact={id:health.user.id,phone:'60168173911'};
+  actor=null;assert.equal((await setup.runSetup('preview')).phase,'blocked');actor=ADMIN;
+  process.env.DEKEZ_REPORT_COMPANY_ID='wrong';assert.equal((await setup.runSetup('preview')).phase,'blocked');configure();
+  assert.equal(calls.length,0);
+  health.channel_id='OTHER';assert.equal((await setup.runSetup('preview')).code,'CHANNEL_MISMATCH');
+  health.channel_id='FALCON-D9NS9';health.status.text='DISCONNECTED';assert.equal((await setup.runSetup('preview')).code,'HEALTH_NOT_AUTHENTICATED');
+  assert.ok(calls.every(call=>call.url.includes('/health?')));assert.equal(patchCount(),0);
+});
+
+test('own-contact lookup is repeated before Apply and cannot survive a sender change',async()=>{
+  health.user={id:'123456789012345@lid'};contact={id:health.user.id,phone:'60168173911'};
+  const ticket=await preview();contact.phone='60198894911';
+  assert.equal((await setup.runSetup('apply',ticket)).code,'CONTACT_PHONE_MISMATCH');assert.equal(patchCount(),0);
+  contact.phone='60168173911';assert.equal((await setup.runSetup('apply',ticket)).phase,'verified');assert.equal(patchCount(),1);
+  assert.ok(calls.filter(call=>call.url.includes('/contacts/')).every(call=>call.options.method==='GET'));
+});
+
+test('contact request failures are sanitized fixed codes, bounded and never retry or write',async()=>{
+  health.user={id:'123456789012345@lid'};
+  for(const [code,response] of [
+    ['CONTACT_REQUEST_FAILED',()=>{throw Error('private-provider-error '+TOKEN);} ],
+    ['CONTACT_HTTP_FAILED',()=>new Response('private-provider-error '+SECRET,{status:500})],
+    ['CONTACT_RESPONSE_INVALID',()=>new Response('private-provider-error '+TOKEN,{headers:{'Content-Type':'application/json'}})],
+    ['CONTACT_RESPONSE_INVALID',()=>Response.json({private:'x'.repeat(65537)})],
+    ['CONTACT_RESPONSE_INVALID',()=>new Response('{}',{headers:{'Content-Type':'application/json','Content-Length':'999999'}})],
+  ]){
+    calls=[];handler=(url)=>url.includes('/health?')?Response.json(health):response();
+    const state=await setup.runSetup('preview');assert.equal(state.phase,'blocked');assert.equal(state.code,code);noSecrets(state);
+    assert.equal(calls.length,2);assert.ok(calls.every(call=>call.options.method==='GET'));
+    assert.doesNotMatch(JSON.stringify(state),/123456789012345|500/);
   }
   assert.equal(patchCount(),0);
 });
