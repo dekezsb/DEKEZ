@@ -4,7 +4,8 @@
   "git": {
     "deploymentEnabled": {
       "feature/whapi-report-review-20261025": false,
-      "security/dependency-remediation-20261025": false
+      "security/dependency-remediation-20261025": false,
+      "feature/whapi-single-use-test-20261025": false
     }
   },
   "regions": ["sin1"],

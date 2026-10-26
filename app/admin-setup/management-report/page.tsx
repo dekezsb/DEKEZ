@@ -25,8 +25,9 @@ export default async function ManagementReportPage() {
       <CardDescription>8:00 PM Malaysia time. Sending and scheduling require separate approval and configuration.</CardDescription></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm">Recipient: {config.recipient} · Configuration: {config.configured ? "Ready" : "Incomplete"}</p>
-        <p className="text-sm">Sending: {config.sendEnabled ? "Enabled" : "Disabled"} · Daily schedule gate: {config.scheduleEnabled ? "Enabled" : "Disabled"}</p>
-        <TestReportControl enabled={config.configured && config.sendEnabled && config.testEnabled} />
+        <p className="text-sm">Ordinary sending: {config.sendEnabled ? "Enabled" : "Disabled"} · Ordinary testing: {config.testEnabled ? "Enabled" : "Disabled"} · Daily schedule gate: {config.scheduleEnabled ? "Enabled" : "Disabled"}</p>
+        <p className="text-sm text-gray-600">An authorized Admin can separately request a five-minute, single-use test authorization. Review and confirmation are required; no environment switches are changed.</p>
+        <TestReportControl enabled={config.configured && config.recipient === "60168173911" && !config.scheduleEnabled} />
       </CardContent></Card>
     <Card><CardHeader><CardTitle>Read-only preview</CardTitle><CardDescription>Current company snapshot. Previewing never reserves or sends a report.</CardDescription></CardHeader>
       <CardContent><pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{preview}</pre></CardContent></Card>

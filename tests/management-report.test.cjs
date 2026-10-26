@@ -86,7 +86,7 @@ test('cron fails closed on missing/wrong secret; authenticated caller cannot ove
  const r=await api.GET(req('Bearer fixture-secret'));assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'private, no-store');assert.deepEqual(received,[['daily']]);
 });
 test('manual action denies non-Admin; server chooses actor and test mode, ignores supplied fields',async()=>{
- let actor=null,received=[];const action=loader({'@/lib/management-report/authorization':{reportAdministrator:async()=>actor},'@/lib/management-report/service':{deliverManagementReport:async(...args)=>{received.push(args);return {state:'disabled'};}}})('app/admin-setup/management-report/actions.ts');
+ let actor=null,received=[];const action=loader({'@/lib/management-report/single-use-test':{},'@/lib/management-report/authorization':{reportAdministrator:async()=>actor},'@/lib/management-report/service':{deliverManagementReport:async(...args)=>{received.push(args);return {state:'disabled'};}}})('app/admin-setup/management-report/actions.ts');
  assert.match(await action.sendTestReport(),/Not authorized/);assert.equal(received.length,0);actor=id(3);assert.match(await action.sendTestReport({recipient:'evil',company:'evil'}),/disabled/);assert.deepEqual(received,[['test',id(3)]]);
 });
 test('authorization verifies fresh identity/profile; never trusts role metadata alone',async()=>{
@@ -115,7 +115,7 @@ test('schedule remains pending, existing cron definitions preserved, sources con
   {path:'/api/tenancy-renewals',schedule:'0 7 * * *'},
   {path:'/api/document-archive',schedule:'*/10 * * * *'}
  ]);
- assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false,'security/dependency-remediation-20261025':false});
+ assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false,'security/dependency-remediation-20261025':false,'feature/whapi-single-use-test-20261025':false});
  assert.deepEqual(JSON.parse(fs.readFileSync('config/management-report-cron.pending.json','utf8')),{path:'/api/management-report',schedule:'0 12 * * *'});
  const sql=fs.readFileSync('supabase/migrations/20261025083739_whapi_management_reports.sql','utf8');assert.doesNotMatch(sql,/\b(update|insert into|delete from|alter table) public\.(payments|rent_bills|tenancies|whatsapp_)/i);
 });
