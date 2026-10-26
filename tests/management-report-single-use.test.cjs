@@ -105,7 +105,9 @@ test('fresh database Admin status and original approving Admin are required at e
 
 test('expired and explicitly revoked authorizations never send, including without provider token',async()=>{
  const expired=await service.requestTestAuthorization(id(3));
- await db.query("update dekez_reports_private.test_authorizations set created_at=clock_timestamp()-interval '6 minutes',expires_at=clock_timestamp()-interval '1 minute' where id=$1",[expired.authorizationId]);
+ // now() is transaction-stable: keep the expired fixture exactly five minutes long.
+ const fixture=await db.query("update dekez_reports_private.test_authorizations set created_at=now()-interval '6 minutes',expires_at=now()-interval '1 minute' where id=$1 returning expires_at-created_at=interval '5 minutes' exact_duration",[expired.authorizationId]);
+ assert.equal(fixture.rows[0].exact_duration,true);
  assert.equal((await service.executeAuthorizedTest(id(3),expired.authorizationId)).state,'expired');
  const revoked=await service.requestTestAuthorization(id(3));process.env.WHAPI_TOKEN='';
  assert.equal((await service.revokeTestAuthorization(id(3),revoked.authorizationId)).state,'revoked');configure();
