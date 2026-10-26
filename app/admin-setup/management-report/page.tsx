@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { reportAdministrator } from "@/lib/management-report/authorization";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { reportConfig } from "@/lib/management-report/config";
+import { APPROVED_REPORT_RECIPIENT } from "@/lib/management-report/recipient";
 import { reportPreview } from "@/lib/management-report/service";
 import { formatReport } from "@/lib/management-report/model";
 import { TestReportControl } from "./test-control";
@@ -27,7 +28,7 @@ export default async function ManagementReportPage() {
         <p className="text-sm">Recipient: {config.recipient} · Configuration: {config.configured ? "Ready" : "Incomplete"}</p>
         <p className="text-sm">Ordinary sending: {config.sendEnabled ? "Enabled" : "Disabled"} · Ordinary testing: {config.testEnabled ? "Enabled" : "Disabled"} · Daily schedule gate: {config.scheduleEnabled ? "Enabled" : "Disabled"}</p>
         <p className="text-sm text-gray-600">An authorized Admin can separately request a five-minute, single-use test authorization. Review and confirmation are required; no environment switches are changed.</p>
-        <TestReportControl enabled={config.configured && config.recipient === "60168173911" && !config.scheduleEnabled} />
+        <TestReportControl enabled={config.configured && config.recipient === APPROVED_REPORT_RECIPIENT && !config.scheduleEnabled} />
       </CardContent></Card>
     <Card><CardHeader><CardTitle>Read-only preview</CardTitle><CardDescription>Current company snapshot. Previewing never reserves or sends a report.</CardDescription></CardHeader>
       <CardContent><pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{preview}</pre></CardContent></Card>

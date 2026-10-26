@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),React=requi
 const loader=require('./marketplace-component-loader.cjs');
 const admin='00000000-0000-4000-8000-000000000003',authorizationId='00000000-0000-4000-8000-000000000010';
 const initial={phase:'idle',message:''};
-const grant={state:'ready',authorizationId,expiresAt:'2030-10-25T12:05:00.000Z',reportDate:'2030-10-25',recipient:'60168173911',body:'[TEST]\nDEKEZ Daily Management Report\nSynthetic frozen totals'};
+const grant={state:'ready',authorizationId,expiresAt:'2030-10-25T12:05:00.000Z',reportDate:'2030-10-25',recipient:'60198894911',body:'[TEST]\nDEKEZ Daily Management Report\nSynthetic frozen totals'};
 function form(fields){const result=new FormData();for(const [key,value] of Object.entries(fields))result.set(key,value);return result;}
 function actionFixture(){
  let actor=admin,authCalls=0,requestResult=grant,executeResult={state:'accepted'},revokeResult={state:'revoked'};const calls=[];
@@ -71,7 +71,7 @@ function renderControl(state,pending=false,enabled=true){
 }
 test('ready UI shows exact frozen report, fixed recipient, expiry and unchecked explicit confirmation',()=>{
  const html=renderControl({phase:'ready',message:'Nothing sent',authorization:grant});
- assert.match(html,/Synthetic frozen totals/);assert.match(html,/60168173911/);assert.match(html,/Expires:/);assert.match(html,/MYT/);
+ assert.match(html,/Synthetic frozen totals/);assert.match(html,/60198894911/);assert.doesNotMatch(html,/60168173911/);assert.match(html,/Expires:/);assert.match(html,/MYT/);
  assert.match(html,/<input[^>]*type="checkbox"[^>]*required/);assert.doesNotMatch(html,/<input[^>]*type="checkbox"[^>]*checked/);
  assert.match(html,/<button[^>]*disabled[^>]*>Send one \[TEST\] report/);assert.match(html,/Cancel authorization/);assert.match(html,/role="status"/);
 });
@@ -81,7 +81,7 @@ test('pending UI disables controls and completed/uncertain UI cannot retry the a
  const finished=renderControl({phase:'finished',message:'Delivery is uncertain. Do not resend.'});assert.doesNotMatch(finished,/<button|authorizationId|type="checkbox"/);
 });
 test('Admin page offers a separate one-time path with ordinary flags off; wrong recipient or active schedule disables it',async()=>{
- for(const [recipient,scheduleEnabled,disabled] of [['60168173911',false,false],['60111111111',false,true],['60168173911',true,true]]){
+ for(const [recipient,scheduleEnabled,disabled] of [['60198894911',false,false],['60168173911',false,true],['60111111111',false,true],['60198894911',true,true]]){
   const page=loader({'@/lib/auth/session':{requireRole:async()=>{}},'next/navigation':{redirect:()=>{throw Error('Denied');}},'@/lib/management-report/authorization':{reportAdministrator:async()=>admin},'@/lib/management-report/config':{reportConfig:()=>({recipient,scheduleEnabled,configured:true,scopeReady:false,sendEnabled:false,testEnabled:false})},'@/lib/management-report/service':{reportPreview:async()=>{throw Error('Unexpected preview');}},'./actions':{oneTimeTestAction:async()=>{throw Error('Rendering must not authorize');}}})('app/admin-setup/management-report/page.tsx');
   const html=renderToStaticMarkup(await page.default());assert.equal(/<button[^>]*\sdisabled=""/.test(html),disabled);assert.match(html,/Ordinary sending: Disabled/);assert.match(html,/Ordinary testing: Disabled/);assert.match(html,/no environment switches are changed/);
  }

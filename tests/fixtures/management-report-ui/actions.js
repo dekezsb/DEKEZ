@@ -7,7 +7,7 @@ export async function oneTimeTestAction(_previous, form) {
     authorization: {
       authorizationId: '00000000-0000-4000-8000-000000000010',
       expiresAt: new Date(Date.now() + (new URLSearchParams(location.search).has('expire') ? 1500 : 300000)).toISOString(),
-      reportDate: '2026-10-25', recipient: '60168173911',
+      reportDate: '2026-10-25', recipient: '60198894911',
       body: '[TEST]\nDEKEZ Daily Management Report\nSynthetic local preview only\nCollections today: RM0.00\nMonth-to-date collections: RM34,220.00\nLong record unavailable: ' + 'x'.repeat(90),
     },
   };

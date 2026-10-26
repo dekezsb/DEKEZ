@@ -22,8 +22,8 @@ const counts=async()=>(await db.query(`select
  (select count(*)::int from dekez_reports_private.test_authorizations) approvals,
  (select count(*)::int from dekez_reports_private.report_runs) runs,
  (select count(*)::int from dekez_reports_private.delivery_attempts) attempts`)).rows[0];
-function configure(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60168173911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'false',DEKEZ_REPORT_TEST_ENABLED:'false',DEKEZ_REPORT_SCHEDULE_ENABLED:'false'});}
-test.before(async()=>{db=await require('./fixtures/management-report.cjs')({singleUseMigration:true});id=db.id;
+function configure(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60198894911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'false',DEKEZ_REPORT_TEST_ENABLED:'false',DEKEZ_REPORT_SCHEDULE_ENABLED:'false'});}
+test.before(async()=>{db=await require('./fixtures/management-report.cjs')({singleUseMigration:true,recipientMigration:true});id=db.id;
  await db.query('insert into profiles values ($1,$2,$3)',[id(5),'super_admin','approved']);
 });
 test.beforeEach(async()=>{
@@ -37,7 +37,7 @@ test.after(async()=>{global.fetch=originalFetch;for(const k of keys){if(saved[k]
 
 test('all flags remain false; requesting approval never sends or reserves a delivery',async()=>{
  const grant=await service.requestTestAuthorization(id(3));assert.equal(grant.state,'ready');
- assert.equal(grant.recipient,'60168173911');assert.match(grant.body,/^\[TEST\]/);assert.ok(Date.parse(grant.expiresAt)>Date.now());
+ assert.equal(grant.recipient,'60198894911');assert.match(grant.body,/^\[TEST\]/);assert.ok(Date.parse(grant.expiresAt)>Date.now());
  assert.deepEqual(await counts(),{approvals:1,runs:0,attempts:0});assert.equal(httpCalls.length,0);
  const c=config.reportConfig();assert.equal(c.sendEnabled,false);assert.equal(c.testEnabled,false);assert.equal(c.scheduleEnabled,false);
  assert.equal((await ordinary.deliverManagementReport('daily')).state,'disabled');
@@ -45,14 +45,14 @@ test('all flags remain false; requesting approval never sends or reserves a deli
  assert.equal(httpCalls.length,0);
 });
 
-test('one approved test uses exact frozen preview and fixed own-number recipient with durable logs',async()=>{
+test('one approved test uses exact frozen preview and fixed approved recipient with durable logs',async()=>{
  const grant=await service.requestTestAuthorization(id(3));assert.equal(grant.state,'ready');
  // Later source activity must not silently replace the report the Admin approved.
  await db.query("insert into rooms values ($1,$2,'vacant')",[id(999),id(10)]);
  try{
   assert.equal((await service.executeAuthorizedTest(id(3),grant.authorizationId)).state,'accepted');
   assert.equal(httpCalls.length,1);const request=JSON.parse(httpCalls[0].options.body);
-  assert.equal(request.to,'60168173911');assert.equal(request.body,grant.body);
+  assert.equal(request.to,'60198894911');assert.equal(request.body,grant.body);
   assert.equal(httpCalls[0].url,'https://gate.whapi.cloud/messages/text');
   const row=(await db.query('select state,provider_message_id,http_status from dekez_reports_private.delivery_attempts')).rows[0];
   assert.deepEqual(row,{state:'accepted',provider_message_id:'synthetic-one-time-id',http_status:200});
@@ -77,7 +77,7 @@ test('competing approvals and Admins share the same per-date test duplicate guar
 });
 
 test('wrong recipient, missing token, invalid ID and enabled schedule fail before database or HTTP calls',async()=>{
- for(const [key,value] of [['WHAPI_REPORT_TO','60123456789'],['WHAPI_TOKEN',''],['DEKEZ_REPORT_COMPANY_ID','bad'],['DEKEZ_REPORT_SCHEDULE_ENABLED','true']]){
+ for(const [key,value] of [['WHAPI_REPORT_TO','60168173911'],['WHAPI_REPORT_TO','60123456789'],['WHAPI_TOKEN',''],['DEKEZ_REPORT_COMPANY_ID','bad'],['DEKEZ_REPORT_SCHEDULE_ENABLED','true']]){
   configure();process.env[key]=value;
   assert.equal((await service.requestTestAuthorization(id(3))).state,'unavailable');
   assert.equal((await service.executeAuthorizedTest(id(3),id(100))).state,'unavailable');
@@ -85,6 +85,15 @@ test('wrong recipient, missing token, invalid ID and enabled schedule fail befor
  configure();assert.equal((await service.executeAuthorizedTest(id(3),'bad')).state,'unavailable');
  assert.equal((await service.requestTestAuthorization('bad')).state,'unavailable');
  assert.deepEqual(rpcCalls,[]);assert.equal(httpCalls.length,0);
+});
+
+test('switching configuration back to the old number cannot consume or send an existing new-recipient authorization',async()=>{
+ const grant=await service.requestTestAuthorization(id(3));const beforeCalls=rpcCalls.length;
+ process.env.WHAPI_REPORT_TO='60168173911';
+ assert.equal((await service.executeAuthorizedTest(id(3),grant.authorizationId)).state,'unavailable');
+ assert.equal((await service.revokeTestAuthorization(id(3),grant.authorizationId)).state,'unavailable');
+ assert.equal(rpcCalls.length,beforeCalls);assert.equal(httpCalls.length,0);
+ assert.deepEqual(await counts(),{approvals:1,runs:0,attempts:0});
 });
 
 test('configured company changes invalidate approval rather than silently retargeting it',async()=>{

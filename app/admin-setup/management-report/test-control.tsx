@@ -1,6 +1,7 @@
 "use client";
 import { useActionState, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { APPROVED_REPORT_RECIPIENT } from "@/lib/management-report/recipient";
 import { oneTimeTestAction, type OneTimeTestState } from "./actions";
 
 const initialState: OneTimeTestState = { phase: "idle", message: "Requesting an authorization prepares a preview only. It does not send a WhatsApp message." };
@@ -58,6 +59,6 @@ export function TestReportControl({ enabled }: { enabled: boolean }) {
 
     <p role="status" aria-live="polite" className="text-sm text-gray-600">{state.message}</p>
     <p className="text-sm text-gray-600">One test attempt per company, recipient and Malaysia date. Ordinary sending and test switches can remain disabled. This control never enables the daily schedule.</p>
-    {!enabled ? <p className="text-sm text-gray-600">One-time testing requires complete server configuration, recipient 60168173911 and the daily schedule disabled.</p> : null}
+    {!enabled ? <p className="text-sm text-gray-600">One-time testing requires complete server configuration, recipient {APPROVED_REPORT_RECIPIENT} and the daily schedule disabled.</p> : null}
   </div>;
 }

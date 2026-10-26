@@ -4,8 +4,10 @@
 
 The original reporting implementation has been released. The approved migration was applied
 to production on 25 October 2026; source version is now aligned with production
-history at `20261025083739`. No real message was sent and no daily report cron activated.
-The new single-use test mechanism is a separate, **not yet deployed** review change;
+history at `20261025083739`. No daily report cron was activated by that release.
+The single-use test mechanism is also released. The personal-recipient migration
+is applied and this code is its approved controlled release; the old recipient's
+existing reporting history is preserved. Sending still needs separate approval.
 see [single-use test design and release prerequisites](whapi-single-use-test.md).
 Existing Meta WhatsApp, in-app chat, accounting, tenancy and payment code stays
 unchanged. Reporting reads source rows; only the new private delivery tables are
@@ -17,7 +19,7 @@ Setup, and uses existing Card/Button styling.
 | Variable | Initial value / purpose |
 | --- | --- |
 | `WHAPI_TOKEN` | Sensitive channel token for FALCON-D9NS9; never put in code, chat, logs, PRs or a NEXT_PUBLIC variable. |
-| `WHAPI_REPORT_TO` | `60168173911` (default intended self-number; configurable international digits, without +). |
+| `WHAPI_REPORT_TO` | `60198894911` (approved personal recipient, international digits without +; exact-match restriction). |
 | `DEKEZ_REPORT_COMPANY_ID` | Verified existing DEKEZ company UUID. Required; never inferred from the first row or request parameters. |
 | `DEKEZ_REPORT_SEND_ENABLED` | `false` — ordinary sender switch; reviewed single-use Admin tests have a separate database gate. |
 | `DEKEZ_REPORT_TEST_ENABLED` | `false` — ordinary manual test switch, independent of schedule. |
@@ -29,7 +31,9 @@ SDK or runtime dependency. Never copy production tokens into local test fixtures
 or preview environments that do not need to send. All switches require exactly
 `true`; presence of a token alone enables nothing. The proposed one-time path
 requires a fresh Admin authorization and explicit confirmation instead of toggling
-SEND/TEST, and refuses to run while SCHEDULE is enabled.
+SEND/TEST, and refuses to run while SCHEDULE is enabled. The recipient is separate
+from the unchanged DEKEZ Whapi business sender/channel and token. A different
+configured number fails closed; it is not an arbitrary-destination messaging API.
 
 ## Metrics and scope
 
@@ -135,7 +139,7 @@ messages are visibly labeled. Test click spam cannot make arbitrary extra report
 - Process crash / failed completion write: reservation blocks immediate reuse;
   next claim after 5 minutes marks the abandoned attempt uncertain, without resending.
 - Do not delete a run to force resend or reset uncertain state. Check the Whapi
-  channel/provider records and own-number WhatsApp history. Any reconciliation or
+  channel/provider records and approved-recipient WhatsApp history. Any reconciliation or
   exceptional resend needs explicit operator review; no unrestricted reset UI.
 - Vercel does not retry failed cron invocations. A missed daily report is a visible
   operational failure, not silently resent the next day. Error logs contain only
@@ -168,7 +172,7 @@ After review and explicit production approval:
 6. Follow the separately reviewed single-use test migration/release procedure in
    `docs/whapi-single-use-test.md`. After that change is approved and released,
    obtain separate permission for **one real test message**, keep all flags false,
-   and use Request one-time test → review → explicit confirmation. Confirm own-number
+   and use Request one-time test → review → explicit confirmation. Confirm approved-recipient
    arrival, provider message ID and audit log. Do not toggle environment variables
    for a temporary test: existing deployment environment values are not live switches.
 7. Only after test acceptance and schedule approval, append the pending entry to

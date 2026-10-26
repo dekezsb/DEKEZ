@@ -5,7 +5,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const migrationPath='supabase/migrations/20261025145221_whapi_single_use_test_authorization.sql';
 const sql=fs.readFileSync(migrationPath,'utf8');
 let db,id,date;
-const recipient='60168173911';
+const recipient='60198894911';
 const rpc=async(name,args)=>(await db.rpcQuery(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args)).rows[0].result;
 const snapshot=()=>({company_id:id(1),report_date:date,collected_today:125,as_of:new Date().toISOString()});
 const authorize=(overrides={})=>{const a={company:id(1),date,recipient,snapshot:snapshot(),body:'[TEST] DEKEZ synthetic report',actor:id(3),...overrides};
@@ -18,7 +18,7 @@ const counts=async()=>(await db.query(`select
  (select count(*)::int from dekez_reports_private.test_authorizations) authorizations,
  (select count(*)::int from dekez_reports_private.report_runs) runs,
  (select count(*)::int from dekez_reports_private.delivery_attempts) attempts`)).rows[0];
-test.before(async()=>{db=await require('./fixtures/management-report.cjs')({singleUseMigration:true});id=db.id;
+test.before(async()=>{db=await require('./fixtures/management-report.cjs')({recipientMigration:true});id=db.id;
  await db.query('insert into profiles values ($1,$2,$3)',[id(5),'super_admin','approved']);
 });
 test.beforeEach(async()=>{
@@ -113,7 +113,7 @@ test('issuance binds exact actor/company/date/recipient/snapshot/body and expire
 });
 
 test('issuance rejects arbitrary recipients, forged scope/date, non-test bodies, and missing company',async()=>{
- for(const change of [{recipient:'60123456789'},{recipient:'+60168173911'},{recipient:null},{date:'2000-01-01'},
+ for(const change of [{recipient:'60168173911'},{recipient:'60123456789'},{recipient:'+60198894911'},{recipient:null},{date:'2000-01-01'},
   {snapshot:{company_id:id(2),report_date:date}},{snapshot:{company_id:id(1),report_date:'2000-01-01'}},
   {snapshot:{}},{snapshot:null},{body:'A non-test report'},{body:'[TEST]'+''.padEnd(4000,'x')},{actor:null},{company:null}]){
   await assert.rejects(authorize(change),/Invalid test report authorization|Administrator required/);

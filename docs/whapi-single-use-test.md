@@ -1,9 +1,12 @@
-# Whapi single-use Admin test — review only
+# Whapi single-use Admin test — controlled personal-recipient release
 
 ## Scope and release hold
 
-This change is not deployed. Do not apply its migration, issue a production test
-authorization, send a message, enable flags, or merge without separate approval.
+The original single-use mechanism is deployed and its migration is already applied.
+The personal-recipient migration below was applied under explicit production
+approval on 26 October 2026; its matching code is the controlled release in this
+change. Do not rerun any of the three applied reporting migrations. A real test
+authorization/send still requires separate approval; all reporting flags stay false.
 The feature branch `feature/whapi-single-use-test-20261025` has automatic Vercel
 deployment disabled in `vercel.json`. The six existing cron entries are unchanged;
 the proposed management-report schedule remains in the unconsumed pending file.
@@ -19,7 +22,8 @@ logs. It does not write rental, payment, tenant, maintenance or Meta WhatsApp da
    This authenticates the approved Super Admin, reads the existing company-scoped
    report snapshot and stores a five-minute authorization. No message is sent.
 2. Review the exact frozen `[TEST]` message, Malaysia report date, recipient and
-   expiry shown. Only `60168173911` is allowed, and it must match server configuration.
+   expiry shown. After the recipient update, only `60198894911` is allowed, and it
+   must match server configuration. The existing business channel/token is unchanged.
 3. Tick the explicit confirmation and select **Send one [TEST] report**. Authentication
    is checked again. The server never accepts a recipient, company, actor, date or
    message body from the browser. Only the authorization ID and explicit confirmation
@@ -39,7 +43,7 @@ are required. No new environment variables or runtime dependencies are introduce
 
 ## Migration and function-only security
 
-Review-only migration:
+Already-applied migration (do not rerun):
 `supabase/migrations/20261025145221_whapi_single_use_test_authorization.sql`.
 It depends on the already-applied `20261025083739_whapi_management_reports.sql`;
 that original file must not run again and remains byte-identical.
@@ -139,14 +143,15 @@ send, live grant, live configuration check or production migration is part of th
    its transaction. Never rerun the existing report migration. Verify forced RLS,
    function owners, EXECUTE grants and denial of direct service-role table access.
 4. Before an approved code release, privately confirm existing `WHAPI_TOKEN`,
-   `WHAPI_REPORT_TO=60168173911`, the verified `DEKEZ_REPORT_COMPANY_ID` and existing
+   `WHAPI_REPORT_TO=60198894911`, the verified `DEKEZ_REPORT_COMPANY_ID` and existing
    Supabase server configuration. Keep all three report switches false. No repeated
    environment toggles or redeployments are required for subsequent one-time tests.
 5. After the approved release, verify authorized Admin page access and denied
    ordinary-user access without creating a grant. The scheduled endpoint remains
    disabled and no management-report cron is added.
 6. Obtain separate permission for one real test. Request/review/confirm it in the
-   Admin UI, record provider ID and attempt outcome, and check own-number arrival.
+   Admin UI, record provider ID and attempt outcome, and check the approved personal
+   WhatsApp recipient for arrival.
    On any uncertainty stop and reconcile; never retry automatically.
 
 ## Rollback / emergency stop
@@ -161,3 +166,60 @@ already committed and a provider request already in flight cannot be recalled.
 Roll back the UI/application separately if needed. Keep authorization, run and
 attempt history intact. Do not drop the shared executor, use CASCADE/DROP OWNED,
 remove the base reporting objects or alter unrelated policies.
+
+## Personal-recipient cutover — 26 October 2026
+
+Applied migration:
+`supabase/migrations/20261026023135_whapi_report_personal_recipient.sql`.
+The reviewed local filename was `20261026015919_whapi_report_personal_recipient.sql`;
+only the filename was reconciled to the recorded production version. SQL content
+is byte-identical (SHA-256
+`bca2117fb006c600c9408b8540ed18d33ee279a74a5209105d86af90a1816ba3`).
+Production history stores exactly the reviewed SQL. No history repair or reapplication.
+It replaces the three private authorization functions and ordinary claim function
+without changing their signatures, owners, grants, RLS, company/Admin checks,
+five-minute expiry or duplicate protections. Only the approved new number can
+obtain a delivery reservation. Old-number grants cannot be consumed or retargeted.
+The shared application recipient policy is also restricted to that number.
+
+The authorization table's CHECK accepts the old and new numbers **for historical
+storage only**. This is not a two-number send allowlist: existing old-number
+authorizations, accepted runs and attempts are preserved without any row rewrite.
+No rental, payment, tenancy, maintenance or other WhatsApp data is modified.
+The two already-applied SQL files remain byte-identical.
+
+Read-only Vercel inspection found `WHAPI_REPORT_TO=60198894911` already configured;
+this task did not change it. SEND, TEST and SCHEDULE were all false. The sender
+token metadata was unchanged and its value was not retrieved. Existing deployments
+retain their environment snapshot, so a new application deployment is still needed.
+The user approved this controlled migration, PR and release on 26 October 2026.
+The existing Git/Vercel workflow may build the feature branch and deploy merged
+main. No report authorization, real test or schedule activation is part of that approval.
+
+After separate migration/release approval:
+
+1. Reconfirm production identity, backup, applied migration history and no in-flight
+   report send. Leave all three switches false and all six existing cron jobs unchanged.
+2. Production already has the recipient migration: skip it. New isolated environments
+   apply its transaction (5-second lock timeout); stop on failure.
+   Temporary migration-role inheritance is removed before commit. No runtime role
+   receives new privileges. Verify function-only access and preserved history.
+3. Release the matching code with the configured new recipient. Old code against
+   the new restriction fails closed; do not attempt sending during mixed versions.
+4. After separate approval for **one** real test, request a fresh authorization,
+   review its new-recipient preview and confirm once. An older preview/grant must
+   not be reused. The unique company/date/recipient/test key is unchanged: a past
+   report to the old number is historical, not a send to the new number.
+
+Rollback must preserve both-number historical storage and every audit row. Do not
+restore old-recipient sending automatically or shrink the CHECK after new rows
+exist. Keep sending disabled and review a forward correction. A committed/in-flight
+provider request cannot be recalled by a database or application rollback.
+
+Fresh recipient verification includes disposable PostgreSQL 17.11 with independent
+sessions: 15/15 scenarios passed, including simultaneous same/different grants,
+post-lock expiry, replay, rollback recovery, old-recipient denial and byte-identical
+historical rows. Production is Supabase PostgreSQL 17.6; this is a local same-major
+test, not a claim that a message was delivered. Production post-migration checks
+also confirmed unchanged source/history row fingerprints, policies, grants and
+function identities, with no authorization or attempt created.
