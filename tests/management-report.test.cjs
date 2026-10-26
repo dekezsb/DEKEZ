@@ -64,8 +64,11 @@ test('real service -> real SQL -> mocked Whapi approved-recipient send -> accept
  const body=JSON.parse(calls[0].options.body);assert.equal(body.to,'60198894911');assert.equal(body.no_link_preview,true);assert.match(body.body,/\[TEST\]/);
  const log=(await db.query('select * from dekez_reports_private.delivery_attempts')).rows[0];assert.equal(log.state,'accepted');assert.equal(log.provider_message_id,'fixture-id');
 });
-test('daily schedule service still claims and finalizes through functions with no direct table grants',async()=>{
- enable();assert.equal((await service.deliverManagementReport('daily',null,now)).state,'accepted');
+test('approved daily-only switches claim and finalize through functions without enabling ordinary tests',async()=>{
+ enable();process.env.DEKEZ_REPORT_TEST_ENABLED='false';
+ assert.equal((await service.deliverManagementReport('test',id(3),now)).state,'disabled');
+ assert.deepEqual(calls,[]);assert.deepEqual(dbCalls,[]);
+ assert.equal((await service.deliverManagementReport('daily',null,now)).state,'accepted');
  assert.equal((await service.deliverManagementReport('daily',null,now)).duplicate,true);assert.equal(calls.length,1);
  assert.doesNotMatch(JSON.parse(calls[0].options.body).body,/\[TEST\]/);
  assert.equal((await db.query('select state from dekez_reports_private.report_runs')).rows[0].state,'accepted');
@@ -117,7 +120,7 @@ test('production migration version is reconciled exactly once without changing a
  assert.equal(require('node:crypto').createHash('sha256').update(sql).digest('hex'),'3dd63a191dc0a0901dde637c3b8e4a51beccfc5a2658a184d1466ea9356c0b75');
 });
 
-test('schedule remains pending, existing cron definitions preserved, sources contain no Meta/financial write paths',()=>{
+test('approved 20:00 Malaysia daily cron is registered once, preserving all six existing schedules and source-write boundaries',()=>{
  const vercel=JSON.parse(fs.readFileSync('vercel.json','utf8')),crons=vercel.crons;
  assert.deepEqual(crons,[
   {path:'/api/dekez-chat-assistant',schedule:'* * * * *'},
@@ -125,9 +128,13 @@ test('schedule remains pending, existing cron definitions preserved, sources con
   {path:'/api/rental-billing',schedule:'5 16 * * *'},
   {path:'/api/rent-reminders',schedule:'0 * * * *'},
   {path:'/api/tenancy-renewals',schedule:'0 7 * * *'},
-  {path:'/api/document-archive',schedule:'*/10 * * * *'}
+  {path:'/api/document-archive',schedule:'*/10 * * * *'},
+  {path:'/api/management-report',schedule:'0 12 * * *'}
  ]);
+ assert.equal(crons.filter(cron=>cron.path==='/api/management-report').length,1);
  assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false,'security/dependency-remediation-20261025':false,'feature/whapi-single-use-test-20261025':false});
- assert.deepEqual(JSON.parse(fs.readFileSync('config/management-report-cron.pending.json','utf8')),{path:'/api/management-report',schedule:'0 12 * * *'});
+ assert.equal(fs.existsSync('config/management-report-cron.pending.json'),false);
+ const defaults=fs.readFileSync('.env.example','utf8');
+ for(const flag of ['SEND','TEST','SCHEDULE'])assert.match(defaults,new RegExp(`^DEKEZ_REPORT_${flag}_ENABLED=false\\r?$`,'m'));
  const sql=fs.readFileSync('supabase/migrations/20261025083739_whapi_management_reports.sql','utf8');assert.doesNotMatch(sql,/\b(update|insert into|delete from|alter table) public\.(payments|rent_bills|tenancies|whatsapp_)/i);
 });

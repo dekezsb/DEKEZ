@@ -1,4 +1,0 @@
-{
-  "path": "/api/management-report",
-  "schedule": "0 12 * * *"
-}
