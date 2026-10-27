@@ -20,14 +20,14 @@ const setup = loader({'server-only':{},'@/lib/management-report/authorization':{
 }})('lib/management-report/temporary-whapi-setup.ts');
 
 function configure() {
-  Object.assign(process.env, {DEKEZ_WHAPI_SETUP_ENABLED:'true',DEKEZ_WHAPI_SETUP_EXPIRES_AT:'2026-10-26T16:00:00Z',
+  Object.assign(process.env, {DEKEZ_WHAPI_SETUP_ENABLED:'true',DEKEZ_WHAPI_SETUP_EXPIRES_AT:'2026-10-27T01:00:00Z',
     DEKEZ_REPORT_COMMANDS_ENABLED:'false',DEKEZ_REPORT_COMPANY_ID:'660cc0c4-daee-445b-9146-ccd112e791d4',WHAPI_REPORT_TO:'60198894911',
     WHAPI_TOKEN:TOKEN,WHAPI_REPORT_WEBHOOK_SECRET:SECRET,CRON_SECRET:'synthetic_distinct_cron_secret',
     VERCEL_DEPLOYMENT_ID:'dpl_synthetic0123456789',VERCEL_ENV:'production'});
 }
 test.beforeEach(()=>{
   for(const key of KEYS) delete process.env[key]; configure();
-  actor=ADMIN;now=Date.parse('2026-10-26T15:00:00Z');Date.now=()=>now;
+  actor=ADMIN;now=Date.parse('2026-10-27T00:45:00Z');Date.now=()=>now;
   current={webhooks:[]};health={channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{phone:'60168173911'}};
   calls=[];authCalls=0;handler=null;patchHandler=null;authHandler=null;
   global.fetch=async(url,options)=>{
@@ -51,7 +51,7 @@ function noSecrets(value){assert.doesNotMatch(JSON.stringify(value),new RegExp(`
 test('disabled, expired and non-production control fails closed without network',async()=>{
   for(const [key,value] of [
     ['DEKEZ_WHAPI_SETUP_ENABLED',undefined],['DEKEZ_WHAPI_SETUP_ENABLED','false'],
-    ['DEKEZ_WHAPI_SETUP_EXPIRES_AT','2026-10-26T14:59:59Z'],['DEKEZ_WHAPI_SETUP_EXPIRES_AT','2026-10-27T16:00:00Z'],
+    ['DEKEZ_WHAPI_SETUP_EXPIRES_AT','2026-10-27T00:44:59Z'],['DEKEZ_WHAPI_SETUP_EXPIRES_AT','2026-10-27T02:00:00Z'],
     ['DEKEZ_WHAPI_SETUP_EXPIRES_AT','not-a-date'],['DEKEZ_REPORT_COMMANDS_ENABLED','true'],['DEKEZ_REPORT_COMMANDS_ENABLED','unexpected'],
     ['VERCEL_ENV','preview'],['VERCEL_DEPLOYMENT_ID',''],['DEKEZ_REPORT_COMPANY_ID','wrong-company'],
     ['WHAPI_REPORT_TO','60168173911'],['WHAPI_TOKEN',''],['WHAPI_REPORT_WEBHOOK_SECRET','short'],
@@ -65,9 +65,9 @@ test('disabled, expired and non-production control fails closed without network'
 });
 
 test('hard build-bound expiry cannot be extended through environment changes',async()=>{
-  process.env.DEKEZ_WHAPI_SETUP_EXPIRES_AT='2026-10-26T16:30:00.000Z';
-  now=Date.parse('2026-10-26T16:29:59Z');assert.equal(setup.getSetupAvailability().available,true);
-  now=Date.parse('2026-10-26T16:30:00Z');assert.equal(setup.getSetupAvailability().available,false);
+  process.env.DEKEZ_WHAPI_SETUP_EXPIRES_AT='2026-10-27T01:15:00.000Z';
+  now=Date.parse('2026-10-27T01:14:59Z');assert.equal(setup.getSetupAvailability().available,true);
+  now=Date.parse('2026-10-27T01:15:00Z');assert.equal(setup.getSetupAvailability().available,false);
   assert.equal((await setup.runSetup('preview')).phase,'blocked');assert.equal(calls.length,0);
 });
 
