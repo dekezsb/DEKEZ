@@ -10,6 +10,8 @@ export type CollectionInvoice = {
 };
 export type CollectionPreviewItem = {
   company_id: string; report_date: string; key: string; tenant_id: string | null; name: string | null; phone: string | null;
+  recipient_source?: "tenant_portal_login"; masked_phone?: string | null; phone_valid?: boolean;
+  protected_recipient?: boolean; whatsapp_ownership_verified?: boolean; delivery_blocks?: string[];
   stage: CollectionStage; days_overdue: number | null; recorded_days_overdue: number | null; outstanding: number | null; collectible_outstanding: number | null; arrears_outstanding: number | null; arrears_resolved: boolean; partial_invoices: number;
   invoices: CollectionInvoice[]; pending: unknown[]; pending_verification: boolean; exceptions: string[];
   policy: { enabled: boolean; compliance_approved: boolean; consent: string; hold: string; opt_out_ready?: boolean; approved_recipient?: string | null };
@@ -18,7 +20,8 @@ export type CollectionPreviewItem = {
 export type CollectionPreview = {
   company_id: string; report_date: string; as_of: string; items: CollectionPreviewItem[]; next_cursor: string | null;
   summary: { tenants: number; groups: number; unlinked_records: number; stages: {stage: CollectionStage; tenants: number; groups: number; unlinked_records: number; amount: number; recorded_amount: number; partial_tenants: number; send_eligible: number}[];
-    exceptions: {code: string; tenants: number}[]; pending_verification: number };
+    exceptions: {code: string; tenants: number}[]; pending_verification: number;
+    delivery_blocks?: {code: string; groups: number; tenants: number; unlinked_records: number}[] };
 };
 export type CollectionHistory = {
   items: { tenant_key: string; stage: CollectionStage; outstanding: number | null; last_checked_at: string;

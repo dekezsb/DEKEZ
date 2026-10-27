@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   try {
     // No query/body overrides of company, tenant, original date or recipient.
     const result = await runRentalCollections();
-    return Response.json(result, {status: ["uncertain", "rejected", "incomplete"].includes(result.state) ? 503 : 200, headers});
+    return Response.json(result, {status: ["uncertain", "rejected", "incomplete", "recipient_review_required"].includes(result.state) ? 503 : 200, headers});
   } catch {
     return Response.json({error: "Collection review needs Admin attention. Check private history before retrying."}, {status: 503, headers});
   }

@@ -26,11 +26,19 @@ create table dekez_collections_private.contact_controls (
  consent text not null default 'unknown' check(consent in ('unknown','opted_in','opted_out')),
  consent_reference text check(length(consent_reference) between 10 and 500),
  approved_recipient text check(approved_recipient ~ '^[1-9][0-9]{8,14}$'),
+ -- Evidence bindings only: neither field is ever a routing override.
+ -- Portal login/PIN approval alone is not proof of WhatsApp ownership or consent.
+ ownership_recipient text check(ownership_recipient ~ '^[1-9][0-9]{8,14}$'),
+ ownership_reference text check(length(ownership_reference) between 10 and 500),
+ ownership_verified_by uuid references public.profiles(id),
+ ownership_verified_at timestamptz,
  hold text not null default 'none' check(hold in ('none','dispute','legal','communications','manual')),
  reviewed_by uuid references public.profiles(id),
  reviewed_at timestamptz,
  primary key(company_id,tenant_id),
  check(consent<>'opted_in' or (consent_reference is not null and approved_recipient is not null and reviewed_by is not null and reviewed_at is not null))
+ ,check((ownership_recipient is null and ownership_reference is null and ownership_verified_by is null and ownership_verified_at is null)
+  or (ownership_recipient is not null and ownership_reference is not null and ownership_verified_by is not null and ownership_verified_at is not null))
 );
 create table dekez_collections_private.daily_cases (
  company_id uuid not null references public.companies(id),
@@ -62,7 +70,7 @@ create table dekez_collections_private.attempts (
  tenant_id uuid not null references public.profiles(id),
  tenant_key text not null,
  report_date date not null,
- recipient text not null check(recipient ~ '^[1-9][0-9]{8,14}$'),
+ recipient text not null check(recipient ~ '^[1-9][0-9]{8,14}$' and recipient not in ('60198894911','60168173911','60188702371')),
  snapshot jsonb not null,
  message_body text not null check(length(message_body) between 1 and 4000),
  state text not null default 'sending' check(state in ('sending','accepted','rejected','uncertain')),
@@ -114,6 +122,9 @@ begin
  select * into t from dekez_collections_private.contact_controls where company_id=p_company and tenant_id=p_tenant;
  return jsonb_build_object('enabled',coalesce(c.enabled,false),'compliance_approved',coalesce(c.compliance_approved,false),
   'opt_out_ready',coalesce(c.opt_out_ready,false),'approved_recipient',t.approved_recipient,
+  'ownership_recipient',t.ownership_recipient,
+  'ownership_verified',coalesce(t.ownership_recipient is not null and t.ownership_reference is not null
+   and t.ownership_verified_by is not null and t.ownership_verified_at<=clock_timestamp(),false),
   'consent',coalesce(t.consent,'unknown'),'hold',coalesce(t.hold,'none'));
 end $$;
 
@@ -128,9 +139,12 @@ begin
  return query
  -- SOURCE_PREVIEW_BEGIN: the review SQL fixture extracts this read-only CTE.
  with profile_phones as materialized (
-  select id,case when regexp_replace(coalesce(phone,''),'[[:space:]().+-]','','g') ~ '^01[0-9]{8,9}$'
-   then '60'||substr(regexp_replace(phone,'[[:space:]().+-]','','g'),2)
-   else regexp_replace(coalesce(phone,''),'[[:space:]().+-]','','g') end phone from public.profiles
+  -- Same accepted syntax and Malaysian local-number conversion as phone login.
+  -- Only a single leading '+' is accepted, never silently strip an internal '+'.
+  select p.id,case when raw.digits ~ '^01[0-9]{8,9}$' then '60'||substr(raw.digits,2)
+   when raw.digits ~ '^[1-9][0-9]{7,14}$' then raw.digits else '' end phone
+  from public.profiles p cross join lateral(select regexp_replace(btrim(coalesce(p.phone,'')),'[[:space:]().-]','','g') compact) cleaned
+  cross join lateral(select case when cleaned.compact like '+%' then substr(cleaned.compact,2) else cleaned.compact end digits) raw
  ), source as materialized (
   select b.id,b.tenancy_id,b.tenant_id as bill_profile,b.tenant_record_id,b.property_id,b.room_id,b.invoice_number,b.due_date,
    b.amount base_amount,coalesce(li.total,0) extra_amount,b.paid_amount,b.status::text bill_status,b.tenant_facing,b.issued_at,b.invoice_date,b.bill_month,
@@ -140,10 +154,11 @@ begin
    coalesce(person.profile_id,legacy_person.profile_id,b.tenant_id) tenant_id,
    coalesce(person.profile_id,legacy_person.profile_id,b.tenant_id)::text person_key,
    coalesce(p.full_name,person.full_name,legacy_person.full_name,'Unlinked tenant') tenant_name,
-   p.phone profile_phone,person.phone tenant_phone,p.role::text profile_role,p.registration_status,
+   p.phone profile_phone,p.normalized_phone profile_lookup_phone,coalesce(login.phone,'') portal_phone,
+   person.phone tenant_phone,p.role::text profile_role,p.registration_status,
    tn.company_id tenancy_company,tn.status::text tenancy_status,tn.billing_status,tn.checkout_date,
    tn.property_id tenancy_property,tn.room_id tenancy_room,person.profile_id tenancy_profile,
-   prop.name property_name,prop.property_code,coalesce(room.room_number,room.name) room_name,
+   prop.name property_name,prop.property_code,coalesce(room.room_number,room.name) room_name,room.current_tenancy_id room_current_tenancy,
    coalesce(pay.verified,0) verified_paid,coalesce(pay.unallocated_credit,0) unallocated_credit,
    coalesce(pay.bad_scope,false) payment_scope_conflict,coalesce(pay.bad_submission,false) payment_submission_conflict,
    coalesce(pending.rows,'[]'::jsonb) pending,
@@ -154,7 +169,9 @@ begin
   left join public.tenants person on person.id=tn.tenant_id
   left join public.tenant_records legacy on legacy.id=b.tenant_record_id
   left join public.tenants legacy_person on legacy_person.id=legacy.tenant_id
-  left join public.profiles p on p.id=coalesce(person.profile_id,legacy_person.profile_id,b.tenant_id)
+  -- No phone fallback to legacy records, invoice profile, room occupant or staff.
+  left join public.profiles p on p.id=person.profile_id
+  left join profile_phones login on login.id=p.id
   left join lateral(select sum(i.amount) total from public.rental_invoice_line_items i where i.rent_bill_id=b.id) li on true
   left join lateral(
    select sum(v.amount) filter(where v.category in ('monthly_rent','key_lock','electricity','water','access_card','damage','cleaning','furniture','other','top_up_utilities')) verified,
@@ -172,14 +189,15 @@ begin
   where b.removed_at is null
  ), checked as (
   select s.*,coalesce(person_key,'invoice:'||id::text) tenant_key,d-due_date days_overdue,
-   case when regexp_replace(coalesce(profile_phone,''),'[[:space:]().+-]','','g') ~ '^01[0-9]{8,9}$'
-    then '60'||substr(regexp_replace(profile_phone,'[[:space:]().+-]','','g'),2)
-    else regexp_replace(coalesce(profile_phone,''),'[[:space:]().+-]','','g') end phone,
+   portal_phone phone,
    array_remove(array[
     case when tenant_id is null or tenancy_id is null or tenancy_profile is distinct from tenant_id or bill_profile is distinct from tenant_id
      or tenancy_company is distinct from p_company or tenancy_property is distinct from property_id or tenancy_room is distinct from room_id
      or profile_role is distinct from 'tenant' or registration_status is distinct from 'approved' then 'identity_or_scope' end,
     case when tenancy_status is distinct from 'active' or checkout_date is not null or billing_status is distinct from 'active' then 'inactive_or_checked_out' end,
+    case when room_current_tenancy is distinct from tenancy_id then 'not_current_room_tenancy' end,
+    case when profile_lookup_phone is null or (profile_lookup_phone is distinct from portal_phone
+     and profile_lookup_phone is distinct from '0'||substr(portal_phone,3)) then 'portal_login_phone_mismatch' end,
     case when tenant_facing is distinct from true then 'internal_invoice' end,
     case when bill_status in ('draft','cancelled','waived') then 'non_collectible_invoice_state' end,
     case when regexp_replace(coalesce(tenant_phone,''),'[[:space:]().+-]','','g') not in
@@ -200,7 +218,7 @@ begin
  ), classified as (
   -- A recorded amount is not automatically a verified, active collectible debt.
   -- Contact-only mismatch blocks sending but does not erase an established clock.
-  select c.*,invoice_exceptions <@ array['contact_phone_mismatch'] financially_collectible from checked c
+  select c.*,invoice_exceptions <@ array['contact_phone_mismatch','portal_login_phone_mismatch'] financially_collectible from checked c
  ), grouped as (
   select tenant_key,tenant_id,min(tenant_name) tenant_name,min(phone) phone,
    max(days_overdue) filter(where outstanding>0.005 and financially_collectible) days_overdue,
@@ -243,9 +261,32 @@ begin
     when days_overdue=7 then 'day_7_review' when days_overdue>=1 then 'overdue_1_6'
     when days_overdue=0 then 'due_today' when advance_due then 'advance_7' else 'tracking' end stage
   from grouped g
+ ), communication_checked as (
+  select g.*,phone ~ '^[1-9][0-9]{8,14}$' phone_valid,
+   phone in ('60198894911','60168173911','60188702371') protected_recipient,
+   coalesce((policy->>'ownership_verified')::boolean and policy->>'ownership_recipient'=phone,false) whatsapp_ownership_verified,
+   to_jsonb(array_remove(array[
+    case when phone='' then 'portal_login_phone_missing' when phone !~ '^[1-9][0-9]{8,14}$' then 'invalid_phone' end,
+    case when phone in ('60198894911','60168173911','60188702371') then 'protected_recipient' end,
+    case when all_exceptions ? 'shared_phone' then 'shared_phone' end,
+    case when all_exceptions ? 'blocked_contact' then 'blocked_contact' end,
+    case when all_exceptions ? 'legacy_message_today' then 'legacy_message_today' end,
+    case when jsonb_array_length(exceptions)>0 then 'scope_or_reconciliation_review' end,
+    case when pending_verification then 'payment_verification_pending' end,
+    case when policy->>'consent'='opted_out' then 'opted_out' when policy->>'consent'<>'opted_in' then 'consent_missing' end,
+    case when policy->>'consent'='opted_in' and policy->>'approved_recipient' is distinct from phone then 'consent_number_mismatch' end,
+    case when not coalesce((policy->>'ownership_verified')::boolean and policy->>'ownership_recipient'=phone,false) then 'whatsapp_ownership_unverified' end,
+    case when policy->>'hold'<>'none' then 'contact_hold' end,
+    case when not (policy->>'enabled')::boolean then 'collection_disabled' end,
+    case when not (policy->>'compliance_approved')::boolean then 'compliance_approval_missing' end,
+    case when not (policy->>'opt_out_ready')::boolean then 'opt_out_not_ready' end
+   ],null)) delivery_blocks
+  from guarded g
  ), result as (
   select jsonb_build_object('company_id',p_company,'report_date',d,'key',tenant_key,'tenant_id',tenant_id,
    'name',tenant_name,'phone',phone,'stage',stage,'days_overdue',days_overdue,'outstanding',outstanding,
+   'recipient_source','tenant_portal_login','masked_phone',case when phone ~ '^[1-9][0-9]{8,14}$' then '***'||right(phone,4) end,
+   'phone_valid',phone_valid,'protected_recipient',protected_recipient,'whatsapp_ownership_verified',whatsapp_ownership_verified,'delivery_blocks',delivery_blocks,
    'recorded_days_overdue',recorded_days_overdue,'collectible_outstanding',collectible_outstanding,
    'recorded_arrears_outstanding',recorded_arrears_outstanding,
    'arrears_outstanding',arrears_outstanding,
@@ -253,10 +294,11 @@ begin
    'partial_invoices',partial_invoices,'invoices',invoices,'pending',pending,'pending_verification',pending_verification,
    'exceptions',all_exceptions,'policy',policy,
    'send_eligible',stage not in ('tracking','resolved','exception') and outstanding>0.005 and not pending_verification and jsonb_array_length(all_exceptions)=0
+    and jsonb_array_length(delivery_blocks)=0 and phone_valid and not protected_recipient and whatsapp_ownership_verified
     and policy->>'consent'='opted_in' and policy->>'approved_recipient'=phone and policy->>'hold'='none'
     and (policy->>'enabled')::boolean and (policy->>'compliance_approved')::boolean and (policy->>'opt_out_ready')::boolean,
    'resolved',outstanding<=0.005 and jsonb_array_length(exceptions)=0 and not pending_verification) item
-  from guarded
+  from communication_checked
  ) select item||jsonb_build_object('fingerprint',md5(item::text)) from result;
  -- SOURCE_PREVIEW_END
 end $$;
@@ -277,7 +319,10 @@ begin
   from all_rows group by item->>'stage'),
  exceptions as(select e code,count(distinct item->>'tenant_id') tenants,
   count(distinct item->>'key') filter(where item->>'tenant_id' is null) unlinked_records
-  from all_rows cross join lateral jsonb_array_elements_text(item->'exceptions') e group by e)
+  from all_rows cross join lateral jsonb_array_elements_text(item->'exceptions') e group by e),
+ delivery_blocks as(select e code,count(*) groups,count(distinct item->>'tenant_id') tenants,
+  count(distinct item->>'key') filter(where item->>'tenant_id' is null) unlinked_records
+  from all_rows cross join lateral jsonb_array_elements_text(item->'delivery_blocks') e group by e)
  select jsonb_build_object('company_id',p_company,'report_date',(p_as_of at time zone 'Asia/Kuala_Lumpur')::date,'as_of',p_as_of,
   'items',coalesce((select jsonb_agg(item order by item->>'key') from page),'[]'::jsonb),
   'next_cursor',case when (select count(*) from page)=p_limit then (select max(item->>'key') from page) end,
@@ -286,6 +331,7 @@ begin
    'unlinked_records',(select count(*) from all_rows where item->>'tenant_id' is null),
    'stages',coalesce((select jsonb_agg(to_jsonb(stages) order by stage) from stages),'[]'::jsonb),
    'exceptions',coalesce((select jsonb_agg(to_jsonb(exceptions) order by code) from exceptions),'[]'::jsonb),
+   'delivery_blocks',coalesce((select jsonb_agg(to_jsonb(delivery_blocks) order by code) from delivery_blocks),'[]'::jsonb),
    'pending_verification',(select count(*) from all_rows where (item->>'pending_verification')::boolean))) into result;
  return result;
 end $$;
@@ -358,6 +404,7 @@ begin
  if current_setting('role',true) is distinct from 'service_role' then raise insufficient_privilege; end if;
  if d is distinct from (clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date or t is null
   or p_body is null or length(p_body) not between 1 and 4000 then raise exception 'Invalid collection delivery'; end if;
+ if p_snapshot->>'phone' in ('60198894911','60168173911','60188702371') then return jsonb_build_object('claimed',false,'state','protected_recipient'); end if;
  -- Pending proof is always referred to Admin in this first release. No arbitrary
  -- caller-provided demand can be disguised as the neutral verification template.
  if coalesce((p_snapshot->>'pending_verification')::boolean,false) then return jsonb_build_object('claimed',false,'state','pending_review'); end if;
@@ -365,6 +412,7 @@ begin
  pol:=dekez_collections_private.policy(c,t);
  if not coalesce((p_snapshot->>'send_eligible')::boolean,false) or not (pol->>'enabled')::boolean
   or not (pol->>'compliance_approved')::boolean or not (pol->>'opt_out_ready')::boolean
+  or not coalesce((pol->>'ownership_verified')::boolean,false) or pol->>'ownership_recipient' is distinct from p_snapshot->>'phone'
   or pol->>'approved_recipient' is distinct from p_snapshot->>'phone' or pol->>'consent'<>'opted_in' or pol->>'hold'<>'none'
   then return jsonb_build_object('claimed',false,'state','withheld'); end if;
  -- Permanent claims: rejection, crash and unknown provider outcome never reopen this date.

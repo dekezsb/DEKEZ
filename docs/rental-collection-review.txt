@@ -1,6 +1,91 @@
 DEKEZ RENTAL COLLECTION POLICY — DRAFT / NO PRODUCTION ACTIVATION
 27 October 2026
 
+Latest additions — still BLOCKED for production activation
+---------------------------------------------------------
+Requested one-time date: 27 October 2026. Dry-run only; no catch-up send if the
+date passes. The existing claim enforces the real 09:00 Malaysia window. It has
+NOT been weakened for an afternoon one-time send. A separate reviewed, expiring,
+recipient/message-bound one-time authorization is still needed before that send.
+Requested first scheduled run: 28 October 2026 09:00 MYT / 01:00 UTC, conditional
+on all blockers and fresh final approval. This is a proposal, not a registered job.
+
+Tenant recipients come ONLY from the current tenant's linked portal-login profile.
+Validate tenancy, tenant, invoice, company, property, room/current tenancy and login
+lookup consistency; no legacy, owner, contractor, staff or previous-tenant fallback.
+Normalize Malaysian local numbers using the login-number convention. Consent and
+ownership records are evidence bindings, not a second editable routing directory.
+Require exact-number WhatsApp ownership evidence AND opt-in; neither login/PIN nor
+ordinary registration approval proves these. The transport rechecks the claimed
+recipient/body match the reviewed source; changed responses stop without sending.
+60198894911, 60168173911 and 60188702371 are blocked as tenant reminder recipients.
+Admin previews show messaging blockers separately from financial exceptions, and
+daily scan snapshots retain them for follow-up without resetting original aging.
+Read-only previews never create production tasks or delivery records.
+
+Fresh read-only production coverage at 2026-10-27 15:50:50 MYT
+----------------------------------------------------------
+791 company invoice records checked; 208 have a positive recorded balance; 14 of
+those invoices are partly paid. 183 source groups =154 linked identities +29
+unlinked groups. Positive balances:119 linked identities +17 unlinked groups.
+83 of the119 positive linked identities are source exceptions, not verified debt
+claims;23 positive linked identities lack a usable current login phone. Counts
+overlap. No accounting or tenant records were corrected.
+36 identified financial-stage candidates: due today1/RM350; days1-6 10/RM3910;
+day7 2/RM750; days8-13 1/RM150; day14 0; days15+22/RM13430; advance7 0.
+Total verified collectible invoice balance RM18590. Five candidates have partial
+invoices, four have pending verification, and only12 are free of source/payment
+holds. Send-cleared0. Recorded number-bound consent/ownership verified0 in the
+reviewed data model; offline evidence has NOT been assumed absent or accepted.
+No dedicated collection consent/STOP registry is currently installed in production.
+
+Rosley correction — ONE consolidated BM failure digest, preview only
+------------------------------------------------------------------
+Recipient60188702371; existing sender60168173911 unchanged. No per-tenant alert.
+lib/rental-collection/failure-report.ts prepares a single Bahasa Melayu roster
+including every supplied, confirmed, unresolved historical failure; it deduplicates
+attempts, tenants and invoice balances. It does not label pending/accepted/uncertain
+outcomes, consent holds, rate limits or channel configuration errors as a tenant
+delivery failure. Current balances come from fresh source, never old send snapshots.
+Includes phone-contact instructions and requires authorized Admin verification of
+new numbers; it cannot change authentication or tenant records.
+If current outcomes are pending, retain previous confirmed failures and update the
+same portal draft later, never create an extra daily alert. If recipient permission
+is unverified, use generic secure-portal guidance. Oversized full rosters use ONE
+portal notice with full count, not a truncated list or multiple WhatsApp messages.
+
+Read-only account verification found Rosley's exact number on an approved Management
+account with active DEKEZ membership and rent_due_tracker/manage. General reports
+and admin_setup permissions are none: do not widen reportAdministrator or grant
+generic reporting access. Recheck narrowly scoped membership/permission and recipient
+ownership/consent before any future transmission. Portal links use the existing
+entry point, not a route Rosley cannot access.
+Legacy audit found one failed WhatsApp rent log: a configuration-related error,
+no provider message ID and no linked tenant profile. It is NOT a confirmed invalid
+tenant WhatsApp number. New-engine confirmed delivery history is unavailable because
+the migration is unapplied; no real failure roster is fabricated.
+
+IMPORTANT: the Rosley formatter is a read-only preparation, not a live sender.
+Confirmed delivery-receipt ingestion, durable atomic daily digest reservation,
+authorized case-resolution controls and an accessible full-roster Management view
+remain implementation blockers. Its proposed idempotency key is NOT a database
+guarantee. No digest is wired into the worker until these are reviewed/tested.
+
+Remaining required work / external decisions
+-------------------------------------------
+- Audited Admin consent/ownership/hold controls and authenticated tenant STOP intake.
+- Written WhatsApp/Meta policy classification for this first-party rental collection
+  workflow, with Whapi confirmation. If prohibited, do not activate that channel.
+- Sabah/Malaysia counsel review of actual signed clauses and exact Day7/14 wording.
+- Review/remediate payment-linked fingerprint expiry and existing device expiry
+  records under separate authorized access-safety work; no live device changes here.
+- Drain legacy workers; prove handover and channel-level pacing/concurrent-run safety.
+- Benchmark capacity;300s worker/15s request timeout cannot guarantee all recipients
+  finish at the slowest response rate. Do not silently skip an incomplete batch.
+- Complete Rosley receipt/durable-report integration and one-time batch authorization.
+- Fresh recipient/message approval, reviewed migration, controlled release and
+  separately approved activation. Existing seven crons and20:00report stay unchanged.
+
 Purpose and scope
 -----------------
 Extend the existing rental-reminder workflow, not accounting or tenancy enforcement.

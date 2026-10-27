@@ -28,6 +28,11 @@ const exceptionLabels: Record<string, string> = {
   pending_payment: "Payment verification pending", verification_mismatch: "Verified payment reconciliation required",
   policy_disabled: "Collection policy disabled", compliance_not_approved: "Compliance approval required",
   ambiguous_phone: "Shared or ambiguous phone · privacy review", invalid_phone: "Phone requires review",
+  protected_recipient: "Management/sender number — never a tenant reminder recipient",
+  whatsapp_ownership_unverified: "Verify intended tenant's ownership of this WhatsApp number",
+  consent_number_mismatch: "Consent must match the current portal login phone",
+  previous_tenant_or_room_mismatch: "Current tenancy and room assignment require review",
+  opt_out_not_ready: "STOP / opt-out intake is not ready",
   inactive_tenancy: "Tenancy is not eligible for active collection", missing_agreement: "Agreement review required",
 };
 function label(stage: string) { return stageLabels[stage] ?? stage.replaceAll("_", " "); }
@@ -77,6 +82,9 @@ function policyHolds(item: CollectionItem) {
     policy?.consent === "opted_out" ? "WhatsApp opt-out recorded — no contact" : policy?.consent !== "opted_in" ? "WhatsApp opt-in evidence required" : null,
     policy?.compliance_approved !== true ? "Compliance approval required" : null,
     policy?.opt_out_ready !== true ? "Opt-out handling is not ready" : null,
+    item.whatsapp_ownership_verified !== true ? "WhatsApp ownership is not verified — portal login is not proof" : null,
+    item.protected_recipient === true ? "Management/sender number is blocked for tenant reminders" : null,
+    item.recipient_source !== "tenant_portal_login" ? "Recipient must come from the verified tenant portal login profile" : null,
     policy?.hold && policy.hold !== "none" ? `Communication hold: ${policy.hold.replaceAll("_", " ")}` : null,
     policy?.consent === "opted_in" && policy.approved_recipient !== item.phone ? "Approved recipient requires confirmation" : null,
   ].filter((reason): reason is string => reason !== null);
@@ -95,6 +103,12 @@ function TenantCard({ item }: { item: CollectionItem }) {
       </div>
     </CardHeader>
     <CardContent className="space-y-4">
+      <p className="text-xs text-gray-600">Recipient source: tenant portal login profile. No alternate WhatsApp address is used. A login number is not proof of WhatsApp ownership or consent.</p>
+      {(item.delivery_blocks?.length ?? 0) > 0 ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+        <p className="font-medium">Admin follow-up required — no message</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">{item.delivery_blocks!.map(code => <li key={code}>{exceptionLabel(code)}</li>)}</ul>
+        <p className="mt-2 text-xs">Daily review retains these restrictions without changing the invoice deadline. This read-only preview does not create a production task.</p>
+      </div> : null}
       <div className="grid gap-3 sm:grid-cols-3">
         <p className="text-sm text-gray-600">Recorded invoice balance · verify exceptions<span className="mt-1 block text-lg font-semibold text-gray-950">{money(item.outstanding)}</span></p>
         <p className="text-sm text-gray-600">Verified collectible balance<span className="mt-1 block text-lg font-semibold text-gray-950">{money(item.collectible_outstanding)}</span></p>
@@ -150,6 +164,10 @@ function DailySummary({ preview }: { preview: Preview }) {
       {preview.summary.exceptions.length ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
         <p className="font-medium">Company-wide exceptions · counts may overlap</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">{preview.summary.exceptions.map((exception) => <li key={exception.code}>{exceptionLabel(exception.code)}: {exception.tenants}</li>)}</ul>
+      </div> : null}
+      {preview.summary.delivery_blocks?.length ? <div className="rounded-lg border p-3 text-sm">
+        <p className="font-medium">Communication follow-ups · separate from rental balance · reasons overlap</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5">{preview.summary.delivery_blocks.map(block => <li key={block.code}>{exceptionLabel(block.code)}: {block.tenants} identified tenants · {block.unlinked_records} unlinked records</li>)}</ul>
       </div> : null}
     </CardContent></Card>;
 }

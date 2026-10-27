@@ -5,6 +5,7 @@ import { malaysiaReportDate } from "@/lib/management-report/model";
 import { sendWhapiReport } from "@/lib/management-report/whapi";
 import { collectionConfig } from "./config";
 import { formatCollectionMessage, isCollectionTime, type CollectionPreview, type CollectionHistory } from "./model";
+import { collectionCommunicationHolds, tenantReminderRecipient } from "./recipient";
 
 function scope() {
   const config = collectionConfig();
@@ -46,7 +47,7 @@ export async function runRentalCollections(now = new Date()) {
     if (Date.now() - started > 230_000) return {state: "incomplete", scan, counts};
     const page = await collectionPreview(now, after, 25);
     for (const item of page.items) {
-      if (!item.send_eligible || item.pending_verification) {counts.withheld++; continue;}
+      if (!item.send_eligible || collectionCommunicationHolds(item).length > 0) {counts.withheld++; continue;}
       // Bounded, sequential transport. Never launch an unbounded fan-out. A
       // partial batch is explicit, not retried automatically; all cases were tracked.
       if (Date.now() - started > 250_000) return {state: "incomplete", scan, counts};
@@ -60,6 +61,15 @@ export async function runRentalCollections(now = new Date()) {
       });
       if (error || !claim) throw new Error("Collection reservation failed. Review private delivery history before retrying.");
       if (!claim.claimed) {counts.withheld++; continue;}
+      // Never accept a routing override, a protected management number or a
+      // changed message after review. Retain the reservation for investigation.
+      if (claim.recipient !== tenantReminderRecipient(item.phone) || claim.body !== body) {
+        await client.rpc("dekez_collection_finish", {
+          p_attempt: claim.attempt_id, p_state: "uncertain", p_provider_id: null,
+          p_http_status: null, p_error: "worker_interrupted",
+        });
+        return {state: "recipient_review_required", scan, counts};
+      }
       const outcome = await sendWhapiReport(config.token, claim.recipient, claim.body);
       const {error: finishError} = await client.rpc("dekez_collection_finish", {
         p_attempt: claim.attempt_id, p_state: outcome.state, p_provider_id: outcome.providerId,

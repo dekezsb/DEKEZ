@@ -8,9 +8,10 @@ module.exports = async () => {
  create role fixture_migrator nologin createrole createdb bypassrls;
  grant usage,create on schema public to fixture_migrator; set role fixture_migrator;
  create table companies(id uuid primary key);
- create table profiles(id uuid primary key,full_name text,phone text,role text,registration_status text);
+ create table profiles(id uuid primary key,full_name text,phone text,role text,registration_status text,
+ normalized_phone text generated always as (nullif(regexp_replace(coalesce(phone,''),'[^0-9]','','g'),'')) stored);
  create table properties(id uuid primary key,company_id uuid,name text,property_code text);
- create table rooms(id uuid primary key,property_id uuid,room_number text,name text);
+ create table rooms(id uuid primary key,property_id uuid,room_number text,name text,current_tenancy_id uuid default '${id(21)}');
  create table tenants(id uuid primary key,profile_id uuid,full_name text,phone text);
  create table tenancies(id uuid primary key,tenant_id uuid,company_id uuid,property_id uuid,room_id uuid,status text,billing_status text,checkout_date date);
  create table tenant_records(id uuid primary key,tenant_id uuid);

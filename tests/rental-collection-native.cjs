@@ -97,7 +97,10 @@ const counts = () => control.json("select json_build_object('total',count(*),'se
 async function reset() {
   await control.query(`truncate dekez_collections_private.attempts,dekez_collections_private.audit,dekez_collections_private.daily_cases,dekez_collections_private.escalations;
     update dekez_collections_private.controls set enabled=true,compliance_approved=true,opt_out_ready=true;
-    update dekez_collections_private.contact_controls set consent='opted_in',hold='none',approved_recipient=case tenant_id when ${q(tenant)}::uuid then ${q(phone)} else ${q(secondPhone)} end;`);
+    update dekez_collections_private.contact_controls set consent='opted_in',hold='none',
+      approved_recipient=case tenant_id when ${q(tenant)}::uuid then ${q(phone)} else ${q(secondPhone)} end,
+      ownership_recipient=case tenant_id when ${q(tenant)}::uuid then ${q(phone)} else ${q(secondPhone)} end,
+      ownership_reference='SYNTHETIC OWNERSHIP ONLY',ownership_verified_by=${q(id(3))},ownership_verified_at=clock_timestamp();`);
 }
 async function snapshot(user = tenant, session = a) {
   return session.json(`select public.dekez_collection_track(${q(company)},${q(user)})`);
@@ -137,16 +140,17 @@ async function main() {
   evidence.migrations.push({ filename: name, sha256: crypto.createHash('sha256').update(sql).digest('hex'), unmodified: true, migrationRole: 'fixture_migrator (non-superuser)' });
   await control.query(`insert into profiles values(${q(secondTenant)},'Synthetic second tenant','0192222222','tenant','approved');
     insert into tenants values(${q(id(22))},${q(secondTenant)},'Synthetic second tenant','0192222222');
-    insert into tenancies values(${q(id(23))},${q(id(22))},${q(company)},${q(id(10))},${q(id(11))},'active','active',null);
+    insert into rooms(id,property_id,room_number,name,current_tenancy_id) values(${q(id(12))},${q(id(10))},'A2','Synthetic second room',${q(id(23))});
+    insert into tenancies values(${q(id(23))},${q(id(22))},${q(company)},${q(id(10))},${q(id(12))},'active','active',null);
     insert into rent_bills(id,tenancy_id,tenant_id,property_id,room_id,invoice_number,due_date,amount,paid_amount,status,tenant_facing,issued_at,invoice_date,bill_month,deposit_amount)
     values(${q(id(100))},${q(id(21))},${q(tenant)},${q(id(10))},${q(id(11))},'SYNTHETIC-PARTIAL',(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-14,500,200,'unpaid',true,clock_timestamp()-interval '30 days',current_date-30,current_date-30,999),
-    (${q(id(101))},${q(id(23))},${q(secondTenant)},${q(id(10))},${q(id(11))},'SYNTHETIC-SECOND',(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-14,700,0,'unpaid',true,clock_timestamp()-interval '30 days',current_date-30,current_date-30,999);
+    (${q(id(101))},${q(id(23))},${q(secondTenant)},${q(id(10))},${q(id(12))},'SYNTHETIC-SECOND',(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-14,700,0,'unpaid',true,clock_timestamp()-interval '30 days',current_date-30,current_date-30,999);
     insert into payments values(${q(id(1100))},${q(id(100))},${q(id(21))},${q(company)},${q(id(10))},${q(id(11))},'monthly_rent','confirmed',200,null,null);
     insert into dekez_collections_private.controls(company_id,enabled,compliance_approved,opt_out_ready,approved_by,approved_at,review_reference)
     values(${q(company)},true,true,true,${q(id(3))},clock_timestamp(),'SYNTHETIC POLICY REVIEW ONLY');
-    insert into dekez_collections_private.contact_controls(company_id,tenant_id,consent,consent_reference,approved_recipient,reviewed_by,reviewed_at)
-    values(${q(company)},${q(tenant)},'opted_in','SYNTHETIC CONSENT ONLY',${q(phone)},${q(id(3))},clock_timestamp()),
-    (${q(company)},${q(secondTenant)},'opted_in','SYNTHETIC CONSENT ONLY',${q(secondPhone)},${q(id(3))},clock_timestamp());`);
+    insert into dekez_collections_private.contact_controls(company_id,tenant_id,consent,consent_reference,approved_recipient,reviewed_by,reviewed_at,ownership_recipient,ownership_reference,ownership_verified_by,ownership_verified_at)
+    values(${q(company)},${q(tenant)},'opted_in','SYNTHETIC CONSENT ONLY',${q(phone)},${q(id(3))},clock_timestamp(),${q(phone)},'SYNTHETIC OWNERSHIP ONLY',${q(id(3))},clock_timestamp()),
+    (${q(company)},${q(secondTenant)},'opted_in','SYNTHETIC CONSENT ONLY',${q(secondPhone)},${q(id(3))},clock_timestamp(),${q(secondPhone)},'SYNTHETIC OWNERSHIP ONLY',${q(id(3))},clock_timestamp());`);
   const original = await captureSources();
   a = await fresh('caller-a', 'service_role'); b = await fresh('caller-b', 'service_role');
   assert.notEqual(a.pid, b.pid); assert.notEqual(a.pid, control.pid);
@@ -175,7 +179,7 @@ async function main() {
     // Deliberately test the ledger's final defense with two server snapshots.
     // Public source separately rejects shared phone identities before this layer.
     two.phone = phone;
-    await control.query(`update dekez_collections_private.contact_controls set approved_recipient=${q(phone)} where tenant_id=${q(secondTenant)}`);
+    await control.query(`update dekez_collections_private.contact_controls set approved_recipient=${q(phone)},ownership_recipient=${q(phone)} where tenant_id=${q(secondTenant)}`);
     await a.query('begin'); const first = await a.json(claim(one)); assert.equal(first.claimed, true);
     const pending = b.json(claim(two)); await blocked(b, a, 'global phone daily reservation'); await a.query('commit'); const second = await pending;
     assert.deepEqual(second, { claimed: false, state: 'duplicate' }); assert.equal((await counts()).total, 1);
@@ -184,7 +188,7 @@ async function main() {
   await check('same tenant with competing approved phone snapshots cannot reserve twice', async () => {
     await reset(); const one = await snapshot(); const two = { ...one, phone: '60193333333' };
     await a.query('begin'); const first = await a.json(claim(one)); assert.equal(first.claimed, true);
-    await control.query(`update dekez_collections_private.contact_controls set approved_recipient=${q(two.phone)} where tenant_id=${q(tenant)}`);
+    await control.query(`update dekez_collections_private.contact_controls set approved_recipient=${q(two.phone)},ownership_recipient=${q(two.phone)} where tenant_id=${q(tenant)}`);
     const pending = b.json(claim(two)); await blocked(b, a, 'tenant/date unique constraint across phones'); await a.query('commit'); const second = await pending;
     assert.deepEqual(second, { claimed: false, state: 'duplicate' }); assert.equal((await counts()).total, 1);
     return { result: second, counts: await counts(), syntheticServerSnapshots: true };
@@ -197,6 +201,18 @@ async function main() {
     await control.query(`update dekez_collections_private.contact_controls set consent='opted_in' where tenant_id=${q(tenant)};update dekez_collections_private.controls set opt_out_ready=false`);
     const notReady = await a.json(claim(s)); assert.equal(notReady.state, 'withheld'); assert.equal((await counts()).total, 0);
     return { wrongPhone, optedOut, optOutHandlingUnavailable: notReady, counts: await counts() };
+  });
+  await check('portal login without verified ownership and protected management recipients cannot reserve a tenant reminder', async () => {
+    await reset(); const s = await snapshot();
+    await control.query(`update dekez_collections_private.contact_controls set ownership_recipient=null,ownership_reference=null,ownership_verified_by=null,ownership_verified_at=null where tenant_id=${q(tenant)}`);
+    const unverified = await a.json(claim(s)); assert.deepEqual(unverified, { claimed: false, state: 'withheld' });
+    const protectedResults = [];
+    for (const recipient of ['60198894911', '60168173911', '60188702371']) {
+      const result = await a.json(claim({ ...s, phone: recipient }));
+      assert.deepEqual(result, { claimed: false, state: 'protected_recipient' }); protectedResults.push({ recipient, result });
+    }
+    assert.equal((await counts()).total, 0);
+    return { unverified, protectedResults, counts: await counts() };
   });
   await check('a consent withdrawal committed during a lock wait is rechecked before reservation', async () => {
     await reset(); const s = await snapshot(); const gate = await fresh('opt-out-lock-gate');

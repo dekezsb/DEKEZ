@@ -110,6 +110,20 @@ test('page filters never pretend to filter company totals and pagination is boun
   assert.equal(calls.find(call => call[0] === 'history')[2], 'tenant:old');
 });
 
+test('login phone is an address source, not WhatsApp verification; holds stay in Admin follow-up', async () => {
+ preview.items[0].recipient_source='tenant_portal_login';
+ preview.items[0].whatsapp_ownership_verified=false;
+ preview.items[0].delivery_blocks=['whatsapp_ownership_unverified','opted_out'];
+ preview.summary.delivery_blocks=[{code:'whatsapp_ownership_unverified',tenants:4,groups:5,unlinked_records:1}];
+ const html=await render();
+ assert.match(html,/Recipient source: tenant portal login profile/);
+ assert.match(html,/login number is not proof of WhatsApp ownership or consent/);
+ assert.match(html,/Admin follow-up required — no message/);
+ assert.match(html,/does not create a production task/);
+ assert.match(html,/4 identified tenants · 1 unlinked records/);
+ assert.doesNotMatch(html,/60101111222/);
+});
+
 test('migration/configuration errors are graceful, do not leak SQL and do not fake empty totals', async () => {
   previewError = true; historyError = true;
   const html = await render();

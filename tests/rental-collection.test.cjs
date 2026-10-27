@@ -3,9 +3,9 @@ const loader=require('./marketplace-component-loader.cjs');
 const load=loader({'server-only':{}}),model=load('lib/rental-collection/model.ts'),config=load('lib/rental-collection/config.ts');
 const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
 const now=new Date('2026-11-15T01:00:00Z');
-function item(days=14,paid=200){return {company_id:id(1),report_date:'2026-11-15',key:id(4),tenant_id:id(4),name:'Synthetic tenant',phone:'60191111111',stage:model.collectionStage(days,500-paid),days_overdue:days,outstanding:500-paid,partial_invoices:paid>0&&paid<500?1:0,
+function item(days=14,paid=200){return {company_id:id(1),report_date:'2026-11-15',key:id(4),tenant_id:id(4),name:'Synthetic tenant',phone:'60191111111',recipient_source:'tenant_portal_login',whatsapp_ownership_verified:true,delivery_blocks:[],stage:model.collectionStage(days,500-paid),days_overdue:days,outstanding:500-paid,partial_invoices:paid>0&&paid<500?1:0,
  invoices:[{id:id(100),tenancy_id:id(21),property_id:id(10),room_id:id(11),reference:'SYNTH-100',property:'Synthetic property',property_code:'TEST',room:'A1',due_date:'2026-11-01',days_overdue:days,base_amount:500,extra_amount:0,paid_amount:paid,verified_paid:paid,outstanding:500-paid,status:'unpaid',pending:[],exceptions:[]}],
- pending:[],pending_verification:false,exceptions:[],policy:{enabled:true,compliance_approved:true,consent:'opted_in',hold:'none'},send_eligible:true,resolved:paid===500,fingerprint:'synthetic-fingerprint'};}
+ pending:[],pending_verification:false,exceptions:[],policy:{enabled:true,compliance_approved:true,consent:'opted_in',approved_recipient:'60191111111',opt_out_ready:true,hold:'none'},send_eligible:true,resolved:paid===500,fingerprint:'synthetic-fingerprint'};}
 const keys=['DEKEZ_REPORT_COMPANY_ID','WHAPI_TOKEN','DEKEZ_COLLECTION_POLICY_ENABLED','DEKEZ_COLLECTION_SEND_ENABLED','CRON_SECRET'];
 const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
 let calls=[],sends=[],current,overrides={},delivery={state:'accepted',providerId:'synthetic-id',httpStatus:200,errorCode:null};
@@ -84,6 +84,39 @@ test('uncertain/rejected transport and lostfinalization stop immediately without
 });
 test('wrongcompany or wrongdate snapshot failsclosed',async()=>{
  enable();for(const change of [{company_id:id(2)},{report_date:'2026-11-14'}]){overrides.dekez_collection_preview=()=>({data:{company_id:id(1),report_date:'2026-11-15',...change},error:null});await assert.rejects(()=>service.collectionPreview(now));}assert.equal(sends.length,0);
+});
+
+test('portal login phone normalization never routes to management or the sender',()=>{
+ const recipient=load('lib/rental-collection/recipient.ts');
+ assert.equal(recipient.tenantReminderRecipient('019-123 4567'),'60191234567');
+ assert.equal(recipient.tenantReminderRecipient('+60 (19) 123-4567'),'60191234567');
+ for(const phone of ['0198894911','+60 19 8894911','60198894911','0168173911','60168173911','0188702371','60188702371','+601234','01+91234567','bad',null])assert.equal(recipient.tenantReminderRecipient(phone),null);
+});
+
+test('login alone, withdrawn consent, changed number and unverified WhatsApp ownership prevent claims',async()=>{
+ enable();
+ for(const change of [{whatsapp_ownership_verified:false},{recipient_source:undefined},{phone:'60198894911'},{phone:'60168173911'},{delivery_blocks:['previous_tenant_or_room_mismatch']},{policy:{...item().policy,consent:'opted_out'}},{policy:{...item().policy,approved_recipient:'60193333333'}}]){
+  current={...item(),...change};await service.runRentalCollections(now);
+ }
+ assert.equal(sends.length,0);assert.equal(calls.some(c=>c.name==='dekez_collection_claim'),false);
+});
+
+test('claimed routing/body override cannot reach Whapi and reservation stays retained for review',async()=>{
+ enable();
+ for(const override of [{recipient:'60198894911'},{recipient:'60193333333'},{body:'changed after review'}]){
+  overrides.dekez_collection_claim=args=>({data:{claimed:true,attempt_id:id(99),recipient:current.phone,body:args.p_body,...override},error:null});
+  assert.equal((await service.runRentalCollections(now)).state,'recipient_review_required');
+ }
+ assert.equal(sends.length,0);assert.equal(calls.at(-1).args.p_error,'worker_interrupted');
+});
+
+test('requested today batch and tomorrow9AM remain proposals, not time-window bypasses',()=>{
+ const cfg=JSON.parse(fs.readFileSync('config/rental-collection-cron.pending.json','utf8'));
+ assert.equal(cfg.reviewOnly,true);assert.equal(cfg.oneTimeBatch.mode,'dry_run_only');
+ assert.equal(cfg.oneTimeBatch.outsideWindowSendingSupported,false);assert.equal(cfg.oneTimeBatch.noCatchUpWithoutFreshApproval,true);
+ assert.equal(cfg.requestedFirstLocalRun,'2026-10-28T09:00:00+08:00');
+ assert.equal(new Date(cfg.requestedFirstLocalRun).toISOString(),new Date(cfg.requestedFirstUtcRun).toISOString());
+ assert.equal(cfg.appendAfterApproval.schedule,'0 1 * * *');
 });
 test('cron mandatorytimingsafeauthentication and ignores suppliedtarget/date/body',async()=>{
  for(const headers of [{},{authorization:'Bearer undefined'},{authorization:'Bearer wrong'}])assert.equal((await route.GET(new Request('https://example.invalid/api/rental-collections',{headers}))).status,401);
