@@ -4,7 +4,7 @@ import { reportAdministrator } from "@/lib/management-report/authorization";
 
 // Temporary, fixed-purpose control. Extending this hard stop requires a reviewed
 // code release; a stale deployment cannot remain writable through env changes.
-const HARD_EXPIRY = "2026-10-26T16:30:00.000Z";
+const HARD_EXPIRY = "2026-10-27T01:15:00.000Z";
 const COMPANY = "660cc0c4-daee-445b-9146-ccd112e791d4";
 const CHANNEL = "FALCON-D9NS9";
 const SENDER = "60168173911";
