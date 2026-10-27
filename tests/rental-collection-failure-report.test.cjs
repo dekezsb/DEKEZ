@@ -40,6 +40,18 @@ test('one BM consolidated read-only candidate uses current login phone and verif
   assert.match(result.body,/Jangan ubah nombor log masuk penyewa secara automatik/);
 });
 
+test('fresh portal authorization shows Admin action list without granting WhatsApp recipient authorization', () => {
+  const data=input();data.recipient_authorization=null;
+  const denied=preview(data);assert.deepEqual(denied.actionList,[]);assert.equal(denied.fullPortalReport,null);
+  const allowed=preview({...data,portal_authorized:true});
+  assert.equal(allowed.actionList.length,1);assert.match(allowed.fullPortalReport,/Synthetic Tenant 4/);
+  assert.equal(allowed.containsPersonalDetails,false);assert.equal(allowed.readiness,'recipient_unverified');
+  assert.equal(allowed.canSend,false);assert.equal(allowed.body,denied.body);assert.doesNotMatch(allowed.body,/Synthetic Tenant 4|60191111141/);
+  const partial=preview({...data,portal_authorized:true,all_history_loaded:false});
+  assert.deepEqual(partial.actionList,[]);assert.equal(partial.fullPortalReport,null);
+  assert.deepEqual(preview({...data,portal_authorized:'true'}).actionList,[]);
+});
+
 test('historical unresolved failures are included without report-date filtering and resolved failures excluded', () => {
   const data = input();
   data.current_items.push(item(5));
@@ -60,12 +72,14 @@ test('deduplicate attempts, tenants and invoice IDs without summing repeated his
   assert.match(result.body,/RM 450.00/); assert.doesNotMatch(result.body,/RM 750|RM 900/);
 });
 
-test('accepted, pending, sending, delivered and uncertain are never counted as confirmed failures', () => {
-  for (const state of ['accepted','pending','sending','delivered','uncertain']) {
+test('accepted, pending, sending and uncertain remain visible but are never counted as confirmed failures', () => {
+  for (const state of ['accepted','pending','sending','uncertain','unknown']) {
     const data=input();data.evidence[0].state=state;
     const result=preview(data);assert.equal(result.failureTenants,0);assert.equal(result.confirmedUnresolvedAttempts,0);
-    assert.doesNotMatch(result.body,/Synthetic Tenant|60191111141/);
+    assert.equal(result.followUpTenants,1);assert.match(result.body,/Synthetic Tenant 4/);
+    assert.equal(result.actionList[0].categories[0],['uncertain','unknown'].includes(state)?'delivery_unknown':'awaiting_delivery');
   }
+  const delivered=input();delivered.evidence[0].state='delivered';assert.equal(preview(delivered).followUpTenants,0);
 });
 
 test('HTTP/provider rejection, rate-limit and channel problems alone do not prove tenant delivery failure', () => {
@@ -175,4 +189,103 @@ test('formatter has no provider, database, environment, permission mutation or n
   const source=fs.readFileSync('lib/rental-collection/failure-report.ts','utf8');
   assert.doesNotMatch(source,/fetch\(|createAdminClient|process\.env|sendWhapi|\.rpc\(|\.from\(/);
   assert.match(source,/canSend: false/);assert.match(source,/durableReservationImplemented: false/);
+});
+
+test('invalid login number and source blockers enter the roster even when no safe send was attempted', () => {
+  const data=input();data.evidence=[];data.current_items[0].phone=null;
+  data.current_items[0].delivery_blocks=['invalid_phone','whatsapp_ownership_unverified'];
+  const result=preview(data);
+  assert.equal(result.followUpTenants,1);assert.equal(result.confirmedUnresolvedAttempts,0);assert.equal(result.unresolvedAttempts,0);
+  assert.ok(result.actionList[0].categories.includes('invalid_login_phone'));
+  assert.ok(result.actionList[0].categories.includes('communications_hold'));
+  assert.match(result.body,/Nombor telefon log masuk tidak sah/);assert.match(result.body,/RM 300.00/);
+});
+
+test('unconfirmed provider and operational errors remain categorized instead of disappearing', () => {
+  for(const code of ['provider_rejected','rate_limited','channel_error',null]) {
+    const data=input();data.evidence[0]={...data.evidence[0],state:'rejected',failure_code:code,confirmation:'none'};
+    const result=preview(data);assert.equal(result.followUpTenants,1);assert.equal(result.confirmedUnresolvedAttempts,0);
+    assert.equal(result.actionList[0].categories[0],'unconfirmed_rejection');assert.equal(result.excludedAttempts,0);
+  }
+});
+
+test('all historical open contact cases survive current-day filtering, without pretending cases were created', () => {
+  const data=input();data.evidence=[];data.current_items.push(item(5));
+  data.contact_cases=[{case_id:'old-case',company_id:id(1),tenant_id:id(5),tenant_key:id(5),category:'communications_hold',reason_code:'opted_out',resolved_at:null,created_at:'2026-09-01'},
+    {case_id:'closed-case',company_id:id(1),tenant_id:id(4),tenant_key:id(4),category:'source_exception',reason_code:'allocation_mismatch',resolved_at:'2026-10-26'}];
+  data.contact_cases.push({...data.contact_cases[0]});
+  const result=preview(data);assert.equal(result.followUpTenants,1);assert.equal(result.confirmedUnresolvedAttempts,0);
+  assert.deepEqual(result.actionList[0].existingCaseIds,['old-case']);assert.match(result.body,/Synthetic Tenant 5/);
+  assert.match(result.body,/memilih keluar/);assert.doesNotMatch(result.body,/Synthetic Tenant 4/);
+});
+
+test('unlinked cases are retained as records, not invented tenants; missing current balance is unknown not zero', () => {
+  const data=input();data.evidence=[];data.current_items=[];
+  data.contact_cases=[{case_id:'unlinked-case',company_id:id(1),tenant_id:null,tenant_key:'invoice-unknown',category:'source_exception',reason_code:'unlinked_tenant',resolved_at:null}];
+  const result=preview(data);assert.equal(result.followUpTenants,0);assert.equal(result.unlinkedCases,1);assert.equal(result.followUpGroups,1);
+  assert.equal(result.unknownBalances,1);assert.equal(result.actionList[0].verifiedCollectibleBalance,null);
+  assert.match(result.body,/1 rekod belum dipautkan/);assert.match(result.body,/nilai yang tidak diketahui bukan RM 0.00/);
+});
+
+test('current unlinked invoice exception is kept without a historical attempt or case', () => {
+  const data=input();data.evidence=[];Object.assign(data.current_items[0],{tenant_id:null,key:'invoice-unknown',phone:null,exceptions:['unlinked_tenant']});
+  const result=preview(data);assert.equal(result.unlinkedCases,1);assert.equal(result.failureTenants,0);
+  assert.equal(result.actionList[0].tenant_id,null);assert.equal(result.actionList[0].verifiedCollectibleBalance,null);
+});
+
+test('multiple categories for one tenant still yield one current invoice balance', () => {
+  const data=input();data.evidence.push({...evidence(100),state:'accepted'}, {...evidence(101),state:'uncertain'});
+  data.current_items[0].delivery_blocks=['opted_out','invalid_phone'];
+  const result=preview(data);assert.equal(result.followUpGroups,1);assert.equal(result.confirmedUnresolvedAttempts,1);
+  assert.equal(result.unresolvedAttempts,3);assert.equal(result.actionList[0].verifiedCollectibleBalance,300);
+  for(const category of ['confirmed_failure','awaiting_delivery','delivery_unknown','invalid_login_phone','communications_hold']) assert.ok(result.actionList[0].categories.includes(category));
+  assert.match(result.fullPortalReport,/Jumlah baki invois boleh dituntut yang disahkan: RM 300.00/);
+});
+
+test('oversized WhatsApp fallback preserves the entire authorized portal roster and exact totals', () => {
+  const data=input();data.current_items=[];data.evidence=[];
+  for(let n=4;n<34;n++){data.current_items.push(item(n));data.evidence.push({...evidence(1000+n,n),state:n%2?'accepted':'failed'});}
+  const result=preview(data);assert.equal(result.followUpGroups,30);assert.equal(result.actionList.length,30);
+  assert.equal(result.completeRosterRequiresPortal,true);assert.ok(result.body.length<=4000);
+  assert.match(result.body,/30 penyewa; 0 rekod belum dipautkan/);assert.doesNotMatch(result.body,/Synthetic Tenant/);
+  for(let n=4;n<34;n++)assert.ok(result.fullPortalReport.includes(`Synthetic Tenant ${n}`));
+  assert.match(result.fullPortalReport,/RM 9,000.00/);
+});
+
+test('portal company scope and WhatsApp disclosure gates are separate and neither widens account permissions', () => {
+  const data=input();data.recipient_authorization.whatsapp_consent='unknown';const allowedPortal=preview(data);
+  assert.equal(allowedPortal.containsPersonalDetails,false);assert.equal(allowedPortal.actionList.length,1);
+  assert.equal(allowedPortal.completeRosterRequiresPortal,true);
+  assert.doesNotMatch(allowedPortal.body,/Synthetic Tenant/);assert.match(allowedPortal.fullPortalReport,/Synthetic Tenant 4/);
+  data.recipient_authorization.rent_due_tracker_manage=false;const denied=preview(data);
+  assert.deepEqual(denied.actionList,[]);assert.equal(denied.fullPortalReport,null);
+});
+
+test('conflicting stale evidence stays explicit in follow-up instead of being silently dropped or confirmed', () => {
+  const data=input();data.evidence.push({...data.evidence[0],state:'delivered'});
+  const result=preview(data);assert.equal(result.confirmedUnresolvedAttempts,0);assert.equal(result.followUpTenants,1);
+  assert.ok(result.actionList[0].categories.includes('evidence_conflict'));
+  data.contact_cases=[{case_id:'conflict',company_id:id(1),tenant_id:id(4),tenant_key:id(4),category:'source_exception',reason_code:'allocation_mismatch',resolved_at:null}];
+  data.contact_cases.push({...data.contact_cases[0],resolved_at:'2026-10-26'});
+  assert.deepEqual(preview(data).actionList[0].existingCaseIds,['conflict']);
+});
+
+test('no invoice evidence, unknown source and mismatched amount never become an invented zero balance', () => {
+  const data=input();Object.assign(data.current_items[0],{invoices:[],outstanding:0,collectible_outstanding:0});
+  const result=preview(data);assert.equal(result.actionList[0].verifiedCollectibleBalance,null);
+  assert.equal(result.unknownBalances,1);assert.doesNotMatch(result.body,/Jumlah baki invois boleh dituntut yang disahkan: RM 0.00/);
+});
+
+test('payment-verification holds and unknown exception codes stay visible without exposing raw provider text', () => {
+  const data=input();data.evidence=[];data.current_items[0].pending_verification=true;
+  data.current_items[0].exceptions=['unrecognized-private-token-data'];
+  const result=preview(data);assert.equal(result.followUpTenants,1);assert.equal(result.failureTenants,0);
+  assert.match(result.body,/Bukti bayaran menunggu pengesahan/);assert.doesNotMatch(result.body,/unrecognized-private-token-data/);
+  assert.ok(result.actionList[0].categories.includes('source_exception'));
+});
+
+test('case company mismatch and unlinked case without source key are rejected, with no mutation', () => {
+  const data=input();data.contact_cases=[{case_id:'bad',company_id:id(2),tenant_id:id(4),tenant_key:id(4),category:'source_exception',reason_code:'unknown',resolved_at:null}];
+  assert.throws(()=>preview(data));data.contact_cases[0].company_id=id(1);data.contact_cases[0].tenant_id=null;data.contact_cases[0].tenant_key='';
+  assert.throws(()=>preview(data));
 });

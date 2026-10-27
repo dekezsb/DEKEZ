@@ -4,6 +4,8 @@ import { reportAdministrator } from "@/lib/management-report/authorization";
 import { collectionHistory, collectionPreview } from "@/lib/rental-collection/service";
 import { formatCollectionMessage } from "@/lib/rental-collection/model";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ContactReview } from "./contact-review";
+import { tenantReminderRecipient } from "@/lib/rental-collection/recipient";
 
 export const dynamic = "force-dynamic";
 
@@ -147,6 +149,9 @@ function TenantCard({ item }: { item: CollectionItem }) {
         <p className="mt-2 text-xs text-gray-600">Exact proposed text when available. Consent, communication holds, provider restrictions and legal review must all permit sending; a preview grants no permission.</p>
         <pre className="mt-3 whitespace-pre-wrap break-words font-sans text-sm leading-6">{messagePreview(item)}</pre>
       </details>
+      {item.tenant_id && item.phone && tenantReminderRecipient(item.phone) === item.phone
+        ? <ContactReview tenant={item.tenant_id} recipient={item.phone} ownershipVerified={item.whatsapp_ownership_verified === true} />
+        : <p className="rounded-lg border p-3 text-sm text-amber-900">Admin action: verify the correct current tenant and login phone using the existing authorized account workflow. No alternate number or automatic credential change is permitted.</p>}
     </CardContent>
   </Card>;
 }
@@ -187,6 +192,7 @@ function HistorySection({ history, params }: { history: History | null; params: 
           <p className="break-words font-medium">{entry.snapshot?.name || "Tenant record"} · {label(entry.stage)} · {money(entry.outstanding)}</p>
           <p className="mt-1 text-gray-600">Last checked: {timestamp(entry.last_checked_at)}</p>
           <p className="mt-1">Message status: {entry.delivery?.state === "accepted" ? "Provider accepted · delivery not confirmed" : entry.delivery?.state?.replaceAll("_", " ") || "Not attempted"}</p>
+          {entry.delivery?.delivery_state && entry.delivery.delivery_state !== "unconfirmed" ? <p className="mt-1">Provider delivery evidence: {entry.delivery.delivery_state.replaceAll("_", " ")} · {timestamp(entry.delivery.delivery_updated_at)}. Conflicting or unknown evidence requires review, not an automatic resend.</p> : null}
           {entry.delivery?.provider_message_id ? <p className="mt-1 break-all text-xs text-gray-600">Provider reference: {entry.delivery.provider_message_id}</p> : null}
           {entry.delivery?.error_code ? <p className="mt-1 text-amber-900">Delivery exception: {exceptionLabel(entry.delivery.error_code)}</p> : null}
         </div>)}</div>}
@@ -210,8 +216,8 @@ export default async function RentalRemindersPage({ searchParams }: { searchPara
   const pageStages = [...new Set(preview?.items.map((item) => item.stage) ?? [])];
   return <section className="space-y-6">
     <div><h1 className="text-2xl font-semibold sm:text-3xl">Rental Reminder Management</h1>
-      <p className="mt-2 text-sm text-gray-600">Private, read-only collection review. This page never sends messages, changes balances or activates the schedule.</p>
-      <div className="mt-3 flex flex-wrap gap-3"><a className={linkClass} href="/admin-setup">Admin setup</a><a className={linkClass} href="/admin-setup/management-report">Daily Management Report</a></div>
+      <p className="mt-2 text-sm text-gray-600">Private rental payment reminder review and evidence-backed contact administration. This page never sends messages, changes balances or activates the schedule.</p>
+      <div className="mt-3 flex flex-wrap gap-3"><a className={linkClass} href="/admin-setup">Admin setup</a><a className={linkClass} href="/admin-setup/management-report">Daily Management Report</a><a className={linkClass} href="/rent-due-tracker/reminder-followups">Consolidated contact follow-ups</a></div>
     </div>
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
       Day 7 is an internal account review. Day 14 is a formal termination review, not a termination notice or eviction. No physical access, utilities or tenancy dates may be changed by this reminder process.

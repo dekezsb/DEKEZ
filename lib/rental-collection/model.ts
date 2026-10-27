@@ -25,7 +25,7 @@ export type CollectionPreview = {
 };
 export type CollectionHistory = {
   items: { tenant_key: string; stage: CollectionStage; outstanding: number | null; last_checked_at: string;
-    snapshot: CollectionPreviewItem; delivery: null | {state: string; provider_message_id: string | null; created_at: string; finished_at: string | null; error_code: string | null} }[];
+    snapshot: CollectionPreviewItem; delivery: null | {state: string; delivery_state?: string; delivery_updated_at?: string | null; provider_message_id: string | null; created_at: string; finished_at: string | null; error_code: string | null} }[];
   next_cursor: string | null; new_day_7_reviews: number; new_day_14_reviews: number;
 };
 

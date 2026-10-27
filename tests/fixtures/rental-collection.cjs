@@ -10,6 +10,8 @@ module.exports = async () => {
  create table companies(id uuid primary key);
  create table profiles(id uuid primary key,full_name text,phone text,role text,registration_status text,
  normalized_phone text generated always as (nullif(regexp_replace(coalesce(phone,''),'[^0-9]','','g'),'')) stored);
+ create table company_users(id uuid primary key,company_id uuid,user_id uuid,profile_id uuid,role text,status text);
+ create table user_module_permissions(profile_id uuid,module_key text,access_level text,primary key(profile_id,module_key));
  create table properties(id uuid primary key,company_id uuid,name text,property_code text);
  create table rooms(id uuid primary key,property_id uuid,room_number text,name text,current_tenancy_id uuid default '${id(21)}');
  create table tenants(id uuid primary key,profile_id uuid,full_name text,phone text);
@@ -26,6 +28,7 @@ module.exports = async () => {
  create table rent_reminder_logs(id uuid primary key,tenant_id uuid,channel text,sent_at timestamptz,status text);
  insert into companies values('${id(1)}'),('${id(2)}');
  insert into profiles values('${id(3)}','Synthetic admin','60112222222','super_admin','approved'),('${id(4)}','Synthetic tenant','0191111111','tenant','approved');
+ insert into company_users values('${id(9)}','${id(1)}','${id(3)}','${id(3)}','admin','active');
  insert into properties values('${id(10)}','${id(1)}','Synthetic Property','TEST');
  insert into rooms values('${id(11)}','${id(10)}','A1','Room A1');
  insert into tenants values('${id(20)}','${id(4)}','Synthetic tenant','0191111111');

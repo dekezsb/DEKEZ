@@ -16,6 +16,7 @@ const item = {
     outstanding: 300, status: 'partially_paid', pending: [], exceptions: [], collectible: true }],
 };
 const page = loader({
+  './contact-review': { ContactReview: () => null },
   'next/navigation': { redirect: route => { throw new Error(`redirect:${route}`); } },
   '@/lib/auth/session': { requireRole: async (...args) => { calls.push(['role', ...args]); } },
   '@/lib/management-report/authorization': { reportAdministrator: async () => { calls.push(['fresh-admin']); return authorized ? 'fixture-admin' : null; } },
@@ -150,7 +151,7 @@ test('malformed cursor and date inputs do not reach service queries', async () =
   assert.equal(calls.find(call => call[0] === 'history')[2], undefined);
 });
 
-test('navigation is additive and UI has no sending, activation or mutation control', async () => {
+test('navigation is additive and contact administration cannot send or activate reminders', async () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'app/admin-setup/rental-reminders/page.tsx'), 'utf8');
   assert.doesNotMatch(source, /use client|use server|sendWhapi|deliverCollection|collectionClaim|createAdminClient|\.rpc\(|dangerouslySetInnerHTML/);
@@ -158,4 +159,9 @@ test('navigation is additive and UI has no sending, activation or mutation contr
   assert.doesNotMatch(html, /method="post"|formAction=|type="password"/);
   assert.match(html, /method="get"/);
   assert.match(fs.readFileSync(path.join(root, 'app/admin-setup/page.tsx'), 'utf8'), /href="\/admin-setup\/rental-reminders"/);
+  const contact=fs.readFileSync(path.join(root,'app/admin-setup/rental-reminders/contact-review.tsx'),'utf8');
+  assert.match(contact,/Record explicit rental-reminder consent/);
+  assert.match(contact,/Record opt-out \/ STOP received elsewhere/);
+  assert.match(contact,/does not send messages, activate reminders/);
+  assert.doesNotMatch(contact,/sendWhapi|sendEnabled|policyEnabled|WHAPI_TOKEN/);
 });

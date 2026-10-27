@@ -9,12 +9,15 @@ test.after(async()=>{await db?.close();});
 test.beforeEach(async()=>{await db.exec(`truncate rent_bills,payments,payment_submissions,rental_invoice_line_items,whatsapp_conversations,rent_reminder_logs,
  dekez_collections_private.audit,dekez_collections_private.attempts,dekez_collections_private.escalations,dekez_collections_private.daily_cases,
  dekez_collections_private.controls,dekez_collections_private.contact_controls;
+ truncate dekez_collections_private.provider_events,dekez_collections_private.number_suppressions,dekez_collections_private.failure_reports,dekez_collections_private.failure_report_controls,dekez_collections_private.worker_runs,user_module_permissions;
+ update profiles set role='super_admin',registration_status='approved' where id='00000000-0000-0000-0000-000000000003';
+ update company_users set status='active',role='admin';
  update tenancies set status='active',billing_status='active',checkout_date=null;
  update rooms set current_tenancy_id='00000000-0000-0000-0000-000000000021';
  update profiles set phone='0191111111' where role='tenant';`);});
 const enable=async()=>{
- await db.query(`insert into dekez_collections_private.controls(company_id,enabled,compliance_approved,opt_out_ready,approved_by,approved_at,review_reference)
- values($1,true,true,true,$2,now(),'Synthetic approval only')`,[id(1),id(3)]);
+ await db.query(`insert into dekez_collections_private.controls(company_id,enabled,compliance_approved,opt_out_ready,legacy_handover_complete,approved_by,approved_at,review_reference)
+ values($1,true,true,true,true,$2,now(),'Synthetic approval only')`,[id(1),id(3)]);
  await db.query(`insert into dekez_collections_private.contact_controls(company_id,tenant_id,consent,approved_recipient,consent_reference,reviewed_by,reviewed_at,
  ownership_recipient,ownership_reference,ownership_verified_by,ownership_verified_at)
  values($1,$2,'opted_in','60191111111','Synthetic consent only',$3,now(),'60191111111','Synthetic ownership evidence',$3,now())`,[id(1),id(4),id(3)]);
@@ -29,14 +32,14 @@ test('migration is additive, disabled and has no source writes, enforcement or s
  assert.equal((await db.query('select count(*) n from dekez_collections_private.attempts')).rows[0].n,0);
 });
 test('forced RLS and function-only private data access deny all portal and direct service roles',async()=>{
- for(const table of ['controls','contact_controls','daily_cases','escalations','attempts','audit']){
+ for(const table of ['controls','contact_controls','daily_cases','escalations','attempts','audit','provider_events','number_suppressions','failure_reports','failure_report_controls','worker_runs']){
   const r=(await db.query('select relrowsecurity,relforcerowsecurity from pg_class where oid=$1::regclass',['dekez_collections_private.'+table])).rows[0];
   assert.deepEqual(r,{relrowsecurity:true,relforcerowsecurity:true});
   for(const role of ['anon','authenticated','service_role'])for(const privilege of ['SELECT','INSERT','UPDATE','DELETE','TRUNCATE'])
    assert.equal((await db.query('select has_table_privilege($1,$2,$3) ok',[role,'dekez_collections_private.'+table,privilege])).rows[0].ok,false,role+table+privilege);
  }
  const functions=(await db.query("select p.oid,p.proname,p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) owner,n.nspname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='dekez_collections_private' or (n.nspname='public' and p.proname like 'dekez_collection_%')")).rows;
- assert.equal(functions.length,12);
+ assert.equal(functions.length,38);
  for(const f of functions){
   assert.ok(f.proconfig.includes('search_path=""'));
   assert.equal(f.prosecdef,f.nspname==='dekez_collections_private');
@@ -75,7 +78,7 @@ test('pending proof retains underlying stage and stops demands through explicit 
 });
 test('unknown consent and compliance fail closed, no real phone directory access',async()=>{
  await db.bill();const x=(await preview()).items[0];assert.equal(x.phone,'60191111111');assert.equal(x.send_eligible,false);
- assert.deepEqual(x.policy,{enabled:false,compliance_approved:false,opt_out_ready:false,approved_recipient:null,ownership_recipient:null,ownership_verified:false,consent:'unknown',hold:'none'});
+ assert.deepEqual(x.policy,{enabled:false,compliance_approved:false,opt_out_ready:false,legacy_handover_complete:false,approved_recipient:null,ownership_recipient:null,ownership_verified:false,consent:'unknown',hold:'none'});
  for(const role of ['anon','authenticated']){await db.exec(`begin;set local role ${role};`);try{await assert.rejects(db.query('select public.dekez_collection_preview($1,now())',[id(1)]),/permission denied/);}finally{await db.exec('rollback');}}
 });
 test('checkout/internal invoices and missing identity held without silently dropping balances',async()=>{
@@ -151,7 +154,7 @@ test('production preview CTE is byte-equivalent to source projection after scope
  let expected=sql.slice(sql.indexOf(' with profile_phones as materialized'),sql.indexOf(') select item||jsonb_build_object(\'fingerprint\''));
  expected=expected.replaceAll('p_company','(select company_id from params)').replaceAll('p_as_of','(select as_of from params)').replace(/\bd\b/g,'(select report_date from params)');
  expected=expected.replace('with profile_phones',"with params as (select '660cc0c4-daee-445b-9146-ccd112e791d4'::uuid company_id,current_timestamp as_of,(current_timestamp at time zone 'Asia/Kuala_Lumpur')::date report_date), profile_phones");
- expected=expected.replace(/dekez_collections_private\.policy\(\(select company_id from params\),tenant_id\)/g,"jsonb_build_object('enabled',false,'compliance_approved',false,'opt_out_ready',false,'approved_recipient',null,'ownership_recipient',null,'ownership_verified',false,'consent','unknown','hold','none')");
+ expected=expected.replace(/dekez_collections_private\.policy\(\(select company_id from params\),tenant_id\)/g,"jsonb_build_object('enabled',false,'compliance_approved',false,'opt_out_ready',false,'legacy_handover_complete',false,'approved_recipient',null,'ownership_recipient',null,'ownership_verified',false,'consent','unknown','hold','none')").replaceAll('dekez_collections_private.number_suppressed(phone)','false');
  const raw=fs.readFileSync('scripts/rental-collection-preview.sql','utf8');const actual=raw.slice(raw.indexOf(' with params as'),raw.indexOf('), stage_counts as'));
  assert.equal(actual.replace(/\r\n/g,'\n'),expected.replace(/\r\n/g,'\n'));
 });
@@ -265,4 +268,192 @@ test('source preview returns every group redacted with comprehensive messaging-b
  assert.equal(report.delivery_blocks.find(b=>b.code==='consent_missing').groups,2);assert.equal(report.delivery_blocks.find(b=>b.code==='portal_login_phone_missing').groups,1);
  const serialized=JSON.stringify(report.items);assert.ok(!serialized.includes(id(4)));assert.ok(!serialized.includes(id(100)));assert.ok(!serialized.includes('60191111111'));
  for(const row of report.items)for(const invoice of row.invoices){assert.ok(invoice.invoice_reference);assert.equal(invoice.id,undefined);assert.equal(invoice.pending,undefined);}
+});
+
+const review=(action,phone='60191111111',actor=id(3),company=id(1))=>rpc('dekez_collection_review_contact',[
+ company,id(4),phone,actor,action,'Synthetic evidence reference','Synthetic documented review reason']);
+const contactEvent=async(kind='stop',event='event-stop',phone='60191111111',channel='FALCON-D9NS9')=>rpc('dekez_collection_ingest_contact_event',[
+ id(1),channel,event,'provider-'+event,phone,kind,(await db.query('select clock_timestamp()::text t')).rows[0].t]);
+const receipt=async(provider,status='delivered',event='receipt-'+status,phone='60191111111',company=id(1))=>rpc('dekez_collection_ingest_receipt',[
+ company,'FALCON-D9NS9',event,provider,phone,status,(await db.query('select clock_timestamp()::text t')).rows[0].t]);
+
+test('Admin evidence reviews bind separate ownership and consent to current login without enabling sends',async()=>{
+ await db.bill();
+ await assert.rejects(review('record_opt_in'),/ownership/);
+ let r=await review('verify_ownership');assert.equal(r.ownership_verified,true);assert.equal(r.consent,'unknown');assert.equal(r.masked_recipient,'***1111');
+ r=await review('record_opt_in');assert.equal(r.consent,'opted_in');assert.equal((await currentItem()).send_eligible,false);
+ r=await review('set_dispute_hold');assert.equal(r.hold,'dispute');r=await review('clear_hold');assert.equal(r.hold,'none');
+ const logs=(await db.query("select details from dekez_collections_private.audit where action='contact_reviewed' order by recorded_at")).rows;
+ assert.equal(logs.length,4);assert.equal(logs[0].details.actor,id(3));assert.ok(logs[0].details.reference);assert.ok(logs[3].details.before);
+ assert.equal((await db.query('select count(*) n from dekez_collections_private.controls')).rows[0].n,0);
+});
+
+test('Admin reviews recheck approval, role, exact company membership and explicit module restrictions',async()=>{
+ for(const actor of [id(4),id(999)])await assert.rejects(review('verify_ownership','60191111111',actor),/administrator|permission denied/);
+ await assert.rejects(review('verify_ownership','60191111111',id(3),id(2)),/administrator/);
+ await db.query("update profiles set registration_status='pending' where id=$1",[id(3)]);await assert.rejects(review('verify_ownership'),/administrator/);
+ await db.query("update profiles set registration_status='approved',role='admin' where id=$1",[id(3)]);
+ await db.query("insert into user_module_permissions values($1,'rent_due_tracker','view')",[id(3)]);await assert.rejects(review('verify_ownership'),/permission denied|insufficient_privilege/);
+ await db.exec("update user_module_permissions set access_level='manage'");assert.equal((await review('verify_ownership')).state,'reviewed');
+ await db.exec("update company_users set status='suspended'");await assert.rejects(review('verify_ownership'),/administrator/);
+});
+
+test('review rejects arbitrary, protected, changed, shared and previous-tenant recipients',async()=>{
+ await assert.rejects(review('verify_ownership','60192222222'),/Current tenant/);
+ for(const phone of ['60198894911','60168173911','60188702371']){
+  await db.query('update profiles set phone=$1 where id=$2',[phone,id(4)]);await assert.rejects(review('verify_ownership',phone),/Invalid payment/);
+ }
+ await db.query("update profiles set phone='0191111111' where id=$1",[id(4)]);
+ await db.query("update profiles set phone='0191111111' where id=$1",[id(3)]);await assert.rejects(review('verify_ownership'),/Ambiguous/);
+ await db.query("update profiles set phone='60112222222' where id=$1",[id(3)]);
+ await db.exec('update rooms set current_tenancy_id=null');await assert.rejects(review('verify_ownership'),/Current tenant/);
+});
+
+test('STOP is durable number-level suppression without a tenant match and START never opts in',async()=>{
+ assert.equal((await contactEvent('stop','unlinked-stop','60195555555')).state,'suppressed');
+ assert.equal(await privateRpc('number_suppressed',['60195555555']),true);
+ assert.equal((await contactEvent('start','unlinked-start','60195555555')).state,'start_review_required');
+ assert.equal(await privateRpc('number_suppressed',['60195555555']),true);
+ assert.equal((await db.query('select count(*) n from dekez_collections_private.contact_controls')).rows[0].n,0);
+ await assert.rejects(contactEvent('stop','wrong-channel','60195555555','OTHER'),/Invalid authenticated/);
+});
+
+test('STOP blocks even a stale eligible snapshot; retry is deduped and explicit resubscription is audited',async()=>{
+ await db.bill();await enable();const item=await currentItem();assert.equal(item.send_eligible,true);
+ assert.equal((await contactEvent()).state,'suppressed');assert.equal((await contactEvent()).state,'duplicate');
+ assert.ok((await currentItem()).delivery_blocks.includes('opted_out'));
+ assert.deepEqual(await privateRpc('claim',[JSON.stringify(item),'Synthetic test only']),{claimed:false,state:'opted_out'});
+ await assert.rejects(review('record_opt_in'),/resubscription/);
+ await contactEvent('start','event-start');assert.equal(await privateRpc('number_suppressed',[item.phone]),true);
+ assert.equal((await review('review_resubscription')).suppressed,false);
+ assert.equal((await db.query('select count(*) n from dekez_collections_private.attempts')).rows[0].n,0);
+});
+
+test('receipt processing distinguishes HTTP acceptance, actual delivery, conflicts and unknown outcomes',async()=>{
+ await db.bill();await enable();const a=await privateRpc('claim',[JSON.stringify(await currentItem()),'Synthetic test only']);
+ await rpc('dekez_collection_finish',[a.attempt_id,'accepted','provider-one',200,null]);
+ let row=(await db.query('select state,delivery_state from dekez_collections_private.attempts')).rows[0];assert.deepEqual(row,{state:'accepted',delivery_state:'unconfirmed'});
+ assert.equal((await receipt('provider-one','unknown')).delivery_state,'unknown');
+ assert.equal((await receipt('provider-one','delivered')).delivery_state,'delivered');
+ assert.equal((await receipt('provider-one','read')).delivery_state,'read');
+ assert.equal((await receipt('provider-one','sent')).delivery_state,'read');
+ assert.equal((await receipt('provider-one','failed')).delivery_state,'conflict');
+ assert.equal((await receipt('provider-one','failed')).state,'duplicate');
+ row=(await db.query('select state,delivery_state from dekez_collections_private.attempts')).rows[0];assert.deepEqual(row,{state:'accepted',delivery_state:'conflict'});
+ assert.equal((await privateRpc('claim',[JSON.stringify(await currentItem()),'Synthetic retry'])).claimed,false);
+});
+
+test('callback before finish is safely reconciled; wrong recipient/company/message never changes attempt',async()=>{
+ await db.bill();await enable();const a=await privateRpc('claim',[JSON.stringify(await currentItem()),'Synthetic test only']);
+ assert.equal((await receipt('provider-early','failed','early-failure')).state,'unmatched');
+ await rpc('dekez_collection_finish',[a.attempt_id,'accepted','provider-early',200,null]);
+ assert.equal((await db.query('select delivery_state from dekez_collections_private.attempts')).rows[0].delivery_state,'failed');
+ for(const args of [['provider-early','delivered','foreign-phone','60192222222',id(1)],['provider-early','delivered','foreign-company','60191111111',id(2)],['unrelated-id','delivered','foreign-message','60191111111',id(1)]])
+  assert.equal((await receipt(...args)).state,'unmatched');
+ assert.equal((await db.query('select delivery_state from dekez_collections_private.attempts')).rows[0].delivery_state,'failed');
+});
+
+test('provider event and review audit records cannot be updated or deleted by runtime roles',async()=>{
+ await contactEvent();await review('verify_ownership');
+ for(const role of ['anon','authenticated','service_role','dekez_collection_executor']){
+  for(const table of ['provider_events','audit'])for(const action of ['UPDATE','DELETE','TRUNCATE'])
+   assert.equal((await db.query('select has_table_privilege($1,$2,$3) ok',[role,'dekez_collections_private.'+table,action])).rows[0].ok,false);
+ }
+ for(const role of ['anon','authenticated']){
+  await db.exec(`begin;set local role ${role};`);
+  try{await assert.rejects(db.query('select public.dekez_collection_review_contact($1,$2,$3,$4,$5,$6,$7)',[id(1),id(4),'60191111111',id(3),'verify_ownership','Synthetic evidence','Synthetic reason']),/permission denied/);}finally{await db.exec('rollback');}
+ }
+});
+
+test('provider event identifiers cannot be replayed with changed recipient, status or company',async()=>{
+ await contactEvent('stop','same-event');
+ await assert.rejects(contactEvent('start','same-event'),/Conflicting provider event/);
+ await assert.rejects(contactEvent('stop','same-event','60192222222'),/Conflicting provider event/);
+ await receipt('unmatched-provider','sent','same-receipt');
+ await assert.rejects(receipt('unmatched-provider','failed','same-receipt'),/Conflicting provider event/);
+ await assert.rejects(receipt('unmatched-provider','sent','same-receipt','60191111111',id(2)),/Conflicting provider event/);
+});
+
+const managerFixture=async()=>{
+ await db.query("insert into profiles(id,full_name,phone,role,registration_status) values($1,'Synthetic manager','60188702371','admin','approved') on conflict(id) do update set phone=excluded.phone,role=excluded.role,registration_status=excluded.registration_status",[id(50)]);
+ await db.query("insert into company_users values($1,$2,$3,$3,'admin','active') on conflict(id) do update set status='active',role='admin'",[id(51),id(1),id(50)]);
+};
+const reviewManager=action=>rpc('dekez_collection_review_failure_recipient',[id(1),id(3),id(50),action,'Synthetic management evidence','Synthetic management recipient review']);
+const evidence=(after=null,limit=100)=>rpc('dekez_collection_failure_evidence',[id(1),after,limit]);
+const runFixture=async(state='complete')=>{
+ const r=(await db.query(`insert into dekez_collections_private.worker_runs(company_id,report_date,state,started_at,expires_at,finished_at)
+ values($1,(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date,$2,clock_timestamp()-interval '60 seconds',clock_timestamp()+interval '230 seconds',case when $2='running' then null else clock_timestamp() end) returning lease_token`,[id(1),state])).rows[0];return r.lease_token;
+};
+const digestSnapshot=(e,personal=false)=>({company_id:id(1),report_date:e.report_date,recipient:'60188702371',all_history_loaded:true,contains_personal_details:personal});
+
+test('fixed management recipient requires current account scope and separate ownership/consent',async()=>{
+ await managerFixture();let e=await evidence();assert.equal(e.recipient_authorization.verified,true);assert.equal(e.recipient_authorization.whatsapp_ownership_verified,false);
+ await assert.rejects(reviewManager('record_opt_in'),/ownership/);
+ await reviewManager('verify_ownership');await reviewManager('record_opt_in');e=await evidence();assert.equal(e.recipient_authorization.whatsapp_consent,'opted_in');
+ await db.query("insert into user_module_permissions values($1,'rent_due_tracker','none')",[id(50)]);
+ e=await evidence();assert.equal(e.recipient_authorization.verified,false);assert.equal(e.recipient_authorization.whatsapp_ownership_verified,true);
+ await assert.rejects(reviewManager('record_opt_in'),/management recipient/);
+ await db.query("update profiles set phone='60182222222' where id=$1",[id(50)]);
+ e=await evidence();assert.equal(e.recipient_authorization.verified,false);assert.equal(e.recipient_authorization.whatsapp_ownership_verified,false);
+});
+
+test('consolidated failure evidence is all-history paginated and fingerprints current balances, receipts and permissions',async()=>{
+ await managerFixture();await db.bill();await enable();await rpc('dekez_collection_scan',[id(1)]);
+ const a=await privateRpc('claim',[JSON.stringify(await currentItem()),'Synthetic message']);
+ await rpc('dekez_collection_finish',[a.attempt_id,'accepted','digest-provider',200,null]);
+ const first=await evidence(null,1);assert.ok(first.total>=1);assert.ok(first.fingerprint);
+ const all=await evidence();assert.equal(all.fingerprint,first.fingerprint);assert.equal(all.items[0].kind,'attempt');assert.equal(all.items[0].data.confirmed_failure,false);
+ await receipt('digest-provider','failed','digest-failed');const failed=await evidence();assert.notEqual(failed.fingerprint,all.fingerprint);assert.equal(failed.items.find(x=>x.kind==='attempt').data.confirmed_failure,true);
+ await db.exec('update rent_bills set amount=501');assert.notEqual((await evidence()).fingerprint,failed.fingerprint);
+ await receipt('digest-provider','delivered','digest-conflict');assert.equal((await evidence()).items.find(x=>x.kind==='attempt').data.confirmed_failure,false);
+});
+
+test('management digest reserves once per date, preserves sent body and only updates later portal draft',async()=>{
+ await managerFixture();await db.bill();await enable();await reviewManager('verify_ownership');await reviewManager('record_opt_in');await runFixture();
+ const e=await evidence(),snap=digestSnapshot(e,true);
+ const a=await privateRpc('failure_claim',[id(1),e.fingerprint,'Synthetic consolidated report',JSON.stringify(snap),JSON.stringify(e.recipient_authorization)]);
+ assert.equal(a.claimed,true);assert.equal(a.recipient,'60188702371');
+ await rpc('dekez_collection_failure_finish',[a.attempt_id,'uncertain',null,null,'delivery_uncertain']);
+ const again=await privateRpc('failure_claim',[id(1),e.fingerprint,'Different later report',JSON.stringify({...snap,updated:true}),JSON.stringify(e.recipient_authorization)]);
+ assert.equal(again.claimed,false);assert.equal(again.state,'already_reserved');
+ const row=(await db.query('select state,message_body,snapshot,latest_snapshot from dekez_collections_private.failure_reports')).rows[0];
+ assert.equal(row.state,'uncertain');assert.equal(row.message_body,'Synthetic consolidated report');assert.equal(row.snapshot.updated,undefined);assert.equal(row.latest_snapshot.updated,true);
+ await assert.rejects(rpc('dekez_collection_failure_finish',[a.attempt_id,'accepted','retry',200,null]),/already finalized/);
+});
+
+test('digest never bypasses consent or review completion; revoked PII access permits exact generic notice only',async()=>{
+ await managerFixture();await db.bill();await enable();let e=await evidence();
+ const claim=(body,snap=digestSnapshot(e,false))=>privateRpc('failure_claim',[id(1),e.fingerprint,body,JSON.stringify(snap),JSON.stringify(e.recipient_authorization)]);
+ assert.equal((await claim('Synthetic')).state,'daily_review_incomplete');await runFixture();assert.equal((await claim('Synthetic')).state,'withheld');
+ await reviewManager('verify_ownership');await reviewManager('record_opt_in');
+ await db.query("insert into user_module_permissions values($1,'rent_due_tracker','none')",[id(50)]);e=await evidence();
+ await assert.rejects(claim('Tenant identities must not be disclosed'),/generic management/);
+ const generic=`DEKEZ MANAGEMENT\nLAPORAN SUSULAN PERINGATAN PEMBAYARAN WHATSAPP\nTarikh: ${e.report_date} (Malaysia)\n\nSemakan susulan tersedia melalui Portal Admin yang selamat. Maklumat penyewa tidak disertakan. Akses memerlukan kebenaran akaun pengurusan.\nhttps://dekez.vercel.app/`;
+ assert.equal((await claim(generic)).claimed,true);
+});
+
+test('worker reservation expires without automatic replacement and terminal outcomes cannot be rewritten',async()=>{
+ await db.bill();const token=await runFixture('running');assert.equal(await privateRpc('worker_active',[id(1)]),true);
+ await db.exec("update dekez_collections_private.worker_runs set started_at=clock_timestamp()-interval '301 seconds',expires_at=clock_timestamp()-interval '1 second'");
+ assert.equal(await privateRpc('worker_active',[id(1)]),false);
+ assert.equal((await rpc('dekez_collection_claim',[id(1),id(4),'missing','Synthetic'])).state,'worker_not_active');
+ await rpc('dekez_collection_finish_run',[token,'incomplete']);await rpc('dekez_collection_finish_run',[token,'incomplete']);
+ await assert.rejects(rpc('dekez_collection_finish_run',[token,'complete']),/already finalized/);
+ assert.equal((await db.query('select count(*) n from dekez_collections_private.worker_runs')).rows[0].n,1);
+});
+
+test('documented Admin follow-up resolution preserves provider facts and never allows another send',async()=>{
+ await db.bill();await enable();const a=await privateRpc('claim',[JSON.stringify(await currentItem()),'Synthetic message']);
+ await rpc('dekez_collection_finish',[a.attempt_id,'accepted','followup-provider',200,null]);await receipt('followup-provider','failed','followup-failed');
+ const args=[id(1),id(3),a.attempt_id,'Synthetic follow-up evidence','Synthetic documented action completed'];
+ await assert.rejects(rpc('dekez_collection_resolve_followup',[id(2),...args.slice(1)]),/administrator/);
+ await assert.rejects(rpc('dekez_collection_resolve_followup',[id(1),id(4),...args.slice(2)]),/administrator/);
+ assert.equal((await rpc('dekez_collection_resolve_followup',args)).state,'resolved');
+ const row=(await db.query('select state,delivery_state,followup_resolved_at from dekez_collections_private.attempts')).rows[0];
+ assert.equal(row.state,'accepted');assert.equal(row.delivery_state,'failed');assert.ok(row.followup_resolved_at);
+ assert.equal((await evidence()).items.filter(x=>x.kind==='attempt').length,0);
+ assert.equal((await privateRpc('claim',[JSON.stringify(await currentItem()),'Synthetic retry'])).claimed,false);
+ await receipt('followup-provider','delivered','followup-later-conflict');
+ assert.equal((await evidence()).items.find(x=>x.kind==='attempt').data.state,'unknown');
+ assert.equal((await db.query("select count(*) n from dekez_collections_private.audit where action='followup_resolved'")).rows[0].n,1);
 });

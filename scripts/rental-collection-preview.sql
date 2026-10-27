@@ -108,7 +108,7 @@
    coalesce((select jsonb_agg(distinct p) from classified c cross join lateral jsonb_array_elements(c.pending) p where c.tenant_key=g.tenant_key),'[]'::jsonb) pending
   from classified g group by tenant_key,tenant_id
  ), guarded as (
-  select g.*,jsonb_build_object('enabled',false,'compliance_approved',false,'opt_out_ready',false,'approved_recipient',null,'ownership_recipient',null,'ownership_verified',false,'consent','unknown','hold','none') policy,
+  select g.*,jsonb_build_object('enabled',false,'compliance_approved',false,'opt_out_ready',false,'legacy_handover_complete',false,'approved_recipient',null,'ownership_recipient',null,'ownership_verified',false,'consent','unknown','hold','none') policy,
    exceptions || case when phone !~ '^[1-9][0-9]{8,14}$' then '["invalid_phone"]'::jsonb else '[]'::jsonb end
     || case when phone<>'' and exists(select 1 from profile_phones other where other.id is distinct from g.tenant_id and other.phone=g.phone)
        then '["shared_phone"]'::jsonb else '[]'::jsonb end
@@ -136,13 +136,14 @@
     case when all_exceptions ? 'legacy_message_today' then 'legacy_message_today' end,
     case when jsonb_array_length(exceptions)>0 then 'scope_or_reconciliation_review' end,
     case when pending_verification then 'payment_verification_pending' end,
-    case when policy->>'consent'='opted_out' then 'opted_out' when policy->>'consent'<>'opted_in' then 'consent_missing' end,
+    case when policy->>'consent'='opted_out' or false then 'opted_out' when policy->>'consent'<>'opted_in' then 'consent_missing' end,
     case when policy->>'consent'='opted_in' and policy->>'approved_recipient' is distinct from phone then 'consent_number_mismatch' end,
     case when not coalesce((policy->>'ownership_verified')::boolean and policy->>'ownership_recipient'=phone,false) then 'whatsapp_ownership_unverified' end,
     case when policy->>'hold'<>'none' then 'contact_hold' end,
     case when not (policy->>'enabled')::boolean then 'collection_disabled' end,
     case when not (policy->>'compliance_approved')::boolean then 'compliance_approval_missing' end,
-    case when not (policy->>'opt_out_ready')::boolean then 'opt_out_not_ready' end
+    case when not (policy->>'opt_out_ready')::boolean then 'opt_out_not_ready' end,
+    case when not (policy->>'legacy_handover_complete')::boolean then 'legacy_handover_incomplete' end
    ],null)) delivery_blocks
   from guarded g
  ), result as (

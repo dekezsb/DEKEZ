@@ -90,13 +90,15 @@ async function blocked(waiter, blocker, scenario) {
   throw Error('Expected independent PostgreSQL lock wait not observed: ' + scenario);
 }
 const company = id(1), tenant = id(4), secondTenant = id(5), phone = '60191111111', secondPhone = '60192222222';
-const sourceTables = ['companies', 'profiles', 'properties', 'rooms', 'tenants', 'tenancies', 'tenant_records', 'rent_bills', 'rental_invoice_line_items', 'payment_submissions', 'payments', 'whatsapp_conversations', 'rent_reminder_logs'];
-const privateTables = ['controls', 'contact_controls', 'daily_cases', 'escalations', 'attempts', 'audit'];
+const sourceTables = ['companies', 'profiles', 'company_users', 'properties', 'rooms', 'tenants', 'tenancies', 'tenant_records', 'rent_bills', 'rental_invoice_line_items', 'payment_submissions', 'payments', 'whatsapp_conversations', 'rent_reminder_logs'];
+const privateTables = ['controls', 'contact_controls', 'daily_cases', 'escalations', 'attempts', 'provider_events', 'number_suppressions', 'audit', 'failure_report_controls', 'failure_reports', 'worker_runs'];
 const claim = snapshot => `select dekez_collections_private.claim(${q(JSON.stringify(snapshot))}::jsonb,'SYNTHETIC ONLY - no provider send')`;
+const contactEvent = (event, kind = 'stop') => `select public.dekez_collection_ingest_contact_event(${q(company)},'FALCON-D9NS9',${q(event)},${q('msg-' + event)},${q(phone)},${q(kind)},clock_timestamp())`;
+const receipt = (event, status, recipient = phone, provider = 'SYNTHETIC-receipt-id') => `select public.dekez_collection_ingest_receipt(${q(company)},'FALCON-D9NS9',${q(event)},${q(provider)},${q(recipient)},${q(status)},clock_timestamp())`;
 const counts = () => control.json("select json_build_object('total',count(*),'sending',count(*) filter(where state='sending'),'accepted',count(*) filter(where state='accepted'),'uncertain',count(*) filter(where state='uncertain'),'rejected',count(*) filter(where state='rejected')) from dekez_collections_private.attempts");
 async function reset() {
-  await control.query(`truncate dekez_collections_private.attempts,dekez_collections_private.audit,dekez_collections_private.daily_cases,dekez_collections_private.escalations;
-    update dekez_collections_private.controls set enabled=true,compliance_approved=true,opt_out_ready=true;
+  await control.query(`truncate dekez_collections_private.attempts,dekez_collections_private.audit,dekez_collections_private.daily_cases,dekez_collections_private.escalations,dekez_collections_private.provider_events,dekez_collections_private.number_suppressions,dekez_collections_private.failure_report_controls,dekez_collections_private.failure_reports,dekez_collections_private.worker_runs;
+    update dekez_collections_private.controls set enabled=true,compliance_approved=true,opt_out_ready=true,legacy_handover_complete=true;
     update dekez_collections_private.contact_controls set consent='opted_in',hold='none',
       approved_recipient=case tenant_id when ${q(tenant)}::uuid then ${q(phone)} else ${q(secondPhone)} end,
       ownership_recipient=case tenant_id when ${q(tenant)}::uuid then ${q(phone)} else ${q(secondPhone)} end,
@@ -105,9 +107,25 @@ async function reset() {
 async function snapshot(user = tenant, session = a) {
   return session.json(`select public.dekez_collection_track(${q(company)},${q(user)})`);
 }
+const workerInsert = () => `insert into dekez_collections_private.worker_runs(company_id,report_date)
+ values(${q(company)},(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date)
+ on conflict(company_id,report_date) do nothing returning lease_token`;
+async function workerFixture(state = 'running') {
+  return control.query(`insert into dekez_collections_private.worker_runs(company_id,report_date,state,started_at,expires_at,finished_at)
+   values(${q(company)},(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date,${q(state)},
+    clock_timestamp()-interval '60 seconds',clock_timestamp()+interval '230 seconds',${state === 'running' ? 'null' : 'clock_timestamp()'}) returning lease_token`);
+}
+const managerReview = (action, actor = id(3), scope = company) => `select public.dekez_collection_review_failure_recipient(${q(scope)},${q(actor)},${q(id(50))},${q(action)},'SYNTHETIC manager evidence','SYNTHETIC manager recipient review')`;
+async function managerEvidence() {
+  return a.json(`select public.dekez_collection_failure_evidence(${q(company)},null,100)`);
+}
+const digestSnapshot = e => ({ company_id: company, report_date: e.report_date, recipient: '60188702371', all_history_loaded: true, contains_personal_details: true });
+const digestClaim = (e, body = 'SYNTHETIC consolidated report - no provider send', snapshotValue = digestSnapshot(e)) =>
+  `select dekez_collections_private.failure_claim(${q(company)},${q(e.fingerprint)},${q(body)},${q(JSON.stringify(snapshotValue))}::jsonb,${q(JSON.stringify(e.recipient_authorization))}::jsonb)`;
 async function captureSources() {
   const result = {};
   for (const table of sourceTables) result[table] = await control.json(`select coalesce(json_agg(x order by id),'[]') from public.${table} x`);
+  result.user_module_permissions = await control.json("select coalesce(json_agg(x order by profile_id,module_key),'[]') from public.user_module_permissions x");
   return result;
 }
 async function denied(role, sql) {
@@ -138,7 +156,12 @@ async function main() {
   // Feed unmodified SQL over stdin, avoiding the Windows command-line limit.
   run('psql', args(), { env: env(), input: 'set role fixture_migrator;\n' + sql });
   evidence.migrations.push({ filename: name, sha256: crypto.createHash('sha256').update(sql).digest('hex'), unmodified: true, migrationRole: 'fixture_migrator (non-superuser)' });
-  await control.query(`insert into profiles values(${q(secondTenant)},'Synthetic second tenant','0192222222','tenant','approved');
+  await control.query(`insert into profiles values(${q(secondTenant)},'Synthetic second tenant','0192222222','tenant','approved'),
+    (${q(id(6))},'Synthetic view-only admin','0193333333','admin','approved'),
+    (${q(id(50))},'Synthetic management recipient','60188702371','admin','approved');
+    insert into company_users values(${q(id(8))},${q(company)},${q(id(6))},${q(id(6))},'admin','active');
+    insert into company_users values(${q(id(51))},${q(company)},${q(id(50))},${q(id(50))},'admin','active');
+    insert into user_module_permissions values(${q(id(6))},'rent_due_tracker','view');
     insert into tenants values(${q(id(22))},${q(secondTenant)},'Synthetic second tenant','0192222222');
     insert into rooms(id,property_id,room_number,name,current_tenancy_id) values(${q(id(12))},${q(id(10))},'A2','Synthetic second room',${q(id(23))});
     insert into tenancies values(${q(id(23))},${q(id(22))},${q(company)},${q(id(10))},${q(id(12))},'active','active',null);
@@ -146,8 +169,8 @@ async function main() {
     values(${q(id(100))},${q(id(21))},${q(tenant)},${q(id(10))},${q(id(11))},'SYNTHETIC-PARTIAL',(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-14,500,200,'unpaid',true,clock_timestamp()-interval '30 days',current_date-30,current_date-30,999),
     (${q(id(101))},${q(id(23))},${q(secondTenant)},${q(id(10))},${q(id(12))},'SYNTHETIC-SECOND',(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-14,700,0,'unpaid',true,clock_timestamp()-interval '30 days',current_date-30,current_date-30,999);
     insert into payments values(${q(id(1100))},${q(id(100))},${q(id(21))},${q(company)},${q(id(10))},${q(id(11))},'monthly_rent','confirmed',200,null,null);
-    insert into dekez_collections_private.controls(company_id,enabled,compliance_approved,opt_out_ready,approved_by,approved_at,review_reference)
-    values(${q(company)},true,true,true,${q(id(3))},clock_timestamp(),'SYNTHETIC POLICY REVIEW ONLY');
+    insert into dekez_collections_private.controls(company_id,enabled,compliance_approved,opt_out_ready,legacy_handover_complete,approved_by,approved_at,review_reference)
+    values(${q(company)},true,true,true,true,${q(id(3))},clock_timestamp(),'SYNTHETIC POLICY REVIEW ONLY');
     insert into dekez_collections_private.contact_controls(company_id,tenant_id,consent,consent_reference,approved_recipient,reviewed_by,reviewed_at,ownership_recipient,ownership_reference,ownership_verified_by,ownership_verified_at)
     values(${q(company)},${q(tenant)},'opted_in','SYNTHETIC CONSENT ONLY',${q(phone)},${q(id(3))},clock_timestamp(),${q(phone)},'SYNTHETIC OWNERSHIP ONLY',${q(id(3))},clock_timestamp()),
     (${q(company)},${q(secondTenant)},'opted_in','SYNTHETIC CONSENT ONLY',${q(secondPhone)},${q(id(3))},clock_timestamp(),${q(secondPhone)},'SYNTHETIC OWNERSHIP ONLY',${q(id(3))},clock_timestamp());`);
@@ -223,6 +246,66 @@ async function main() {
     assert.deepEqual(result, { claimed: false, state: 'withheld' }); assert.equal((await counts()).total, 0);
     return { result, counts: await counts(), waiterPid: b.pid };
   });
+  await check('independent STOP transaction blocks a stale eligible claim; duplicate STOP and START cannot restore contact', async () => {
+    await reset(); const s = await snapshot(); await a.query('begin');
+    assert.deepEqual(await a.json(contactEvent('native-stop')), { state: 'suppressed' });
+    const pending = b.json(claim(s)); await blocked(b, a, 'authenticated STOP commits before waiting claim');
+    await a.query('commit'); const result = await pending;
+    assert.deepEqual(result, { claimed: false, state: 'opted_out' });
+    const duplicate = await b.json(contactEvent('native-stop'));
+    const start = await b.json(contactEvent('native-start', 'start'));
+    assert.deepEqual(duplicate, { state: 'duplicate' }); assert.deepEqual(start, { state: 'start_review_required' });
+    assert.equal(await b.query(`select dekez_collections_private.number_suppressed(${q(phone)})`), 't');
+    assert.deepEqual(await b.json(claim(s)), { claimed: false, state: 'opted_out' }); assert.equal((await counts()).total, 0);
+    return { result, duplicate, start, counts: await counts(), backendPids: [a.pid, b.pid] };
+  });
+  await check('a claim committed before STOP remains reserved and is never retried automatically', async () => {
+    await reset(); const s = await snapshot(); await a.query('begin'); const first = await a.json(claim(s));
+    const pending = b.json(contactEvent('stop-after-claim')); await blocked(b, a, 'STOP waits for existing atomic reservation');
+    await a.query('commit'); assert.deepEqual(await pending, { state: 'suppressed' });
+    assert.deepEqual(await a.json(claim(s)), { claimed: false, state: 'opted_out' }); assert.equal((await counts()).total, 1);
+    return { reservation: first.attempt_id, counts: await counts(), limitation: 'STOP cannot recall a provider request already started; this harness makes no provider call.' };
+  });
+  await check('review RPC checks Admin company and module permission before changing ownership or consent', async () => {
+    await reset();
+    const review = (actor, action = 'verify_ownership', scope = company) => `select public.dekez_collection_review_contact(${q(scope)},${q(tenant)},${q(phone)},${q(actor)},${q(action)},'SYNTHETIC reviewed evidence','SYNTHETIC reviewed reason')`;
+    const denials = [];
+    for (const [actor, scope] of [[tenant, company], [id(6), company], [id(3), id(2)]]) {
+      denials.push(await denied('service_role', review(actor, 'verify_ownership', scope)));
+    }
+    for (const role of ['anon', 'authenticated']) denials.push(await denied(role, review(id(3))));
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.audit where action='contact_reviewed'")), 0);
+    await control.query(`update dekez_collections_private.contact_controls set consent='unknown',ownership_recipient=null,ownership_reference=null,ownership_verified_by=null,ownership_verified_at=null where tenant_id=${q(tenant)}`);
+    const ownership = await a.json(review(id(3)));
+    assert.equal(ownership.ownership_verified, true); assert.equal(ownership.consent, 'unknown');
+    const consent = await a.json(review(id(3), 'record_opt_in')); assert.equal(consent.consent, 'opted_in');
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.audit where action='contact_reviewed'")), 2);
+    return { deniedCalls: denials.length, ownershipThenConsentSeparate: true, auditRecords: 2 };
+  });
+  await check('independent receipt requests deduplicate and do not confuse provider acceptance with delivery', async () => {
+    await reset(); const s = await snapshot(); const first = await a.json(claim(s));
+    await a.query(`select public.dekez_collection_finish(${q(first.attempt_id)},'accepted','SYNTHETIC-receipt-id',200,null)`);
+    assert.equal(await control.query(`select delivery_state from dekez_collections_private.attempts where id=${q(first.attempt_id)}`), 'unconfirmed');
+    await a.query('begin'); const delivered = await a.json(receipt('native-receipt', 'delivered'));
+    const pending = b.json(receipt('native-receipt', 'delivered'));
+    await blocked(b, a, 'same provider receipt serialized and deduplicated'); await a.query('commit');
+    const duplicate = await pending; assert.deepEqual(duplicate, { state: 'duplicate' });
+    assert.equal(delivered.delivery_state, 'delivered');
+    const unrelated = await b.json(receipt('wrong-recipient-receipt', 'failed', secondPhone)); assert.equal(unrelated.state, 'unmatched');
+    assert.equal(await control.query(`select delivery_state from dekez_collections_private.attempts where id=${q(first.attempt_id)}`), 'delivered');
+    const conflicting = await b.json(receipt('native-failed-receipt', 'failed')); assert.equal(conflicting.delivery_state, 'conflict');
+    assert.deepEqual(await a.json(claim(s)), { claimed: false, state: 'duplicate' });
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.provider_events where event_id='native-receipt'")), 1);
+    return { acceptedInitially: 'unconfirmed', delivered, duplicate, unrelated, conflicting, counts: await counts() };
+  });
+  await check('an authenticated receipt arriving before finalization is reconciled without another provider call', async () => {
+    await reset(); const s = await snapshot(); const first = await a.json(claim(s));
+    const early = await b.json(receipt('early-native-receipt', 'read')); assert.equal(early.state, 'unmatched');
+    await a.query(`select public.dekez_collection_finish(${q(first.attempt_id)},'accepted','SYNTHETIC-receipt-id',200,null)`);
+    assert.equal(await control.query(`select delivery_state from dekez_collections_private.attempts where id=${q(first.attempt_id)}`), 'read');
+    assert.equal((await counts()).total, 1);
+    return { early, afterFinalization: 'read', providerCalls: 0 };
+  });
   await check('pending payment cannot be disguised as an eligible demand; held cases still receive internal review', async () => {
     await reset(); const s = await snapshot(); const result = await a.json(claim({ ...s, pending_verification: true, send_eligible: true }));
     assert.deepEqual(result, { claimed: false, state: 'pending_review' }); assert.equal((await counts()).total, 0);
@@ -253,13 +336,123 @@ async function main() {
   });
   await check('public RPC enforces its real Malaysia clock without a test clock override', async () => {
     await reset(); const s = await snapshot();
+    const absentWorker = await a.json(`select public.dekez_collection_claim(${q(company)},${q(tenant)},'deliberately-invalid-fingerprint','SYNTHETIC ONLY')`);
+    assert.deepEqual(absentWorker, { claimed: false, state: 'worker_not_active' });
+    // Synthetic local fixture only. This does not bypass or change the clock
+    // in the deployed worker-start or message-claim functions.
+    await workerFixture();
     const before = Number(await control.query("select extract(hour from clock_timestamp() at time zone 'Asia/Kuala_Lumpur')"));
     const result = await a.json(`select public.dekez_collection_claim(${q(company)},${q(tenant)},'deliberately-invalid-fingerprint','SYNTHETIC ONLY')`);
     const after = Number(await control.query("select extract(hour from clock_timestamp() at time zone 'Asia/Kuala_Lumpur')"));
     assert.equal(before, after, 'Clock crossed a gate boundary; rerun rather than claim a result');
     assert.deepEqual(result, { claimed: false, state: before === 9 ? 'source_changed' : 'outside_window' });
     assert.equal((await counts()).total, 0);
-    return { malaysiaHour: before, result, fullPublicSuccessfulSendTested: false, sourceFingerprintGenerated: Boolean(s.fingerprint) };
+    return { malaysiaHour: before, absentWorker, result, syntheticWorkerFixture: true, fullPublicSuccessfulSendTested: false, sourceFingerprintGenerated: Boolean(s.fingerprint) };
+  });
+  await check('independent sessions reserve only one daily worker and expired leases never authorize a replacement', async () => {
+    await reset(); const one = await fresh('synthetic-worker-a'), two = await fresh('synthetic-worker-b');
+    await one.query('begin'); const token = await one.query(workerInsert()); assert.match(token, /^[a-f0-9-]{36}$/);
+    const pending = two.query(workerInsert()); await blocked(two, one, 'company/date worker unique reservation');
+    await one.query('commit'); const duplicate = await pending; assert.equal(duplicate, '');
+    assert.equal(await a.query(`select dekez_collections_private.worker_active(${q(company)})`), 't');
+    await control.query("update dekez_collections_private.worker_runs set started_at=clock_timestamp()-interval '301 seconds',expires_at=clock_timestamp()-interval '1 second'");
+    assert.equal(await a.query(`select dekez_collections_private.worker_active(${q(company)})`), 'f');
+    assert.equal(await two.query(workerInsert()), '');
+    assert.deepEqual(await a.json(`select public.dekez_collection_claim(${q(company)},${q(tenant)},'bad','SYNTHETIC')`), { claimed: false, state: 'worker_not_active' });
+    await a.query(`select public.dekez_collection_finish_run(${q(token)},'incomplete')`);
+    await b.query(`select public.dekez_collection_finish_run(${q(token)},'incomplete')`);
+    const hour = Number(await control.query("select extract(hour from clock_timestamp() at time zone 'Asia/Kuala_Lumpur')"));
+    const startedAgain = await a.json(`select public.dekez_collection_begin_run(${q(company)})`);
+    const after = Number(await control.query("select extract(hour from clock_timestamp() at time zone 'Asia/Kuala_Lumpur')"));
+    assert.equal(hour, after, 'Clock crossed a gate boundary; rerun');
+    assert.deepEqual(startedAgain, { claimed: false, state: hour === 9 ? 'already_started' : 'outside_window' });
+    assert.equal(Number(await control.query('select count(*) from dekez_collections_private.worker_runs')), 1);
+    one.close(); two.close();
+    return { backendPids: [one.pid, two.pid], duplicateInsert: 'no row', expiredReplacement: 'no row', publicStartResult: startedAgain,
+      limitation: 'Independent inserts test the real unique constraint; successful public begin_run is not claimed outside its actual 09:00 MYT window.' };
+  });
+  await check('management summary requires separate number ownership and consent with scoped Admin review', async () => {
+    await reset(); await snapshot(); await workerFixture('complete');
+    const initial = await managerEvidence(); assert.equal(initial.recipient_authorization.verified, true);
+    assert.equal(initial.recipient_authorization.whatsapp_ownership_verified, false);
+    assert.deepEqual(await a.json(digestClaim(initial)), { claimed: false, state: 'withheld' });
+    const denials = [];
+    for (const actor of [tenant, id(6)]) denials.push(await denied('service_role', managerReview('verify_ownership', actor)));
+    denials.push(await denied('service_role', managerReview('verify_ownership', id(3), id(2))));
+    for (const role of ['anon', 'authenticated']) denials.push(await denied(role, managerReview('verify_ownership')));
+    await a.query(managerReview('verify_ownership'));
+    const ownershipOnly = await managerEvidence(); assert.equal(ownershipOnly.recipient_authorization.whatsapp_ownership_verified, true);
+    assert.notEqual(ownershipOnly.recipient_authorization.whatsapp_consent, 'opted_in');
+    assert.deepEqual(await a.json(digestClaim(ownershipOnly)), { claimed: false, state: 'withheld' });
+    await a.query(managerReview('record_opt_in'));
+    const approved = await managerEvidence(); assert.equal(approved.recipient_authorization.whatsapp_consent, 'opted_in');
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.audit where action='failure_recipient_reviewed'")), 2);
+    return { deniedCalls: denials.length, separateOwnershipAndConsent: true, recipient: approved.recipient_authorization.recipient,
+      dailyReportsCreated: Number(await control.query('select count(*) from dekez_collections_private.failure_reports')) };
+  });
+  await check('independent management-summary claims reserve once and uncertain completion cannot cause a resend', async () => {
+    await reset(); await snapshot(); await workerFixture('complete');
+    await a.query(managerReview('verify_ownership')); await a.query(managerReview('record_opt_in'));
+    const e = await managerEvidence(); await a.query('begin'); const first = await a.json(digestClaim(e)); assert.equal(first.claimed, true);
+    const pending = b.json(digestClaim(e)); await blocked(b, a, 'company/date management summary reservation');
+    await a.query('commit'); const duplicate = await pending;
+    assert.deepEqual(duplicate, { claimed: false, state: 'already_reserved' });
+    await a.query(`select public.dekez_collection_failure_finish(${q(first.attempt_id)},'uncertain',null,null,'delivery_uncertain')`);
+    const replay = await b.json(digestClaim(e, 'SYNTHETIC later draft only', { ...digestSnapshot(e), laterDraft: true }));
+    assert.deepEqual(replay, { claimed: false, state: 'already_reserved' });
+    const row = await control.json('select row_to_json(r) from (select state,message_body,snapshot,latest_snapshot from dekez_collections_private.failure_reports) r');
+    assert.equal(row.state, 'uncertain'); assert.equal(row.message_body, first.body);
+    assert.equal(row.snapshot.laterDraft, undefined); assert.equal(row.latest_snapshot.laterDraft, true);
+    assert.equal(Number(await control.query('select count(*) from dekez_collections_private.failure_reports')), 1);
+    return { backendPids: [a.pid, b.pid], duplicate, replay, state: row.state, immutableSentBody: true, providerCalls: 0 };
+  });
+  await check('management STOP committed while a summary waits suppresses the stale authorization', async () => {
+    await reset(); await snapshot(); await workerFixture('complete');
+    await a.query(managerReview('verify_ownership')); await a.query(managerReview('record_opt_in')); const e = await managerEvidence();
+    await a.query('begin');
+    await a.query(`select public.dekez_collection_ingest_contact_event(${q(company)},'FALCON-D9NS9','management-stop','msg-management-stop','60188702371','stop',clock_timestamp())`);
+    const pending = b.json(digestClaim(e)); await blocked(b, a, 'management STOP checked after exact phone lock');
+    await a.query('commit'); const result = await pending;
+    assert.deepEqual(result, { claimed: false, state: 'withheld' });
+    assert.equal(Number(await control.query('select count(*) from dekez_collections_private.failure_reports')), 0);
+    return { result, staleAuthorizationRejected: true, backendPids: [a.pid, b.pid] };
+  });
+  await check('public management claim rechecks the fingerprint and company authorization after an independent lock wait', async () => {
+    await reset(); await snapshot(); await workerFixture('complete');
+    await a.query(managerReview('verify_ownership')); await a.query(managerReview('record_opt_in')); const e = await managerEvidence();
+    const publicClaim = fingerprint => `select public.dekez_collection_failure_claim(${q(company)},${q(fingerprint)},'SYNTHETIC summary',${q(JSON.stringify(digestSnapshot(e)))}::jsonb)`;
+    const hour = Number(await control.query("select extract(hour from clock_timestamp() at time zone 'Asia/Kuala_Lumpur')"));
+    const stale = await a.json(publicClaim('00000000000000000000000000000000'));
+    assert.deepEqual(stale, { claimed: false, state: hour < 9 ? 'before_daily_review' : 'source_changed' });
+    if (hour < 9) return { stale, concurrentPublicScopeTested: false, limitation: 'Actual local time is before the public management-report window; no clock override used.' };
+    const gate = await fresh('management-authorization-lock-gate');
+    await gate.query("begin;select pg_advisory_xact_lock(hashtextextended('dekez-collection:60188702371',0))");
+    const pending = b.json(publicClaim(e.fingerprint)); await blocked(b, gate, 'fresh company authorization after waiting phone lock');
+    await control.query(`update company_users set status='suspended' where id=${q(id(51))}`);
+    await gate.query('commit'); gate.close(); const revoked = await pending;
+    await control.query(`update company_users set status='active' where id=${q(id(51))}`);
+    assert.deepEqual(revoked, { claimed: false, state: 'source_changed' });
+    assert.equal(Number(await control.query('select count(*) from dekez_collections_private.failure_reports')), 0);
+    return { stale, revoked, concurrentPublicScopeTested: true, providerCalls: 0 };
+  });
+  await check('independent documented follow-up resolutions serialize without rewriting provider facts or releasing a send', async () => {
+    await reset(); const s = await snapshot(); const first = await a.json(claim(s));
+    await a.query(`select public.dekez_collection_finish(${q(first.attempt_id)},'accepted','SYNTHETIC-receipt-id',200,null)`);
+    await a.json(receipt('followup-native-failed', 'failed'));
+    const resolve = actor => `select public.dekez_collection_resolve_followup(${q(company)},${q(actor)},${q(first.attempt_id)},'SYNTHETIC follow-up evidence','SYNTHETIC completed management action')`;
+    await denied('service_role', resolve(tenant)); await denied('authenticated', resolve(id(3)));
+    await a.query('begin'); const firstResolution = await a.json(resolve(id(3))); assert.equal(firstResolution.state, 'resolved');
+    const pending = b.json(resolve(id(3))); await blocked(b, a, 'same follow-up immutable audit decision');
+    await a.query('commit'); const replay = await pending; assert.equal(replay.state, 'already_resolved');
+    const facts = await control.json(`select row_to_json(r) from (select state,delivery_state,followup_resolved_at is not null as resolved from dekez_collections_private.attempts where id=${q(first.attempt_id)}) r`);
+    assert.deepEqual(facts, { state: 'accepted', delivery_state: 'failed', resolved: true });
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.audit where action='followup_resolved'")), 1);
+    assert.equal((await managerEvidence()).items.filter(x => x.kind === 'attempt').length, 0);
+    assert.deepEqual(await b.json(claim(s)), { claimed: false, state: 'duplicate' });
+    await b.json(receipt('followup-native-conflicting', 'delivered'));
+    const changed = (await managerEvidence()).items.find(x => x.kind === 'attempt');
+    assert.equal(changed.data.state, 'unknown'); assert.equal(changed.data.confirmed_failure, false);
+    return { firstResolution: firstResolution.state, replay: replay.state, facts, changedProviderEvidenceResurfaces: true, audits: 1, providerCalls: 0 };
   });
   await check('private tables, function ownership and execution privileges deny ordinary callers', async () => {
     const deniedCalls = [];
@@ -279,11 +472,11 @@ async function main() {
   });
   await check('business records remain unchanged and executor has no business read/write rights', async () => {
     assert.deepEqual(await captureSources(), original);
-    for (const table of sourceTables) for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
+    for (const table of [...sourceTables, 'user_module_permissions']) for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
       assert.equal(await control.query(`select has_table_privilege('dekez_collection_executor',${q('public.' + table)},${q(privilege)})`), 'f');
     }
     const deadlocks = Number(await control.query('select deadlocks from pg_stat_database where datname=current_database()')); assert.equal(deadlocks, 0);
-    return { unchangedTables: sourceTables, executorBusinessPrivileges: 'none', providerCalls: 0, deadlocks };
+    return { unchangedTables: [...sourceTables, 'user_module_permissions'], executorBusinessPrivileges: 'none', providerCalls: 0, deadlocks };
   });
   evidence.status = 'PASS';
 }

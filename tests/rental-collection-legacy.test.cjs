@@ -4,67 +4,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const loader = require('./marketplace-component-loader.cjs');
 
-const keys = ['CRON_SECRET', 'DEKEZ_COLLECTION_POLICY_ENABLED'];
+const keys = ['CRON_SECRET', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED'];
 const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
-let calls, sends, enrollmentCalls, suspensionCalls, enrollmentError, dueDays, existingReminder;
-const bill = {
-  id: 'fixture-bill', tenant_id: 'fixture-tenant', property_id: 'fixture-property', room_id: 'fixture-room',
-  due_date: '2026-10-27', amount: 500, paid_amount: 0, status: 'due_today',
-  properties: { name: 'Fixture property' }, rooms: { name: 'Fixture room', room_number: 'D1' },
-};
-function result(table, operation) {
-  if (operation === 'insert') return { data: null };
-  if (table === 'rent_bills') return { data: [bill] };
-  if (table === 'profiles') return { data: [{ id: 'fixture-tenant', full_name: 'Fixture tenant', phone: '0100000000' }] };
-  if (table === 'rent_reminder_logs') return { data: existingReminder ? { id: 'existing' } : null };
-  if (table === 'whatsapp_conversations') return { data: { id: 'fixture-conversation' } };
-  return { data: null };
-}
+let enrollmentCalls, forbiddenCalls, enrollmentError;
+const forbidden = () => { forbiddenCalls++; throw new Error('Forbidden provider/database access'); };
 const api = loader({
-  '@/lib/data/rent-due': { dayDifference: () => dueDays },
-  '@/lib/date-format': { formatMalaysiaDate: value => value },
-  '@/lib/whatsapp/config': {
-    getWhatsAppReminderTemplateConfig: () => ({ templateName: null, templateLanguage: 'en' }),
-    normalizePhoneNumber: value => value,
-  },
-  '@/lib/whatsapp/meta': {
-    sendWhatsAppText: async (to, body) => { sends.push({ to, body }); return { messages: [{ id: 'fixture-message' }] }; },
-    sendWhatsAppTemplate: async () => { throw new Error('Unexpected template send'); },
-  },
+  '@/lib/whatsapp/meta': { sendWhatsAppText: forbidden, sendWhatsAppTemplate: forbidden },
+  '@/lib/supabase/admin': { createAdminClient: forbidden },
   '@/lib/ttlock/fingerprint': {
     syncFingerprintEnrollments: async () => {
       enrollmentCalls++;
       if (enrollmentError) throw new Error('Private enrollment error');
       return { matched: 2, skipped: 3, errors: [] };
     },
-    suspendOverdueFingerprintAccess: async () => { suspensionCalls++; throw new Error('Arrears access suspension is forbidden'); },
+    suspendOverdueFingerprintAccess: forbidden,
   },
-  '@/lib/supabase/admin': { createAdminClient: () => {
-    calls.push(['client']);
-    return { from(table) {
-      calls.push(['from', table]);
-      let operation = 'select';
-      const query = {
-        then(resolve, reject) { return Promise.resolve(result(table, operation)).then(resolve, reject); },
-      };
-      for (const method of ['select', 'eq', 'not', 'order', 'in', 'maybeSingle', 'upsert', 'single', 'insert']) {
-        query[method] = (...args) => {
-          calls.push([table, method, ...args]);
-          if (method === 'insert') operation = method;
-          return query;
-        };
-      }
-      return query;
-    } };
-  } },
 })('app/api/rent-reminders/route.ts');
-
-const request = (auth = 'Bearer fixture-cron-secret') => new Request('https://localhost/api/rent-reminders', {
+const request = (auth = 'Bearer fixture-cron-secret', query = '') => new Request('https://localhost/api/rent-reminders' + query, {
   headers: auth === null ? {} : { authorization: auth },
 });
 test.beforeEach(() => {
-  calls = []; sends = []; enrollmentCalls = 0; suspensionCalls = 0;
-  enrollmentError = false; dueDays = 0; existingReminder = false;
+  enrollmentCalls = 0; forbiddenCalls = 0; enrollmentError = false;
   for (const key of keys) delete process.env[key];
   process.env.CRON_SECRET = 'fixture-cron-secret';
 });
@@ -77,76 +37,65 @@ test.after(() => {
 
 test('missing, malformed or wrong cron credentials fail closed before any operation', async () => {
   for (const auth of [null, '', 'Bearer wrong', 'Bearer fixture-cron-secreu', 'Bearer undefined']) {
-    assert.equal((await api.GET(request(auth))).status, 401);
+    const response = await api.GET(request(auth)); assert.equal(response.status, 401);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
   }
   delete process.env.CRON_SECRET;
   assert.equal((await api.GET(request(null))).status, 401);
   assert.equal((await api.GET(request('Bearer undefined'))).status, 401);
-  assert.deepEqual(calls, []);
-  assert.deepEqual(sends, []);
-  assert.equal(enrollmentCalls, 0);
-  assert.equal(suspensionCalls, 0);
+  assert.equal(enrollmentCalls, 0); assert.equal(forbiddenCalls, 0);
 });
 
-test('collection handoff skips all legacy bill queries and Meta sending but preserves enrollment sync', async () => {
-  process.env.DEKEZ_COLLECTION_POLICY_ENABLED = 'true';
-  const response = await api.GET(request());
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    ok: true, sent: 0, skipped: 0, failed: 0, legacyRentRemindersSkipped: true,
-    fingerprintMatched: 2, fingerprintWaiting: 3, fingerprintEnrollmentErrors: 0,
-    fingerprintSuspended: 0, fingerprintSkipped: 0, fingerprintErrors: 0,
-  });
-  assert.deepEqual(calls, []);
-  assert.deepEqual(sends, []);
-  assert.equal(enrollmentCalls, 1);
-  assert.equal(suspensionCalls, 0);
-});
-
-test('handoff remains safe if enrollment fails and does not expose raw error', async () => {
-  process.env.DEKEZ_COLLECTION_POLICY_ENABLED = 'true'; enrollmentError = true;
-  const response = await api.GET(request());
-  const body = await response.json();
-  assert.equal(body.fingerprintEnrollmentErrors, 1);
-  assert.equal(body.fingerprintSuspended, 0);
-  assert.doesNotMatch(JSON.stringify(body), /Private enrollment error|Fingerprint enrollment sync failed/);
-  assert.deepEqual(calls, []);
-  assert.deepEqual(sends, []);
-});
-
-test('default and explicit false preserve legacy scheduled reminder behavior without arrears access suspension', async () => {
-  for (const flag of [undefined, 'false']) {
-    if (flag === undefined) delete process.env.DEKEZ_COLLECTION_POLICY_ENABLED;
-    else process.env.DEKEZ_COLLECTION_POLICY_ENABLED = flag;
-    const body = await (await api.GET(request())).json();
-    assert.equal(body.sent, 1);
-    assert.equal(body.fingerprintMatched, 2);
-    assert.equal(body.fingerprintSuspended, 0);
-    assert.equal(body.fingerprintErrors, 0);
-    assert.equal(body.legacyRentRemindersSkipped, undefined);
+test('legacy rent sender stays retired with every absent, false, true or malformed new-engine flag', async () => {
+  for (const policy of [undefined, 'false', 'true', 'TRUE', '1', '']) {
+    for (const send of [undefined, 'false', 'true']) {
+      if (policy === undefined) delete process.env.DEKEZ_COLLECTION_POLICY_ENABLED;
+      else process.env.DEKEZ_COLLECTION_POLICY_ENABLED = policy;
+      if (send === undefined) delete process.env.DEKEZ_COLLECTION_SEND_ENABLED;
+      else process.env.DEKEZ_COLLECTION_SEND_ENABLED = send;
+      const response = await api.GET(request());
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(await response.json(), {
+        ok: true, sent: 0, skipped: 0, failed: 0,
+        legacyRentRemindersSkipped: true, rentalReminderSender: 'retired',
+        fingerprintMatched: 2, fingerprintWaiting: 3, fingerprintEnrollmentErrors: 0,
+        fingerprintSuspended: 0, fingerprintSkipped: 0, fingerprintErrors: 0,
+      });
+    }
   }
-  assert.equal(sends.length, 2);
-  assert.equal(enrollmentCalls, 2);
-  assert.equal(suspensionCalls, 0);
-  assert.ok(calls.some(call => call[0] === 'rent_bills' && call[1] === 'eq' && call[2] === 'tenant_facing' && call[3] === true));
-  assert.ok(calls.some(call => call[0] === 'rent_bills' && call[1] === 'not' && call[4].includes('pending_verification')));
-  assert.ok(calls.some(call => call[0] === 'rent_reminder_logs' && call[1] === 'insert'));
+  assert.equal(enrollmentCalls, 18); assert.equal(forbiddenCalls, 0);
 });
 
-test('legacy duplicate and off-stage skips remain intact without disabling enrollment', async () => {
-  existingReminder = true;
-  assert.equal((await (await api.GET(request())).json()).skipped, 1);
-  existingReminder = false; dueDays = -8;
-  assert.equal((await (await api.GET(request())).json()).skipped, 1);
-  assert.deepEqual(sends, []);
-  assert.equal(enrollmentCalls, 2);
-  assert.equal(suspensionCalls, 0);
+test('handoff preserves enrollment error reporting without exposing private errors or resuming rent sends', async () => {
+  enrollmentError = true;
+  const originalError = console.error; const logs = [];
+  console.error = (...args) => logs.push(args);
+  try {
+    const response = await api.GET(request());
+    const body = await response.json();
+    assert.equal(body.fingerprintEnrollmentErrors, 1);
+    assert.equal(body.fingerprintSuspended, 0);
+    assert.equal(body.sent, 0); assert.equal(body.rentalReminderSender, 'retired');
+    assert.doesNotMatch(JSON.stringify({ body, logs }), /Private enrollment error|fixture-cron-secret/);
+    assert.equal(enrollmentCalls, 1); assert.equal(forbiddenCalls, 0);
+  } finally { console.error = originalError; }
 });
 
-test('scheduled route cannot invoke fingerprint suspension and preserves the seven existing cron definitions', () => {
+test('repeated requests and query overrides cannot re-enable the retired sender', async () => {
+  const query = '?send=true&legacy=true&to=60191111111&company=anything&date=2026-10-27';
+  for (let i = 0; i < 2; i++) {
+    const result = await (await api.GET(request(undefined, query))).json();
+    assert.equal(result.sent, 0); assert.equal(result.rentalReminderSender, 'retired');
+  }
+  assert.equal(enrollmentCalls, 2); assert.equal(forbiddenCalls, 0);
+});
+
+test('scheduled route has no rent/database/provider mutation path and preserves seven existing cron definitions', () => {
   const root = path.resolve(__dirname, '..');
   const source = fs.readFileSync(path.join(root, 'app/api/rent-reminders/route.ts'), 'utf8');
-  assert.doesNotMatch(source, /suspendOverdueFingerprintAccess|changeTTLockFingerprintPeriod|deleteTTLockFingerprint/);
+  assert.doesNotMatch(source, /suspendOverdueFingerprintAccess|changeTTLockFingerprintPeriod|deleteTTLockFingerprint|createAdminClient|sendWhatsApp|rent_bills|whatsapp_messages|rent_reminder_logs/);
+  assert.doesNotMatch(source, /DEKEZ_COLLECTION_POLICY_ENABLED|DEKEZ_COLLECTION_SEND_ENABLED/);
   const crons = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')).crons;
   for (const [route, schedule] of [
     ['/api/dekez-chat-assistant', '* * * * *'],
