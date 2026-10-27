@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { dayDifference } from "@/lib/data/rent-due";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  suspendOverdueFingerprintAccess,
-  syncFingerprintEnrollments,
-} from "@/lib/ttlock/fingerprint";
+import { syncFingerprintEnrollments } from "@/lib/ttlock/fingerprint";
 import { getWhatsAppReminderTemplateConfig, normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -55,13 +53,42 @@ function messageForBill(input: {
   return `Hello ${input.tenantName}, this is a reminder that your rental of ${money(input.amount)} for ${input.propertyName} ${input.roomName} is due on ${input.dueDate}. Please make payment and upload your payment slip through your DEKEZ tenant portal: ${portalLink}`;
 }
 
+async function enrollmentSummary() {
+  const enrollment = await syncFingerprintEnrollments().catch((error) => ({
+    matched: 0,
+    skipped: 0,
+    errors: [error instanceof Error ? error.message : "Fingerprint enrollment sync failed"],
+  }));
+  return {
+    fingerprintMatched: enrollment.matched,
+    fingerprintWaiting: enrollment.skipped,
+    fingerprintEnrollmentErrors: enrollment.errors.length,
+    // Retain the response contract, but rent arrears never trigger door-access
+    // suspension. Day 7/14 collection escalation is an internal review only.
+    fingerprintSuspended: 0,
+    fingerprintSkipped: 0,
+    fingerprintErrors: 0,
+  };
+}
+
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+  const supplied = request.headers.get("authorization") ?? "";
+  const expected = `Bearer ${cronSecret ?? ""}`;
+  if (!cronSecret || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
+    || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  // The approved collection policy becomes the only scheduled rent sender.
+  // Keep this existing hourly cron and enrollment sync, without querying bills
+  // or racing the new per-tenant/day claim through a second Meta sender.
+  if (process.env.DEKEZ_COLLECTION_POLICY_ENABLED === "true") {
+    return NextResponse.json({
+      ok: true, sent: 0, skipped: 0, failed: 0,
+      legacyRentRemindersSkipped: true,
+      ...await enrollmentSummary(),
+    });
   }
 
   const supabase = createAdminClient();
@@ -199,27 +226,11 @@ export async function GET(request: Request) {
     });
   }
 
-  const fingerprintEnrollment = await syncFingerprintEnrollments().catch((error) => ({
-    matched: 0,
-    skipped: 0,
-    errors: [error instanceof Error ? error.message : "Fingerprint enrollment sync failed"],
-  }));
-  const fingerprintPolicy = await suspendOverdueFingerprintAccess().catch((error) => ({
-    suspended: 0,
-    skipped: 0,
-    errors: [error instanceof Error ? error.message : "Fingerprint policy failed"],
-  }));
-
   return NextResponse.json({
     ok: true,
     sent,
     skipped,
     failed,
-    fingerprintMatched: fingerprintEnrollment.matched,
-    fingerprintWaiting: fingerprintEnrollment.skipped,
-    fingerprintEnrollmentErrors: fingerprintEnrollment.errors.length,
-    fingerprintSuspended: fingerprintPolicy.suspended,
-    fingerprintSkipped: fingerprintPolicy.skipped,
-    fingerprintErrors: fingerprintPolicy.errors.length,
+    ...await enrollmentSummary(),
   });
 }

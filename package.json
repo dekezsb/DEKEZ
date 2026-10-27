@@ -16,7 +16,8 @@
     "test:dekez-chat-browser": "node tests/dekez-chat-browser.cjs",
     "test:management-report": "node --test tests/management-report.test.cjs tests/management-report-sql.test.cjs tests/management-report-ui.test.cjs tests/management-report-single-use.test.cjs tests/management-report-single-use-sql.test.cjs tests/management-report-single-use-ui.test.cjs tests/management-report-recipient-sql.test.cjs tests/management-report-commands.test.cjs tests/management-report-commands-sql.test.cjs",
     "test:dependency-security": "node --test tests/dependency-security.test.cjs",
-    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading && npm run test:marketplace && npm run test:dekez-chat && npm run test:management-report && npm run test:dependency-security",
+    "test:rental-collection": "node --test tests/rental-collection.test.cjs tests/rental-collection-sql.test.cjs tests/rental-collection-ui.test.cjs tests/rental-collection-legacy.test.cjs",
+    "prebuild": "npm run test:release-regressions && npm run test:historical-classification && npm run test:financial-pdfs && npm run test:claimable-expenses && npm run test:client-owner && npm run test:responsive-layout && npm run test:performance-loading && npm run test:marketplace && npm run test:dekez-chat && npm run test:management-report && npm run test:dependency-security && npm run test:rental-collection",
     "build": "next build",
     "start": "next start"
   },

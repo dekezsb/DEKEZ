@@ -1,0 +1,149 @@
+DEKEZ RENTAL COLLECTION POLICY — DRAFT / NO PRODUCTION ACTIVATION
+27 October 2026
+
+Purpose and scope
+-----------------
+Extend the existing rental-reminder workflow, not accounting or tenancy enforcement.
+The original invoice due date is the ONLY aging anchor. Verified partial payments
+reduce the balance; they do not extend or restart the clock. The policy stages are:
+-7 advance; 0 due; 1–6 daily; 7 urgent account review; 8–13 daily final warning;
+14 formal tenancy termination review; 15+ daily checks and urgent follow-up.
+No weekly fallback. No physical access, utility, eviction or termination action.
+
+Sources and accounting boundaries
+--------------------------------
+Company-scoped rent_bills and properties; authoritative non-deposit invoice amount
+plus rental_invoice_line_items less recorded paid_amount. Confirmed, non-reversed
+payment allocations corroborate that recorded paid amount, never subtract twice.
+Parent payment submissions and bank matches are not added as second payments.
+Pending verification is not settlement. Security deposits are excluded.
+Invoice extras are identified in message breakdowns. Future invoices are scanned
+but not demanded as arrears. Invoices due exactly seven days later receive advance
+reminders only when actually issued and otherwise valid.
+
+All company invoice records remain visible for audit. Cancelled/draft/waived,
+internal, unissued, inactive, unlinked, or unreconciled balances are exceptions,
+not verified default claims and not formal termination-review notices. Recorded
+balance and verified collectible balance are distinct. Zero recorded balance with
+unresolved financial evidence is not reported as verified settlement.
+Pending proof, disputes and messaging holds do not reset an otherwise valid
+invoice clock. Cases stay in the review ledger; payment demands are withheld.
+
+Integration
+-----------
+Admin: /admin-setup/rental-reminders (fresh reportAdministrator authorization).
+Read-only preview/history, existing Admin design, 25 groups per page. No send or
+activation controls. Portal roles cannot call the service-only reporting RPCs.
+Worker: /api/rental-collections, mandatory timing-safe CRON_SECRET authentication.
+The full company scan/review transaction completes BEFORE delivery processing.
+Internal Day 7/14 reviews are recorded once per invoice/threshold. Public claim
+also records review atomically so outgoing text never claims a nonexistent review.
+
+Independent environment controls (absent means false):
+  DEKEZ_COLLECTION_POLICY_ENABLED=false
+  DEKEZ_COLLECTION_SEND_ENABLED=false
+Uses existing DEKEZ_REPORT_COMPANY_ID and WHAPI_TOKEN without changing them.
+No arbitrary recipient parameter: current verified tenant identity, exact-number
+consent and private policy gate determine the destination.
+Existing personal management-report recipient and command allowlist are untouched.
+
+Proposed schedule only: config/rental-collection-cron.pending.json.
+After separate approval, append /api/rental-collections at 0 1 * * * UTC (09:00 MYT).
+Do not replace any of the seven current entries, especially 20:00 MYT reporting.
+Current vercel.json keeps all seven entries byte-for-byte equivalent. The draft
+branch's automatic Vercel deployment is explicitly disabled.
+
+Legacy handover and access safety
+--------------------------------
+When POLICY_ENABLED is true, the existing hourly /api/rent-reminders stops its
+legacy Meta rent query/sending, while retaining enrollment synchronization.
+Same-day legacy reminder logs suppress new-engine sends during handover.
+Activation must drain old in-flight deployments/workers before enabling the new
+sender; otherwise an old worker could race after its initial query.
+Manual Meta messaging is unchanged, not a second scheduled collection engine.
+The draft removes the hourly suspendOverdueFingerprintAccess invocation because
+arrears must not automatically lock tenants out. It does not change lock records.
+SEPARATE PRE-EXISTING RISK: payment-linked 30-day fingerprint validity and already
+configured device expiries still exist. Do not claim residential access is fully
+protected until those are independently reviewed and lawfully remediated.
+
+Migration and authorization
+---------------------------
+20261027051603_rental_collection_review.sql — REVIEW ONLY; NOT APPLIED.
+Adds dekez_collections_private with controls, contact_controls, daily_cases,
+escalations, attempts and audit. All six tables FORCE RLS. No direct privileges
+for anon/authenticated/service_role. Private NOLOGIN/NOINHERIT executor has no
+business-table privileges. Private SECURITY DEFINER functions use empty search_path,
+row_security=on and role checks. Service-only INVOKER wrappers read existing data
+using existing server privileges. Existing tables, policies and records unchanged.
+Transactional migration: five-second lock timeout, 30-second statement timeout.
+No consent/control rows inserted and no scheduler registration/provider calls.
+Controls default disabled, compliance not approved, opt_out_ready=false.
+Consent must be evidenced and bound to the exact approved normalized recipient.
+No Admin control-write RPC is provided in this draft. Activation needs a separately
+reviewed, audited consent/hold administration and opt-out ingestion workflow.
+
+Delivery semantics
+------------------
+Fresh source/fingerprint recheck after lock waits; permanent unique tenant/day
+and recipient/day claims. Original due dates are never written. Pending proof
+is an unconditional database send hold (Admin review; template H is preview only).
+The existing fixed-origin Whapi client is reused, without redirects or retries.
+Sequential sends with one-second pacing between accepted messages; stop on any
+rejection/uncertainty, including 429. Confirm channel-specific limits before use.
+Provider accepted is NOT proof of delivered/read. Record provider ID/status safely.
+Interrupted sending claims are uncertain and must never be reset blindly.
+Supabase and Whapi cannot share a transaction. A payment/opt-out committed AFTER
+the final claim can race the external request; no impossible exactly-once delivery
+or instant cross-system cancellation guarantee is made.
+The worker has a 300-second budget and stops explicitly as incomplete with reserved
+finish time. Full internal scan is already recorded; unsent cases remain visible.
+Benchmark eligible volume/provider latency before activation; add a reviewed durable
+continuation worker if needed. No self-triggering/retry workaround is enabled here.
+
+Compliance blockers — NOT READY FOR LIVE TENANT MESSAGING
+-------------------------------------------------------
+1. WhatsApp Business Messaging Policy includes debt-collection restrictions. A
+   connected Whapi channel is not proof of Meta approval for this use case.
+   Obtain written provider/Meta confirmation and review templates/24-hour rules.
+   https://business.whatsapp.com/policy
+   https://www.whatsapp.com/legal/messaging-guidelines
+   https://whapi.cloud/docs
+2. Obtain tenant opt-in evidence, bound to exact destination, and implement/test a
+   tenant STOP/opt-out intake before enabling opt_out_ready. The existing personal
+   management-command webhook must NOT be widened to expose reports to tenants.
+3. Qualified Malaysia/Sabah legal review of signed agreements, notice/cure periods,
+   disputed debt, contact frequency and lawful possession process. Day 7/14 are
+   INTERNAL policy review thresholds, not statutory eviction entitlements. The
+   requested FINAL DEFAULT NOTICE wording is a proposed template, not legal approval.
+   Specific Relief Act 1950, section 7(2), court-process safeguard:
+   https://lom.agc.gov.my/ilims/upload/portal/akta/LOM/EN/Act%20137.pdf
+4. Privacy review: data minimization, accurate recipients, retention, access logging
+   and cross-border provider processing. Shared numbers fail closed.
+5. Review source exceptions and pre-existing physical-access expiry risks. Do not
+   correct source financial or tenancy records through this communications feature.
+
+Verification and release sequence
+---------------------------------
+Run npm run test:rental-collection, all tests/*.test.cjs and accounting/*.test.mjs,
+npm run build (includes existing release suites plus collection tests), npx tsc
+--noEmit, npm audit. Native concurrent PostgreSQL test is separately invoked with
+explicit --pg-bin and --output-dir; uses only synthetic localhost data.
+Native independent sessions prove private reservation races, rollback, five-second
+timeout, consent withdrawal during waits and replay denial. The successful full
+public 09:00 path has NOT been run against production or a real provider. Its
+actual-time outside-window rejection is tested without weakening the production clock.
+
+Production preparation: read-only source projection and catalog conflict check,
+reviewed SQL hash, recoverable backup, independent security review. User approval
+required before migration, merge, deployment, cron registration or live sending.
+Deploy with new controls off, then separately review compliance/consent/STOP and
+legacy handover. Only after explicit activation approval register the proposed cron.
+Initial production smoke checks must be read-only; live test needs separate consent.
+
+Rollback: disable private controls first to stop fresh claims, retain all attempts,
+reviews and audit evidence. Drain running workers; an already transmitted request
+cannot be undone. Disable new flags and schedule only with approval. Do not blindly
+restore legacy sending or the automatic access-suspension call. Do not drop audit
+tables after use. Unused additive objects may be removed in a separately reviewed
+rollback migration only after checking dependencies and preserving evidence.

@@ -1,0 +1,96 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
+const loader=require('./marketplace-component-loader.cjs');
+const load=loader({'server-only':{}}),model=load('lib/rental-collection/model.ts'),config=load('lib/rental-collection/config.ts');
+const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
+const now=new Date('2026-11-15T01:00:00Z');
+function item(days=14,paid=200){return {company_id:id(1),report_date:'2026-11-15',key:id(4),tenant_id:id(4),name:'Synthetic tenant',phone:'60191111111',stage:model.collectionStage(days,500-paid),days_overdue:days,outstanding:500-paid,partial_invoices:paid>0&&paid<500?1:0,
+ invoices:[{id:id(100),tenancy_id:id(21),property_id:id(10),room_id:id(11),reference:'SYNTH-100',property:'Synthetic property',property_code:'TEST',room:'A1',due_date:'2026-11-01',days_overdue:days,base_amount:500,extra_amount:0,paid_amount:paid,verified_paid:paid,outstanding:500-paid,status:'unpaid',pending:[],exceptions:[]}],
+ pending:[],pending_verification:false,exceptions:[],policy:{enabled:true,compliance_approved:true,consent:'opted_in',hold:'none'},send_eligible:true,resolved:paid===500,fingerprint:'synthetic-fingerprint'};}
+const keys=['DEKEZ_REPORT_COMPANY_ID','WHAPI_TOKEN','DEKEZ_COLLECTION_POLICY_ENABLED','DEKEZ_COLLECTION_SEND_ENABLED','CRON_SECRET'];
+const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+let calls=[],sends=[],current,overrides={},delivery={state:'accepted',providerId:'synthetic-id',httpStatus:200,errorCode:null};
+const client={rpc:async(name,args)=>{calls.push({name,args});if(overrides[name])return overrides[name](args);return {data:
+ name==='dekez_collection_scan'?{checked:1,report_date:'2026-11-15'}:
+ name==='dekez_collection_preview'?{company_id:id(1),report_date:'2026-11-15',items:[current],next_cursor:null,summary:{}}:
+ name==='dekez_collection_claim'?{claimed:true,attempt_id:id(99),recipient:current.phone,body:args.p_body}:null,error:null};}};
+const service=loader({'server-only':{},'@/lib/supabase/admin':{createAdminClient:()=>client},'@/lib/management-report/whapi':{sendWhapiReport:async(...args)=>{sends.push(args);return delivery;}}})('lib/rental-collection/service.ts');
+const route=loader({'@/lib/rental-collection/service':{runRentalCollections:()=>service.runRentalCollections(now)}})('app/api/rental-collections/route.ts');
+const enable=()=>Object.assign(process.env,{DEKEZ_REPORT_COMPANY_ID:id(1),WHAPI_TOKEN:'synthetic-only',DEKEZ_COLLECTION_POLICY_ENABLED:'true',DEKEZ_COLLECTION_SEND_ENABLED:'true'});
+test.beforeEach(()=>{for(const k of keys)delete process.env[k];calls=[];sends=[];overrides={};current=item();delivery={state:'accepted',providerId:'synthetic-id',httpStatus:200,errorCode:null};});
+test.after(()=>{for(const k of keys){if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}});
+test('partial payments never reset original due date or daily stage; exact user example',()=>{
+ assert.equal(model.originalOverdueDays('2026-11-01',new Date('2026-11-08T01:00Z')),7);
+ assert.equal(model.originalOverdueDays('2026-11-01',now),14);
+ for(const paid of [0,1,200,499.99])for(const [days,stage] of [[-7,'advance_7'],[0,'due_today'],[1,'overdue_1_6'],[6,'overdue_1_6'],[7,'day_7_review'],[8,'overdue_8_13'],[13,'overdue_8_13'],[14,'day_14_review'],[15,'overdue_15_plus'],[90,'overdue_15_plus']])assert.equal(model.collectionStage(days,500-paid),stage);
+ assert.equal(model.collectionStage(14,0),'resolved');assert.equal(model.collectionStage(-3,300),'tracking');
+ assert.equal(model.collectionStage(null,300),'exception');assert.equal(model.collectionStage(14,NaN),'exception');
+});
+test('Malaysia midnight/calendar/leap/year boundaries independent of payment timestamps',()=>{
+ assert.equal(model.originalOverdueDays('2026-11-01',new Date('2026-11-07T15:59:59Z')),6);
+ assert.equal(model.originalOverdueDays('2026-11-01',new Date('2026-11-07T16:00Z')),7);
+ assert.equal(model.originalOverdueDays('2028-02-29',new Date('2028-03-01T01:00Z')),1);
+ assert.equal(model.originalOverdueDays('2026-12-31',new Date('2027-01-01T01:00Z')),1);
+ assert.throws(()=>model.originalOverdueDays('2026-02-30',now));
+ assert.equal(model.isCollectionTime(now),true);assert.equal(model.isCollectionTime(new Date('2026-11-15T00:59:59Z')),false);assert.equal(model.isCollectionTime(new Date('2026-11-15T02:00Z')),false);
+});
+test('Day14 exact final-default content uses verified partial200 and remaining300, no extension or enforcement promise',()=>{
+ const body=model.formatCollectionMessage(item());assert.match(body,/FINAL DEFAULT NOTICE/);assert.match(body,/now 14 days overdue/);
+ assert.match(body,/Original Due Date: 1 November 2026/);assert.match(body,/Total Verified Payments: RM 200.00/);assert.match(body,/Remaining Outstanding Balance: RM 300.00/);
+ assert.match(body,/Despite any partial payments/);assert.match(body,/subject to the signed tenancy agreement and applicable law/);
+ assert.doesNotMatch(body,/automatically|weekly|door will|access deactivated|evicted/);
+});
+test('every day8–13 stays final warning and every15+ remains daily follow-up',()=>{
+ for(let d=8;d<=13;d++)assert.match(model.formatCollectionMessage(item(d)),/FINAL-STAGE OVERDUE REMINDER/);
+ for(const d of [15,16,21,90,365])assert.match(model.formatCollectionMessage(item(d)),/OUTSTANDING RENT FOLLOW-UP/);
+ assert.match(model.formatCollectionMessage(item(7)),/urgent management review/);
+});
+test('full verified settlement no demand; pending neutral preview only, no false confirmation',()=>{
+ assert.equal(model.formatCollectionMessage(item(14,500)),null);
+ const pending=item();pending.pending_verification=true;const body=model.formatCollectionMessage(pending);
+ assert.match(body,/verification is pending/);assert.doesNotMatch(body,/RM 300|FINAL DEFAULT|payment confirmed/);
+ current.exceptions=['allocation_mismatch'];assert.equal(model.formatCollectionMessage(current),null);
+});
+test('consolidation preserves each invoice clock and excludes future invoices from demands',()=>{
+ const row=item();row.invoices.push({...row.invoices[0],id:id(101),reference:'SYNTH-101',due_date:'2026-12-01',days_overdue:-16,paid_amount:0,verified_paid:0,outstanding:500});row.outstanding=800;
+ const body=model.formatCollectionMessage(row);assert.match(body,/now 14 days/);assert.doesNotMatch(body,/1 December 2026|RM 800|RM 500/);assert.match(body,/Remaining Outstanding Balance: RM 300.00/);
+ row.outstanding=300;assert.equal(model.formatCollectionMessage(row),null);
+});
+test('overlarge consolidated message is held, never truncated or split into duplicate demands',()=>{
+ const row=item();row.invoices=Array.from({length:30},(_,i)=>({...row.invoices[0],id:id(i+100)}));row.outstanding=9000;assert.equal(model.formatCollectionMessage(row),null);
+});
+test('all new switches defaultfalse; disabledcron no database/network calls',async()=>{
+ assert.equal(config.collectionConfig().policyEnabled,false);assert.equal(config.collectionConfig().sendEnabled,false);
+ assert.equal((await service.runRentalCollections(now)).state,'disabled');assert.deepEqual(calls,[]);assert.deepEqual(sends,[]);
+});
+test('daily scan covers every case before delivery; sendingdisabled still records internal review',async()=>{
+ enable();process.env.DEKEZ_COLLECTION_SEND_ENABLED='false';assert.equal((await service.runRentalCollections(now)).state,'review_only');assert.deepEqual(calls.map(c=>c.name),['dekez_collection_scan']);assert.equal(sends.length,0);
+});
+test('outside9MYT no scan/send; scanfailure stops before transport',async()=>{
+ enable();assert.equal((await service.runRentalCollections(new Date('2026-11-15T03:00Z'))).state,'outside_window');assert.equal(calls.length,0);
+ overrides.dekez_collection_scan=()=>({data:null,error:Error('private detail')});await assert.rejects(()=>service.runRentalCollections(now),/review failed/);assert.equal(sends.length,0);
+});
+test('send pipeline scans, previews, atomicallyclaims, sendsonce and recordsprovider outcome',async()=>{
+ enable();const r=await service.runRentalCollections(now);assert.equal(r.state,'complete');assert.equal(r.counts.accepted,1);assert.equal(sends.length,1);assert.equal(sends[0][1],current.phone);
+ assert.deepEqual(calls.map(c=>c.name),['dekez_collection_scan','dekez_collection_preview','dekez_collection_claim','dekez_collection_finish']);
+ assert.equal(calls[2].args.p_fingerprint,current.fingerprint);assert.equal(calls[3].args.p_provider_id,'synthetic-id');
+});
+test('pending proof, sourcechanges, duplicate and revokedconsent never reach provider',async()=>{
+ enable();current.pending_verification=true;await service.runRentalCollections(now);assert.equal(sends.length,0);assert.equal(calls.some(c=>c.name==='dekez_collection_claim'),false);
+ current.pending_verification=false;for(const state of ['duplicate','source_changed','withheld','pending_review']){overrides.dekez_collection_claim=()=>({data:{claimed:false,state},error:null});await service.runRentalCollections(now);}assert.equal(sends.length,0);
+});
+test('uncertain/rejected transport and lostfinalization stop immediately withoutretry',async()=>{
+ enable();for(const state of ['uncertain','rejected']){calls=[];sends=[];delivery={state,providerId:null,httpStatus:state==='rejected'?429:500,errorCode:state==='rejected'?'provider_rejected':'delivery_uncertain'};assert.equal((await service.runRentalCollections(now)).state,state);assert.equal(sends.length,1);}
+ overrides.dekez_collection_finish=()=>({data:null,error:Error('secret')});assert.equal((await service.runRentalCollections(now)).state,'uncertain');
+});
+test('wrongcompany or wrongdate snapshot failsclosed',async()=>{
+ enable();for(const change of [{company_id:id(2)},{report_date:'2026-11-14'}]){overrides.dekez_collection_preview=()=>({data:{company_id:id(1),report_date:'2026-11-15',...change},error:null});await assert.rejects(()=>service.collectionPreview(now));}assert.equal(sends.length,0);
+});
+test('cron mandatorytimingsafeauthentication and ignores suppliedtarget/date/body',async()=>{
+ for(const headers of [{},{authorization:'Bearer undefined'},{authorization:'Bearer wrong'}])assert.equal((await route.GET(new Request('https://example.invalid/api/rental-collections',{headers}))).status,401);
+ process.env.CRON_SECRET='synthetic-cron';assert.equal((await route.GET(new Request('https://example.invalid/api/rental-collections?company=evil&to=123',{headers:{authorization:'Bearer synthetic-cron'}}))).status,200);assert.equal(calls.length,0);
+});
+test('seven productioncron definitions unchanged and branchdeploy disabled; no financialenforcement imports',()=>{
+ const cfg=JSON.parse(fs.readFileSync('vercel.json','utf8'));assert.equal(cfg.crons.length,7);assert.equal(cfg.crons.find(x=>x.path==='/api/management-report').schedule,'0 12 * * *');assert.equal(cfg.crons.some(x=>x.path==='/api/rental-collections'),false);
+ assert.equal(cfg.git.deploymentEnabled['feature/rental-collection-policy-20261027'],false);
+ const source=fs.readFileSync('lib/rental-collection/service.ts','utf8');assert.doesNotMatch(source,/ttlock|\.from\(|\.update\(|\.delete\(/i);
+});

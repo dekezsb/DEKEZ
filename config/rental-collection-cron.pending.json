@@ -1,0 +1,8 @@
+{
+  "reviewOnly": true,
+  "activationRequiresSeparateApproval": true,
+  "appendAfterApproval": {
+    "path": "/api/rental-collections",
+    "schedule": "0 1 * * *"
+  }
+}
