@@ -271,6 +271,110 @@ Remaining activation and compliance prerequisites
 9. Obtain fresh recipient/message and activation approval, then register the proposed
    cron and enable only approved gates. A live test needs separate explicit approval.
 
+Simple Admin workflow — ownership first, consent second
+------------------------------------------------------
+This is the intended workflow after the separately approved migration and disabled
+release. The review form is not available as a live authorization mechanism before
+that release. Saving evidence never sends a message or activates the engine.
+
+1. Open the tenant's existing record in Admin > Rental Reminders and confirm the
+   current person, company, tenancy, property and room. The Tenant Portal login
+   number shown is read-only here; it is not an alternate WhatsApp routing field.
+   Unlinked, shared, invalid or conflicting phone records must stay on hold.
+2. Obtain legitimate evidence linking THAT tenant to THAT exact WhatsApp number.
+   Examples: a tenant-initiated WhatsApp message from the number, corroborated
+   against the known tenant/tenancy; or an in-person identity check where the tenant
+   shows the number in their own WhatsApp account settings. A name in message text,
+   an incoming ordinary phone call, possession of a portal PIN, or successful login
+   alone does not establish control of that WhatsApp account. Do not request PINs,
+   OTPs, passwords, unrelated chats or unnecessary identity-document copies.
+3. Preserve the minimum evidence in the existing approved private record/document
+   location. In "Verify WhatsApp number ownership", enter its real reference and
+   actual event date/time, explain the identity/number check, tick the confirmation
+   and save. Reference and reason each require 10–500 characters. The audit records
+   the reviewing Admin and save time; include the original evidence time in the
+   reference/reason rather than treating save time as when consent was obtained.
+4. Ask separately for explicit, voluntary consent to DEKEZ rental-payment reminders
+   on the same exact number, explaining the approved purpose and contact frequency.
+   For the proposed cadence, explain 7 days before, due date and at most one daily
+   overdue reminder while a verified balance remains, plus STOP/Management opt-out.
+   Do not present proposed cadence or notice wording as already legally approved.
+   Record the tenant's actual affirmative statement and date, not an Admin's
+   assumption, an unsigned clause, silence or a pre-ticked box. Keep it in the
+   approved private evidence record; use its reference in "Record explicit
+   rental-reminder consent", explain the scope, confirm and save. Ownership must
+   already be verified. Do not condition physical access on WhatsApp consent.
+5. If consent is missing, declined or unclear, leave unknown/opted-out and use only
+   another properly authorized contact method. Record a STOP or opt-out received
+   anywhere immediately using "Record opt-out / STOP received elsewhere"; do not
+   argue or continue reminders while seeking clarification. Authenticated STOP
+   intake will suppress the number automatically once separately activated. START
+   only requests review: it does not remove suppression. "Review fresh consent
+   after an opt-out" needs new documented ownership/consent evidence and review of
+   any independent legal, dispute or communication hold; clearing one hold does not
+   clear the others. Report any saving/intake failure to Admin and keep sending off.
+6. Rosley may collect evidence, report contact problems and propose a corrected
+   number; this is not permission to change login credentials or approve consent
+   on someone else's behalf. An authorized Admin must use the EXISTING approved
+   account-update workflow for a real phone correction, keeping the same user
+   identity. Refresh the reminder record afterward, recheck current tenancy/room
+   and number uniqueness, then record fresh ownership and consent for the new
+   number. Never copy the old number's approval or automatically alter a login.
+
+Rosley's fixed management-digest number also needs separate real ownership and
+voluntary digest-consent evidence. The recipient-review control does not grant
+general Reports access or tenant-reminder access. No evidence gathering step here
+authorizes an unsolicited outbound verification or reminder message.
+
+Exact activation order — separate approval at each live-change boundary
+----------------------------------------------------------------------
+A. Complete and document the release review, current production compatibility,
+   recovery point, exact migration hash and final tests. Obtain explicit approval
+   for the migration plus a DISABLED application release. Apply only that reviewed
+   migration, verify history/grants, and deploy through the normal workflow with
+   all four DEKEZ_COLLECTION_* flags false and all private company gates false.
+   Do not add the eighth cron or create consent records merely to pass verification.
+B. Record the required content/cadence, signed-agreement, privacy and access-safety
+   clearances described above. Collect evidence using the simple workflow; resolve
+   source exceptions through existing authorized processes. These are operational
+   reviews, not a newly asserted legal/policy clearance from this document.
+C. Obtain separate approval for secure INBOUND-ONLY setup. Create the dedicated
+   webhook secret privately, preserve current channel subscriptions, register the
+   authenticated callback and activate only DEKEZ_COLLECTION_INTAKE_ENABLED.
+   Keep POLICY_ENABLED, SEND_ENABLED and FAILURE_REPORT_ENABLED false and do not
+   add the new cron. Verify sender/channel checks, STOP and receipts safely without
+   a tenant outbound send; any live inbound verification needs explicit scope and
+   cooperation. Never use a callback test to trigger a payment reminder.
+D. Finish legacy sender handover: drain existing requests, prevent old deployment
+   URLs/manual invocations from running the previous sender, reconcile same-day
+   and uncertain outcomes, and document the handover. Verify the seven existing
+   crons, 20:00 report and reporting-command callback remain unchanged. Do not
+   roll back to a version that restores rent chasing or arrears-based suspension.
+E. Produce a FRESH read-only eligible batch with exact recipients, current verified
+   balances, pending/settled/checked-out exclusions, holds, consent and message
+   text. Have Management approve that batch, the first scheduled date and pacing.
+   The 27 October snapshot is not approval for a later batch. Confirm the bounded
+   worker can finish safely; do not hide omitted/unresolved cases or blind retries.
+F. Only with explicit activation approval, perform the separately reviewed operator
+   change for private enabled/compliance_approved/opt_out_ready/
+   legacy_handover_complete gates. There is no company-activation write control
+   in the current Admin review form. Enable only the approved policy/send switches;
+   enable the Rosley digest switch only if its separate recipient evidence and
+   digest approval are complete. Keep intake active and existing secrets unchanged.
+   Append exactly ONE eighth cron: /api/rental-collections, "0 1 * * *" UTC
+   (09:00 Asia/Kuala_Lumpur). Preserve all seven existing entries and schedules,
+   including the 20:00 management report. Use the normal approved deployment so
+   environment changes take effect; verify Ready, registration and safe read-only
+   smoke checks without manually invoking the sender.
+G. Let the first approved 09:00 scheduled run execute; review its reservations,
+   delivery receipts, incomplete cases and summary. Do not catch up a missed date
+   or reuse a completed/expired worker. Any send outside the current window needs
+   a separately reviewed recipient/message-bound one-time mechanism and explicit
+   approval, not a clock change, direct provider call or security bypass.
+
+The above is a runbook only. No approval, live setup, migration, consent evidence,
+send authorization or production change is asserted to have occurred here.
+
 Rollback and evidence preservation
 ----------------------------------
 Under authorized rollback, disable private gates first to block fresh claims and
@@ -283,14 +387,24 @@ migration/dependency check. Do not restore automatic physical-access enforcement
 
 Final local checks — 27 October 2026
 ------------------------------------
-Full automated suite: 931/931 PASS, no skips. Production build (including the
+Full automated suite after the simplified consent workflow: 941/941 PASS, no skips.
+The ten added workflow tests cover queue grouping, bounded pagination, escaping,
+read-only task cards, genuine consent guidance, unselected evidence controls and
+fresh authorization. Rent Due Tracker's original non-layout fingerprint remains
+unchanged after excluding only the exact new role-limited follow-up link.
+Production build (including the
 existing prebuild gates): PASS. TypeScript --noEmit: PASS. npm audit: zero known
-vulnerabilities. Independent native PostgreSQL: 25/25 PASS on the migration hash
-above; 14 real lock waits. Send-path and digest focused tests: 54/54 PASS, including
+vulnerabilities. Earlier independent native PostgreSQL evidence remains 25/25 PASS
+on the unchanged migration hash above; 14 real lock waits. Those native sessions
+were not rerun for this presentation-only addition. Earlier send-path and digest
+focused tests: 54/54 PASS, including
 the shared runtime deadline and bounded RPC requests. All seven cron definitions
 compare equal to origin/main. No lint script is configured; no lint pass is claimed.
 No production migration, release, provider call, consent record or message was
 created. Private action lists and exact message previews remain local artifacts,
 not committed to GitHub. Browser screenshot verification was unavailable; fixture
 UI render/access tests passed, not a live browser or provider end-to-end test.
+The new local consent-workflow.html guide contains no live mutation controls.
+The last production coverage snapshot remains 27 October 2026, 17:51 Malaysia;
+this workflow-only update did not refresh production figures or create evidence.
 Final recommendation: BLOCKED for activation until the prerequisites above pass.

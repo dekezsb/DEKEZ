@@ -6,6 +6,7 @@ import { formatCollectionMessage } from "@/lib/rental-collection/model";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ContactReview } from "./contact-review";
 import { tenantReminderRecipient } from "@/lib/rental-collection/recipient";
+import { ReminderConsentGuide } from "./consent-guide";
 
 export const dynamic = "force-dynamic";
 
@@ -219,6 +220,7 @@ export default async function RentalRemindersPage({ searchParams }: { searchPara
       <p className="mt-2 text-sm text-gray-600">Private rental payment reminder review and evidence-backed contact administration. This page never sends messages, changes balances or activates the schedule.</p>
       <div className="mt-3 flex flex-wrap gap-3"><a className={linkClass} href="/admin-setup">Admin setup</a><a className={linkClass} href="/admin-setup/management-report">Daily Management Report</a><a className={linkClass} href="/rent-due-tracker/reminder-followups">Consolidated contact follow-ups</a></div>
     </div>
+    <ReminderConsentGuide canReview />
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
       Day 7 is an internal account review. Day 14 is a formal termination review, not a termination notice or eviction. No physical access, utilities or tenancy dates may be changed by this reminder process.
     </div>

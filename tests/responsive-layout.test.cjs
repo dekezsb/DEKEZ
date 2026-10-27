@@ -6,7 +6,15 @@ test('Claims approved batch loading and Rent Due Tracker retain reviewed non-lay
  // Original queries and rendered controls remain fingerprinted separately below.
  const baseline={'app/claims/page.tsx':'c8f59e04db573b5ec3d8c21b4e58bc364592de9ab77e7c7c577fada111f40f9b','app/rent-due-tracker/page.tsx':'83b73eef7f3f97e2b9770c8e7c6fd64a6fd67756e972962778d86c5d73e38105'};
  for(const f of ['app/claims/page.tsx','app/rent-due-tracker/page.tsx']){
- assert.equal(crypto.createHash('sha256').update(withoutClasses(read(f))).digest('hex'),baseline[f],f);
+ let source=read(f);
+ if(f==='app/rent-due-tracker/page.tsx'){
+  // Only the reviewed, role-limited reminder-worklist link is additive in PR #32.
+  // Keep the original fingerprint for every existing query, calculation and control.
+  const link='{canUploadSlip ? <Link href="/rent-due-tracker/reminder-followups" className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-3 text-sm">Reminder follow-ups · phone / consent / payment review</Link> : null}';
+  assert.equal(source.split(link).length,2,'exactly one approved worklist link');
+  source=source.replace(/\r\n/g,'\n').replace(`          ${link}\n`,'');
+ }
+ assert.equal(crypto.createHash('sha256').update(withoutClasses(source)).digest('hex'),baseline[f],f);
  }
 });
 
