@@ -140,6 +140,8 @@ create table dekez_collections_private.failure_reports (
  latest_snapshot jsonb not null,
  state text not null default 'sending' check(state in ('sending','accepted','rejected','uncertain')),
  provider_message_id text check(provider_message_id ~ '^[A-Za-z0-9._-]{1,200}$'),
+ delivery_state text not null default 'unconfirmed' check(delivery_state in ('unconfirmed','sent','delivered','read','failed','unknown','conflict')),
+ delivery_updated_at timestamptz,
  http_status integer check(http_status between 100 and 599),
  error_code text check(error_code in ('provider_rejected','delivery_uncertain','worker_interrupted')),
  created_at timestamptz not null default clock_timestamp(),
@@ -149,6 +151,9 @@ create table dekez_collections_private.failure_reports (
  check(state<>'accepted' or (provider_message_id is not null and http_status between 200 and 299 and error_code is null)),
  check((state='sending')=(finished_at is null))
 );
+-- Provider message identity cannot be reused across report dates or companies.
+-- Exact company/recipient checks still apply when ingesting its receipt.
+create unique index failure_reports_provider_idx on dekez_collections_private.failure_reports(provider_message_id) where provider_message_id is not null;
 create table dekez_collections_private.worker_runs (
  company_id uuid not null references public.companies(id),
  report_date date not null,
@@ -166,7 +171,7 @@ create table dekez_collections_private.worker_runs (
 create table dekez_collections_private.audit (
  id uuid primary key default gen_random_uuid(),
  company_id uuid not null references public.companies(id),
- action text not null check(action in ('case_checked','review_escalated','delivery_claimed','delivery_finished','contact_reviewed','contact_event','delivery_receipt','failure_recipient_reviewed','failure_report_claimed','failure_report_finished','failure_report_draft_updated','worker_started','worker_finished','followup_resolved')),
+ action text not null check(action in ('case_checked','review_escalated','delivery_claimed','delivery_finished','contact_reviewed','contact_event','delivery_receipt','failure_recipient_reviewed','failure_report_claimed','failure_report_finished','failure_report_receipt','failure_report_draft_updated','worker_started','worker_finished','followup_resolved')),
  record_id text not null,
  recorded_at timestamptz not null default clock_timestamp(),
  details jsonb not null default '{}'
@@ -430,6 +435,14 @@ begin
  if d is distinct from (clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date or k is null then raise exception 'Invalid collection snapshot'; end if;
  perform pg_advisory_xact_lock(hashtextextended('collection-case:'||c::text||':'||k,0));
  select snapshot into previous_snapshot from dekez_collections_private.daily_cases where company_id=c and tenant_key=k and report_date=d;
+ -- A duplicate scan must not erase a formatter task for the same exact source.
+ -- A genuinely changed source is checked again normally; no financial field changes.
+ if previous_snapshot->>'fingerprint' is not null and previous_snapshot->>'fingerprint'=p_snapshot->>'fingerprint'
+  and coalesce(previous_snapshot->'delivery_blocks','[]'::jsonb) ? 'message_review_required'
+  and not (coalesce(p_snapshot->'delivery_blocks','[]'::jsonb) ? 'message_review_required') then
+  p_snapshot:=p_snapshot||jsonb_build_object('send_eligible',false,'delivery_blocks',
+   coalesce(p_snapshot->'delivery_blocks','[]'::jsonb)||jsonb_build_array('message_review_required'));
+ end if;
  insert into dekez_collections_private.daily_cases(company_id,tenant_key,report_date,tenant_id,stage,outstanding,snapshot)
  values(c,k,d,(p_snapshot->>'tenant_id')::uuid,p_snapshot->>'stage',(p_snapshot->>'outstanding')::numeric,p_snapshot)
  on conflict(company_id,tenant_key,report_date) do update set stage=excluded.stage,outstanding=excluded.outstanding,snapshot=excluded.snapshot,last_checked_at=clock_timestamp();
@@ -536,6 +549,26 @@ begin
  perform dekez_collections_private.track(s);
  if not dekez_collections_private.worker_active(p_company) then return jsonb_build_object('claimed',false,'state','worker_expired'); end if;
  return dekez_collections_private.claim(s,p_body);
+end $$;
+
+-- Fixed-purpose runtime exception: no caller body, recipient, balance or reason.
+-- Retain the existing daily task and mandatory reviews without reserving a send.
+create function public.dekez_collection_record_message_hold(p_company uuid,p_key text,p_fingerprint text) returns jsonb
+language plpgsql security invoker set search_path='' set statement_timeout='20s' set lock_timeout='5s' as $$
+declare s jsonb;
+begin
+ if current_user<>'service_role' then raise insufficient_privilege; end if;
+ if not dekez_collections_private.worker_active(p_company) then return jsonb_build_object('state','withheld'); end if;
+ if p_key is null or length(p_key) not between 1 and 80 then raise exception 'Invalid collection key'; end if;
+ perform pg_advisory_xact_lock(hashtextextended('collection-case:'||p_company::text||':'||p_key,0));
+ select x into s from public.dekez_collection_source(p_company,clock_timestamp()) x where x->>'key'=p_key;
+ if s is null then return jsonb_build_object('state','not_found'); end if;
+ if s->>'fingerprint' is distinct from p_fingerprint then return jsonb_build_object('state','source_changed'); end if;
+ if not coalesce((s->>'send_eligible')::boolean,false) or not dekez_collections_private.worker_active(p_company)
+  then return jsonb_build_object('state','withheld'); end if;
+ perform dekez_collections_private.track(s||jsonb_build_object('send_eligible',false,'delivery_blocks',
+  coalesce(s->'delivery_blocks','[]'::jsonb)||jsonb_build_array('message_review_required')));
+ return jsonb_build_object('state','recorded');
 end $$;
 
 create function dekez_collections_private.finish(p_attempt uuid,p_state text,p_provider_id text,p_http_status integer,p_error text) returns void
@@ -746,6 +779,30 @@ begin
  end if;
  return result;
 end $$;
+-- The same authenticated receipt stream also tracks the single management digest.
+-- HTTP acceptance is not delivery. Receipt facts never reopen a daily reservation.
+create function dekez_collections_private.apply_failure_receipts(p_attempt uuid) returns text
+language plpgsql security definer set search_path='' set row_security=on as $$
+declare a dekez_collections_private.failure_reports; result text; has_failure boolean; has_delivery boolean; has_read boolean; has_sent boolean; has_unknown boolean;
+begin
+ if current_setting('role',true) is distinct from 'service_role' then raise insufficient_privilege; end if;
+ select * into a from dekez_collections_private.failure_reports where id=p_attempt for update;
+ if a.id is null then return 'unmatched'; end if;
+ select coalesce(bool_or(kind='failed'),false),coalesce(bool_or(kind in ('delivered','read')),false),coalesce(bool_or(kind='read'),false),
+  coalesce(bool_or(kind='sent'),false),coalesce(bool_or(kind='unknown'),false)
+ into has_failure,has_delivery,has_read,has_sent,has_unknown
+ from dekez_collections_private.provider_events where channel='FALCON-D9NS9' and company_id=a.company_id
+  and provider_message_id=a.provider_message_id and recipient=a.recipient
+  and occurred_at>=a.created_at-interval '5 minutes' and kind not in ('stop','start');
+ result:=case when has_failure and has_delivery then 'conflict' when has_read then 'read' when has_delivery then 'delivered'
+  when has_failure then 'failed' when has_sent then 'sent' when has_unknown then 'unknown' else 'unconfirmed' end;
+ if result is distinct from a.delivery_state then
+  update dekez_collections_private.failure_reports set delivery_state=result,delivery_updated_at=clock_timestamp() where id=a.id;
+  insert into dekez_collections_private.audit(company_id,action,record_id,details) values(a.company_id,'failure_report_receipt',a.id::text,
+   jsonb_build_object('previous',a.delivery_state,'current',result));
+ end if;
+ return result;
+end $$;
 create function dekez_collections_private.ingest_receipt(p_company uuid,p_channel text,p_event_id text,p_provider_message_id text,p_recipient text,p_status text,p_occurred_at timestamptz) returns jsonb
 language plpgsql security definer set search_path='' set row_security=on set lock_timeout='5s' as $$
 declare inserted text; attempt uuid; result text;
@@ -768,8 +825,13 @@ begin
   return jsonb_build_object('state','duplicate');
  end if;
  select id into attempt from dekez_collections_private.attempts where company_id=p_company and provider_message_id=p_provider_message_id and recipient=p_recipient;
- if attempt is null then return jsonb_build_object('state','unmatched','delivery_state','unconfirmed'); end if;
- result:=dekez_collections_private.apply_receipts(attempt);
+ if attempt is not null then
+  result:=dekez_collections_private.apply_receipts(attempt);
+ else
+  select id into attempt from dekez_collections_private.failure_reports where company_id=p_company and provider_message_id=p_provider_message_id and recipient=p_recipient;
+  if attempt is null then return jsonb_build_object('state','unmatched','delivery_state','unconfirmed'); end if;
+  result:=dekez_collections_private.apply_failure_receipts(attempt);
+ end if;
  return jsonb_build_object('state','recorded','delivery_state',result);
 end $$;
 create function public.dekez_collection_ingest_receipt(p_company uuid,p_channel text,p_event_id text,p_provider_message_id text,p_recipient text,p_status text,p_occurred_at timestamptz) returns jsonb
@@ -933,12 +995,21 @@ begin
    'reason_code',coalesce(c.snapshot->'exceptions'->>0,c.snapshot->'delivery_blocks'->>0,'source_exception'),'resolved_at',null)
   from latest c where not coalesce((c.snapshot->>'resolved')::boolean,false)
    and (jsonb_array_length(c.snapshot->'exceptions')>0 or jsonb_array_length(c.snapshot->'delivery_blocks')>0)
- ), page as(select * from all_rows where p_after is null or key>p_after order by key limit p_limit)
+ ), page as(select * from all_rows where p_after is null or key>p_after order by key limit p_limit),
+ digests as(select r.report_date,r.state,r.delivery_state,r.error_code,
+  coalesce(r.delivery_updated_at,r.finished_at,r.created_at) updated_at,
+  r.state in ('rejected','uncertain') or r.delivery_state in ('failed','unknown','conflict')
+   or (r.delivery_state not in ('delivered','read') and r.created_at<clock_timestamp()-interval '30 minutes') needs_admin_review
+  from dekez_collections_private.failure_reports r where r.company_id=p_company),
+ digest_alerts as(select * from digests where needs_admin_review order by report_date desc limit 25)
  select jsonb_build_object('items',coalesce((select jsonb_agg(to_jsonb(page) order by key) from page),'[]'::jsonb),
   'next_cursor',case when (select count(*) from page)=p_limit then (select max(key) from page) end,
   'total',(select count(*) from all_rows),'evidence_hash',md5(coalesce((select jsonb_agg(to_jsonb(all_rows) order by key)::text from all_rows),'[]')),
   'daily_reservation',coalesce((select case when state='accepted' then 'sent' else 'reserved' end from dekez_collections_private.failure_reports
-   where company_id=p_company and report_date=(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date),'not_reserved')) into result;
+   where company_id=p_company and report_date=(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date),'not_reserved'),
+  'digest_status',(select to_jsonb(d) from digests d where d.report_date=(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date),
+  'digest_alerts',coalesce((select jsonb_agg(to_jsonb(a) order by report_date desc) from digest_alerts a),'[]'::jsonb),
+  'digest_alert_count',(select count(*) from digests where needs_admin_review)) into result;
  return result;
 end $$;
 create function public.dekez_collection_failure_evidence(p_company uuid,p_after text default null,p_limit integer default 100) returns jsonb
@@ -1014,12 +1085,15 @@ begin
   or (p_state='accepted' and (p_provider_id is null or p_provider_id !~ '^[A-Za-z0-9._-]{1,200}$' or p_http_status is null or p_http_status not between 200 and 299 or p_error is not null))
   or (p_state='rejected' and p_error is distinct from 'provider_rejected')
   or (p_state='uncertain' and (p_error is null or p_error not in ('delivery_uncertain','worker_interrupted'))) then raise exception 'Invalid consolidated report outcome'; end if;
+ -- Match receipt-ingestion lock order, including callbacks preceding HTTP finish.
+ if p_provider_id is not null then perform pg_advisory_xact_lock(hashtextextended('dekez-receipt:'||p_provider_id,0)); end if;
  select * into r from dekez_collections_private.failure_reports where id=p_attempt for update;
  if r.id is null then raise exception 'Unknown consolidated report'; end if;
  if r.state=p_state and r.provider_message_id is not distinct from p_provider_id and r.http_status is not distinct from p_http_status and r.error_code is not distinct from p_error then return; end if;
  if r.state<>'sending' then raise exception 'Consolidated report already finalized'; end if;
  update dekez_collections_private.failure_reports set state=p_state,provider_message_id=p_provider_id,http_status=p_http_status,error_code=p_error,finished_at=clock_timestamp() where id=r.id;
  insert into dekez_collections_private.audit(company_id,action,record_id,details) values(r.company_id,'failure_report_finished',r.id::text,jsonb_build_object('state',p_state));
+ if p_provider_id is not null then perform dekez_collections_private.apply_failure_receipts(r.id); end if;
 end $$;
 create function public.dekez_collection_failure_finish(p_attempt uuid,p_state text,p_provider_id text default null,p_http_status integer default null,p_error text default null) returns void
 language plpgsql security invoker set search_path='' as $$
@@ -1065,7 +1139,7 @@ do $grants$ declare f record; begin
   execute format('alter function %s owner to dekez_collection_executor',f.signature);
  end loop;
  for f in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-  where n.nspname='public' and p.proname in ('dekez_collection_source','dekez_collection_preview','dekez_collection_track','dekez_collection_scan','dekez_collection_claim','dekez_collection_finish','dekez_collection_history','dekez_collection_assert_admin','dekez_collection_review_contact','dekez_collection_ingest_contact_event','dekez_collection_ingest_receipt','dekez_collection_begin_run','dekez_collection_finish_run','dekez_collection_failure_recipient','dekez_collection_review_failure_recipient','dekez_collection_failure_evidence','dekez_collection_failure_claim','dekez_collection_failure_finish','dekez_collection_resolve_followup') loop
+  where n.nspname='public' and p.proname in ('dekez_collection_source','dekez_collection_preview','dekez_collection_track','dekez_collection_scan','dekez_collection_claim','dekez_collection_record_message_hold','dekez_collection_finish','dekez_collection_history','dekez_collection_assert_admin','dekez_collection_review_contact','dekez_collection_ingest_contact_event','dekez_collection_ingest_receipt','dekez_collection_begin_run','dekez_collection_finish_run','dekez_collection_failure_recipient','dekez_collection_review_failure_recipient','dekez_collection_failure_evidence','dekez_collection_failure_claim','dekez_collection_failure_finish','dekez_collection_resolve_followup') loop
   execute format('revoke all on function %s from public,anon,authenticated,service_role',f.signature);
   execute format('grant execute on function %s to service_role',f.signature);
  end loop;

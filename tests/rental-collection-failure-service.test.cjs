@@ -172,3 +172,14 @@ test('missing scope or malformed evidence produces safe errors without database 
     options.rpc=()=>result;await assert.rejects(()=>service().collectionFailurePreview(now),/^Error: Reminder follow-up evidence is unavailable\.$/);
   }assert.equal(sends.length,0);
 });
+
+test('digest monitoring metadata is exposed only to the authorized portal preview, never the WhatsApp body',async()=>{
+ process.env.DEKEZ_REPORT_COMPANY_ID=id(1);
+ const digest={report_date:day,state:'accepted',delivery_state:'failed',error_code:null,updated_at:null,needs_admin_review:true};
+ options.rpc=(name,args)=>name==='dekez_collection_failure_evidence'?{error:null,data:{...evidencePage(),digest_status:digest,digest_alerts:[digest],digest_alert_count:1}}:standardRpc(name,args);
+ const portal=await service().collectionFailurePreview(now,true);
+ assert.equal(portal.digestStatusAvailable,true);assert.deepEqual(portal.digestStatus,digest);assert.equal(portal.digestAlertCount,1);assert.deepEqual(portal.digestAlerts,[digest]);
+ const outgoing=await service().collectionFailurePreview(now,false);
+ assert.equal(outgoing.digestStatus,null);assert.equal(outgoing.digestStatusAvailable,false);assert.deepEqual(outgoing.digestAlerts,[]);assert.equal(outgoing.digestAlertCount,0);
+ assert.equal(portal.body,outgoing.body);assert.equal(sends.length,0);
+});

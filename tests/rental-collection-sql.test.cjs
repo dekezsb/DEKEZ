@@ -39,7 +39,7 @@ test('forced RLS and function-only private data access deny all portal and direc
    assert.equal((await db.query('select has_table_privilege($1,$2,$3) ok',[role,'dekez_collections_private.'+table,privilege])).rows[0].ok,false,role+table+privilege);
  }
  const functions=(await db.query("select p.oid,p.proname,p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) owner,n.nspname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='dekez_collections_private' or (n.nspname='public' and p.proname like 'dekez_collection_%')")).rows;
- assert.equal(functions.length,38);
+ assert.equal(functions.length,40);
  for(const f of functions){
   assert.ok(f.proconfig.includes('search_path=""'));
   assert.equal(f.prosecdef,f.nspname==='dekez_collections_private');
@@ -421,6 +421,74 @@ test('management digest reserves once per date, preserves sent body and only upd
  await assert.rejects(rpc('dekez_collection_failure_finish',[a.attempt_id,'accepted','retry',200,null]),/already finalized/);
 });
 
+const reserveDigest=async()=>{
+ await managerFixture();await db.bill();await enable();await reviewManager('verify_ownership');await reviewManager('record_opt_in');await runFixture();
+ const e=await evidence();
+ return privateRpc('failure_claim',[id(1),e.fingerprint,'Synthetic consolidated report',JSON.stringify(digestSnapshot(e,true)),JSON.stringify(e.recipient_authorization)]);
+};
+
+test('management digest HTTP acceptance is not delivered and failed receipt creates sanitized Admin alert once',async()=>{
+ const a=await reserveDigest();
+ await rpc('dekez_collection_failure_finish',[a.attempt_id,'accepted','rosley-provider',200,null]);
+ let e=await evidence();assert.equal(e.digest_status.state,'accepted');assert.equal(e.digest_status.delivery_state,'unconfirmed');assert.equal(e.digest_status.needs_admin_review,false);
+ assert.equal(e.digest_alert_count,0);assert.deepEqual(e.digest_alerts,[]);
+ const failed=await receipt('rosley-provider','failed','rosley-failed','60188702371');assert.equal(failed.delivery_state,'failed');
+ e=await evidence();assert.equal(e.digest_status.delivery_state,'failed');assert.equal(e.digest_status.needs_admin_review,true);assert.equal(e.digest_alert_count,1);assert.equal(e.digest_alerts.length,1);
+ assert.deepEqual(Object.keys(e.digest_alerts[0]).sort(),['delivery_state','error_code','needs_admin_review','report_date','state','updated_at'].sort());
+ assert.equal((await receipt('rosley-provider','failed','rosley-failed','60188702371')).state,'duplicate');
+ assert.equal((await db.query("select count(*) n from dekez_collections_private.audit where action='failure_report_receipt'")).rows[0].n,1);
+ assert.equal((await evidence()).daily_reservation,'sent');
+ assert.equal((await db.query('select count(*) n from dekez_collections_private.failure_reports')).rows[0].n,1);
+});
+
+test('digest receipts require exact company, recipient and provider ID and do not leak other company alerts',async()=>{
+ const a=await reserveDigest();await rpc('dekez_collection_failure_finish',[a.attempt_id,'accepted','rosley-scoped',200,null]);
+ for(const [provider,phone,company,event] of [['rosley-scoped','60191111111',id(1),'wrong-phone'],['rosley-scoped','60188702371',id(2),'wrong-company'],['different-provider','60188702371',id(1),'wrong-provider']]){
+  assert.equal((await receipt(provider,'failed',event,phone,company)).state,'unmatched');
+ }
+ assert.equal((await evidence()).digest_status.delivery_state,'unconfirmed');
+ await receipt('rosley-scoped','failed','right-scope','60188702371');
+ const other=await rpc('dekez_collection_failure_evidence',[id(2),null,100]);
+ assert.equal(other.digest_status,null);assert.equal(other.digest_alert_count,0);assert.deepEqual(other.digest_alerts,[]);
+ assert.equal((await evidence()).digest_alert_count,1);
+});
+
+test('a reused management provider ID fails closed across dates without rewriting either delivery ledger',async()=>{
+ const first=await reserveDigest();await rpc('dekez_collection_failure_finish',[first.attempt_id,'accepted','rosley-unique',200,null]);
+ const second=(await db.query(`insert into dekez_collections_private.failure_reports(company_id,report_date,recipient,fingerprint,snapshot,message_body,latest_snapshot)
+ values($1,(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-1,'60188702371','synthetic','{}','Synthetic previous date','{}') returning id`,[id(1)])).rows[0];
+ const before=(await db.query('select id,state,provider_message_id,message_body,finished_at,delivery_state from dekez_collections_private.failure_reports order by id')).rows;
+ await assert.rejects(rpc('dekez_collection_failure_finish',[second.id,'accepted','rosley-unique',200,null]),/duplicate key value violates unique constraint/);
+ assert.deepEqual((await db.query('select id,state,provider_message_id,message_body,finished_at,delivery_state from dekez_collections_private.failure_reports order by id')).rows,before);
+ assert.equal((await db.query("select count(*) n from dekez_collections_private.audit where action='failure_report_finished'")).rows[0].n,1);
+ await receipt('rosley-unique','failed','rosley-unique-failure','60188702371');
+ assert.equal((await db.query('select delivery_state from dekez_collections_private.failure_reports where id=$1',[first.attempt_id])).rows[0].delivery_state,'failed');
+ assert.equal((await db.query('select delivery_state from dekez_collections_private.failure_reports where id=$1',[second.id])).rows[0].delivery_state,'unconfirmed');
+});
+
+test('early digest receipt is reconciled at HTTP finish and conflicting receipts remain review-only',async()=>{
+ const a=await reserveDigest();
+ assert.equal((await receipt('rosley-early','delivered','rosley-delivered-early','60188702371')).state,'unmatched');
+ await rpc('dekez_collection_failure_finish',[a.attempt_id,'accepted','rosley-early',200,null]);
+ let e=await evidence();assert.equal(e.digest_status.delivery_state,'delivered');assert.equal(e.digest_alert_count,0);
+ await receipt('rosley-early','failed','rosley-later-failed','60188702371');
+ e=await evidence();assert.equal(e.digest_status.delivery_state,'conflict');assert.equal(e.digest_alert_count,1);
+ assert.equal((await privateRpc('failure_claim',[id(1),e.fingerprint,'No retry',JSON.stringify(digestSnapshot(e,true)),JSON.stringify(e.recipient_authorization)])).claimed,false);
+ assert.equal((await db.query('select message_body from dekez_collections_private.failure_reports')).rows[0].message_body,'Synthetic consolidated report');
+});
+
+test('digest rejected, uncertain and stale unconfirmed sends remain visible without false failed-delivery claims',async()=>{
+ const a=await reserveDigest();
+ await rpc('dekez_collection_failure_finish',[a.attempt_id,'uncertain',null,null,'delivery_uncertain']);
+ let e=await evidence();assert.equal(e.digest_status.delivery_state,'unconfirmed');assert.equal(e.digest_status.needs_admin_review,true);
+ assert.equal(e.digest_alert_count,1);assert.equal(e.digest_alerts[0].state,'uncertain');
+ // A separate historical synthetic record proves unresolved alerts persist past midnight.
+ await db.query(`insert into dekez_collections_private.failure_reports(company_id,report_date,recipient,fingerprint,snapshot,message_body,latest_snapshot,created_at)
+ values($1,(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-1,'60188702371','synthetic','{}','Synthetic prior interrupted report','{}',clock_timestamp()-interval '1 day')`,[id(1)]);
+ e=await evidence();assert.equal(e.digest_alert_count,2);assert.equal(e.digest_alerts[1].state,'sending');assert.equal(e.digest_alerts[1].delivery_state,'unconfirmed');
+ assert.equal(e.digest_alerts[1].needs_admin_review,true);
+});
+
 test('digest never bypasses consent or review completion; revoked PII access permits exact generic notice only',async()=>{
  await managerFixture();await db.bill();await enable();let e=await evidence();
  const claim=(body,snap=digestSnapshot(e,false))=>privateRpc('failure_claim',[id(1),e.fingerprint,body,JSON.stringify(snap),JSON.stringify(e.recipient_authorization)]);
@@ -440,6 +508,34 @@ test('worker reservation expires without automatic replacement and terminal outc
  await rpc('dekez_collection_finish_run',[token,'incomplete']);await rpc('dekez_collection_finish_run',[token,'incomplete']);
  await assert.rejects(rpc('dekez_collection_finish_run',[token,'complete']),/already finalized/);
  assert.equal((await db.query('select count(*) n from dekez_collections_private.worker_runs')).rows[0].n,1);
+});
+
+test('fixed formatter hold needs active worker, exact company and fresh eligible source; no message or balance write',async()=>{
+ await db.bill();await enable();let item=await currentItem();
+ const args=[id(1),item.key,item.fingerprint];
+ assert.equal((await rpc('dekez_collection_record_message_hold',args)).state,'withheld');
+ await runFixture('running');
+ assert.equal((await rpc('dekez_collection_record_message_hold',[id(2),item.key,item.fingerprint])).state,'withheld');
+ assert.equal((await rpc('dekez_collection_record_message_hold',[id(1),id(999),item.fingerprint])).state,'not_found');
+ assert.equal((await rpc('dekez_collection_record_message_hold',[id(1),item.key,'forged'])).state,'source_changed');
+ const bills=(await db.query('select * from rent_bills')).rows;
+ assert.equal((await rpc('dekez_collection_record_message_hold',args)).state,'recorded');
+ assert.equal((await rpc('dekez_collection_record_message_hold',args)).state,'recorded');
+ await rpc('dekez_collection_scan',[id(1)]);
+ let history=await rpc('dekez_collection_history',[id(1),item.report_date,null,50]);
+ assert.equal(history.items[0].snapshot.send_eligible,false);
+ assert.deepEqual(history.items[0].snapshot.delivery_blocks,['message_review_required']);
+ assert.equal(history.new_day_7_reviews,1);assert.equal(history.new_day_14_reviews,1);
+ assert.equal((await evidence()).items.find(x=>x.kind==='case').data.reason_code,'message_review_required');
+ assert.equal((await db.query('select count(*) n from dekez_collections_private.attempts')).rows[0].n,0);
+ assert.equal((await db.query("select count(*) n from dekez_collections_private.audit where action='case_checked'")).rows[0].n,1);
+ assert.deepEqual((await db.query('select * from rent_bills')).rows,bills);
+ await db.query('update rent_bills set amount=501');item=await currentItem();
+ assert.equal((await rpc('dekez_collection_record_message_hold',args)).state,'source_changed');
+ await rpc('dekez_collection_scan',[id(1)]);history=await rpc('dekez_collection_history',[id(1),item.report_date,null,50]);
+ assert.equal(history.items[0].snapshot.send_eligible,true);assert.deepEqual(history.items[0].snapshot.delivery_blocks,[]);
+ await db.query("update dekez_collections_private.contact_controls set hold='dispute'");item=await currentItem();
+ assert.equal((await rpc('dekez_collection_record_message_hold',[id(1),item.key,item.fingerprint])).state,'withheld');
 });
 
 test('documented Admin follow-up resolution preserves provider facts and never allows another send',async()=>{

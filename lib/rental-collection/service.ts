@@ -45,6 +45,8 @@ export async function collectionHistory(day = malaysiaReportDate(), after: strin
 }
 
 async function runRentalCollectionBatch(now: Date, deadline: number) {
+  // These are standing activation/policy gates, not per-day approval tokens.
+  // Each scheduled run scans fresh data and claims only currently eligible rows.
   const config = collectionConfig();
   if (!config.policyEnabled || !config.scopeReady) return {state: "disabled"};
   if (!isCollectionTime(now)) return {state: "outside_window"};
@@ -73,8 +75,19 @@ async function runRentalCollectionBatch(now: Date, deadline: number) {
       // Bounded, sequential transport. Never launch an unbounded fan-out. A
       // partial batch is explicit, not retried automatically; all cases were tracked.
       if (!collectionHasBudget(deadline, TENANT_CLAIM_RESERVE_MS)) return {state: "incomplete", reason: "budget_review_required", scan, counts};
-      const body = formatCollectionMessage(item);
-      if (!body) {counts.withheld++; continue;}
+      let body: string | null;
+      try {body = formatCollectionMessage(item);} catch {body = null;}
+      if (!body) {
+        // Retain a durable, narrowly scoped follow-up when a source is otherwise
+        // eligible but its consolidated message cannot safely be rendered/sent.
+        const {data: hold, error: holdError} = await collectionRpc(client.rpc("dekez_collection_record_message_hold", {
+          p_company: config.companyId, p_key: item.key, p_fingerprint: item.fingerprint,
+        }), deadline);
+        if (holdError || !hold || !["recorded", "source_changed", "withheld", "not_found"].includes(hold.state)) {
+          throw new Error("Message review could not be recorded. Check private history before retrying.");
+        }
+        counts.withheld++; continue;
+      }
       // Conservative sequential pacing; channel-specific limits still require
       // approval before activation. Recheck the source only AFTER this wait.
       if (counts.accepted > 0) await pace(1000);

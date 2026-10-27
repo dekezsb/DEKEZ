@@ -85,6 +85,7 @@ const holdLabels: Record<string, string> = {
   policy_disabled: "Polisi penghantaran belum diaktifkan", compliance_not_approved: "Semakan pematuhan belum diluluskan",
   opt_out_not_ready: "Pengendalian permintaan berhenti belum tersedia", provider_rejected: "Permintaan ditolak penyedia; sebab perlu disahkan",
   rate_limited: "Had kadar penyedia dicapai", channel_error: "Masalah saluran penyedia",
+  message_review_required: "Mesej peringatan tidak dapat disediakan dengan selamat — semakan Admin diperlukan; tiada penghantaran dicuba",
 };
 const invalidPhoneCodes = new Set(["invalid_phone", "recipient_requires_review", "login_phone_missing", "login_recipient_unverified"]);
 const communicationCodes = new Set(["whatsapp_ownership_unverified", "consent_missing", "consent_number_mismatch", "opted_out", "blocked_contact", "communication_hold", "shared_phone", "previous_tenant_or_room_mismatch", "policy_disabled", "compliance_not_approved", "opt_out_not_ready"]);

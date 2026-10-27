@@ -11,6 +11,38 @@ that batch later or weaken the real 09:00 Malaysia send window. A separate revie
 expiring, recipient/message-bound authorization is needed for any one-time send.
 Any proposed first scheduled date remains conditional on separate activation approval.
 
+Standing automation policy — no daily approval
+---------------------------------------------
+After initial production/policy activation, the authenticated 09:00 Malaysia cron
+runs unattended every day. There is NO daily approval token, batch-signoff screen
+or per-message Management approval requirement. The initial rollout preview and
+approval below are initial activation checks, not a recurring operational gate.
+The same standing policy covers newly eligible tenants after their genuine
+number-bound ownership/consent and source exceptions have been verified through
+authorized existing controls. Do not request another daily batch approval.
+
+Each day scans all relevant invoices and persists case/review history, recomputes
+verified balances and original invoice aging, then independently rechecks every
+claim. A tenant-specific consent/STOP, phone, payment, dispute, communication or
+source hold skips that tenant and remains in the Management worklist; other
+eligible tenants continue, including on later pages. Verified partial payments
+reduce only the outstanding amount, never reset the original due date. Day7 and
+Day14 internal review tasks remain mandatory; only humans may authorize legally
+significant restrictions, notices or termination decisions. No physical access or
+essential-service restriction is authorized by a reminder or review task.
+An unrenderable/oversized reminder records a source-fingerprint-bound Management
+follow-up without claiming a send, then continues with other eligible tenants.
+Repeated scans preserve that hold for the unchanged source. Failure to persist
+the follow-up is a global safety incident, not a silent skip.
+
+Human approval is retained for initial activation/policy, sensitive rule changes,
+genuine identity/consent/payment exceptions, Day7/14 decisions and legal notices
+or enforcement. A global database/provider/security failure, revoked company
+clearance, rate limit, uncertain send or exhausted runtime budget must still fail
+closed. This is an operational incident, not a routine daily approval requirement.
+Do not bypass unknown deliveries to claim uninterrupted service. Capacity/latency
+and monitoring must be cleared before promising the unattended production rollout.
+
 Current company source coverage — READ ONLY
 ------------------------------------------
 Snapshot: 27 October 2026, 17:51:27 MYT. This is not a live delivery roster.
@@ -193,31 +225,44 @@ rosters use one portal notice, not truncated or multiple WhatsApp messages.
 The legacy failed rent log was configuration-related, without provider message ID
 or linked tenant profile. It is NOT evidence of an invalid tenant WhatsApp account.
 No real new-engine failed-delivery roster exists before installation and live use.
+After activation the digest is automatic, not manually approved each day. Delivery
+receipts now also match the digest by exact company, fixed recipient and provider
+message ID, including callbacks arriving before HTTP completion. Rejected,
+uncertain, failed/conflicting/unknown or >30-minute unconfirmed outcomes appear as
+an authorized Admin Portal alert. The alert retains prior unresolved reports;
+the latest 25 dates and full alert count are shown without private message bodies.
+HTTP acceptance never means confirmed delivery. Alerts do not resend or reset the
+daily reservation. The thirty-minute value is an operational review threshold,
+not a provider delivery guarantee. If processing exhausts the shared runtime,
+the digest is withheld, not sent from an unsafe extra invocation; capacity remains
+an initial activation blocker until the full batch plus digest is proven to fit.
 
 Migration and security review
 -----------------------------
 20261027051603_rental_collection_review.sql — REVIEW ONLY; NOT APPLIED.
-SHA256: 660292b65cf85ab7f2468013290d49848a298bae9a7a4a9409c875906a01e836
+SHA256: e3f1dcb645f87743d550ba8e41b6b89982a3ba2fc06095aef9462de5fb777d3a
 Eleven private tables: controls, contact_controls, daily_cases, escalations,
 attempts, audit, provider_events, number_suppressions, failure_report_controls,
 failure_reports, worker_runs. All FORCE RLS; no direct anon/authenticated/service_role
 table access. Private NOLOGIN/NOINHERIT/NOBYPASSRLS executor has no business-table
 privileges. Private SECURITY DEFINER functions have empty search_path,
 row_security=on and role checks. Public wrappers are service-only SECURITY INVOKER.
-All 38 new functions revoke default public/ordinary-user EXECUTE. Fresh approved
+All 40 new functions revoke default public/ordinary-user EXECUTE. Fresh approved
 Admin/company/module checks protect evidence mutations; service credentials remain
 server-side. Existing business tables, RLS, records and accounting are unchanged.
 Migration transaction uses a five-second lock timeout and 30-second statement timeout.
 No default consent, scheduler registration, provider call or source-record update.
 
-Local SQL verification: 47/47 tests passed. Native PostgreSQL independent-session
-verification: 25/25 passed on the exact migration hash above, including 14 observed
-lock waits. Evidence: native-final-followup/native-results.json under the review
+Local SQL verification: 53/53 tests passed. Native PostgreSQL independent-session
+verification: 28/28 passed on the exact migration hash above, including 17 observed
+lock waits. Evidence: native-unattended-complete/native-results.json under the review
 artifacts. Separate PIDs prove claim/replay/rollback/lock-timeout behavior, STOP
 before/after claim, receipt races, consent withdrawal, Admin/company denial, worker
 uniqueness/expiry, Rosley claims/stale fingerprints/scope revocation and follow-up
-resolution with unchanged provider facts. This is synthetic localhost evidence.
-Tenant/digest runtime verification: 54/54 focused tests passed, including one shared
+resolution with unchanged provider facts, digest receipt/HTTP-completion races,
+duplicate provider IDs and durable formatter holds. This is synthetic localhost
+evidence, with zero provider calls and zero deadlocks.
+Tenant/digest/workflow verification: 72/72 focused tests passed, including one shared
 280-second request deadline, bounded database requests, late-claim/no-send handling,
 incomplete evidence, exact recipient/body checks and no retry after uncertainty.
 The successful full PUBLIC 09:00 workflow has NOT been tested against production or
@@ -268,8 +313,10 @@ Remaining activation and compliance prerequisites
    review and channel-specific pacing/runtime/capacity tests. No blind retry bypass.
 8. Verify Rosley's narrow current scope and separately document WhatsApp consent and
    ownership; review the complete BM digest and portal authorization.
-9. Obtain fresh recipient/message and activation approval, then register the proposed
-   cron and enable only approved gates. A live test needs separate explicit approval.
+9. Obtain the INITIAL fresh recipient/message and standing-policy activation approval,
+   then register the proposed cron and enable only approved gates. After that,
+   eligible scheduled messages and the authorized digest need NO daily approval.
+   A separately requested live test still needs explicit approval.
 
 Simple Admin workflow — ownership first, consent second
 ------------------------------------------------------
@@ -352,7 +399,8 @@ D. Finish legacy sender handover: drain existing requests, prevent old deploymen
    roll back to a version that restores rent chasing or arrears-based suspension.
 E. Produce a FRESH read-only eligible batch with exact recipients, current verified
    balances, pending/settled/checked-out exclusions, holds, consent and message
-   text. Have Management approve that batch, the first scheduled date and pacing.
+   text. Have Management approve the INITIAL rollout batch, standing policy, first
+   scheduled date and pacing. This is not a requirement to approve each later day.
    The 27 October snapshot is not approval for a later batch. Confirm the bounded
    worker can finish safely; do not hide omitted/unresolved cases or blind retries.
 F. Only with explicit activation approval, perform the separately reviewed operator
@@ -367,7 +415,9 @@ F. Only with explicit activation approval, perform the separately reviewed opera
    environment changes take effect; verify Ready, registration and safe read-only
    smoke checks without manually invoking the sender.
 G. Let the first approved 09:00 scheduled run execute; review its reservations,
-   delivery receipts, incomplete cases and summary. Do not catch up a missed date
+   delivery receipts, incomplete cases and summary. Subsequent scheduled days run
+   unattended under the same authorized policy, with fresh checks for every send.
+   Do not catch up a missed date
    or reuse a completed/expired worker. Any send outside the current window needs
    a separately reviewed recipient/message-bound one-time mechanism and explicit
    approval, not a clock change, direct provider call or security bypass.
@@ -387,17 +437,19 @@ migration/dependency check. Do not restore automatic physical-access enforcement
 
 Final local checks — 27 October 2026
 ------------------------------------
-Full automated suite after the simplified consent workflow: 941/941 PASS, no skips.
-The ten added workflow tests cover queue grouping, bounded pagination, escaping,
-read-only task cards, genuine consent guidance, unselected evidence controls and
-fresh authorization. Rent Due Tracker's original non-layout fingerprint remains
+Full automated suite after the unattended-policy update: 955/955 PASS, no skips.
+Workflow tests cover queue grouping, bounded pagination, escaping, read-only task
+cards, genuine consent guidance, unselected evidence controls, fresh authorization,
+the initial-only approval contract and Admin-only digest delivery alerts.
+Successive-day runtime tests reuse standing activation flags without approval
+calls; same-day replays remain blocked. Tenant holds continue through later pages.
+Rent Due Tracker's original non-layout fingerprint remains
 unchanged after excluding only the exact new role-limited follow-up link.
 Production build (including the
 existing prebuild gates): PASS. TypeScript --noEmit: PASS. npm audit: zero known
-vulnerabilities. Earlier independent native PostgreSQL evidence remains 25/25 PASS
-on the unchanged migration hash above; 14 real lock waits. Those native sessions
-were not rerun for this presentation-only addition. Earlier send-path and digest
-focused tests: 54/54 PASS, including
+vulnerabilities. Fresh independent native PostgreSQL evidence: 28/28 PASS on the
+exact updated migration hash above; 17 real lock waits, no deadlocks or provider
+calls. SQL tests: 53/53 PASS. Tenant/digest/workflow focused tests: 72/72 PASS, including
 the shared runtime deadline and bounded RPC requests. All seven cron definitions
 compare equal to origin/main. No lint script is configured; no lint pass is claimed.
 No production migration, release, provider call, consent record or message was
@@ -406,5 +458,7 @@ not committed to GitHub. Browser screenshot verification was unavailable; fixtur
 UI render/access tests passed, not a live browser or provider end-to-end test.
 The new local consent-workflow.html guide contains no live mutation controls.
 The last production coverage snapshot remains 27 October 2026, 17:51 Malaysia;
-this workflow-only update did not refresh production figures or create evidence.
+this update did not refresh production figures or create consent/clearance evidence.
+The migration changed locally and remains unapplied; its new hash requires a fresh
+production compatibility/security review before any separately approved execution.
 Final recommendation: BLOCKED for activation until the prerequisites above pass.

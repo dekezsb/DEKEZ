@@ -36,6 +36,7 @@ const exceptionLabels: Record<string, string> = {
   consent_number_mismatch: "Consent must match the current portal login phone",
   previous_tenant_or_room_mismatch: "Current tenancy and room assignment require review",
   opt_out_not_ready: "STOP / opt-out intake is not ready",
+  message_review_required: "Consolidated message needs Admin review — no send was attempted",
   inactive_tenancy: "Tenancy is not eligible for active collection", missing_agreement: "Agreement review required",
 };
 function label(stage: string) { return stageLabels[stage] ?? stage.replaceAll("_", " "); }

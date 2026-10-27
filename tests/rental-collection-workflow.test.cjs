@@ -75,3 +75,31 @@ test('navigation is additive and role-limited; follow-up page still authenticate
   assert(page.indexOf('if (!await reminderManager())')<page.indexOf('collectionFailurePreview(new Date(), true)'));
   assert.match(page,/mayReviewRecipient \? <FailureRecipientReview/);
 });
+
+test('activation plan requires initial clearance but no manual approval of each scheduled day',()=>{
+ const plan=JSON.parse(fs.readFileSync('config/rental-collection-cron.pending.json','utf8'));
+ assert.equal(plan.reviewOnly,true);assert.equal(plan.activationRequiresSeparateApproval,true);
+ assert.equal(plan.afterInitialActivation.mode,'unattended_daily');assert.equal(plan.afterInitialActivation.dailyManualApprovalRequired,false);
+ assert.equal(plan.afterInitialActivation.recheckEligibilityBeforeEverySend,true);
+ assert(plan.requiredBeforeActivation.includes('initial_policy_and_rollout_recipient_message_approval'));
+ assert.equal(plan.appendAfterApproval.schedule,'0 1 * * *');
+ const html=renderToStaticMarkup(ReminderConsentGuide({}));assert.match(html,/No daily manual approval is required/);
+ assert.match(html,/Management still decides Day 7 restrictions, Day 14 termination reviews/);
+});
+
+test('Rosley failed report produces an Admin alert without extra sending controls or false delivery claims',()=>{
+ const {ReminderDigestStatus}=load('app/admin-setup/rental-reminders/digest-status.tsx');
+ const failed={report_date:'2026-11-15',state:'accepted',delivery_state:'failed',error_code:null,updated_at:null,needs_admin_review:true};
+ const html=renderToStaticMarkup(ReminderDigestStatus({available:true,current:failed,alerts:[failed],alertCount:28}));
+ assert.match(html,/role="alert"/);assert.match(html,/28 report delivery exceptions/);assert.match(html,/Delivery failure confirmed/);
+ assert.match(html,/not proof of delivery/);assert.match(html,/Showing the latest 1 of 28/);
+ assert.doesNotMatch(html,/<form|type="submit"|wa\.me|href="tel:/);
+ const unavailable=renderToStaticMarkup(ReminderDigestStatus({available:false,current:null,alerts:[],alertCount:0}));
+ assert.match(unavailable,/Delivery monitoring unavailable/);assert.doesNotMatch(unavailable,/No recorded report-delivery alerts/);
+});
+
+test('Rosley report alerts remain behind the existing fresh Admin permission check',()=>{
+ const source=fs.readFileSync('app/rent-due-tracker/reminder-followups/page.tsx','utf8');
+ assert.match(source,/mayReviewRecipient \? <ReminderDigestStatus/);
+ assert(source.indexOf('if (!await reminderManager())')<source.indexOf('collectionFailurePreview(new Date(), true)'));
+});

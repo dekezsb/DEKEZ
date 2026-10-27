@@ -371,6 +371,24 @@ async function main() {
     return { backendPids: [one.pid, two.pid], duplicateInsert: 'no row', expiredReplacement: 'no row', publicStartResult: startedAgain,
       limitation: 'Independent inserts test the real unique constraint; successful public begin_run is not claimed outside its actual 09:00 MYT window.' };
   });
+  await check('formatter hold is worker-scoped and survives a concurrent repeated scan without any send reservation', async () => {
+    await reset(); const s = await snapshot();
+    const hold = (scope = company, fingerprint = s.fingerprint) => `select public.dekez_collection_record_message_hold(${q(scope)},${q(s.key)},${q(fingerprint)})`;
+    assert.equal((await a.json(hold())).state, 'withheld'); await workerFixture();
+    for (const role of ['anon', 'authenticated']) await denied(role, hold());
+    assert.equal((await a.json(hold(id(2)))).state, 'withheld');
+    assert.equal((await a.json(hold(company, 'forged'))).state, 'source_changed');
+    await a.query('begin'); assert.equal((await a.json(hold())).state, 'recorded');
+    const pending = b.json(`select public.dekez_collection_scan(${q(company)})`);
+    await blocked(b, a, 'formatter hold versus repeated daily scan'); await a.query('commit'); await pending;
+    assert.equal((await a.json(hold())).state, 'recorded');
+    const h = await a.json(`select public.dekez_collection_history(${q(company)},${q(s.report_date)},null,100)`);
+    const item = h.items.find(x => x.tenant_key === s.key);
+    assert.equal(item.snapshot.send_eligible, false); assert.deepEqual(item.snapshot.delivery_blocks, ['message_review_required']);
+    const evidence = await managerEvidence(); assert(evidence.items.some(x => x.kind === 'case' && x.data.tenant_key === s.key && x.data.reason_code === 'message_review_required'));
+    assert.equal((await counts()).total, 0);
+    return { backendPids: [a.pid, b.pid], ordinaryRolesDenied: 2, taskPreserved: true, deliveryReservations: 0, providerCalls: 0 };
+  });
   await check('management summary requires separate number ownership and consent with scoped Admin review', async () => {
     await reset(); await snapshot(); await workerFixture('complete');
     const initial = await managerEvidence(); assert.equal(initial.recipient_authorization.verified, true);
@@ -416,6 +434,49 @@ async function main() {
     assert.deepEqual(result, { claimed: false, state: 'withheld' });
     assert.equal(Number(await control.query('select count(*) from dekez_collections_private.failure_reports')), 0);
     return { result, staleAuthorizationRejected: true, backendPids: [a.pid, b.pid] };
+  });
+  await check('independent digest receipt and HTTP finalization serialize into one failed-delivery Admin alert', async () => {
+    await reset(); await snapshot(); await workerFixture('complete');
+    await a.query(managerReview('verify_ownership')); await a.query(managerReview('record_opt_in'));
+    const e = await managerEvidence(), first = await a.json(digestClaim(e));
+    const provider = 'SYNTHETIC-management-receipt';
+    await a.query('begin');
+    const early = await a.json(receipt('management-native-early', 'failed', '60188702371', provider));
+    assert.equal(early.state, 'unmatched');
+    const pending = b.query(`select public.dekez_collection_failure_finish(${q(first.attempt_id)},'accepted',${q(provider)},200,null)`);
+    await blocked(b, a, 'management receipt before HTTP completion uses provider lock');
+    await a.query('commit'); await pending;
+    const saved = await managerEvidence();
+    assert.equal(saved.digest_status.state, 'accepted'); assert.equal(saved.digest_status.delivery_state, 'failed');
+    assert.equal(saved.digest_status.needs_admin_review, true); assert.equal(saved.digest_alert_count, 1);
+    const duplicate = await b.json(receipt('management-native-early', 'failed', '60188702371', provider));
+    assert.equal(duplicate.state, 'duplicate');
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.audit where action='failure_report_receipt'")), 1);
+    assert.equal(Number(await control.query('select count(*) from dekez_collections_private.failure_reports')), 1);
+    const retry = await b.json(digestClaim(saved)); assert.equal(retry.claimed, false);
+    return { backendPids: [a.pid, b.pid], early: early.state, duplicate: duplicate.state,
+      httpState: saved.digest_status.state, deliveryState: saved.digest_status.delivery_state, alerts: 1, retry: retry.state, providerCalls: 0 };
+  });
+  await check('independent digest finalizations cannot reuse one provider ID across report dates', async () => {
+    await reset(); await snapshot(); await workerFixture('complete');
+    await a.query(managerReview('verify_ownership')); await a.query(managerReview('record_opt_in'));
+    const e = await managerEvidence(), first = await a.json(digestClaim(e));
+    const second = await control.query(`insert into dekez_collections_private.failure_reports(company_id,report_date,recipient,fingerprint,snapshot,message_body,latest_snapshot)
+      values(${q(company)},(clock_timestamp() at time zone 'Asia/Kuala_Lumpur')::date-1,'60188702371','synthetic','{}','SYNTHETIC prior date','{}') returning id`);
+    await a.query('begin');
+    await a.query(`select public.dekez_collection_failure_finish(${q(first.attempt_id)},'accepted','SYNTHETIC-unique-digest',200,null)`);
+    const pids = [a.pid, b.pid];
+    const pending = b.query(`select public.dekez_collection_failure_finish(${q(second)},'accepted','SYNTHETIC-unique-digest',200,null)`)
+      .then(value => ({ value }), error => ({ error: error.message }));
+    await blocked(b, a, 'global management provider identity across dates');
+    await a.query('commit'); const duplicate = await pending;
+    assert.match(duplicate.error, /23505[\s\S]*failure_reports_provider_idx/);
+    b = await fresh('caller-b-after-duplicate-provider', 'service_role');
+    const records = await control.json('select json_agg(x order by report_date) from (select report_date,state,provider_message_id,finished_at is null as unfinished from dekez_collections_private.failure_reports) x');
+    assert.equal(records[0].state, 'sending'); assert.equal(records[0].provider_message_id, null); assert.equal(records[0].unfinished, true);
+    assert.equal(records[1].state, 'accepted'); assert.equal(records[1].provider_message_id, 'SYNTHETIC-unique-digest');
+    assert.equal(Number(await control.query("select count(*) from dekez_collections_private.audit where action='failure_report_finished'")), 1);
+    return { backendPids: pids, sqlState: '23505', retainedUnfinishedReservation: true, successfulFinalizations: 1, providerCalls: 0 };
   });
   await check('public management claim rechecks the fingerprint and company authorization after an independent lock wait', async () => {
     await reset(); await snapshot(); await workerFixture('complete');

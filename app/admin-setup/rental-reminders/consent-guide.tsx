@@ -1,6 +1,7 @@
 export function ReminderConsentGuide({canReview = false}: {canReview?: boolean}) {
   return <details className="rounded-lg border bg-white p-4" open>
     <summary className="cursor-pointer text-base font-semibold">Clear a tenant for reminders: three checks</summary>
+    <p className="mt-3 text-sm"><strong>After initial activation: automatic daily reminders at 9 AM Malaysia time.</strong> No daily manual approval is required. Each send rechecks current eligibility; tenant-specific exceptions stay on hold while other eligible tenants continue. Management still decides Day 7 restrictions, Day 14 termination reviews and legally significant action.</p>
     <ol className="mt-3 list-decimal space-y-3 pl-5 text-sm">
       <li><strong>Match the person and registered number.</strong> Check the tenant, current tenancy and room. Use only the existing Tenant Portal login number. Rosley/Management may report a correction; only authorized Admin may verify and update the existing account. Do not create a second WhatsApp number.</li>
       <li><strong>Verify WhatsApp ownership.</strong> Corroborate a tenant-initiated WhatsApp message from that number, or verify the tenant and their WhatsApp account number in person. A portal login, PIN, ordinary phone call or display name alone is not proof. Record the real evidence reference and event date/time; never request passwords, OTPs or unrelated chats.</li>

@@ -80,6 +80,54 @@ test('send pipeline scans, previews, atomicallyclaims, sendsonce and recordsprov
  assert.equal(signals.length,calls.length);assert.ok(signals.every(signal=>signal instanceof AbortSignal&&!signal.aborted));
 });
 
+test('standing activation runs on successive Malaysia dates without daily approvals and rejects same-day replay',async()=>{
+ enable();const reserved=new Set();let reportDate;
+ overrides.dekez_collection_scan=()=>({data:{checked:1,report_date:reportDate},error:null});
+ overrides.dekez_collection_begin_run=()=>{if(reserved.has(reportDate))return {data:{claimed:false,state:'already_reserved'},error:null};reserved.add(reportDate);return {data:{claimed:true,run_id:id(98)},error:null};};
+ overrides.dekez_collection_preview=()=>({data:{company_id:id(1),report_date:reportDate,items:[current],next_cursor:null},error:null});
+ const flagsBefore=JSON.stringify(config.collectionConfig());
+ for(const date of ['2026-11-15','2026-11-16']){
+  reportDate=date;current=item(date.endsWith('15')?14:15);current.report_date=date;clock=1_000_000;
+  assert.equal((await service.runRentalCollections(new Date(`${date}T01:00:00Z`))).state,'complete');
+  assert.equal((await service.runRentalCollections(new Date(`${date}T01:01:00Z`))).state,'already_reserved');
+ }
+ assert.equal(sends.length,2);assert.match(sends[0][2],/14 days overdue/);assert.match(sends[1][2],/15 days overdue/);
+ assert.equal(JSON.stringify(config.collectionConfig()),flagsBefore);
+ assert.equal(calls.some(call=>/approv|authoriz/i.test(call.name)),false);
+ assert.equal(calls.filter(call=>call.name==='dekez_collection_claim').length,2);
+});
+
+test('held tenants and stale claims do not block later eligible tenants or later pages',async()=>{
+ enable();
+ const stopped={...item(),key:id(5),tenant_id:id(5),policy:{...item().policy,consent:'opted_out'}};
+ const pending={...item(),key:id(6),tenant_id:id(6),pending_verification:true};
+ const dispute={...item(),key:id(7),tenant_id:id(7),policy:{...item().policy,hold:'dispute'}};
+ const changed={...item(),key:id(8),tenant_id:id(8)};
+ overrides.dekez_collection_preview=args=>({data:{company_id:id(1),report_date:'2026-11-15',items:args.p_after?[current]:[stopped,pending,dispute,changed],next_cursor:args.p_after?null:'next'},error:null});
+ overrides.dekez_collection_claim=args=>args.p_key===changed.key?{data:{claimed:false,state:'source_changed'},error:null}:{data:{claimed:true,attempt_id:id(99),recipient:current.phone,body:args.p_body},error:null};
+ const result=await service.runRentalCollections(now);
+ assert.equal(result.state,'complete');assert.equal(result.counts.withheld,4);assert.equal(result.counts.accepted,1);
+ assert.deepEqual(calls.filter(call=>call.name==='dekez_collection_claim').map(call=>call.args.p_key),[changed.key,current.key]);
+ assert.equal(calls.filter(call=>call.name==='dekez_collection_scan').length,1);assert.equal(sends.length,1);
+ assert.equal(calls.filter(call=>call.name==='dekez_collection_preview').length,2);
+});
+
+test('unrenderable tenant reminder records a durable follow-up and continues the next eligible tenant',async()=>{
+ enable();const oversized={...item(),key:id(9),tenant_id:id(9),invoices:Array.from({length:30},(_,i)=>({...item().invoices[0],id:id(200+i)})),outstanding:9000};
+ overrides.dekez_collection_preview=()=>({data:{company_id:id(1),report_date:'2026-11-15',items:[oversized,current],next_cursor:null},error:null});
+ overrides.dekez_collection_record_message_hold=()=>({data:{state:'recorded'},error:null});
+ const result=await service.runRentalCollections(now);assert.equal(result.state,'complete');assert.equal(result.counts.withheld,1);assert.equal(sends.length,1);
+ assert.deepEqual(calls.find(c=>c.name==='dekez_collection_record_message_hold').args,{p_company:id(1),p_key:oversized.key,p_fingerprint:oversized.fingerprint});
+ assert.deepEqual(calls.filter(c=>c.name==='dekez_collection_claim').map(c=>c.args.p_key),[current.key]);
+});
+
+test('failed follow-up persistence is a database incident, never silently discarded as a handled tenant',async()=>{
+ enable();current.invoices=[];
+ overrides.dekez_collection_record_message_hold=()=>({data:null,error:Error('private SQL details')});
+ await assert.rejects(()=>service.runRentalCollections(now),/^Error: Message review could not be recorded/);
+ assert.equal(sends.length,0);assert.equal(calls.at(-1).args.p_state,'failed');
+});
+
 test('scan time is charged to the one shared deadline before reserving a worker',async()=>{
  enable();overrides.dekez_collection_scan=()=>{clock+=110_001;return {data:{checked:1},error:null};};
  const result=await service.runRentalCollections(now);

@@ -1,6 +1,13 @@
 {
   "reviewOnly": true,
   "activationRequiresSeparateApproval": true,
+  "afterInitialActivation": {
+    "mode": "unattended_daily",
+    "dailyManualApprovalRequired": false,
+    "recheckEligibilityBeforeEverySend": true,
+    "tenantExceptionBehavior": "hold_and_track_continue_other_eligible_tenants",
+    "systemFailureBehavior": "fail_closed_preserve_history_no_blind_retry"
+  },
   "timeZone": "Asia/Kuala_Lumpur",
   "requestedFirstLocalRun": "2026-10-28T09:00:00+08:00",
   "requestedFirstUtcRun": "2026-10-28T01:00:00Z",
@@ -11,7 +18,7 @@
     "outsideWindowSendingSupported": false
   },
   "requiredBeforeActivation": [
-    "fresh_recipient_and_message_approval",
+    "initial_policy_and_rollout_recipient_message_approval",
     "number_bound_consent_and_ownership",
     "tested_opt_out_and_STOP_intake",
     "provider_and_legal_clearance",

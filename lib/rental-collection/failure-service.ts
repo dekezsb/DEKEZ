@@ -8,7 +8,12 @@ import type { CollectionPreviewItem } from "./model";
 import { isCollectionTime } from "./model";
 import { sendWhapiReport } from "@/lib/management-report/whapi";
 
+export type CollectionDigestStatus = {
+  report_date: string; state: string; delivery_state: string; error_code: string | null;
+  updated_at: string | null; needs_admin_review: boolean;
+};
 type EvidencePage = {report_date: string; fingerprint: string; recipient_authorization: FailureReportRecipientAuthorization | null;
+  digest_status?: CollectionDigestStatus | null; digest_alerts?: CollectionDigestStatus[]; digest_alert_count?: number;
   items: {key: string; kind: "attempt" | "case"; data: CollectionFailureEvidence | CollectionContactCaseEvidence}[];
   next_cursor: string | null; total: number; daily_reservation: "unknown" | "not_reserved" | "reserved" | "sent"};
 // Three source reads may each take30s. Claim30 + provider15 + finish30 + margin5
@@ -72,6 +77,10 @@ export async function collectionFailurePreview(now = new Date(), portalAuthorize
     current_items: current, evidence, contact_cases: contact, all_history_loaded: complete, daily_outcomes_complete: dailyComplete,
     recipient_authorization: final.recipient_authorization, daily_reservation: final.daily_reservation, portal_authorized: portalAuthorized});
   return {...preview, fingerprint: anchor.fingerprint, allHistoryLoaded: complete, budgetReviewRequired,
+    digestStatusAvailable: portalAuthorized && Object.hasOwn(final, "digest_status"),
+    digestStatus: portalAuthorized ? final.digest_status ?? null : null,
+    digestAlerts: portalAuthorized ? final.digest_alerts ?? [] : [],
+    digestAlertCount: portalAuthorized ? final.digest_alert_count ?? 0 : 0,
     reviewableAttempts: portalAuthorized && complete ? evidence.filter(item => item.resolved_at === null && item.state !== "delivered")
       .map(item => ({id: item.attempt_id, name: current.find(row => row.tenant_id === item.tenant_id)?.name ?? "Account requires review", state: item.state})) : [],
     companyId: config.companyId, reportDate: anchor.report_date, recipientAuthorization: final.recipient_authorization};

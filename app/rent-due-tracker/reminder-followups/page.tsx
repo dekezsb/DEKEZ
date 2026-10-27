@@ -7,6 +7,7 @@ import { FailureRecipientReview } from "@/app/admin-setup/rental-reminders/failu
 import { FollowupReview } from "@/app/admin-setup/rental-reminders/followup-review";
 import { ReminderConsentGuide } from "@/app/admin-setup/rental-reminders/consent-guide";
 import { ReminderWorklist } from "./worklist";
+import { ReminderDigestStatus } from "@/app/admin-setup/rental-reminders/digest-status";
 
 export const dynamic = "force-dynamic";
 export default async function ReminderFollowupsPage({searchParams}: {searchParams?: Promise<{queue?: string; page?: string}>} = {}) {
@@ -21,6 +22,8 @@ export default async function ReminderFollowupsPage({searchParams}: {searchParam
     <a className="inline-flex min-h-11 items-center rounded-lg border px-4 text-sm" href="/rent-due-tracker">Rent Due Tracker</a>
     {mayReviewRecipient ? <a className="inline-flex min-h-11 items-center rounded-lg border px-4 text-sm" href="/admin-setup/rental-reminders">Admin: verify ownership / consent</a> : null}
     <ReminderConsentGuide />
+    {mayReviewRecipient ? <ReminderDigestStatus available={report?.digestStatusAvailable === true} current={report?.digestStatus ?? null}
+      alerts={report?.digestAlerts ?? []} alertCount={report?.digestAlertCount ?? 0} /> : null}
     {report?.allHistoryLoaded ? <ReminderWorklist accounts={report.actionList ?? []} queue={params.queue} page={params.page} /> : null}
     <Card><CardHeader><CardTitle>Senarai tindakan susulan</CardTitle></CardHeader><CardContent>
       {report?.allHistoryLoaded && report.fullPortalReport ? <details><summary className="min-h-11 cursor-pointer text-sm">Lihat laporan penuh Bahasa Melayu</summary><pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{report.fullPortalReport}</pre></details>
