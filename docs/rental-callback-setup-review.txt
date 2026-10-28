@@ -1,0 +1,153 @@
+DEKEZ RENTAL CALLBACK — TEMPORARY SETUP REVIEW
+Prepared 28 October 2026. Controlled send-disabled release approved subsequently.
+Migration applied and verified; callback execution and cleanup remain pending.
+
+Purpose
+Configure the existing FALCON-D9NS9 channel's dedicated rental STOP/delivery
+callback inside the Vercel runtime. WHAPI_TOKEN stays in its existing protected
+environment. No token download, token file, client-side credential or Vercel
+administration credential is needed by the application.
+
+Fixed boundary
+- Company: 660cc0c4-daee-445b-9146-ccd112e791d4.
+- Channel: FALCON-D9NS9; sender: 60168173911.
+- New callback: https://dekez.vercel.app/api/webhooks/whapi-rental-reminders.
+- Body-mode messages.post and statuses.post; dedicated Authorization Bearer.
+- Preserve the exact existing reporting callback, authentication, subscriptions
+  and all other settings. Never change callback persistence or restart channel.
+- No /messages API, invoice query, financial update, consent approval, sending
+  activation, scheduler change, token rotation or environment mutation in code.
+
+Security design
+1. Default-off temporary feature, production-project and company pinning.
+2. Fresh approved Super Admin identity on every action, plus fresh database
+   company membership/module checks. Ordinary Admin/Management cannot operate it.
+3. Same-origin production Server Actions; no arbitrary URLs, headers, recipients,
+   company or actor supplied by the browser.
+4. New private callback_setup ledger, forced RLS, no direct anon/authenticated/
+   service-role access. Existing NOLOGIN executor receives only SELECT and six
+   specific UPDATE columns. Runtime cannot create, renew or reset a permit.
+5. Operator-issued permit lasts at most 15 minutes; confirmation lasts at most
+   two minutes and binds actor, operation, deployment and before/after hashes.
+6. Atomic row-lock consumption before PATCH; one concurrent winner. Expired,
+   revoked, used and uncertain operations do not reopen. Fresh post-lock checks.
+7. Only bounded HTTPS health(GET,wakeup=false), settings GET and one settings
+   PATCH. No redirect following, raw response/error logging or secret responses.
+8. Read current settings twice across preview/confirmation, compare fingerprints,
+   preserve all fields, inspect PATCH before/after and independently GET verify.
+   Unknown/masked/schema-incompatible or incomplete snapshots stop setup rather
+   than being dropped or filled with invented defaults. Channel must be AUTH;
+   equivalent callback URL aliases are rejected before adding subscriptions.
+9. Exact already-configured callback is a no-op (GET only) but consumes the permit.
+10. Uncertain update consumes the permit permanently. Read-only recovery compares
+    saved settings with the reserved digest without retrying or rewriting history.
+
+New migration FOR REVIEW ONLY
+20261028122044_rental_collection_callback_setup.sql
+Applied once on 28 October 2026. Source version reconciled to production history;
+original reviewed filename was 20261028104844_rental_collection_callback_setup.sql.
+SQL content is unchanged. Do not reapply.
+Creates an EMPTY private authorization/outcome ledger and restricted RPCs.
+It does not grant consent, insert a permit, change existing records or configure
+Whapi. The application cannot issue permits. Production verification confirmed
+zero permits, forced RLS, restricted RPCs and unchanged source/policy fingerprints.
+
+Required temporary configuration AFTER separate deployment/execution approval
+- WHAPI_COLLECTION_WEBHOOK_SECRET: fresh 32 cryptographically random bytes encoded
+  as unpadded base64url, stored as a Vercel Production Secret through the secure
+  operator integration. Do not display, log, commit or write it to a token file.
+  Must differ from WHAPI_TOKEN, reporting webhook secret and CRON_SECRET.
+- DEKEZ_COLLECTION_SETUP_ENABLED=true (temporary only).
+- DEKEZ_COLLECTION_SETUP_OPERATION=<UUID matching the approved private permit>.
+- Existing Vercel system variables VERCEL_ENV, VERCEL_PROJECT_ID, VERCEL_URL and
+  VERCEL_DEPLOYMENT_ID must be exposed to the runtime; absence fails closed.
+- DEKEZ_COLLECTION_SEND_ENABLED=false and
+  DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED=false throughout setup.
+- Leave 9 AM scan, 8 PM report, commands and all eight schedules unchanged.
+- Do not alter existing reporting/cron secrets or retrieve their values.
+
+Controlled deployment / operation sequence — NOT AUTHORIZATION TO RUN NOW
+1. Review code, tests and migration; refresh production/main comparison, backup,
+   migration history and permission compatibility. Apply only on explicit approval.
+2. Store dedicated secret and temporary configuration securely, deploy the approved
+   temporary control using the existing workflow with both outbound switches off.
+   No permit should exist during deployment/build, so it cannot configure Whapi.
+3. In an agreed exclusive Whapi settings window, the authorized database operator
+   provisions one empty permit with the verified executing Super Admin UUID, the
+   fixed company/channel/operation_key='rental_callback_v1', and created/expires
+   from ONE database timestamp (maximum 15 minutes). Record the user's execution
+   approval in the release evidence. Do not copy IDs from browser form input.
+   UNIQUE(company_id,operation_key) deliberately prevents automatic re-issuance.
+4. Open /admin-setup/rental-reminders/callback-setup on canonical production.
+   Preview first; explicitly confirm within two minutes. No other operator may
+   change channel settings until verification completes.
+5. Verify exact read-back and unchanged reporting callback. Stop on schema drift,
+   masking, wrong identity, conflict, timeout or any uncertain update. GET-only
+   recovery is available; a retry/reset requires a separately reviewed procedure.
+6. Enable collection INTAKE only under approved callback verification procedure,
+   leaving tenant/Rosley SEND off. Authenticated harmless callback transport and
+   genuine STOP/delivery-event verification are separate from settings read-back.
+   Do not invent STOP, consent or tenant-delivery records to make tests pass.
+7. Retire setup RPC access using reviewed scripts/retire-rental-callback-setup.sql,
+   retain the ledger, remove the temporary page/action/component and service module,
+   set temporary setup flag false/remove its operation variable, and deploy cleanup.
+   This database revocation/consumed permit also blocks stale immutable deployments.
+   Keep WHAPI_COLLECTION_WEBHOOK_SECRET and the real callback; they are permanent.
+8. Confirm temporary page/actions are unavailable, private setup grants revoked,
+   existing schedules/commands/reports preserved, and no tenant or Rosley send.
+
+Recovery / limitations
+- Whapi documentation is inconsistent about partial PATCH omission semantics.
+  This installer always preserves/replays the full validated settings object.
+- No documented ETag/conditional update is available. Double-read hashes detect
+  drift but cannot prevent another Whapi operator editing between GET and PATCH.
+  The exclusive settings window is necessary; do not claim atomic cross-system
+  settings preservation. Never automatically revert another operator's change.
+- Strict schema validation may safely block an older/newer provider schema.
+  Review actual key/type differences privately, never log settings/headers.
+- Configuration read-back does not establish real callback delivery or approval
+  for tenant messaging. Provider capacity/content, genuine consent, Rosley
+  ownership, legal/access-safety and sender handover requirements remain separate.
+- If an attempted PATCH or outcome write is uncertain, retain the consumed ledger,
+  keep sends off, inspect GET only and investigate. Do not blindly retry.
+- If a permit expires unused, an operator must review the reason; no application
+  reissue/reset exists. Revocation is the immediate stop for unused deployments.
+- No automatic self-deletion is claimed: cleanup requires the reviewed follow-up
+  removal deployment plus RPC revocation, not just changing an environment value.
+
+Review evidence — local only, 28 October 2026
+- Full automated suite: 1,058 passed, zero failed or skipped.
+- New callback application/UI tests: 47 passed; private SQL tests: 14 passed.
+- Independent PostgreSQL 17.11: 14 passed, two distinct caller sessions
+  (32244 / 19732), ten observed lock waits, no provider calls. Actual retirement
+  script tested, including a future-dated permit; local server stopped cleanly.
+- Production build, standalone TypeScript check and existing release test gates: passed.
+- Dependency audit: zero known vulnerabilities; no dependency updates.
+- All eight cron definitions and existing webhook/reminder services are unchanged.
+- Production compatibility/backup checks and actual callback delivery verification
+  remain prerequisites for a separately approved release, not local test claims.
+- Reviewed migration SHA256:
+  349e91208ae353b99b257a2c31fde0e9484f5ff82e0ecad84755574446fdda96
+- Native evidence:
+  artifacts/rental-collection-review/callback-setup-20261028/native/native-results.json
+
+Files prepared for the approved controlled release
+app/admin-setup/rental-reminders/callback-setup/actions.ts
+app/admin-setup/rental-reminders/callback-setup/page.tsx
+app/admin-setup/rental-reminders/callback-setup/setup-control.tsx
+lib/rental-collection/callback-setup.ts
+supabase/migrations/20261028122044_rental_collection_callback_setup.sql
+scripts/retire-rental-callback-setup.sql
+tests/rental-callback-setup.test.cjs
+tests/rental-collection-callback-setup-sql.test.cjs
+tests/rental-collection-callback-setup-native.cjs
+package.json (adds the new tests to the existing release gate only)
+docs/rental-callback-setup-review.txt
+
+Official contracts checked
+https://panel.whapi.cloud/yaml/openapi.yaml
+https://whapi.readme.io/reference/updatechannelsettings
+https://whapi.readme.io/reference/getchannelsettings
+https://whapi.readme.io/reference/checkhealth
+https://support.whapi.cloud/help-desk/receiving/webhooks/set-the-webhook-link-to-the-channel
+https://vercel.com/docs/environment-variables/sensitive-environment-variables
