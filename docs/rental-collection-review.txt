@@ -1,0 +1,471 @@
+DEKEZ RENTAL PAYMENT REMINDERS — DRAFT / NO PRODUCTION ACTIVATION
+27 October 2026
+
+28 October release update: see docs/rental-collection-stage1-release.txt for the
+authoritative Stage 1 scan-only release status. The 27 October review/runbook
+below is historical; the approved migration is now applied and filename-reconciled.
+This does not authorize tenant messages or the Rosley digest.
+
+Release status
+--------------
+This is an unapplied migration and implementation for review, not permission to
+contact tenants. No live reminder, Rosley digest, migration, deployment, webhook
+configuration or new cron registration was performed by this work.
+The requested 27 October one-time batch was a read-only preview. Do not catch up
+that batch later or weaken the real 09:00 Malaysia send window. A separate reviewed,
+expiring, recipient/message-bound authorization is needed for any one-time send.
+Any proposed first scheduled date remains conditional on separate activation approval.
+
+Standing automation policy — no daily approval
+---------------------------------------------
+After initial production/policy activation, the authenticated 09:00 Malaysia cron
+runs unattended every day. There is NO daily approval token, batch-signoff screen
+or per-message Management approval requirement. The initial rollout preview and
+approval below are initial activation checks, not a recurring operational gate.
+The same standing policy covers newly eligible tenants after their genuine
+number-bound ownership/consent and source exceptions have been verified through
+authorized existing controls. Do not request another daily batch approval.
+
+Each day scans all relevant invoices and persists case/review history, recomputes
+verified balances and original invoice aging, then independently rechecks every
+claim. A tenant-specific consent/STOP, phone, payment, dispute, communication or
+source hold skips that tenant and remains in the Management worklist; other
+eligible tenants continue, including on later pages. Verified partial payments
+reduce only the outstanding amount, never reset the original due date. Day7 and
+Day14 internal review tasks remain mandatory; only humans may authorize legally
+significant restrictions, notices or termination decisions. No physical access or
+essential-service restriction is authorized by a reminder or review task.
+An unrenderable/oversized reminder records a source-fingerprint-bound Management
+follow-up without claiming a send, then continues with other eligible tenants.
+Repeated scans preserve that hold for the unchanged source. Failure to persist
+the follow-up is a global safety incident, not a silent skip.
+
+Human approval is retained for initial activation/policy, sensitive rule changes,
+genuine identity/consent/payment exceptions, Day7/14 decisions and legal notices
+or enforcement. A global database/provider/security failure, revoked company
+clearance, rate limit, uncertain send or exhausted runtime budget must still fail
+closed. This is an operational incident, not a routine daily approval requirement.
+Do not bypass unknown deliveries to claim uninterrupted service. Capacity/latency
+and monitoring must be cleared before promising the unattended production rollout.
+
+Current company source coverage — READ ONLY
+------------------------------------------
+Snapshot: 27 October 2026, 17:51:27 MYT. This is not a live delivery roster.
+791 company invoice rows checked; 208 have positive recorded balances. The query
+returns 183 source groups: 154 linked tenant identities and 29 unlinked groups.
+Positive balances belong to 119 linked identities and 17 unlinked groups. Of those
+119 positive linked identities, 24 lack a usable current login phone. All 17
+positive unlinked groups also lack a usable phone. These counts overlap holds.
+
+Financial-stage groups and collectible invoice balances:
+  Due in 7 days       0   RM0
+  Due today          1   RM350
+  Days 1–6 overdue   9   RM3,560
+  Day 7 review       2   RM750
+  Days 8–13 overdue  1   RM150
+  Day 14 review      0   RM0
+  Days 15+ overdue  22   RM13,430
+  Total             35   RM18,240
+
+These 35 groups contain 46 financially collectible positive invoices. Five groups
+have partial payments and five have pending verification. Only 11 groups, RM4,740,
+are free of both source exceptions and pending verification. ALL remain blocked
+for messaging. Send-cleared: 0. WhatsApp ownership/consent is not recorded in the
+proposed registry because that registry is not installed in production. This does
+not assert that offline evidence is absent or sufficient.
+The raw recorded outstanding total RM86,070 includes noncollectible and unresolved
+source exceptions; it MUST NOT be presented as a verified demand. There are 121
+exception-stage groups, including 101 with positive recorded balances, and 27
+zero-balance/resolved-stage groups. No source records were corrected by this review.
+Evidence: artifacts/rental-collection-review/20261027-final-dry-run.json and
+20261027-final-coverage-metrics.json. Private account details remain outside Git.
+
+Purpose, stages and financial boundaries
+---------------------------------------
+This is a first-party rental payment-reminder and internal-review workflow, not
+automatic enforcement. Original invoice due date is the ONLY aging anchor.
+Verified partial payment reduces balance and never resets the overdue clock.
+Stages: -7 advance; 0 due; 1–6 daily; 7 urgent internal account review; 8–13 daily;
+14 formal tenancy-review referral; 15+ daily tracking and lawful follow-up.
+Day 7/14 are policy review thresholds, not legal findings or statutory entitlements.
+No automatic physical lockout, access-card/fingerprint suspension, utility cut-off,
+tenancy termination, eviction, tenancy-date change or financial adjustment.
+
+Company-scoped rent_bills and properties are the source. Non-deposit invoice amount
+plus rental_invoice_line_items less recorded paid_amount is calculated once.
+Verified, non-reversed allocations corroborate paid_amount, never subtract twice.
+Parent payment submissions and bank matches are not additional payments.
+Deposits are excluded. Extras are identified in message breakdowns. Future invoices
+are scanned but not demanded as arrears; the 7-day reminder requires a valid issued
+invoice. Fully verified settlement ends reminders. Pending proof is not settlement:
+it imposes a database send hold and Admin follow-up; template H is preview-only.
+
+Cancelled/draft/waived/internal/unissued, inactive/checked-out, unlinked, identity
+mismatches and unreconciled balances remain visible as source exceptions. They are
+not formal default claims. Zero recorded balance with unresolved payment evidence
+is not verified settlement. Pending proof, disputes and contact holds retain the
+original financial aging while withholding payment demands. Only valid collectible
+invoices trigger internal threshold reviews. Source exceptions cannot be repaired
+through this communications module.
+
+Canonical tenant contact and evidence
+-------------------------------------
+Destination comes ONLY from the current tenant's linked portal-login profiles.phone,
+normalized with existing Malaysian login conventions. Validate tenant, tenancy,
+invoice, company, property, room/current tenancy and normalized login lookup.
+No separate arbitrary routing field, owner/contractor/staff/previous-tenant fallback
+or legacy phone fallback. Shared numbers and conflicting mappings fail closed.
+60198894911, 60168173911 and 60188702371 cannot receive tenant reminder claims.
+Portal login, a PIN, registration approval or payment does not prove WhatsApp
+ownership or opt-in. Ownership and consent require separately recorded evidence
+bound to the exact current normalized number. Changing the login number invalidates
+that evidence for the new destination. Transport verifies recipient and body exactly.
+
+Admin contact review and manual resolution
+-----------------------------------------
+Admin controls: /admin-setup/rental-reminders, existing reportAdministrator gate.
+Management follow-up view: /rent-due-tracker/reminder-followups, fresh approved
+Admin/Management identity, active company scope and rent_due_tracker/manage access.
+The database independently rechecks approved identity, company membership and
+effective module permission on every evidence mutation; browser visibility is not
+authorization. Actor and company are derived server-side, not accepted from a form.
+Each reviewed change requires explicit confirmation and evidence/reference plus
+reason, each 10–500 characters. Controls separately record ownership, opt-in,
+opt-out, dispute/manual hold and documented resubscription. They do not alter
+tenant/authentication records, invoices, payments or existing portal permissions.
+Clearing a manual hold does not implicitly remove legal/communications restrictions.
+Every mutation records immutable actor, time, prior/new state, reason and evidence.
+
+Authorized follow-up resolution closes an operational task only. It never marks
+an undelivered message as delivered, verifies a payment, clears consent restrictions
+or makes a reservation retryable. A later changed provider fact can surface the
+case again. Current source/phone restrictions remain until genuinely resolved.
+
+Authenticated STOP/START and receipt intake
+------------------------------------------
+New endpoint: /api/webhooks/whapi-rental-reminders
+New independent switches, absent means false:
+  DEKEZ_COLLECTION_POLICY_ENABLED=false
+  DEKEZ_COLLECTION_SEND_ENABLED=false
+  DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED=false
+  DEKEZ_COLLECTION_INTAKE_ENABLED=false
+Required dedicated callback secret: WHAPI_COLLECTION_WEBHOOK_SECRET. Generate and
+store it securely only during separately approved activation; do not reuse or print
+WHAPI_TOKEN, CRON_SECRET or the existing reporting-command webhook secret.
+Uses existing DEKEZ_REPORT_COMPANY_ID, WHAPI_TOKEN and CRON_SECRET unchanged.
+Private company controls enabled/compliance_approved/opt_out_ready/
+legacy_handover_complete all default false. No control row is seeded, and this
+draft has no company-activation write control. Unknown consent/ownership denies sends.
+
+Future callback configuration must first GET existing Whapi channel settings and
+merge the new messages.post/statuses.post subscriptions; never blindly replace the
+webhook array. Preserve channel FALCON-D9NS9, sender60168173911, existing personal
+report recipient60198894911 and /api/webhooks/whapi-reporting. The reporting-command
+allowlist must NOT be widened to tenants. Require the new callback's dedicated
+Authorization: Bearer header. If the provider cannot configure that safely, stop.
+Review actual event schema and callback subscription behavior before activation.
+
+Intake has timing-safe authentication, strict channel/provider identity, direct-chat
+checks, bounded JSON bodies/batches and durable provider-event deduplication.
+STOP suppresses the exact normalized number even when no unique tenant mapping
+exists. Suppression and send claims share a number lock. START only records a
+resubscription-review request: it NEVER opts a user in or removes suppression.
+Fresh documented authorized review is required. No webhook handler sends messages.
+
+Receipts must match the existing attempt's exact provider message ID, recipient,
+channel and company. Provider acceptance is not delivered/read confirmation.
+Pending is unknown; conflicting failure/delivery facts are flagged for review.
+Receipt-before-send-finalization is retained and reconciled. Configuration errors,
+rate limits, unknown responses and generic HTTP rejection are not confirmed tenant
+contact failures. Events and audit evidence are retained without changing business data.
+
+Worker, idempotency and delivery limits
+--------------------------------------
+/api/rental-collections requires existing CRON_SECRET and the real 09:00 MYT window.
+The full source scan/review transaction completes before bounded send processing.
+One internal review per invoice/threshold; claim also records that review atomically.
+The worker has one durable reservation per company/Malaysia date and a 300-second
+lease. Expiry/crash does not replace or automatically resume the run. Tenant and
+number/day reservations prevent duplicate scheduled reminders; all invoices for a
+tenant are consolidated. Legacy same-day reminder logs conservatively suppress sends.
+Public claims require an active worker, fresh source/fingerprint after lock waits,
+current consent/ownership, no suppression, approved company gates and no payment hold.
+
+The existing fixed-origin Whapi client has no redirects or automatic retries.
+Sends are sequential, with one-second pacing after accepted messages. Rejection,
+rate limiting or uncertainty stops the run. Provider limits still need approval.
+Incomplete work remains visible and must not be silently represented as success.
+Budget limits must cover the WHOLE request: source scans, tenant pagination/sends,
+finalization, complete Rosley evidence and digest. Skip unreserved work when there
+is not enough time; report incomplete, do not blindly resend. Benchmark realistic
+volume/latency against the 300-second runtime before activation. High-volume durable
+continuation needs separate reviewed implementation.
+Supabase and Whapi cannot share a transaction: settlement/STOP committed AFTER a
+final claim may race an already-started external request. Do not promise instantaneous
+cross-system cancellation or absolute exactly-once delivery. Never blindly reset
+uncertain/rejected reservations or restart an interrupted worker.
+
+Rosley — ONE consolidated Bahasa Melayu follow-up digest
+-------------------------------------------------------
+Fixed recipient60188702371, same existing sender. No per-tenant WhatsApp alerts.
+Fresh authorized Management account/company/rent_due_tracker scope is required for
+personal details. Read-only account verification found this narrow permission, but
+general reports and admin_setup access are none; these permissions are NOT widened.
+Separate exact-number WhatsApp ownership and consent are required even for a generic
+notice. Admin evidence controls do not automatically activate delivery.
+
+The full authorized portal roster includes current source/contact holds and ALL
+unresolved historical evidence, separately classifying confirmed delivery failure,
+pending/unknown, communications hold, invalid phone, source exception and conflict.
+Fresh source and all evidence pages are fingerprint-anchored; incomplete/changing
+evidence blocks a digest. Current balances never come from old send snapshots.
+Private durable reservation is unique by company/report-date/recipient, plus a
+global recipient/date uniqueness safeguard. Claim rechecks fresh authorization,
+source and evidence under the shared phone lock after today's worker finishes or
+expires. It cannot bypass STOP or consent. No automatic retries.
+Original sent body/snapshot remains immutable. Later receipts may update the portal
+draft without producing an extra alert that day. Without verified personal-data
+scope, only the exact generic secure-portal notice is allowed; oversized authorized
+rosters use one portal notice, not truncated or multiple WhatsApp messages.
+The legacy failed rent log was configuration-related, without provider message ID
+or linked tenant profile. It is NOT evidence of an invalid tenant WhatsApp account.
+No real new-engine failed-delivery roster exists before installation and live use.
+After activation the digest is automatic, not manually approved each day. Delivery
+receipts now also match the digest by exact company, fixed recipient and provider
+message ID, including callbacks arriving before HTTP completion. Rejected,
+uncertain, failed/conflicting/unknown or >30-minute unconfirmed outcomes appear as
+an authorized Admin Portal alert. The alert retains prior unresolved reports;
+the latest 25 dates and full alert count are shown without private message bodies.
+HTTP acceptance never means confirmed delivery. Alerts do not resend or reset the
+daily reservation. The thirty-minute value is an operational review threshold,
+not a provider delivery guarantee. If processing exhausts the shared runtime,
+the digest is withheld, not sent from an unsafe extra invocation; capacity remains
+an initial activation blocker until the full batch plus digest is proven to fit.
+
+Migration and security review
+-----------------------------
+20261028025857_rental_collection_review.sql — APPLIED ONCE; DO NOT REAPPLY.
+Production recorded version: 20261028025857. The source filename was reconciled
+to that recorded version on 28 October 2026; SQL content is unchanged from review.
+SHA256: e3f1dcb645f87743d550ba8e41b6b89982a3ba2fc06095aef9462de5fb777d3a
+Eleven private tables: controls, contact_controls, daily_cases, escalations,
+attempts, audit, provider_events, number_suppressions, failure_report_controls,
+failure_reports, worker_runs. All FORCE RLS; no direct anon/authenticated/service_role
+table access. Private NOLOGIN/NOINHERIT/NOBYPASSRLS executor has no business-table
+privileges. Private SECURITY DEFINER functions have empty search_path,
+row_security=on and role checks. Public wrappers are service-only SECURITY INVOKER.
+All 40 new functions revoke default public/ordinary-user EXECUTE. Fresh approved
+Admin/company/module checks protect evidence mutations; service credentials remain
+server-side. Existing business tables, RLS, records and accounting are unchanged.
+Migration transaction uses a five-second lock timeout and 30-second statement timeout.
+No default consent, scheduler registration, provider call or source-record update.
+
+Local SQL verification: 53/53 tests passed. Native PostgreSQL independent-session
+verification: 28/28 passed on the exact migration hash above, including 17 observed
+lock waits. Evidence: native-unattended-complete/native-results.json under the review
+artifacts. Separate PIDs prove claim/replay/rollback/lock-timeout behavior, STOP
+before/after claim, receipt races, consent withdrawal, Admin/company denial, worker
+uniqueness/expiry, Rosley claims/stale fingerprints/scope revocation and follow-up
+resolution with unchanged provider facts, digest receipt/HTTP-completion races,
+duplicate provider IDs and durable formatter holds. This is synthetic localhost
+evidence, with zero provider calls and zero deadlocks.
+Tenant/digest/workflow verification: 72/72 focused tests passed, including one shared
+280-second request deadline, bounded database requests, late-claim/no-send handling,
+incomplete evidence, exact recipient/body checks and no retry after uncertainty.
+The successful full PUBLIC 09:00 workflow has NOT been tested against production or
+a real provider. Outside-window rejection and private ledger concurrency were tested
+without weakening the production clock. Full-suite/build/type/audit results belong
+to the final PR release checklist; do not infer them from these focused SQL tests.
+
+Legacy handover, existing cron jobs and access safety
+---------------------------------------------------
+The draft permanently retires scheduled rent sending in /api/rent-reminders,
+independent of the new flags, while preserving its existing enrollment synchronization
+and hourly cron entry. Manual Meta integration is unchanged. It also removes the
+hourly suspendOverdueFingerprintAccess call; no live device/access record is changed.
+Old deployments/in-flight workers can still run their old code: documented drain and
+handover approval are mandatory before legacy_handover_complete can be approved.
+Rollback must not silently restore the old sender or automatic arrears suspension.
+PRE-EXISTING ACCESS RISK: payment-linked fingerprint validity and existing device
+expiry records need separate authorized safety review/remediation. This draft does
+not claim every physical-access risk is fixed or modify those records.
+
+All seven existing vercel.json cron entries, including the daily 20:00 MYT report,
+remain unchanged. Proposed ONLY: config/rental-collection-cron.pending.json,
+/api/rental-collections at 0 1 * * * UTC =09:00 MYT. Append it only after approval;
+never replace the existing entries. Draft-branch automatic deployment is disabled.
+
+Remaining activation and compliance prerequisites
+-------------------------------------------------
+1. Review exact migration/PR, fresh production compatibility and recoverable backup;
+   obtain explicit approval before applying migration, merging or deploying.
+2. Deploy with all four new flags/company gates off. Verify Admin/Management access,
+   private grants, receipt intake and no business-data changes using read-only checks.
+3. Obtain current provider/Meta policy classification for FIRST-PARTY RENTAL PAYMENT
+   REMINDERS and approve message templates/contact frequency. Relabeling does not
+   itself establish policy eligibility; a connected Whapi channel is not approval.
+   https://business.whatsapp.com/policy
+   https://www.whatsapp.com/legal/messaging-guidelines
+   https://whapi.cloud/docs
+4. Obtain Malaysia/Sabah legal review of actual signed agreements and Day7/14 wording,
+   notice/cure periods, disputes, daily contact and lawful possession procedure.
+   Internal review is not authority to terminate, evict or restrict physical access.
+   https://lom.agc.gov.my/ilims/upload/portal/akta/LOM/EN/Act%20137.pdf
+5. Review privacy/retention/provider processing; record current-number ownership,
+   opt-in, holds and legal communication restrictions. Resolve source exceptions
+   only through separately authorized existing workflows, not this reminder feature.
+6. Separately approve the dedicated callback secret/subscriptions; preserve existing
+   webhooks, prove STOP/receipt handling and never auto-enable consent on START.
+7. Complete legacy worker drain, documented handover, pre-existing access-safety
+   review and channel-specific pacing/runtime/capacity tests. No blind retry bypass.
+8. Verify Rosley's narrow current scope and separately document WhatsApp consent and
+   ownership; review the complete BM digest and portal authorization.
+9. Obtain the INITIAL fresh recipient/message and standing-policy activation approval,
+   then register the proposed cron and enable only approved gates. After that,
+   eligible scheduled messages and the authorized digest need NO daily approval.
+   A separately requested live test still needs explicit approval.
+
+Simple Admin workflow — ownership first, consent second
+------------------------------------------------------
+This is the intended workflow after the separately approved migration and disabled
+release. The review form is not available as a live authorization mechanism before
+that release. Saving evidence never sends a message or activates the engine.
+
+1. Open the tenant's existing record in Admin > Rental Reminders and confirm the
+   current person, company, tenancy, property and room. The Tenant Portal login
+   number shown is read-only here; it is not an alternate WhatsApp routing field.
+   Unlinked, shared, invalid or conflicting phone records must stay on hold.
+2. Obtain legitimate evidence linking THAT tenant to THAT exact WhatsApp number.
+   Examples: a tenant-initiated WhatsApp message from the number, corroborated
+   against the known tenant/tenancy; or an in-person identity check where the tenant
+   shows the number in their own WhatsApp account settings. A name in message text,
+   an incoming ordinary phone call, possession of a portal PIN, or successful login
+   alone does not establish control of that WhatsApp account. Do not request PINs,
+   OTPs, passwords, unrelated chats or unnecessary identity-document copies.
+3. Preserve the minimum evidence in the existing approved private record/document
+   location. In "Verify WhatsApp number ownership", enter its real reference and
+   actual event date/time, explain the identity/number check, tick the confirmation
+   and save. Reference and reason each require 10–500 characters. The audit records
+   the reviewing Admin and save time; include the original evidence time in the
+   reference/reason rather than treating save time as when consent was obtained.
+4. Ask separately for explicit, voluntary consent to DEKEZ rental-payment reminders
+   on the same exact number, explaining the approved purpose and contact frequency.
+   For the proposed cadence, explain 7 days before, due date and at most one daily
+   overdue reminder while a verified balance remains, plus STOP/Management opt-out.
+   Do not present proposed cadence or notice wording as already legally approved.
+   Record the tenant's actual affirmative statement and date, not an Admin's
+   assumption, an unsigned clause, silence or a pre-ticked box. Keep it in the
+   approved private evidence record; use its reference in "Record explicit
+   rental-reminder consent", explain the scope, confirm and save. Ownership must
+   already be verified. Do not condition physical access on WhatsApp consent.
+5. If consent is missing, declined or unclear, leave unknown/opted-out and use only
+   another properly authorized contact method. Record a STOP or opt-out received
+   anywhere immediately using "Record opt-out / STOP received elsewhere"; do not
+   argue or continue reminders while seeking clarification. Authenticated STOP
+   intake will suppress the number automatically once separately activated. START
+   only requests review: it does not remove suppression. "Review fresh consent
+   after an opt-out" needs new documented ownership/consent evidence and review of
+   any independent legal, dispute or communication hold; clearing one hold does not
+   clear the others. Report any saving/intake failure to Admin and keep sending off.
+6. Rosley may collect evidence, report contact problems and propose a corrected
+   number; this is not permission to change login credentials or approve consent
+   on someone else's behalf. An authorized Admin must use the EXISTING approved
+   account-update workflow for a real phone correction, keeping the same user
+   identity. Refresh the reminder record afterward, recheck current tenancy/room
+   and number uniqueness, then record fresh ownership and consent for the new
+   number. Never copy the old number's approval or automatically alter a login.
+
+Rosley's fixed management-digest number also needs separate real ownership and
+voluntary digest-consent evidence. The recipient-review control does not grant
+general Reports access or tenant-reminder access. No evidence gathering step here
+authorizes an unsolicited outbound verification or reminder message.
+
+Exact activation order — separate approval at each live-change boundary
+----------------------------------------------------------------------
+A. Complete and document the release review, current production compatibility,
+   recovery point, exact migration hash and final tests. Obtain explicit approval
+   for the migration plus a DISABLED application release. Apply only that reviewed
+   migration, verify history/grants, and deploy through the normal workflow with
+   all four DEKEZ_COLLECTION_* flags false and all private company gates false.
+   Do not add the eighth cron or create consent records merely to pass verification.
+B. Record the required content/cadence, signed-agreement, privacy and access-safety
+   clearances described above. Collect evidence using the simple workflow; resolve
+   source exceptions through existing authorized processes. These are operational
+   reviews, not a newly asserted legal/policy clearance from this document.
+C. Obtain separate approval for secure INBOUND-ONLY setup. Create the dedicated
+   webhook secret privately, preserve current channel subscriptions, register the
+   authenticated callback and activate only DEKEZ_COLLECTION_INTAKE_ENABLED.
+   Keep POLICY_ENABLED, SEND_ENABLED and FAILURE_REPORT_ENABLED false and do not
+   add the new cron. Verify sender/channel checks, STOP and receipts safely without
+   a tenant outbound send; any live inbound verification needs explicit scope and
+   cooperation. Never use a callback test to trigger a payment reminder.
+D. Finish legacy sender handover: drain existing requests, prevent old deployment
+   URLs/manual invocations from running the previous sender, reconcile same-day
+   and uncertain outcomes, and document the handover. Verify the seven existing
+   crons, 20:00 report and reporting-command callback remain unchanged. Do not
+   roll back to a version that restores rent chasing or arrears-based suspension.
+E. Produce a FRESH read-only eligible batch with exact recipients, current verified
+   balances, pending/settled/checked-out exclusions, holds, consent and message
+   text. Have Management approve the INITIAL rollout batch, standing policy, first
+   scheduled date and pacing. This is not a requirement to approve each later day.
+   The 27 October snapshot is not approval for a later batch. Confirm the bounded
+   worker can finish safely; do not hide omitted/unresolved cases or blind retries.
+F. Only with explicit activation approval, perform the separately reviewed operator
+   change for private enabled/compliance_approved/opt_out_ready/
+   legacy_handover_complete gates. There is no company-activation write control
+   in the current Admin review form. Enable only the approved policy/send switches;
+   enable the Rosley digest switch only if its separate recipient evidence and
+   digest approval are complete. Keep intake active and existing secrets unchanged.
+   Append exactly ONE eighth cron: /api/rental-collections, "0 1 * * *" UTC
+   (09:00 Asia/Kuala_Lumpur). Preserve all seven existing entries and schedules,
+   including the 20:00 management report. Use the normal approved deployment so
+   environment changes take effect; verify Ready, registration and safe read-only
+   smoke checks without manually invoking the sender.
+G. Let the first approved 09:00 scheduled run execute; review its reservations,
+   delivery receipts, incomplete cases and summary. Subsequent scheduled days run
+   unattended under the same authorized policy, with fresh checks for every send.
+   Do not catch up a missed date
+   or reuse a completed/expired worker. Any send outside the current window needs
+   a separately reviewed recipient/message-bound one-time mechanism and explicit
+   approval, not a clock change, direct provider call or security bypass.
+
+The above is a runbook only. No approval, live setup, migration, consent evidence,
+send authorization or production change is asserted to have occurred here.
+
+Rollback and evidence preservation
+----------------------------------
+Under authorized rollback, disable private gates first to block fresh claims and
+drain workers. Disable new flags/schedule/callback only with approval while preserving
+the existing daily report and reporting-command webhook. An already transmitted
+request cannot be recalled. Retain all attempts, source snapshots, receipts and audit
+evidence; never reset reservations, mark unknown outcomes delivered or drop used
+ledgers. Any removal of unused additive objects needs a separately reviewed rollback
+migration/dependency check. Do not restore automatic physical-access enforcement.
+
+Final local checks — 27 October 2026
+------------------------------------
+Full automated suite after the unattended-policy update: 955/955 PASS, no skips.
+Workflow tests cover queue grouping, bounded pagination, escaping, read-only task
+cards, genuine consent guidance, unselected evidence controls, fresh authorization,
+the initial-only approval contract and Admin-only digest delivery alerts.
+Successive-day runtime tests reuse standing activation flags without approval
+calls; same-day replays remain blocked. Tenant holds continue through later pages.
+Rent Due Tracker's original non-layout fingerprint remains
+unchanged after excluding only the exact new role-limited follow-up link.
+Production build (including the
+existing prebuild gates): PASS. TypeScript --noEmit: PASS. npm audit: zero known
+vulnerabilities. Fresh independent native PostgreSQL evidence: 28/28 PASS on the
+exact updated migration hash above; 17 real lock waits, no deadlocks or provider
+calls. SQL tests: 53/53 PASS. Tenant/digest/workflow focused tests: 72/72 PASS, including
+the shared runtime deadline and bounded RPC requests. All seven cron definitions
+compare equal to origin/main. No lint script is configured; no lint pass is claimed.
+No production migration, release, provider call, consent record or message was
+created. Private action lists and exact message previews remain local artifacts,
+not committed to GitHub. Browser screenshot verification was unavailable; fixture
+UI render/access tests passed, not a live browser or provider end-to-end test.
+The new local consent-workflow.html guide contains no live mutation controls.
+The last production coverage snapshot remains 27 October 2026, 17:51 Malaysia;
+this update did not refresh production figures or create consent/clearance evidence.
+The migration changed locally and remains unapplied; its new hash requires a fresh
+production compatibility/security review before any separately approved execution.
+Final recommendation: BLOCKED for activation until the prerequisites above pass.

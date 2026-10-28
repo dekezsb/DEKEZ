@@ -102,15 +102,6 @@ function providerError(error: unknown) {
     : "TTLock fingerprint request failed.";
 }
 
-function malaysiaDate(date = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kuala_Lumpur",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
-
 function malaysiaEnd(date: string) {
   return new Date(`${date}T23:59:59+08:00`);
 }
@@ -390,7 +381,7 @@ export async function prepareFingerprintEnrollment(
     `Fingerprint setup is ready for ${property?.name ?? "your property"} ${roomLabel}. Reference: ${enrollmentCode}.`,
     "Your finger must be registered physically at both the main entrance lock and your room lock. WhatsApp and the website do not collect or store your fingerprint image.",
     "Please contact the management team while you are at the locks. Ask them to name each TTLock fingerprint with the reference above, then DEKEZ will match it automatically.",
-    "Access is renewed in 30-day cycles after rental payment verification. If rent remains unpaid for 7 days and no payment slip is waiting for verification, entry access may be suspended until payment is verified.",
+    "Your current access validity is shown in the Tenant Portal. Please contact Management before it expires if you need help. Rental reminders do not authorize automatic door-access suspension; any access concern requires separate Management review.",
     `Portal: ${siteUrl}/dashboard`,
   ].join("\n\n");
 
@@ -657,8 +648,13 @@ export async function extendFingerprintAccessAfterPayment(input: {
   return result;
 }
 
-export async function suspendOverdueFingerprintAccess() {
-  const result: FingerprintResult = {
+export async function suspendOverdueFingerprintAccess(): Promise<FingerprintResult> {
+  // Retained only for compatibility with older internal callers. Rental arrears
+  // are a management-review matter, never authorization to shorten door access.
+  // Do not query invoices, update credentials or call the lock/message provider.
+  // Existing credential expiry and lawful checkout/security revocation require
+  // a separate access-policy review; this no-op does not extend any device grant.
+  return {
     created: 0,
     matched: 0,
     extended: 0,
@@ -667,176 +663,6 @@ export async function suspendOverdueFingerprintAccess() {
     skipped: 0,
     errors: [],
   };
-  const admin = createAdminClient();
-  const cutoff = malaysiaDate(new Date(Date.now() - 7 * dayMs));
-  const { data, error } = await admin
-    .from("smart_lock_fingerprint_grants")
-    .select("id,device_id,tenancy_id,tenant_profile_id,access_scope,provider_fingerprint_id,provider_fingerprint_number,fingerprint_name,enrollment_code,credential_state,valid_from,valid_until,last_extension_reference,smart_lock_devices(id,company_id,property_id,room_id,provider_lock_id,provider_lock_name,access_scope,has_gateway,sync_status)")
-    .eq("credential_state", "active");
-  if (error) throw error;
-
-  const grants = (data ?? []) as unknown as FingerprintGrantRow[];
-  const byTenancy = new Map<string, FingerprintGrantRow[]>();
-  for (const grant of grants) {
-    const group = byTenancy.get(grant.tenancy_id) ?? [];
-    group.push(grant);
-    byTenancy.set(grant.tenancy_id, group);
-  }
-
-  const tenancyIds = [...byTenancy.keys()];
-  if (!tenancyIds.length) return result;
-  const [{ data: tenancyRows, error: tenancyError }, { data: billRows, error: billError }] = await Promise.all([
-    admin
-      .from("tenancies")
-      .select(
-        "id,company_id,property_id,room_id,status,billing_status,rental_model,checkout_date,check_in_date,tenancy_start_date,contract_start,start_date,tenancy_end_date,contract_end,end_date,tenants(profile_id,full_name,phone),properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenancy_agreements(signed_at,admin_verified_at,admin_rejected_at)",
-      )
-      .in("id", tenancyIds),
-    admin
-      .from("rent_bills")
-      .select("id,tenancy_id,due_date,amount,paid_amount,status")
-      .in("tenancy_id", tenancyIds)
-      .is("removed_at", null)
-      .lte("due_date", cutoff)
-      .not("status", "in", "(draft,paid,cancelled,waived)")
-      .order("due_date", { ascending: true }),
-  ]);
-  if (tenancyError) throw tenancyError;
-  if (billError) throw billError;
-
-  const tenancyById = new Map(
-    ((tenancyRows ?? []) as unknown as TenancyRow[]).map((tenancy) => [tenancy.id, tenancy]),
-  );
-  const overdueBillByTenancy = new Map<string, (typeof billRows)[number]>();
-  for (const bill of billRows ?? []) {
-    if (
-      !overdueBillByTenancy.has(bill.tenancy_id)
-      && Number(bill.amount ?? 0) - Number(bill.paid_amount ?? 0) > 0.005
-    ) {
-      overdueBillByTenancy.set(bill.tenancy_id, bill);
-    }
-  }
-  const overdueBillIds = [...overdueBillByTenancy.values()].map((bill) => bill.id);
-  const { data: pendingRows, error: pendingError } = overdueBillIds.length
-    ? await admin
-        .from("payment_submissions")
-        .select("rent_bill_id")
-        .in("rent_bill_id", overdueBillIds)
-        .eq("verification_status", "pending_verification")
-    : { data: [], error: null };
-  if (pendingError) throw pendingError;
-  const billsWithPendingSlip = new Set(
-    (pendingRows ?? [])
-      .map((submission) => submission.rent_bill_id)
-      .filter((billId): billId is string => Boolean(billId)),
-  );
-
-  for (const [tenancyId, tenancyGrants] of byTenancy) {
-    const tenancy = tenancyById.get(tenancyId) ?? null;
-    const agreements = Array.isArray(tenancy?.tenancy_agreements)
-      ? tenancy.tenancy_agreements
-      : tenancy?.tenancy_agreements
-        ? [tenancy.tenancy_agreements]
-        : [];
-    const agreementVerified = tenancy?.rental_model === "monthly_stay" || agreements.some(
-      (agreement) =>
-        agreement.signed_at
-        && agreement.admin_verified_at
-        && !agreement.admin_rejected_at,
-    );
-    if (!tenancy || !eligibleTenant(tenancy) || !agreementVerified) {
-      result.skipped += tenancyGrants.length;
-      continue;
-    }
-    const overdueBill = overdueBillByTenancy.get(tenancyId);
-    if (!overdueBill) {
-      result.skipped += tenancyGrants.length;
-      continue;
-    }
-    if (billsWithPendingSlip.has(overdueBill.id)) {
-      result.skipped += tenancyGrants.length;
-      continue;
-    }
-
-    let tenancySuspended = 0;
-    for (const grant of tenancyGrants) {
-      const device = one(grant.smart_lock_devices);
-      const lockId = Number(device?.provider_lock_id);
-      const fingerprintId = Number(grant.provider_fingerprint_id);
-      if (
-        !device?.has_gateway
-        || !Number.isSafeInteger(lockId)
-        || lockId <= 0
-        || !Number.isSafeInteger(fingerprintId)
-        || fingerprintId <= 0
-        || !grant.valid_from
-      ) {
-        result.errors.push(`${device?.provider_lock_name ?? "TTLock"} has an incomplete fingerprint link.`);
-        continue;
-      }
-
-      try {
-        const validFrom = new Date(grant.valid_from);
-        const validUntil = new Date(Math.max(Date.now() + 30_000, validFrom.getTime() + 60_000));
-        await changeTTLockFingerprintPeriod({ lockId, fingerprintId, validFrom, validUntil });
-        const now = new Date().toISOString();
-        const { error: updateError } = await admin
-          .from("smart_lock_fingerprint_grants")
-          .update({
-            credential_state: "suspended",
-            valid_until: validUntil.toISOString(),
-            suspended_at: now,
-            last_error: null,
-            last_provider_sync_at: now,
-            provider_status: {
-              operation: "suspended_for_overdue_rent",
-              rentBillId: overdueBill.id,
-              dueDate: overdueBill.due_date,
-            },
-            updated_at: now,
-          })
-          .eq("id", grant.id);
-        if (updateError) throw updateError;
-        await addAudit({
-          grant,
-          action: "access_suspended",
-          oldState: grant.credential_state,
-          newState: "suspended",
-          details: {
-            rentBillId: overdueBill.id,
-            dueDate: overdueBill.due_date,
-            outstanding: Number(overdueBill.amount ?? 0) - Number(overdueBill.paid_amount ?? 0),
-          },
-        });
-        tenancySuspended += 1;
-        result.suspended += 1;
-      } catch (suspendError) {
-        result.errors.push(await recordProviderError(grant, suspendError, {
-          operation: "overdue_suspension",
-          rentBillId: overdueBill.id,
-        }));
-      }
-    }
-
-    const tenant = one(tenancy.tenants);
-    if (tenancySuspended && tenant?.profile_id && tenant.phone) {
-      const text = `Hello ${tenant.full_name}, your smart-lock fingerprint entry has been suspended because rent due on ${overdueBill.due_date} remains unpaid for 7 days and no payment proof is waiting for verification. Please pay and upload the slip at https://dekez.vercel.app/payments. Access will be restored after Admin verifies the rental payment.`;
-      try {
-        const response = await sendWhatsAppText(tenant.phone, text);
-        await recordWhatsApp({
-          tenantProfileId: tenant.profile_id,
-          phone: tenant.phone,
-          text,
-          providerMessageId: response.messages?.[0]?.id ?? null,
-          status: "sent",
-        });
-      } catch (noticeError) {
-        result.errors.push(providerError(noticeError));
-      }
-    }
-  }
-
-  return result;
 }
 
 export async function revokeFingerprintAccessForTenancy(

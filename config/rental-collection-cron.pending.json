@@ -1,0 +1,41 @@
+{
+  "reviewOnly": true,
+  "activationRequiresSeparateApproval": true,
+  "stage1Deployment": {
+    "authorizedOn": "2026-10-28",
+    "mode": "scan_only",
+    "schedule": "0 1 * * *",
+    "tenantSendingEnabled": false,
+    "managementDigestSendingEnabled": false,
+    "liveSendingStillRequiresSeparateClearance": true
+  },
+  "afterInitialActivation": {
+    "mode": "unattended_daily",
+    "dailyManualApprovalRequired": false,
+    "recheckEligibilityBeforeEverySend": true,
+    "tenantExceptionBehavior": "hold_and_track_continue_other_eligible_tenants",
+    "systemFailureBehavior": "fail_closed_preserve_history_no_blind_retry"
+  },
+  "timeZone": "Asia/Kuala_Lumpur",
+  "requestedFirstLocalRun": "2026-10-28T09:00:00+08:00",
+  "requestedFirstUtcRun": "2026-10-28T01:00:00Z",
+  "oneTimeBatch": {
+    "requestedLocalDate": "2026-10-27",
+    "mode": "dry_run_only",
+    "noCatchUpWithoutFreshApproval": true,
+    "outsideWindowSendingSupported": false
+  },
+  "requiredBeforeActivation": [
+    "initial_policy_and_rollout_recipient_message_approval",
+    "number_bound_consent_and_ownership",
+    "tested_opt_out_and_STOP_intake",
+    "provider_and_legal_clearance",
+    "physical_access_safety_review",
+    "legacy_sender_drained_and_handover_verified",
+    "delivery_capacity_verified"
+  ],
+  "appendAfterApproval": {
+    "path": "/api/rental-collections",
+    "schedule": "0 1 * * *"
+  }
+}

@@ -842,7 +842,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             <AccessRule
               number="3"
               title="Overdue and checkout are controlled"
-              text="Seven days overdue with no pending slip suspends entry. Verified payment reopens it; checkout deletes the fingerprint from both locks and retains the audit record."
+              text="Rental arrears require management review and never trigger automatic fingerprint suspension. Existing credential expiry still needs separate access-policy review. Authorized checkout revokes access and retains the audit record."
             />
           </div>
           <p className="mt-4 rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-600">

@@ -504,6 +504,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
                 : `Unpaid rent and outstanding deposits for ${tracker.selectedMonthLabel}. Upload tenant bank-in slips here for verification.`
               : `Monthly collection, verified payments and room status for ${tracker.selectedMonthLabel}.`}
           </p>
+          {canUploadSlip ? <Link href="/rent-due-tracker/reminder-followups" className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-3 text-sm">Reminder follow-ups · phone / consent / payment review</Link> : null}
         </div>
 
         <form

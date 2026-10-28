@@ -120,6 +120,7 @@ export default async function AdminSetupPage({ searchParams }: AdminSetupPagePro
         </p>
         <a className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-4 font-medium" href="/admin-setup/client-owners">Client Owner Portal — access & shared records</a>
         <a className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-4 font-medium" href="/admin-setup/management-report">Daily Management Report — Whapi</a>
+        <a className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-4 font-medium" href="/admin-setup/rental-reminders">Rental Reminder Management — read-only review</a>
       </div>
 
       {params.created || params.removed || params.activated ? (

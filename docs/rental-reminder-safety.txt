@@ -1,0 +1,116 @@
+DEKEZ rental payment reminder safety review
+Review scope: PR #32, local changes only. No production activation.
+
+1. Ordinary reminders versus enforcement
+
+Ordinary invoice-specific payment reminders are not automatically prohibited
+debt collection. WhatsApp's official utility guidance expressly includes payment
+reminders and account updates for existing transactions or subscriptions:
+https://whatsappbusiness.com/products/conversation-categories/utility/
+
+The Business Messaging Policy separately lists debt collection, requires opt-in,
+requires on/off-platform opt-outs to be respected and prohibits spam or undue
+pressure. It does not provide a precise first-party rental/third-party collection
+boundary, or say that every overdue invoice reminder is prohibited:
+https://whatsappbusiness.com/policy/
+
+Neutral amount/due-date/payment-status reminders can be reviewed as ordinary
+account notifications. The original repeated final-warning, restriction and
+termination wording is different. Its exact content and frequency need explicit
+business/provider review; actual notice or enforcement claims need review of the
+signed tenancy agreement and applicable law. Do not substitute generic Day 7/14
+thresholds for an actual contractual cure period or legal process. Internal
+review stages do not themselves issue a termination, eviction or access order.
+
+Whapi is an independent, unofficial linked-device tool; its provider acceptance
+does not establish Meta policy approval or proof of recipient delivery:
+https://whapi.cloud/terms
+https://whapi.cloud/docs
+
+No token, channel configuration or provider request was used for this review.
+
+2. Legacy reminder handover
+
+The revised /api/rent-reminders route permanently stops its legacy scheduled
+Meta rent messages. It preserves the same hourly cron and its existing pending
+fingerprint enrollment reconciliation. The retired rent sender cannot resume
+because new-engine flags are absent, false, malformed, rolled back in settings,
+or because someone adds query parameters. The route no longer queries invoices,
+creates WhatsApp threads or writes reminder/message records.
+
+This is a local code guarantee, not a claim about older immutable deployments.
+Before separately approving the new sender, deploy the reviewed retirement,
+disable/restrict any old deployment URLs able to run the sender, stop manual old
+invocations, and allow in-flight old requests to finish. Inspect their final
+logs and reconcile same-day/uncertain sends before approving the handover in the
+new engine. Never enable two senders during a rolling change. Do not rotate or
+weaken cron authentication merely to skip this review. The seven existing cron
+entries and the 20:00 Malaysia management report remain unchanged.
+
+On rollback, keep new sending disabled and do not roll production back to a
+version that re-enables the legacy sender. Preserve private attempt history.
+An accepted/uncertain/crashed provider call must not be blindly retried.
+
+3. Physical-access audit and remaining blocker
+
+The legacy cron no longer calls suspendOverdueFingerprintAccess. Repository
+search found no remaining legitimate caller of that helper. Its implementation
+is now a compatibility no-op: no invoice query, credential shortening, device
+call, database mutation or tenant message. Enrollment and Smart Devices copy no
+longer promise automatic Day 7 physical-access suspension.
+
+This does NOT mean the existing device-expiry risk is cleared. In the unchanged
+lib/ttlock/fingerprint.ts, accessPeriod provisions approximately 30 days capped
+by the current contract end. Existing payment-verification/rent-due workflows
+call extendFingerprintAccessAfterPayment. An existing credential can therefore
+expire without any reminder or explicit suspension call. Passcode provisioning
+in lib/ttlock/access.ts uses the tenancy end, or a 30-day period when a monthly
+stay lacks an end date. Those legitimate provisioning, payment-extension and
+checkout/revocation paths were NOT altered by this reminder change.
+
+Before activation, Management must commission a read-only inventory of actual
+device and database validity dates for current occupiers, identify any grants
+whose continuation depends on rent payment, and approve a separate lawful access
+continuity policy with security/legal review. Any required device-period changes
+need separate authority, testing and audit. No physical access was extended,
+revoked or restored in this work; no tenant/payment/tenancy date was changed.
+Do not represent passive expiry as a lawful unpaid-rent enforcement method.
+
+Preserve documented checkout, lost/stolen credentials and legitimate security
+revocation. Do not automatically extend a checked-out or unauthorized occupant.
+The old 30-day/payment coupling remains an explicit activation blocker until
+reviewed, not something hidden by disabling the suspension helper.
+
+4. Sending safeguards that must stay in force
+
+Use the canonical active tenant's current portal number as an address source,
+not proof of WhatsApp ownership or consent. Keep recorded exact-number ownership,
+opt-in, opt-out/STOP ingestion, holds/disputes and fresh verified balance checks.
+Never route a tenant demand to the sender or management digest recipients.
+Pending payment proof requires neutral verification handling, not another demand.
+Preserve the original invoice due date after partial payment; reduce only the
+verified outstanding amount. Consolidate to at most one reminder per tenant and
+phone per Malaysia date. Keep permanent atomic attempt reservations and clear
+provider accepted/delivered/read/failed/uncertain distinctions.
+
+Capacity approval must use measured database/provider latency and channel-specific
+approved pacing, not a universal assumption that one message per second is safe.
+If a batch cannot fit its reviewed function/window and budget, fail closed before
+additional sends, expose incomplete/held cases to Management and require a fresh
+review. Do not silently drop cases, spawn unbounded sends or automatically retry
+unknown results. A database commit and external HTTP send cannot be one atomic
+transaction; fresh pre-send checks reduce but cannot eliminate that boundary.
+
+5. Verification scope
+
+tests/rental-collection-legacy.test.cjs covers authenticated no-send behavior for
+all new-engine flag states, query overrides and repeated requests, enrollment
+error redaction, and preservation of seven cron entries.
+tests/rental-access-safety.test.cjs executes the dormant helper with forbidden
+database/device/messaging mocks and verifies no calls occur. Regression snapshots
+guard the unchanged access-period, payment-extension, passcode and checkout code.
+Native synthetic PostgreSQL tests and the full release suite are separate gates;
+their latest executed results must be reported, not inferred from this document.
+
+Production migrations, release, settings, schedule activation, tenant messages,
+provider configuration and device access changes still require separate approval.

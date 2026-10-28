@@ -21,7 +21,8 @@ export default async function ManagementReportPage() {
   }
   return <section className="space-y-6">
     <div><h1 className="text-2xl font-semibold sm:text-3xl">Daily Management Report</h1>
-      <p className="mt-2 text-sm text-gray-600">Private DEKEZ summary via Whapi. Existing tenant WhatsApp services are unchanged.</p></div>
+      <p className="mt-2 text-sm text-gray-600">Private DEKEZ summary via Whapi. Existing tenant WhatsApp services are unchanged.</p>
+      <a className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-4 text-sm font-medium" href="/admin-setup/rental-reminders">Rental Reminder Management — read-only review</a></div>
     <Card><CardHeader><CardTitle>Delivery controls</CardTitle>
       <CardDescription>8:00 PM Malaysia time. Sending and scheduling require separate approval and configuration.</CardDescription></CardHeader>
       <CardContent className="space-y-4">
