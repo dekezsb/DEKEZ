@@ -122,7 +122,7 @@ test('production migration version is reconciled exactly once without changing a
 
 test('approved 20:00 Malaysia daily cron is registered once, preserving all six existing schedules and source-write boundaries',()=>{
  const vercel=JSON.parse(fs.readFileSync('vercel.json','utf8')),crons=vercel.crons;
- assert.deepEqual(crons,[
+ assert.deepEqual(crons.filter(cron=>cron.path!=='/api/rental-collections'),[
   {path:'/api/dekez-chat-assistant',schedule:'* * * * *'},
   {path:'/api/dekez-chat-reminders',schedule:'7,17,27,37,47,57 * * * *'},
   {path:'/api/rental-billing',schedule:'5 16 * * *'},
@@ -132,6 +132,7 @@ test('approved 20:00 Malaysia daily cron is registered once, preserving all six 
   {path:'/api/management-report',schedule:'0 12 * * *'}
  ]);
  assert.equal(crons.filter(cron=>cron.path==='/api/management-report').length,1);
+ assert.deepEqual(crons.filter(cron=>cron.path==='/api/rental-collections'),[{path:'/api/rental-collections',schedule:'0 1 * * *'}]);
  assert.deepEqual(vercel.git.deploymentEnabled,{'feature/whapi-report-review-20261025':false,'security/dependency-remediation-20261025':false,'feature/whapi-single-use-test-20261025':false,'feature/whapi-report-commands-20261026':false,'feature/rental-collection-policy-20261027':false});
  assert.equal(fs.existsSync('config/management-report-cron.pending.json'),false);
  const defaults=fs.readFileSync('.env.example','utf8');

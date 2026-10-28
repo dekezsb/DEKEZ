@@ -35,7 +35,7 @@ module.exports = async () => {
  insert into tenancies values('${id(21)}','${id(20)}','${id(1)}','${id(10)}','${id(11)}','active','active',null);
  grant select on all tables in schema public to service_role;
  alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;`);
- const sql=fs.readFileSync('supabase/migrations/20261027051603_rental_collection_review.sql','utf8');
+ const sql=fs.readFileSync('supabase/migrations/20261028025857_rental_collection_review.sql','utf8');
  const [before,after]=sql.split('create schema dekez_collections_private;');
  if(!before||!after)throw Error('Migration boundary changed');
  await db.exec(before);

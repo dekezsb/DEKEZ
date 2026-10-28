@@ -345,6 +345,7 @@ test('new code never invokes existing daily/test claims or mutates source/Meta W
  const migration = fs.readFileSync('supabase/migrations/20261026115436_whapi_reporting_commands.sql', 'utf8');
  assert.doesNotMatch(migration, /\b(?:update|insert\s+into|delete\s+from|alter\s+table)\s+public\.(?:payments|rent_bills|tenants|tenancies|maintenance_tickets|whatsapp_)/i);
  const crons = JSON.parse(fs.readFileSync('vercel.json', 'utf8')).crons;
- assert.equal(crons.length, 7); assert.deepEqual(crons.at(-1), { path: '/api/management-report', schedule: '0 12 * * *' });
+ assert.equal(crons.length, 8); assert.deepEqual(crons.filter(row=>row.path==='/api/management-report'), [{ path: '/api/management-report', schedule: '0 12 * * *' }]);
+ assert.deepEqual(crons.filter(row=>row.path==='/api/rental-collections'), [{ path: '/api/rental-collections', schedule: '0 1 * * *' }]);
  assert.equal(crons.filter(row => row.path.includes('whapi-reporting')).length, 0);
 });

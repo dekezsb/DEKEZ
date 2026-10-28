@@ -1,6 +1,14 @@
 {
   "reviewOnly": true,
   "activationRequiresSeparateApproval": true,
+  "stage1Deployment": {
+    "authorizedOn": "2026-10-28",
+    "mode": "scan_only",
+    "schedule": "0 1 * * *",
+    "tenantSendingEnabled": false,
+    "managementDigestSendingEnabled": false,
+    "liveSendingStillRequiresSeparateClearance": true
+  },
   "afterInitialActivation": {
     "mode": "unattended_daily",
     "dailyManualApprovalRequired": false,

@@ -151,7 +151,7 @@ async function main() {
     create role fixture_migrator nologin createrole createdb bypassrls;
     grant usage,create on schema public to fixture_migrator;grant create on database postgres to fixture_migrator;
     set role fixture_migrator;${fixtureSql};reset role;`);
-  const name = '20261027051603_rental_collection_review.sql';
+  const name = '20261028025857_rental_collection_review.sql';
   const sql = fs.readFileSync(path.join(repo, 'supabase/migrations', name), 'utf8');
   // Feed unmodified SQL over stdin, avoiding the Windows command-line limit.
   run('psql', args(), { env: env(), input: 'set role fixture_migrator;\n' + sql });

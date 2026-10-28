@@ -16,7 +16,7 @@ const model = load('lib/rental-collection/model.ts');
 const failure = load('lib/rental-collection/failure-report.ts');
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 assert.equal(native.status, 'PASS');
-assert.equal(native.migrations[0].sha256, sha('supabase/migrations/20261027051603_rental_collection_review.sql'), 'Native evidence must match current migration');
+assert.equal(native.migrations[0].sha256, sha('supabase/migrations/20261028025857_rental_collection_review.sql'), 'Native evidence must match current migration');
 assert.equal(dry.report_date, '2026-10-27');
 assert.equal(privateRows.report_date, dry.report_date);
 const names = new Map(privateRows.accounts.map(row => [row.reference, row]));

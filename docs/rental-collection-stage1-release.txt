@@ -1,0 +1,132 @@
+DEKEZ PR #32 — approved scan-only production release, 28 October 2026
+==================================================================
+
+Scope and authority
+-------------------
+The user approved Stage 1 deployment based on reviewed commit 42a1bb5, including
+the daily 09:00 Asia/Kuala_Lumpur invoice scan, but not live tenant or Rosley
+WhatsApp sending. This note supersedes the older all-disabled deployment sequence
+in rental-collection-review.txt only for this approved scan-only stage.
+
+Release adjustments after the reviewed commit are limited to the eighth cron,
+its regression expectations/configuration, production migration filename
+reconciliation and release evidence. No reviewed migration SQL is changed.
+
+Database execution and recovery evidence
+---------------------------------------
+Project: Dekez Sdn Bhd, palhkdkmfroqvrjutffc (production).
+Company: 660cc0c4-daee-445b-9146-ccd112e791d4, DEKEZ SDN BHD.
+The authenticated Supabase dashboard showed a recoverable PHYSICAL backup dated
+27 October 2026 23:55:09 UTC (28 October 07:55:09 MYT), with Restore available.
+No restore was initiated. This migration does not alter Storage objects.
+
+The exact approved SQL was applied once, transactionally with a five-second lock
+timeout. Supabase recorded version 20261028025857, name rental_collection_review.
+Original reviewed filename: 20261027051603_rental_collection_review.sql.
+Reconciled source: 20261028025857_rental_collection_review.sql.
+Stored SQL and reviewed Git source are byte-identical (96,054 bytes):
+SHA256 e3f1dcb645f87743d550ba8e41b6b89982a3ba2fc06095aef9462de5fb777d3a.
+Do not reapply the SQL or retain a second file under the original version.
+
+Post-migration catalog verification:
+- Eleven new private tables all have enabled and FORCE RLS.
+- No direct SELECT/INSERT/UPDATE/DELETE for anon, authenticated or service_role.
+- Forty functions: ordinary roles have no EXECUTE; service_role has explicit RPC
+  execution. Twenty SECURITY DEFINER functions have the restricted NOLOGIN,
+  NOINHERIT, NOSUPERUSER, NOBYPASSRLS executor owner and empty search_path.
+- The executor cannot select rent_bills or create schema objects. Membership
+  cannot SET or INHERIT its identity. Existing public-policy fingerprint unchanged.
+- Counts and full-row fingerprints of thirteen scoped existing business/access
+  tables matched before and after migration AND after the internal scan.
+- No collection-related Supabase security-advisor warnings were returned.
+  Existing unrelated advisor findings are not asserted to be remediated.
+
+Production scan capacity check
+------------------------------
+A service-role invocation of the approved internal scan completed in 822 ms,
+within its 25-second transaction budget, on 28 October 2026.
+It persisted 185 review cases: 30 resolved, 3 due today, 4 overdue days 1-6,
+1 Day 7, 2 days 8-13, 1 Day 14, 22 days 15+, and 122 source-exception cases.
+151 cases had source exceptions and/or pending verification; these counts overlap
+financial stages and must not be interpreted as permission to contact tenants.
+It created 33 Day 7 and 28 Day 14 invoice-level internal review entries, including
+already overdue cases. No enforcement or business-source mutation occurred.
+Tenant attempts, Rosley attempts, provider events and consent records remained zero.
+This is a measured database scan, not proof of an automatic cron run or delivery.
+
+Stage 1 deployment configuration
+--------------------------------
+DEKEZ_COLLECTION_POLICY_ENABLED=true
+DEKEZ_COLLECTION_SEND_ENABLED=false
+DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED=false
+DEKEZ_COLLECTION_INTAKE_ENABLED=false
+
+Only the internal scan is enabled. Empty private company controls remain false;
+no consent, ownership or compliance evidence was manufactured. Manual Admin
+evidence/STOP management is available after deployment; the authenticated provider
+STOP/receipt callback remains inactive until separately configured and verified.
+
+Append /api/rental-collections at 0 1 * * * UTC. Vercel's current Pro project has
+capacity for eight cron jobs; all original seven paths/schedules remain unchanged.
+The existing CRON_SECRET authenticates the route. No secret was retrieved or
+changed. Existing 20:00 reporting, reporting recipient and incoming-command flags
+are preserved. The prior hourly rent sender is retired by reviewed code; its cron
+continues the existing fingerprint enrollment synchronization, not rent chasing.
+
+The reviewed reminder path performs no lock, utility or tenancy enforcement.
+The arrears fingerprint-suspension helper is a no-op. Existing historical
+credential expiry/payment-extension coupling still requires an access-continuity
+inventory before live collection activation; it is not silently declared safe.
+
+Local verification
+------------------
+Full automated suite: 955/955 PASS. Production build including prebuild gates:
+PASS. TypeScript --noEmit --incremental false: PASS. npm audit: zero known issues.
+Independent native PostgreSQL: 28/28 PASS, 17 observed lock waits, no deadlocks,
+no provider calls. Migration source is unchanged from that native verification.
+After filename reconciliation: SQL tests 53/53 PASS; full suite 955/955 PASS and
+production build PASS again. No lint script is configured; no lint pass is claimed.
+
+Remaining actions before live sending (not scan-only deployment blockers)
+-----------------------------------------------------------------------
+1. Management + Whapi/provider: obtain documented classification/permission for
+   the actual first-party rental-payment reminder content and daily overdue
+   cadence, channel restrictions, rate and volume. Do not infer permission merely
+   from the label "payment reminder" or successful API delivery.
+2. Management + Sabah/Malaysia legal adviser: review each applicable signed
+   agreement, arrears/dispute handling, Day 7/14 wording, contact cadence and
+   notice/enforcement requirements. Reviews are mandatory; restrictions,
+   termination, possession and utility actions remain human/legal decisions.
+3. Rosley/Management gather genuine current-number ownership and separate consent;
+   authorized Admin records the evidence in Rental Reminders. Portal login alone
+   is insufficient. Correct login numbers only through the existing authorized
+   account workflow; reconfirm evidence after any change. Finance/Management
+   resolve pending proofs, disputes and source-reconciliation exceptions using
+   existing approved workflows, never by changing balances to permit a send.
+4. Integration operator: configure and verify the dedicated authenticated STOP/
+   receipt callback without changing the management-command callback; demonstrate
+   opt-out suppression and audited handling before enabling outbound messages.
+5. Management + access technician: inventory current fingerprint/passcode/TTLock
+   validity and implement a separately approved lawful access-continuity policy;
+   do not let arrears or payment-linked passive expiry create physical lockouts.
+6. Release operator + provider: drain old sender invocations/immutable URLs,
+   reconcile same-day and uncertain outcomes, verify actual approved pacing and
+   batch completion within the bounded worker. Do not restore the old sender
+   on rollback. Current sub-second scan timing is NOT provider-capacity approval.
+7. Authorized Management: verify Rosley's identity/role, exact number 60188702371,
+   ownership and consent for the consolidated Malay digest. Record private policy
+   clearance, approve one initial fresh eligible rollout and enable send gates
+   through a separately approved operator change. Subsequent eligible 09:00 runs
+   require no daily or per-message approval. Exceptions stay held and tracked.
+
+Rollback
+--------
+Stop the NEW scan flag/schedule through an approved deployment if needed; preserve
+the seven old jobs and 20:00 report. Keep tenant and digest sending off. Retain
+new review/audit records and migration history; do not drop used ledgers or
+reapply the original filename. Foreign keys can restrict future hard deletion of
+referenced business records, so any destructive rollback needs separate review.
+Do not roll back to code that restores rent chasing or arrears-based suspension.
+
+Deployment Ready status, merge SHA, registered cron and first scheduled-run
+observation must be verified separately; pre-merge checks alone do not prove them.

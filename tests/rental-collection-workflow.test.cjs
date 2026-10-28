@@ -83,6 +83,8 @@ test('activation plan requires initial clearance but no manual approval of each 
  assert.equal(plan.afterInitialActivation.recheckEligibilityBeforeEverySend,true);
  assert(plan.requiredBeforeActivation.includes('initial_policy_and_rollout_recipient_message_approval'));
  assert.equal(plan.appendAfterApproval.schedule,'0 1 * * *');
+ assert.equal(plan.stage1Deployment.mode,'scan_only');assert.equal(plan.stage1Deployment.tenantSendingEnabled,false);
+ assert.equal(plan.stage1Deployment.managementDigestSendingEnabled,false);assert.equal(plan.stage1Deployment.liveSendingStillRequiresSeparateClearance,true);
  const html=renderToStaticMarkup(ReminderConsentGuide({}));assert.match(html,/No daily manual approval is required/);
  assert.match(html,/Management still decides Day 7 restrictions, Day 14 termination reviews/);
 });

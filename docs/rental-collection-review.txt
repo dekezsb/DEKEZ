@@ -1,6 +1,11 @@
 DEKEZ RENTAL PAYMENT REMINDERS — DRAFT / NO PRODUCTION ACTIVATION
 27 October 2026
 
+28 October release update: see docs/rental-collection-stage1-release.txt for the
+authoritative Stage 1 scan-only release status. The 27 October review/runbook
+below is historical; the approved migration is now applied and filename-reconciled.
+This does not authorize tenant messages or the Rosley digest.
+
 Release status
 --------------
 This is an unapplied migration and implementation for review, not permission to
@@ -239,7 +244,9 @@ an initial activation blocker until the full batch plus digest is proven to fit.
 
 Migration and security review
 -----------------------------
-20261027051603_rental_collection_review.sql — REVIEW ONLY; NOT APPLIED.
+20261028025857_rental_collection_review.sql — APPLIED ONCE; DO NOT REAPPLY.
+Production recorded version: 20261028025857. The source filename was reconciled
+to that recorded version on 28 October 2026; SQL content is unchanged from review.
 SHA256: e3f1dcb645f87743d550ba8e41b6b89982a3ba2fc06095aef9462de5fb777d3a
 Eleven private tables: controls, contact_controls, daily_cases, escalations,
 attempts, audit, provider_events, number_suppressions, failure_report_controls,

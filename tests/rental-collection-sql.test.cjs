@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const fixture=require('./fixtures/rental-collection.cjs');
-const sql=fs.readFileSync('supabase/migrations/20261027051603_rental_collection_review.sql','utf8');
+const sql=fs.readFileSync('supabase/migrations/20261028025857_rental_collection_review.sql','utf8');
 let db,id;
 const rpc=async(name,args)=>(await db.rpcQuery(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args)).rows[0].result;
 const preview=(after=null,limit=50,asof='2026-10-27T01:00:00Z')=>rpc('dekez_collection_preview',[id(1),asof,after,limit]);

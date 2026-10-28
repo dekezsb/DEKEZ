@@ -267,8 +267,8 @@ test('cron mandatorytimingsafeauthentication and ignores suppliedtarget/date/bod
  for(const headers of [{},{authorization:'Bearer undefined'},{authorization:'Bearer wrong'}])assert.equal((await route.GET(new Request('https://example.invalid/api/rental-collections',{headers}))).status,401);
  process.env.CRON_SECRET='synthetic-cron';assert.equal((await route.GET(new Request('https://example.invalid/api/rental-collections?company=evil&to=123',{headers:{authorization:'Bearer synthetic-cron'}}))).status,200);assert.equal(calls.length,0);
 });
-test('seven productioncron definitions unchanged and branchdeploy disabled; no financialenforcement imports',()=>{
- const cfg=JSON.parse(fs.readFileSync('vercel.json','utf8'));assert.equal(cfg.crons.length,7);assert.equal(cfg.crons.find(x=>x.path==='/api/management-report').schedule,'0 12 * * *');assert.equal(cfg.crons.some(x=>x.path==='/api/rental-collections'),false);
+test('approved scan-only ninthour cron is appended once; original schedules and branchdeploy protection remain',()=>{
+ const cfg=JSON.parse(fs.readFileSync('vercel.json','utf8'));assert.equal(cfg.crons.length,8);assert.equal(cfg.crons.find(x=>x.path==='/api/management-report').schedule,'0 12 * * *');assert.deepEqual(cfg.crons.filter(x=>x.path==='/api/rental-collections'),[{path:'/api/rental-collections',schedule:'0 1 * * *'}]);
  assert.equal(cfg.git.deploymentEnabled['feature/rental-collection-policy-20261027'],false);
  const source=fs.readFileSync('lib/rental-collection/service.ts','utf8');assert.doesNotMatch(source,/ttlock|\.from\(|\.update\(|\.delete\(/i);
 });

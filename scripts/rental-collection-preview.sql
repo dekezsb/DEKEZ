@@ -196,7 +196,7 @@
 )
 select jsonb_build_object(
  'company_id',(select company_id from params),'as_of',(select as_of from params),'report_date',(select report_date from params),
- 'source_version','20261027051603_rental_collection_review.sql',
+ 'source_version','20261028025857_rental_collection_review.sql',
  'communications_enabled',false,'reason','Review only; consent, WhatsApp ownership, STOP handling and compliance approval are not activated.',
  'summary',jsonb_build_object('groups',(select count(*) from result),
   'tenants',(select count(*) from result where item->>'tenant_id' is not null),
