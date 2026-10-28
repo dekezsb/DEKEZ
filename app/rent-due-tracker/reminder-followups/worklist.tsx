@@ -1,5 +1,9 @@
 import { reminderWorklist, type ReminderFollowupAccount, type ReminderQueue } from "@/lib/rental-collection/workflow";
 import { collectionContactCategoryLabels } from "@/lib/rental-collection/failure-report";
+import { randomUUID } from "node:crypto";
+import { evidenceToday } from "@/lib/rental-collection/proposals";
+import { ReminderEvidenceForm, ManagementStopForm } from "./evidence-form";
+import { tenantReminderRecipient } from "@/lib/rental-collection/recipient";
 
 const base = "/rent-due-tracker/reminder-followups";
 const link = (queue: ReminderQueue, page = 1) => `${base}?${new URLSearchParams({queue, page: String(page)})}`;
@@ -20,6 +24,10 @@ export function ReminderWorklist({accounts, queue, page}: {accounts: ReminderFol
       <p>{row.categories.map(category => collectionContactCategoryLabels[category]).join(" · ")}</p>
       <ul className="list-disc space-y-1 pl-5">{row.reasons.map(reason => <li className="break-words" key={reason}>{reason}</li>)}</ul>
       <p className="text-xs text-gray-600">Collect the actual evidence and give its reference/date to Admin. Do not change a login number, mark payment verified or assume WhatsApp consent from this list.</p>
+      {row.tenant_id && tenantReminderRecipient(row.loginPhone) === row.loginPhone && row.loginPhone
+        ? <ManagementStopForm tenant={row.tenant_id} recipient={row.loginPhone} today={evidenceToday()} />
+        : <p className="text-xs text-red-800">For a genuine STOP, contact Admin immediately to verify the person and number. A missing or ambiguous login must not be guessed.</p>}
+      {row.tenant_id ? <ReminderEvidenceForm tenant={row.tenant_id} request={randomUUID()} today={evidenceToday()} /> : null}
     </article>)}</div>}
     <nav aria-label="Follow-up pages" className="flex flex-wrap gap-2">{view.page > 1 ? <a className={button} href={link(view.queue, view.page - 1)}>Previous 25</a> : null}{view.page < view.pages ? <a className={button} href={link(view.queue, view.page + 1)}>Next 25</a> : null}</nav>
   </section>;

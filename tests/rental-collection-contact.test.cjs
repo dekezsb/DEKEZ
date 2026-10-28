@@ -11,7 +11,7 @@ const PHONE = '60191111111';
 const NOW = new Date('2026-10-27T01:00:00.000Z');
 const SECONDS = NOW.getTime() / 1000;
 const { collectionEvents, contactCommand } = makeLoader()('lib/rental-collection/contact-events.ts');
-const envKeys = ['WHAPI_COLLECTION_WEBHOOK_SECRET', 'WHAPI_REPORT_WEBHOOK_SECRET', 'DEKEZ_COLLECTION_INTAKE_ENABLED', 'DEKEZ_REPORT_COMPANY_ID', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED'];
+const envKeys = ['WHAPI_COLLECTION_WEBHOOK_SECRET', 'WHAPI_REPORT_WEBHOOK_SECRET', 'WHAPI_TOKEN', 'CRON_SECRET', 'DEKEZ_COLLECTION_INTAKE_ENABLED', 'DEKEZ_REPORT_COMPANY_ID', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED'];
 let priorEnv, priorFetch, fetches;
 beforeEach(() => {
   priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
@@ -40,17 +40,17 @@ function readyEnv() {
   process.env.DEKEZ_REPORT_COMPANY_ID = COMPANY;
 }
 function serviceHarness(rpcResult = { error: null }) {
-  const calls = [];
+  const calls = [], signals = [];
   const service = makeLoader({ 'server-only': {}, '@/lib/supabase/admin': {
-    createAdminClient: () => ({ rpc: async (name, args) => { calls.push({ name, args }); return typeof rpcResult === 'function' ? rpcResult(name, args) : rpcResult; } }),
+    createAdminClient: () => ({ rpc: (name, args) => ({abortSignal: async signal => {calls.push({ name, args }); signals.push(signal); return typeof rpcResult === 'function' ? rpcResult(name, args) : rpcResult;}}) }),
   } })('lib/rental-collection/contact-service.ts');
-  return { service, calls };
+  return { service, calls, signals };
 }
 function routeHarness({ ready = true, record } = {}) {
   const events = [];
   const route = makeLoader({ '@/lib/rental-collection/contact-service': {
     collectionIntakeConfig: () => ({ companyId: COMPANY, secret: SECRET, ready }),
-    recordCollectionEvent: async event => { events.push(event); if (record) await record(event); },
+    recordCollectionEvent: async (event, deadline) => { events.push(event); if (record) await record(event, deadline); },
   } })('app/api/webhooks/whapi-rental-reminders/route.ts');
   return { ...route, events };
 }
@@ -128,6 +128,16 @@ test('mismatched, coerced or unsupported receipt codes and unknown peer formats 
     { recipient_id: PHONE }, { id: '../wrong-id' }, { id: '' }, { timestamp: SECONDS + 61 }]) assert.deepEqual(parse(statuses(status(change))), [], JSON.stringify(change));
 });
 
+test('failed and pending require their exact provider codes; contradictory pairs cannot create confirmed failures', () => {
+  for (const change of [{status: 'failed', code: 1}, {status: 'pending', code: 0},
+    {status: 'failed', code: '0'}, {status: 'pending', code: '1'},
+    {status: 'failed', code: null}, {status: 'pending', code: -1}]) {
+    assert.deepEqual(parse(statuses(status(change))), [], JSON.stringify(change));
+  }
+  assert.equal(parse(statuses(status({status: 'failed', code: 0})))[0].status, 'failed');
+  assert.equal(parse(statuses(status({status: 'pending', code: 1})))[0].status, 'unknown');
+});
+
 test('receipt retry keys are deterministic, while message/recipient/status/time differences stay independent', () => {
   const baseline = parse(statuses())[0];
   assert.deepEqual(parse(statuses(status(), status())), [baseline]);
@@ -165,6 +175,8 @@ test('dedicated intake secret is mandatory; STOP remains receivable while outbou
   process.env.WHAPI_REPORT_WEBHOOK_SECRET = SECRET;
   assert.equal(service.collectionIntakeConfig().ready, false);
   process.env.WHAPI_COLLECTION_WEBHOOK_SECRET = SECRET;
+  assert.equal(service.collectionIntakeConfig().ready, false, 'Reporting callback secret must not be reused');
+  process.env.WHAPI_REPORT_WEBHOOK_SECRET = SECRET + '_different';
   process.env.DEKEZ_COLLECTION_POLICY_ENABLED = 'false';
   process.env.DEKEZ_COLLECTION_SEND_ENABLED = 'false';
   assert.equal(service.collectionIntakeConfig().ready, true);
@@ -197,6 +209,51 @@ test('receipt RPC preserves exact provider message and recipient correlation ins
 test('database details and sensitive diagnostics are hidden by the service', async () => {
   readyEnv(); const { service } = serviceHarness({ error: { message: `SQL secret ${SECRET} tenant ${PHONE}`, details: 'private record' } });
   await assert.rejects(service.recordCollectionEvent(parse(messages())[0]), /^Error: Payment reminder event could not be recorded\.$/);
+});
+
+test('collection callback secret cannot reuse the cron or provider token', () => {
+  readyEnv();const {service}=serviceHarness();
+  for(const key of ['CRON_SECRET','WHAPI_TOKEN']){process.env[key]=SECRET;assert.equal(service.collectionIntakeConfig().ready,false);delete process.env[key];}
+  assert.equal(service.collectionIntakeConfig().ready,true);
+});
+
+test('database event write deadline uses remaining shared budget and never starts after expiry', async () => {
+  readyEnv();const {service,calls,signals}=serviceHarness(), originalNow=Date.now, originalTimeout=AbortSignal.timeout, timeouts=[];
+  Date.now=()=>100_000;AbortSignal.timeout=ms=>{timeouts.push(ms);return originalTimeout(ms);};
+  try {
+    await service.recordCollectionEvent(parse(messages())[0],102_500);
+    await service.recordCollectionEvent(parse(messages())[0],120_000);
+    assert.deepEqual(timeouts,[2500,5000]);assert.equal(signals.length,2);assert(signals.every(s=>s instanceof AbortSignal));
+    for(const deadline of [100_000,99_000,NaN,Infinity])await assert.rejects(service.recordCollectionEvent(parse(messages())[0],deadline),/deadline reached/);
+    assert.equal(calls.length,2);
+  } finally {Date.now=originalNow;AbortSignal.timeout=originalTimeout;}
+});
+
+test('hung authenticated body is cancelled and released within its bounded read budget, even if cancellation never settles', async () => {
+  let cancelled=0;
+  const stream=new ReadableStream({pull:()=>new Promise(()=>{}),cancel:()=>{cancelled++;return new Promise(()=>{});}});
+  const req=new Request('https://example.invalid/api/webhooks/whapi-rental-reminders',{method:'POST',headers:{authorization:`Bearer ${SECRET}`,'content-type':'application/json'},body:stream,duplex:'half'});
+  const route=routeHarness();const started=performance.now();await expectReply(await route.POST(req),408);
+  assert.equal(cancelled,1);assert.equal(stream.locked,false);assert.equal(route.events.length,0);
+  assert(performance.now()-started<5000,'Body/cancel must not hang until the function lifetime');
+});
+
+test('partial callback budget exhaustion returns503 and replay keeps the same event identities without sending', async () => {
+  const originalNow=Date.now;let time=100_000,slow=true;Date.now=()=>time;
+  try {
+    const deadlines=[];const route=routeHarness({record:async(_event,deadline)=>{deadlines.push(deadline);if(slow)time=110_001;}});
+    const batch=messages(message({id:'stop-a'}),message({id:'stop-b'}));
+    await expectReply(await route.POST(request(batch)),503);assert.equal(route.events.length,1);
+    time=100_000;slow=false;await expectReply(await route.POST(request(batch)),200);
+    assert.equal(route.events.length,3);assert.equal(new Set(route.events.map(e=>e.id)).size,2);
+    assert.deepEqual(deadlines,[110_000,110_000,110_000]);
+    // Database tests separately prove atomic dedupe; here only stable replay keys.
+  } finally {Date.now=originalNow;}
+});
+
+test('network/abort exceptions are masked and callback does not acknowledge unconfirmed database writes', async () => {
+  readyEnv();const {service}=serviceHarness(()=>{throw Error(`private network ${SECRET} ${PHONE}`);});
+  await assert.rejects(service.recordCollectionEvent(parse(messages())[0]),/^Error: Payment reminder event could not be recorded\.$/);
 });
 
 test('disabled callback returns 503 before body or authorization processing', async () => {
@@ -244,7 +301,7 @@ test('malformed JSON and stream failures never reach the database', async () => 
   const route = routeHarness();
   for (const body of ['', '{', 'null trailing']) await expectReply(await route.POST(request(body)), 400);
   await expectReply(await route.POST({ headers: new Headers({ authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' }), body: {
-    getReader: () => ({ read: async () => { throw new Error(`private ${PHONE}`); }, releaseLock() {} }),
+    getReader: () => ({ read: async () => { throw new Error(`private ${PHONE}`); }, cancel: async()=>{}, releaseLock() {} }),
   } }), 400);
   assert.equal(route.events.length, 0);
 });
@@ -259,7 +316,7 @@ test('valid callback processes STOP and START without sending any response messa
 test('authenticated callback traverses real parser and service to the scoped RPC without outbound access', async () => {
   readyEnv(); const calls = [];
   const route = makeLoader({ 'server-only': {}, '@/lib/supabase/admin': {
-    createAdminClient: () => ({ rpc: async (name, args) => { calls.push({ name, args }); return { error: null }; } }),
+    createAdminClient: () => ({ rpc: (name, args) => ({abortSignal: async signal => {assert(signal instanceof AbortSignal); calls.push({ name, args }); return { error: null };}}) }),
   } })('app/api/webhooks/whapi-rental-reminders/route.ts');
   await expectReply(await route.POST(request({ ...messages(message({ text: { body: 'START' } })), company_id: 'untrusted-payload-company' })), 200);
   await expectReply(await route.POST(request(statuses(status({ status: 'pending', code: 1 })))), 200);
@@ -270,6 +327,14 @@ test('authenticated callback traverses real parser and service to the scoped RPC
   assert.equal(calls[1].name, 'dekez_collection_ingest_receipt');
   assert.equal(calls[1].args.p_status, 'unknown');
   assert.equal(calls[1].args.p_company, COMPANY);
+});
+
+test('authenticated contradictory failure or pending receipts are ignored before database evidence is recorded', async () => {
+  const route = routeHarness();
+  for (const change of [{status: 'failed', code: 1}, {status: 'pending', code: 0}]) {
+    await expectReply(await route.POST(request(statuses(status(change)))), 200);
+  }
+  assert.equal(route.events.length, 0);
 });
 
 test('irrelevant, wrong-channel and loop envelopes are safely acknowledged without database access', async () => {

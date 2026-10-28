@@ -150,6 +150,8 @@ test('follow-up page checks authorized Management scope before loading roster; m
   '@/lib/rental-collection/authorization':{reminderManager:async()=>{sequence.push('scope');return manager?profile:null;}},
   '@/lib/management-report/authorization':{reportAdministrator:async()=>{sequence.push('admin');return administrator?actor:null;}},
   '@/lib/rental-collection/failure-service':{collectionFailurePreview:async(_now,portal)=>{sequence.push(['roster',portal]);return {allHistoryLoaded:true,fullPortalReport:'Synthetic authorized roster',body:'Generic synthetic preview',recipientAuthorization:null,reviewableAttempts:[]};}},
+  '@/lib/rental-collection/proposal-service':{reminderEvidenceList:async()=>null},
+  './evidence-actions':{submitReminderEvidence:async()=>{throw Error('No writes during rendering');},reviewReminderEvidence:async()=>{throw Error('No writes during rendering');},recordManagementStop:async()=>{throw Error('No writes during rendering');}},
   '@/app/admin-setup/rental-reminders/failure-recipient-review':{FailureRecipientReview:()=> 'RESTRICTED RECIPIENT REVIEW'},
   '@/app/admin-setup/rental-reminders/followup-review':{FollowupReview:()=> 'RESTRICTED RESOLUTION'},
  })('app/rent-due-tracker/reminder-followups/page.tsx').default;

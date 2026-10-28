@@ -37,11 +37,11 @@ export function collectionEvents(payload: unknown, now = new Date()): Collection
     }
   }
   if (payload.event.type === "statuses" && Array.isArray(payload.statuses) && payload.statuses.length <= 50) {
-    const codes: Record<string, number> = {sent: 2, delivered: 3, read: 4};
+    // Contradictory status/code pairs must not become confirmed failure evidence.
+    const codes: Record<string, number> = {failed: 0, pending: 1, sent: 2, delivered: 3, read: 4};
     for (const s of payload.statuses) {
       if (!record(s) || !validId(s.id) || typeof s.status !== "string" || !["failed", "pending", "sent", "delivered", "read"].includes(s.status)
-        || (Object.hasOwn(codes, s.status) ? s.code !== codes[s.status]
-          : typeof s.code !== "number" || !Number.isInteger(s.code) || s.code < 0 || s.code > 1)
+        || s.code !== codes[s.status]
         || typeof s.recipient_id !== "string" || !/^[1-9][0-9]{8,14}@s\.whatsapp\.net$/.test(s.recipient_id)) continue;
       const occurredAt = occurred(s.timestamp, now);
       if (!occurredAt) continue;

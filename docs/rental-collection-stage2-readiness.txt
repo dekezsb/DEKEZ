@@ -1,0 +1,197 @@
+DEKEZ Stage 2 readiness — 28 October 2026
+========================================
+
+Result: local software checks PASS; live tenant/Rosley sending NOT CLEARED.
+No production migration, deployment, environment change, consent fabrication,
+provider setting change, tenant message or Rosley message was performed.
+PR #32 is already merged. These are local additions to its existing implementation;
+no replacement system, new PR, new cron or duplicate sender was created.
+
+Production retained
+-------------------
+Production remains Ready on 15ac502f424bc03d470b8fba8e95c86116c6f473,
+deployment dpl_39VSBQHbmtyDJCNvGLcjFHXizMHi.
+The seven original crons plus /api/rental-collections at 0 1 * * * are unchanged.
+Collection policy/scan=true; tenant send=false; Rosley send=false; intake=false.
+Daily report send/schedule=true; test=false; reporting commands=true.
+Report recipient remains 60198894911 and company remains
+660cc0c4-daee-445b-9146-ccd112e791d4. Whapi sender was visibly verified as
+DEKEZ AI MANAGER, +60 16 817 3911, channel FALCON-D9NS9.
+Existing Whapi token was not changed or copied into source or local files.
+
+Fresh read-only production coverage (28 October, 12:13–12:34 MYT)
+----------------------------------------------------------------
+All 185 source groups were considered: 155 identified tenants, 30 unlinked groups.
+32 identified tenants reach a scheduled financial stage, totaling RM16,480 of
+collectible invoice balances. This is NOT a cleared recipient list: 23 of those
+32 have a pending-payment or source/reconciliation exception elsewhere in their
+account. Account-level holds remain authoritative.
+
+9 tenants pass current financial-stage/pending/source checks: RM3,450 total,
+including 2 partially paid tenants. Original invoice dates remain unchanged.
+Verified number-bound WhatsApp opt-ins: 0. Cleared for sending: 0.
+All 32 stage candidates have missing consent and unverified WhatsApp ownership.
+26 identified tenant accounts have unusable/missing login phone numbers;
+25 of those have a recorded positive balance. 30 groups still need tenant linkage.
+Across the full source: 122 identified tenants have scope/reconciliation review
+flags and 1 has pending verification. Counts overlap and include historical or
+otherwise non-collectible records; they must not be added as distinct debtors.
+118 identified accounts show a positive recorded balance; recorded balance is
+not automatically a verified demand or permission to contact.
+
+Reminder-stage candidates (before all account/contact holds):
+Due today: 3 / RM800; days1–6: 4 / RM1,430; Day7: 1 / RM500;
+days8–13: 1 / RM350; Day14: 1 / RM150; days15+: 22 / RM13,250.
+Due in7days: 0. Day7/14 remain internal reviews, never access/termination actions.
+
+Rosley and management workflow
+-----------------------------
+Existing approved Rosley account has active DEKEZ membership, admin role and
+rent_due_tracker/manage access. Its registered number normalizes to 60188702371.
+This verifies account authorization, NOT WhatsApp ownership or consent.
+No failure-report recipient control/ownership/consent approval is recorded.
+
+Locally completed additions to existing follow-up cards:
+- Real observation date, source, reference and actual tenant response are required.
+- Phone correction is a pending proposal; no login/authentication record changes.
+- Super Admin disposition is immutable and is NOT consent or phone approval.
+- Management can record a genuine STOP immediately through the existing audited
+  record_opt_out function; the action cannot opt in, clear holds or change phones.
+- Tenant/company/current login are rechecked server-side. Stale/ambiguous identities
+  fail closed and require Admin follow-up; no fabricated provider event IDs.
+- Evidence history is paginated, company-scoped and escaped in the existing UI.
+
+The existing consolidated Bahasa Melayu digest includes all unresolved categories
+and preserves once-per-Malaysia-date reservations. It does not describe missing
+consent, unknown delivery or invalid data as confirmed WhatsApp failures. Long
+reports fall back to a secure-portal notification rather than silently omit cases.
+Until Rosley's ownership/consent is verified, no tenant details may be sent to him.
+Tenant attempts=0; Rosley attempts=0; provider events=0 in the production ledger.
+Therefore actual tenant receipt/permanent-failure delivery is NOT verified yet.
+
+Provider/callback checks — concrete remaining work
+-------------------------------------------------
+The live Whapi dashboard showed a trial ending30October2026: 5 chats maximum,
+2 already used. GET /limits returned HTTP200 with150messages,30checks and987
+requests remaining, and the two existing management chats. This is insufficient
+for9tenant recipients plusRosley. Account owner must arrange adequate provider
+capacity; no paid plan or purchase was made in this work.
+
+The existing management callback URL remains /api/webhooks/whapi-reporting.
+No configured rental callback was verified. WHAPI_COLLECTION_WEBHOOK_SECRET is
+absent from Production; collection intake remainsfalse. Dashboard persistence
+was unchecked; the detailed settings API inspection did not yield a verifiable
+settings response. Do not assume callback delivery/retries are reliable.
+
+Technical release owner must, under an approved controlled setup:
+1. Install a separate cryptographically random collection callback secret in
+   Vercel Production and configure the same Bearer value at Whapi securely.
+   Never reuse the management secret or put secrets in URLs/source/chat/logs.
+2. Add HTTPS /api/webhooks/whapi-rental-reminders with body mode and messages.post
+   plus statuses.post, preserving every existing callback/header/subscription.
+3. Verify supported callback persistence/backoff, age limits and15-second timeout.
+   Check actual direct-phone metadata and LID/BSUID behavior. Never guess a phone.
+4. Deploy reviewed intake code with only intake enabled; keep both outbound flags
+   false. Verify unauthorized/mismatched payload rejection and duplicate callbacks.
+5. Obtain an authorized non-tenant callback/receipt verification plan. No outbound
+   WhatsApp test was authorized or performed here. Generic failed receipts prove a
+   failed attempt, not a permanent invalid number, block or absence of WhatsApp.
+6. Monitor unmatched/free-text/non-phone STOP requests manually until complete
+   identity coverage and reconciliation are demonstrated. START never opts in.
+
+Local receipt validation now rejects contradictory failed/pending numeric pairs.
+Documented failed=0; accepted/sent2, delivered3, read4. Pending1 compatibility and
+actual channel payloads still require provider verification before intake release.
+
+Capacity evidence
+-----------------
+Measured Stage1 full-company scan:822ms (prior release evidence), not send latency.
+Synthetic runs of real tenant+digest services, mocked provider/database, zero
+network: with100ms/RPC and1s/provider,9tenants+digest21.422s and32+digest72.122s.
+At2.5s/provider,32tenant sends complete but Rosley's digest is withheld after
+118.622s because the shared280s deadline reserves170s for the digest. At200
+tenants,75 are processed then the run is explicitly incomplete; replay sends none.
+These tests prove safe boundaries, NOT channel approval or measured throughput.
+A proven tenant-plus-Rosley completion budget (or separately reviewed durable
+continuation design) is required before increasing the approved cohort. Do not
+lower safety reserves or change the existing9AM scan merely to make a test pass.
+
+Handover/access safety
+---------------------
+Current hourly legacy route sends no rent reminders; the old arrears fingerprint
+suspension entrypoint is a tested no-op. No legacy WhatsApp reminder since the
+Stage1 release was found; one old failed log from26July had no provider ID.
+Release owner still must document in-flight drain and old deployment/rollback
+protection before approving legacy_handover_complete. No old cron was removed.
+
+Fresh database inventory:0fingerprint grants;4passcodes (1active,1error,2revoked).
+No unrevoked passcode was expired or expiring within7days at the audit snapshot.
+The active credential's last provider sync was10August, so this does not prove
+physical device state or complete physical-access coverage. Management/security
+must verify actual occupied-room access and approve lawful continuity. Existing
+30day/payment-linked fingerprint provisioning and tenancy-capped passcodes remain
+unchanged; passive expiry is not an authorized unpaid-rent enforcement shortcut.
+
+External approvals / responsible owner
+--------------------------------------
+Rosley/Management: collect actual number ownership and explicit reminder consent
+(scope/cadence/date/source/evidence), or record refusal/STOP; obtain proposed phone
+corrections for26accounts without changing credentials. Start with9financially
+clear accounts, but do not skip the rest of the follow-up queue.
+Super Admin: verify evidence and corrections through existing account workflows;
+separately record Rosley's own WhatsApp ownership/consent and current authorization.
+Reconciliation staff: investigate122source-review accounts,30unlinked groups and
+the1pending submission through established financial review—no automatic balance
+repair or blanket approval. Account-level exceptions continue to hold messaging.
+Whapi/account owner: clear real capacity and obtain written applicability guidance
+for first-party rental payment reminders, exact A–H wording, daily cadence and
+Day7/14 terminology. No purported clearance may override WhatsApp policy.
+Management/legal adviser: review actual signed default/cure/notice/partial-payment
+terms and Sabah/Malaysia requirements; distinguish reminder from legal notice.
+Day7/14 are internal thresholds, not statutory automatic lockout/termination dates.
+Management/security: reconcile actual device access and authorize continuity.
+Technical release owner: review/apply the additive evidence migration with a fresh
+backup, deploy reviewed code, configure/test secure callback and handover, then
+request initial live-sending approval. No daily or per-message approval is needed
+after standing policy activation; every send still rechecks all eligibility gates.
+
+Official policy/legal sources checked
+------------------------------------
+WhatsApp explicitly includes payment reminders as utility messages; this is not
+a blanket finding that first-party landlord reminders are prohibited debt collection.
+https://whatsappbusiness.com/products/conversation-categories/utility/
+Opt-in and honoring opt-outs remain required; Platform-specific template/window
+rules do not automatically certify an unofficial linked-device implementation.
+https://whatsappbusiness.com/policy/
+Whapi describes its service as unofficial and independent of Meta:
+https://whapi.cloud/terms
+Official Specific Relief Act137 text includes Sabah and court-based possession
+provisions. This is a source reference, not a legal clearance for any signed tenancy:
+https://lom.agc.gov.my/ilims/upload/portal/akta/LOM/EN/Act%20137.pdf
+
+Verification and migration boundary
+----------------------------------
+988/988 full automated tests;256/256 focused reminder tests; production build PASS;
+TypeScript PASS; npm audit0known vulnerabilities. Original nativePG28/28 checks
+with17observed waits and new evidence nativePG12/12 with9observed waits PASS.
+All use synthetic local data. Production lookups were read-only.
+Unauthenticated scan returned401; protected Management/Admin pages redirected307.
+No rental/intake runtime errors found in the checked1hour production window.
+
+Reviewed migration (now applied once as 20261028091044):20261028091044_rental_collection_pending_evidence.sql
+Original reviewed version:20261028041808. See stage2-release.txt for execution evidence.
+SHA256:a2267e2cc8c84816468227fb45582a893c94aa29aad4946a991b8de0898a5f3f
+Adds8functions,2partial indexes and2allowed events on existing private audit only.
+No table/function/index conflicts in production; base constraint and FORCE RLS
+match. Direct anon/authenticated/service_role audit SELECT/INSERT/UPDATE denied.
+Five-second lock timeout and transaction retained. No production backup for this
+new migration was claimed; verify a fresh recoverable backup before applying.
+Do not reapply20261028025857; its96,054byteSQL/hash is unchanged.
+Rollback should disable new UI/functions, not delete immutable evidence history.
+
+Security hygiene note
+---------------------
+The Whapi dashboard rendered its API token in browser diagnostic output during
+inspection. It is not reproduced here or saved into source/files. Coordinate a
+token rotation and matching Vercel update under separate approval to avoid breaking
+existing reporting. No credentials were changed during this preparation.

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {renderToStaticMarkup} = require('react-dom/server');
 const loader = require('./marketplace-component-loader.cjs');
-const load = loader();
+const load = loader({'./evidence-actions':{submitReminderEvidence:async()=>{throw Error('No writes during render');},reviewReminderEvidence:async()=>{throw Error('No writes during render');},recordManagementStop:async()=>{throw Error('No writes during render');}}});
 const {reminderWorklist, inReminderQueue} = load('lib/rental-collection/workflow.ts');
 const {ReminderWorklist} = load('app/rent-due-tracker/reminder-followups/worklist.tsx');
 const {ReminderConsentGuide} = load('app/admin-setup/rental-reminders/consent-guide.tsx');
@@ -41,11 +41,12 @@ test('worklist presentation does not mutate balances, history or consent data', 
   const rows=[row(1,['communications_hold'],{verifiedCollectibleBalance:null})];
   const before=JSON.stringify(rows);reminderWorklist(rows,'consent','1');assert.equal(JSON.stringify(rows),before);
 });
-test('rendered cards escape tenant text, preserve unknown balances and offer no mutation controls', () => {
+test('rendered cards escape tenant text, preserve unknown balances and only offer pending evidence submission', () => {
   const html=renderToStaticMarkup(ReminderWorklist({accounts:[row(1,['source_exception'],{name:'<script>unsafe</script>',verifiedCollectibleBalance:null,loginPhone:null})]}));
-  assert.match(html,/&lt;script&gt;unsafe/);assert.doesNotMatch(html,/<script>/);
+  assert.match(html,/&lt;script&gt;unsafe/);assert.doesNotMatch(html,/<script>unsafe/);
   assert.match(html,/Unavailable — reconcile source records/);assert.doesNotMatch(html,/RM 0\.00/);
-  assert.match(html,/Missing or unusable/);assert.doesNotMatch(html,/<form|type="submit"|href="tel:|wa\.me/);
+  assert.match(html,/Missing or unusable/);assert.doesNotMatch(html,/href="tel:|wa\.me|name="decision"/);
+  assert.match(html,/Submit for review/);assert.match(html,/Pending Super Admin review only/);
 });
 test('empty and paginated screens are clear and do not imply send approval', () => {
   assert.match(renderToStaticMarkup(ReminderWorklist({accounts:[]})),/not approval to send/);

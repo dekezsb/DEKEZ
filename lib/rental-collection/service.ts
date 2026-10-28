@@ -144,6 +144,16 @@ export async function runRentalCollections(now = new Date()) {
   // One consolidated follow-up; later receipts only update the portal/history.
   // The separate digest flag and durable daily reservation remain authoritative.
   const {sendCollectionFailureDigest} = await import("./failure-service");
-  try { return {...result, followUpReport: await sendCollectionFailureDigest(now, deadline)}; }
-  catch { return {...result, followUpReport: {state: "review_required"}}; }
+  let followUpReport: Awaited<ReturnType<typeof sendCollectionFailureDigest>> | {state: "review_required"};
+  try { followUpReport = await sendCollectionFailureDigest(now, deadline); }
+  catch { followUpReport = {state: "review_required"}; }
+  // A completed tenant phase is not a completed combined run when the required
+  // management report was withheld or failed. Surface that as an incomplete
+  // cron outcome without reopening either ledger, retrying or taking time from
+  // eligible tenants. Provider acceptance still does not prove final delivery.
+  const followUpNeedsReview = !["disabled", "outside_window", "no_followups", "accepted", "already_reserved"].includes(followUpReport.state);
+  if (followUpNeedsReview && !["uncertain", "rejected", "incomplete", "recipient_review_required"].includes(result.state)) {
+    return {...result, tenantState: result.state, state: "incomplete", reason: "followup_review_required", followUpReport, followUpNeedsReview};
+  }
+  return {...result, followUpReport, followUpNeedsReview};
 }

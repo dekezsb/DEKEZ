@@ -1,0 +1,174 @@
+DEKEZ Stage 2 — send-disabled release preparation, 28 October 2026
+================================================================
+
+This continues the existing PR #32 implementation. PR #32 is already merged.
+No second sender, cron, portal or new PR is required by this preparation.
+Release update: the user approved the send-disabled release. A recoverable physical
+backup dated 27 October 2026 23:55:09 UTC was verified in the production dashboard.
+The approved migration was applied once and recorded as version 20261028091044.
+The source filename was reconciled to that version without SQL changes/reapplication.
+Stored SQL matches after provider line-ending/blank-line normalization. All eight
+new functions, restricted grants, forced RLS and both indexes were verified.
+Before/after counts AND row fingerprints match for 1,047 rent bills, 711 payments,
+161 tenants, 166 tenancies and 64 maintenance tickets. Evidence and both sending
+ledgers remain empty. Tenant/Rosley sends remain false. No secret change, callback
+registration, consent approval or WhatsApp message was performed by this migration.
+Application deployment and live callback transport verification are separate gates.
+
+Short owner checklist
+--------------------
+1. Approve the reviewed Stage 2 migration/application release with BOTH tenant and
+   Rosley sending disabled. Release operator verifies a fresh recoverable backup,
+   installs the additive migration once and releases only the reviewed code.
+2. Upgrade/renew ONE paid Whapi Developer Premium/LIVE channel for FALCON-D9NS9,
+   retaining 60168173911. Confirm the selected billing term and actual LIVE limits.
+   Ask Whapi to confirm permitted first-party rental reminder wording, daily
+   cadence, Day 7/14 review wording, volume, pacing and opt-out receipt handling.
+3. Ask Rosley to use Rent Due Tracker -> Rental payment reminder follow-ups:
+   open account -> verify current registered number with tenant -> record actual
+   date/source/evidence and their genuine consent or STOP. Proposed corrections
+   never alter login records. Admin separately verifies corrections/ownership/
+   consent. Verify Rosley's own WhatsApp ownership/consent at 60188702371 too.
+4. Have Management/legal review actual signed tenancy default/cure/notice terms;
+   have Management/security verify occupied-room access continuity. Day 7/14 are
+   internal reviews, not permission for automatic lockout, eviction or termination.
+5. After technical callback/capacity/handover checks and these records are complete,
+   approve initial live activation for the verified eligible cohort. No daily or
+   per-message approval is required thereafter; every send rechecks eligibility.
+
+Production evidence (read-only, 28 October 2026, 15:40–15:45 MYT)
+----------------------------------------------------------------
+Production and current main still match 15ac502f424bc03d470b8fba8e95c86116c6f473.
+Vercel deployment dpl_39VSBQHbmtyDJCNvGLcjFHXizMHi is READY.
+Scan policy=true; tenant send=false; Rosley send=false; intake=false.
+Daily report send/schedule=true; management commands=true.
+All eight current cron definitions (seven original plus 9AM scan) are unchanged.
+No selected rental/legacy/intake runtime errors in the checked eight-hour window.
+Empty legacy-route log search is NOT proof of all historical deployment activity.
+
+185 source groups / 155 identified tenant accounts / 30 unlinked groups.
+32 tenants reach a reminder stage, but only 8 pass account-level financial/source
+and pending-payment checks now: RM3,100. This changed from 9 / RM3,450 earlier;
+always use fresh source records, never the earlier static preview as a send list.
+Verified recorded opt-ins=0; cleared sends=0; missing/unusable login numbers=26.
+Tenant attempts=0; Rosley attempts=0; provider callback events=0.
+No names, full tenant phone numbers or source record identifiers are saved here.
+
+Migration / compatibility
+-------------------------
+APPLIED: 20261028091044_rental_collection_pending_evidence.sql
+Original reviewed filename: 20261028041808_rental_collection_pending_evidence.sql
+SHA256 a2267e2cc8c84816468227fb45582a893c94aa29aad4946a991b8de0898a5f3f
+Current production has none of its eight function names or two index names.
+The existing audit CHECK matches the expected base. Audit is forced-RLS with no
+direct SELECT/INSERT/UPDATE for anon, authenticated or service_role.
+It adds pending evidence/review events to the existing private append-only audit,
+not tenant/authentication/financial changes or consent approvals. Five-second
+lock timeout and transaction retained. Do not force a lock or reapply Stage 1.
+Applied Stage 1 version 20261028025857 remains unchanged.
+Backup verification is a required execution-time gate, not assumed from an older
+dashboard visit. Roll back application code if needed; retain immutable evidence
+and do not restore an old CHECK once new audit actions have been recorded.
+
+Technical release sequence — no tenant/Rosley sending
+---------------------------------------------------
+1. Recheck current main against the reviewed candidate; retain all intervening
+   releases. Do not publish a stale branch or private artifacts. Review/test only
+   the evidence workflow, callback hardening and combined-run status correction.
+2. Verify recoverable backup, exact migration checksum, absent version/names,
+   existing RLS/permissions. Apply ONLY the approved additive migration in its
+   transaction; verify grants/history. Never apply the already-installed base.
+3. Release via the existing Vercel workflow. Keep collection policy=true,
+   DEKEZ_COLLECTION_SEND_ENABLED=false and
+   DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED=false. Keep intake=false until its
+   dedicated callback is configured and verified. No cron changes.
+4. Create WHAPI_COLLECTION_WEBHOOK_SECRET as a new cryptographic server secret;
+   never reuse the Whapi token, reporting secret or CRON_SECRET. Never expose it
+   through code, query strings, logs, chat, screenshots or local token files.
+5. Preserve/read back the COMPLETE existing Whapi settings and callback list.
+   Add https://dekez.vercel.app/api/webhooks/whapi-rental-reminders with body mode,
+   messages.post + statuses.post, and Authorization: Bearer using that dedicated
+   secret. Preserve /api/webhooks/whapi-reporting and every existing subscription.
+   Whapi warns that omitted settings in PATCH may reset defaults: no blind partial
+   PATCH. Persistence changes can require channel restart: arrange a controlled
+   window instead of disrupting the working 8PM report/commands without approval.
+6. Enable only intake in a reviewed deployment, with both outbound flags false.
+   Verify wrong-secret rejection and authorized provider callback/duplicate replay
+   without a tenant send. No new unauthenticated or permanent setup endpoint.
+   Actual status/phone metadata and provider persistence/retry behavior must be
+   captured securely before declaring live delivery/STOP integration complete.
+7. Check historical deployment/rollback protection and any in-flight legacy calls.
+   Current legacy /api/rent-reminders sends no reminders; its existing hourly cron
+   remains for enrollment reconciliation. Do not invoke it as a harmless test.
+   Never roll back to a legacy sending build while the new sender is enabled.
+8. Finish real channel capacity/latency verification and documented human/provider
+   approvals. Only then record standing activation controls through authorized
+   workflows and request the separate initial live-sending approval.
+
+Callback and runtime safeguards
+------------------------------
+Local callback uses constant-time Bearer validation, independent secret, channel
+and sender metadata checks, 64KB/50-event limits, a 10s overall deadline, a 3s
+body-read cap and <=5s/remaining database calls. Incomplete persistence returns503
+for provider event replay using the same durable IDs; it never retries a send.
+STOP suppresses; START cannot grant consent. Non-phone identities are not guessed.
+Generic failure is not proof of an invalid number, no WhatsApp or permanent failure.
+Actual pending/code1 channel compatibility remains to be confirmed; it maps only
+to unknown. Authenticated real callback delivery has not yet been verified.
+
+300s cron / shared280s budget and all claim/finalization reserves are unchanged.
+Synthetic real-service tests with 100ms/RPC + 1s/provider: 8 tenants + Rosley19.222s,
+9 tenants21.422s, 32 tenants72.122s. At2.5s/provider,32tenants118.622s: Rosley is
+withheld because its170s reserve no longer fits. This now returns incomplete503,
+not misleading successful200; it does not reopen reservations or retry messages.
+The tenant phase must finish within110s to reserve the existing digest allowance.
+These are simulations, NOT verified production Whapi latency or sending approval.
+If the approved volume/cadence cannot fit, a separately reviewed bounded runtime
+or durable continuation change is required before activation; do not lower safety
+reserves, drop accounts, increase concurrency blindly or add duplicate cron sends.
+
+Provider capacity / approval sources
+-----------------------------------
+One paid Developer Premium channel is the minimum published tier without the
+sandbox five-chat/150-message-per-day/1000-request-per-month constraints. The last
+channel inspection showed trial, two chats used, expiry30October. Even the eight
+current financially clear accounts exceed the trial distinct-chat capacity.
+Paid unlimited-message marketing is not an approved rate or anti-spam exemption.
+Confirm selected checkout pricing; no subscription purchase was performed.
+https://whapi.cloud/price
+https://whapi.cloud/docs
+https://whapi.readme.io/reference/updatechannelsettings
+https://whapi.readme.io/reference/webhooktest
+
+WhatsApp lists payment reminders as utility messages; do not label every ordinary
+first-party rent reminder prohibited debt collection. The exact daily overdue/
+escalation programme still needs applicability/content/cadence clarification;
+provider guidance cannot override WhatsApp opt-in/opt-out or messaging policy.
+Legal review must use actual signed default/cure/notice/service terms and current
+Sabah/Malaysia law. The project's Day7/14 thresholds are not statutory eviction
+rights. No automatic access restriction, utility cut-off or tenancy termination.
+https://whatsappbusiness.com/products/conversation-categories/utility/
+https://whatsappbusiness.com/policy/
+https://whapi.cloud/terms
+https://lom.agc.gov.my/ilims/upload/portal/akta/LOM/EN/Act%20137.pdf
+
+Security hygiene
+----------------
+The prior dashboard diagnostic exposure of the Whapi token remains an incident
+to address through a coordinated token rotation and Vercel update. Do not reproduce
+the value or rotate only one side and break reports. No token was read or changed
+in this preparation; the dedicated webhook secret remains absent in Production.
+
+Verification of this prepared candidate
+--------------------------------------
+997/997 full automated tests PASS; 265/265 focused reminder tests PASS.
+Production build (including release regression gates) PASS; TypeScript PASS.
+Dependency audit: zero known vulnerabilities. No dependency/lockfile changes.
+Native PostgreSQL17.11: base28/28 with17 observed independent-session waits;
+pending-evidence12/12 with9 observed waits. Both isolated servers stopped and
+ports were verified closed. All fixtures synthetic; no provider calls.
+Diff checks PASS. Original migration, eight crons, management report/commands,
+legacy route, TTLock and lockfile are byte-unchanged in this prepared candidate.
+Evidence: artifacts/rental-collection-review/stage2-preparation-20261028/
+These are local verification results, not a production deployment or live callback
+delivery proof. A real channel send-latency test requires separate authorization.

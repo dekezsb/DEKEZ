@@ -8,14 +8,17 @@ import { FollowupReview } from "@/app/admin-setup/rental-reminders/followup-revi
 import { ReminderConsentGuide } from "@/app/admin-setup/rental-reminders/consent-guide";
 import { ReminderWorklist } from "./worklist";
 import { ReminderDigestStatus } from "@/app/admin-setup/rental-reminders/digest-status";
+import { reminderEvidenceList } from "@/lib/rental-collection/proposal-service";
+import { ReminderEvidenceList } from "./evidence-list";
 
 export const dynamic = "force-dynamic";
-export default async function ReminderFollowupsPage({searchParams}: {searchParams?: Promise<{queue?: string; page?: string}>} = {}) {
+export default async function ReminderFollowupsPage({searchParams}: {searchParams?: Promise<{queue?: string; page?: string; evidenceAfter?: string}>} = {}) {
   if (!await reminderManager()) redirect("/dashboard?error=access_denied");
   const params = await searchParams ?? {};
   let report: Awaited<ReturnType<typeof collectionFailurePreview>> | null = null;
   try {report = await collectionFailurePreview(new Date(), true);} catch { /* No raw data/SQL errors */ }
   const mayReviewRecipient = !!await reportAdministrator();
+  const evidence = await reminderEvidenceList(params.evidenceAfter ?? null);
   return <section className="space-y-5">
     <h1 className="text-2xl font-semibold">Rental payment reminder follow-ups</h1>
     <p className="text-sm text-gray-600">Authorized company review only. This page never sends messages, changes login numbers or changes financial records.</p>
@@ -25,6 +28,7 @@ export default async function ReminderFollowupsPage({searchParams}: {searchParam
     {mayReviewRecipient ? <ReminderDigestStatus available={report?.digestStatusAvailable === true} current={report?.digestStatus ?? null}
       alerts={report?.digestAlerts ?? []} alertCount={report?.digestAlertCount ?? 0} /> : null}
     {report?.allHistoryLoaded ? <ReminderWorklist accounts={report.actionList ?? []} queue={params.queue} page={params.page} /> : null}
+    <ReminderEvidenceList result={evidence} mayReview={mayReviewRecipient} />
     <Card><CardHeader><CardTitle>Senarai tindakan susulan</CardTitle></CardHeader><CardContent>
       {report?.allHistoryLoaded && report.fullPortalReport ? <details><summary className="min-h-11 cursor-pointer text-sm">Lihat laporan penuh Bahasa Melayu</summary><pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{report.fullPortalReport}</pre></details>
         : <p role="status" className="text-sm text-amber-900">Senarai penuh belum tersedia. Semak konfigurasi dan cuba semula; tiada mesej dihantar dan tiada kes dianggap selesai.</p>}
