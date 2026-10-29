@@ -120,26 +120,30 @@ function webhook(value: unknown): asserts value is ObjectValue {
 
 function validateSettings(value: unknown): asserts value is ObjectValue & {webhooks: ObjectValue[]} {
   if (!object(value)) return fail("settings_shape");
-  const booleans = ["pdo_sync", "callback_persist", "offline_mode", "full_history", "auto_read_messages", "outgoing_calls_enabled"];
-  exactKeys(value, [...booleans, "callback_backoff_delay_ms", "max_callback_backoff_delay_ms", "media", "webhooks",
-    "proxy", "proxy_trust_filters", "mobile_proxy", "locale", "mock_pairing_code", "ignored_presences", "data_mode"], "unknown_setting");
-  // Official provider references disagree about whether omitted settings reset.
-  // Never PATCH from a sparse snapshot that cannot preserve known default-bearing
-  // channel settings. Older API shapes need operator review, not guessed defaults.
-  for (const key of booleans) if (typeof value[key] !== "boolean") fail("required_boolean", key);
-  // The provider's current settings reference documents this optional boolean
-  // even though its public YAML omits it. Preserve the exact returned value;
-  // never enable proxy certificate trust or invent a default during setup.
-  if (value.proxy_trust_filters !== undefined && typeof value.proxy_trust_filters !== "boolean") fail("optional_boolean", "proxy_trust_filters");
+  const resetBooleans = ["pdo_sync", "offline_mode", "full_history", "auto_read_messages"];
+  const optionalBooleans = ["callback_persist", "outgoing_calls_enabled", "proxy_trust_filters"];
+  exactKeys(value, [...resetBooleans, ...optionalBooleans, "callback_backoff_delay_ms", "max_callback_backoff_delay_ms", "media", "webhooks",
+    "proxy", "mobile_proxy", "locale", "mock_pairing_code", "ignored_presences", "data_mode"], "unknown_setting");
+  // Whapi's Channel Settings overview explicitly identifies only these four
+  // settings as resetting on omission. All others remain unchanged if omitted.
+  // https://support.whapi.cloud/help-desk/account-and-whapi-channels/channel-settings-overview
+  // Require the reset-prone values, preserve every returned optional value, and
+  // never synthesize operating defaults (which can restart the channel).
+  for (const key of resetBooleans) if (typeof value[key] !== "boolean") fail("required_boolean", key);
+  for (const key of optionalBooleans) {
+    if (Object.hasOwn(value, key) && typeof value[key] !== "boolean") fail("optional_boolean", key);
+  }
   for (const [key, min, max] of [["callback_backoff_delay_ms", 3000, 15000], ["max_callback_backoff_delay_ms", 600000, 3600000]] as const) {
     const n = value[key];
-    if (typeof n !== "number" || !Number.isFinite(n) || n < min || n > max) fail("required_bounded_number", key);
+    if (Object.hasOwn(value, key) && (typeof n !== "number" || !Number.isFinite(n) || n < min || n > max)) fail("optional_bounded_number", key);
   }
   for (const key of ["proxy", "mobile_proxy", "locale", "mock_pairing_code"]) {
-    if (value[key] !== undefined && (typeof value[key] !== "string" || MASKED.test(value[key] as string))) fail("optional_string_unavailable", key);
+    if (Object.hasOwn(value, key) && (typeof value[key] !== "string" || MASKED.test(value[key] as string))) fail("optional_string_unavailable", key);
   }
-  if (!["original", "replace", "extend"].includes(String(value.data_mode))) fail("required_enum", "data_mode");
-  if (!Array.isArray(value.ignored_presences) || value.ignored_presences.some(v => typeof v !== "string")) fail("required_string_array", "ignored_presences");
+  if (Object.hasOwn(value, "data_mode") && (typeof value.data_mode !== "string" || !["original", "replace", "extend"].includes(value.data_mode))) fail("optional_enum", "data_mode");
+  if (Object.hasOwn(value, "ignored_presences") && (!Array.isArray(value.ignored_presences) || value.ignored_presences.some(v => typeof v !== "string"))) fail("optional_string_array", "ignored_presences");
+  // Keep the complete media snapshot required as an additional preservation
+  // check; the actual channel returns it and this operation need not alter it.
   if (!object(value.media)) return fail("required_object", "media");
   exactKeys(value.media, ["auto_download", "init_avatars"], "unknown_media_field");
   if (typeof value.media.init_avatars !== "boolean") fail("required_boolean", "media.init_avatars");

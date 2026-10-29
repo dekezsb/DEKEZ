@@ -173,9 +173,7 @@ test('unknown, malformed, masked and ambiguous settings fail closed', () => {
 
 test('incomplete provider snapshots cannot reset omitted channel defaults', () => {
   const mod = moduleUnderTest(), cfg = config(mod);
-  for (const key of ['pdo_sync', 'callback_persist', 'offline_mode', 'full_history', 'auto_read_messages',
-    'outgoing_calls_enabled', 'callback_backoff_delay_ms', 'max_callback_backoff_delay_ms',
-    'media', 'ignored_presences', 'data_mode']) {
+  for (const key of ['pdo_sync', 'offline_mode', 'full_history', 'auto_read_messages', 'media', 'webhooks']) {
     const incomplete = settings(); delete incomplete[key];
     assert.throws(() => mod.planCallbackSetup(incomplete, cfg), key);
   }
@@ -184,6 +182,56 @@ test('incomplete provider snapshots cannot reset omitted channel defaults', () =
     assert.throws(() => mod.planCallbackSetup(incomplete, cfg), `media.${key}`);
   }
   assert.throws(() => mod.planCallbackSetup({ webhooks: settings().webhooks }, cfg));
+});
+
+function productionShapeSettings() {
+  // Synthetic values with the independently observed field-presence pattern;
+  // never a recorded production provider payload or credential.
+  const current=settings();current.proxy_trust_filters=false;
+  for(const key of ['outgoing_calls_enabled','callback_backoff_delay_ms','max_callback_backoff_delay_ms',
+    'ignored_presences','data_mode','mobile_proxy','mock_pairing_code'])delete current[key];
+  return current;
+}
+
+test('documented sparse provider shape preserves omitted non-reset settings without synthesizing defaults',()=>{
+  const mod=moduleUnderTest(),cfg=config(mod),current=productionShapeSettings(),before=clone(current);
+  const plan=mod.planCallbackSetup(current,cfg);
+  const {webhooks:_beforeHooks,...beforeRest}=before,{webhooks:_afterHooks,...afterRest}=plan.after;
+  assert.deepEqual(current,before);assert.deepEqual(plan.before,before);assert.deepEqual(afterRest,beforeRest);
+  for(const key of ['outgoing_calls_enabled','callback_backoff_delay_ms','max_callback_backoff_delay_ms','ignored_presences','data_mode']){
+    assert.equal(Object.hasOwn(plan.after,key),false,key);
+  }
+  assert.deepEqual(plan.after.webhooks[0],before.webhooks[0]);assert.equal(plan.after.webhooks.length,2);
+  const onlyResetFields={pdo_sync:false,offline_mode:true,full_history:true,auto_read_messages:true,
+    media:before.media,webhooks:before.webhooks};
+  const minimal=mod.planCallbackSetup(onlyResetFields,cfg);
+  assert.equal(Object.hasOwn(minimal.after,'callback_persist'),false);
+  assert.equal(Object.hasOwn(minimal.after,'outgoing_calls_enabled'),false);
+});
+
+test('non-default optional settings are passed through exactly instead of reverting, deleting or enabling them',()=>{
+  const mod=moduleUnderTest(),cfg=config(mod),current={...settings(),callback_persist:true,outgoing_calls_enabled:true,
+    proxy_trust_filters:true,callback_backoff_delay_ms:15000,max_callback_backoff_delay_ms:3600000,
+    ignored_presences:['synthetic-review-contact'],data_mode:'original'};
+  const before=clone(current),plan=mod.planCallbackSetup(current,cfg);
+  for(const key of ['callback_persist','outgoing_calls_enabled','proxy_trust_filters','callback_backoff_delay_ms',
+    'max_callback_backoff_delay_ms','ignored_presences','data_mode'])assert.deepEqual(plan.after[key],before[key],key);
+  assert.deepEqual(current,before);
+});
+
+test('optional provider fields remain strictly typed when present and never accept null or coerced values',()=>{
+  const mod=moduleUnderTest(),cfg=config(mod);
+  for(const key of ['callback_persist','outgoing_calls_enabled','proxy_trust_filters']){
+    for(const value of [null,undefined,'false','true',0,1,[],{}])assert.throws(()=>mod.planCallbackSetup({...settings(),[key]:value},cfg),key);
+  }
+  for(const key of ['callback_backoff_delay_ms','max_callback_backoff_delay_ms']){
+    for(const value of [null,undefined,'6000',false,NaN,Infinity,[],{}])assert.throws(()=>mod.planCallbackSetup({...settings(),[key]:value},cfg),key);
+  }
+  for(const value of [null,undefined,1,['extend'],{mode:'extend'},'unreviewed'])assert.throws(()=>mod.planCallbackSetup({...settings(),data_mode:value},cfg));
+  for(const value of [null,undefined,'all',{},[null],[1]])assert.throws(()=>mod.planCallbackSetup({...settings(),ignored_presences:value},cfg));
+  for(const key of ['proxy','mobile_proxy','locale','mock_pairing_code']){
+    for(const value of [null,undefined,false,1,[],{}])assert.throws(()=>mod.planCallbackSetup({...settings(),[key]:value},cfg),key);
+  }
 });
 
 test('optional proxy and identity settings are preserved when present and are not invented when absent', () => {
@@ -405,6 +453,19 @@ test('one approved execution consumes before one PATCH, preserves settings and r
   assert.equal(second.state, 'unavailable'); assert.equal(patches(h).length, 1);
 });
 
+test('sparse provider contract follows the same authorized single-use path without adding absent channel settings',async()=>{
+  const current=productionShapeSettings(),before=clone(current),h=orchestration({settings:current});
+  const preview=safeOutput(await h.mod.previewCallbackSetup());assert.equal(preview.state,'preview');
+  const result=safeOutput(await h.mod.executeCallbackSetup(preview.ticket,true));
+  assert.equal(result.state,'verified');assert.equal(claims(h).length,1);assert.equal(patches(h).length,1);
+  assert.equal(h.consumed,true);assert.deepEqual(h.outcomes,['verified']);assert.equal(h.authCalls.length,3);
+  const {webhooks:_beforeHooks,...beforeRest}=before,{webhooks:_afterHooks,...afterRest}=patches(h)[0].body;
+  assert.deepEqual(afterRest,beforeRest);assert.deepEqual(h.current.webhooks[0],before.webhooks[0]);
+  assert.equal(h.current.webhooks.length,2);assert.equal(Object.hasOwn(h.current,'outgoing_calls_enabled'),false);
+  assert.equal(process.env.DEKEZ_COLLECTION_SEND_ENABLED,'false');assert.equal(process.env.DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED,'false');
+  assert.equal((await h.mod.executeCallbackSetup(preview.ticket,true)).state,'unavailable');assert.equal(patches(h).length,1);
+});
+
 test('changed settings after preview reject execution before claim and PATCH', async () => {
   const h = orchestration(), preview = await h.mod.previewCallbackSetup();
   h.setSettings({ ...h.current, locale: 'en-MY' });
@@ -504,7 +565,7 @@ test('oversized provider bodies stop the preflight without consuming an authoriz
 });
 
 test('a provider snapshot missing a required preservation field cannot reach claim or PATCH', async () => {
-  const incomplete = settings(); delete incomplete.outgoing_calls_enabled;
+  const incomplete = settings(); delete incomplete.pdo_sync;
   const h = orchestration({ settings: incomplete }), result = safeOutput(await h.mod.previewCallbackSetup());
   assert.equal(result.state, 'review_required'); assert.equal(claims(h).length, 0); assert.equal(patches(h).length, 0);
 });
@@ -575,7 +636,7 @@ function actionHarness(requestHeaders) {
     'next/headers': { headers: async () => new Headers(requestHeaders) },
     '@/lib/rental-collection/callback-setup': { previewCallbackSetup: invoke('preview'),
       executeCallbackSetup: invoke('execute'), inspectCallbackSetup: invoke('verify'),
-      diagnoseCallbackSetup: async()=>{calls.push({name:'diagnose',args:[]});return {state:'blocked',stage:'settings_validation',code:'required_boolean',field:'outgoing_calls_enabled'};} },
+      diagnoseCallbackSetup: async()=>{calls.push({name:'diagnose',args:[]});return {state:'blocked',stage:'settings_validation',code:'required_boolean',field:'pdo_sync'};} },
   })('app/admin-setup/rental-reminders/callback-setup/actions.ts');
   return { callbackSetupAction, calls };
 }
@@ -720,14 +781,23 @@ test('diagnostic distinguishes health channel, session and sender validation wit
     assert.equal(h.calls.length,1);assert.equal(patches(h).length,0);
   }
 });
-test('diagnostic identifies missing preservation fields without accepting sparse settings',async()=>{
-  for(const [field,code] of [['outgoing_calls_enabled','required_boolean'],['callback_persist','required_boolean'],
-    ['callback_backoff_delay_ms','required_bounded_number'],['data_mode','required_enum'],
-    ['ignored_presences','required_string_array'],['media','required_object'],['webhooks','required_bounded_array']]){
+test('diagnostic identifies missing reset-prone defaults and required preservation snapshots',async()=>{
+  for(const [field,code] of [['pdo_sync','required_boolean'],['offline_mode','required_boolean'],
+    ['full_history','required_boolean'],['auto_read_messages','required_boolean'],
+    ['media','required_object'],['webhooks','required_bounded_array']]){
     const current=settings();delete current[field];const h=diagnosticHarness({settings:current});
     assert.deepEqual(diagnosticCore(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'settings_validation',code,field});
     assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
   }
+});
+
+test('documented sparse settings pass read-only diagnosis while absent optional fields remain visibly absent',async()=>{
+  const h=diagnosticHarness({settings:productionShapeSettings()}),result=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.equal(result.state,'compatible');assert.equal(result.code,'read_only_checks_passed');
+  for(const field of ['outgoing_calls_enabled','callback_backoff_delay_ms','max_callback_backoff_delay_ms','ignored_presences','data_mode']){
+    assert.deepEqual(result.settingsShape.fields.find(item=>item.field===field),{field,type:'absent'});
+  }
+  assert.equal(h.permissionReads.length,2);assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
 });
 
 test('diagnostic returns one fixed-name shape inventory without exposing setting or credential values',async()=>{
@@ -781,7 +851,7 @@ test('diagnostic numeric metadata rejects non-finite provider numbers without re
   const h=diagnosticHarness({fetch:async url=>url.endsWith('/settings')
     ?new Response(JSON.stringify(settings()).replace('"callback_backoff_delay_ms":6000','"callback_backoff_delay_ms":1e999')):undefined});
   const result=safeOutput(await h.mod.diagnoseCallbackSetup());
-  assert.equal(result.code,'required_bounded_number');
+  assert.equal(result.code,'optional_bounded_number');
   assert.deepEqual(result.settingsShape.fields.find(item=>item.field==='callback_backoff_delay_ms'),
     {field:'callback_backoff_delay_ms',type:'number',finite:false,inRange:false});
   assert.equal(JSON.stringify(result).includes('1e999'),false);assert.equal(patches(h).length,0);
@@ -800,7 +870,7 @@ test('diagnostic reports unknown-key presence only and never enumerates provider
 
 test('diagnostic metadata is withheld after identity, company or module revocation even on validation failure',async()=>{
   for(const revoked of ['identity','company','module']){
-    const current=settings();delete current.outgoing_calls_enabled;
+    const current=settings();delete current.pdo_sync;
     const companyAuthorization={data:null,error:null},permission={data:null,error:null};
     const h=diagnosticHarness({settings:current,companyAuthorization,permission,
       admin:call=>revoked==='identity'&&call>1?null:ACTOR,
@@ -868,7 +938,7 @@ test('same-origin diagnostic action ignores form credentials/permit data and cal
   const h=actionHarness({origin:'https://dekez.vercel.app','sec-fetch-site':'same-origin'});
   const result=safeOutput(await h.callbackSetupAction(PREVIOUS,form('diagnose',{ticket:TOKEN,confirmed:'yes',recipient:SECRET})));
   assert.equal(result.state,'diagnostic');assert.match(result.message,/settings_validation \/ required_boolean/);
-  assert.match(result.message,/Field: outgoing_calls_enabled/);assert.match(result.message,/No settings, messages or setup permits were changed/);
+  assert.match(result.message,/Field: pdo_sync/);assert.match(result.message,/No settings, messages or setup permits were changed/);
   assert.deepEqual(h.calls,[{name:'diagnose',args:[]}]);
 });
 test('diagnostic action cannot bypass fresh Admin authorization even from the canonical page',async()=>{
