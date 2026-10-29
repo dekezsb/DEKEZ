@@ -193,6 +193,29 @@ test('optional proxy and identity settings are preserved when present and are no
   for (const key of ['proxy', 'mobile_proxy', 'locale', 'mock_pairing_code']) assert.equal(Object.hasOwn(plan.after, key), false);
 });
 
+test('documented optional proxy trust filter preserves both boolean values without enabling it by default', () => {
+  const mod = moduleUnderTest(), cfg = config(mod);
+  for (const enabled of [false, true]) {
+    const current = { ...settings(), proxy_trust_filters: enabled }, before = clone(current);
+    const plan = mod.planCallbackSetup(current, cfg);
+    assert.deepEqual(current, before);
+    assert.equal(plan.before.proxy_trust_filters, enabled);
+    assert.equal(plan.after.proxy_trust_filters, enabled);
+    assert.deepEqual(plan.after.webhooks[0], before.webhooks[0]);
+  }
+  const absent = mod.planCallbackSetup(settings(), cfg);
+  assert.equal(Object.hasOwn(absent.before, 'proxy_trust_filters'), false);
+  assert.equal(Object.hasOwn(absent.after, 'proxy_trust_filters'), false);
+});
+
+test('proxy trust compatibility rejects malformed values and still blocks all unknown settings', () => {
+  const mod = moduleUnderTest(), cfg = config(mod);
+  for (const value of [null, '', 'false', 'true', 0, 1, [], {}]) {
+    assert.throws(() => mod.planCallbackSetup({ ...settings(), proxy_trust_filters: value }, cfg));
+  }
+  assert.throws(() => mod.planCallbackSetup({ ...settings(), proxy_trust_filters: false, unreviewed_new_setting: true }, cfg));
+});
+
 test('provider errors returned by planning do not contain either credential or raw settings', () => {
   const mod = moduleUnderTest(), current = settings(); current.unrecognized = SECRET;
   try { mod.planCallbackSetup(current, config(mod)); assert.fail('Expected rejection'); }
