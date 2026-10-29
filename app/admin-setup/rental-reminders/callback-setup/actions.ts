@@ -23,6 +23,7 @@ export async function callbackSetupAction(_previous: SetupResult, form: FormData
         + result.settingsShape.fields.map(item => `${item.field}=${item.type}`
           + (item.finite !== undefined ? ` (finite=${item.finite}, in-range=${item.inRange})` : "")).join("; ")
         + `; unknown-root-fields=${result.settingsShape.unknownFieldsPresent}; unknown-media-fields=${result.settingsShape.unknownMediaFieldsPresent}.` : "")
+      + (result.rentalCallbackComparison ? ` Saved rental callback comparison (fixed types, matches and hashes only): ${JSON.stringify(result.rentalCallbackComparison)}.` : "")
       + " No settings, messages or setup permits were changed. This does not verify actual provider callback delivery."};
   }
   if (form.get("operation") === "preview") return previewCallbackSetup();

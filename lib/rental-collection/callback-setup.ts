@@ -24,7 +24,16 @@ const SETTINGS_SHAPE_FIELDS = ["pdo_sync", "callback_persist", "offline_mode", "
 type ShapeType = "absent" | "null" | "boolean" | "string" | "number" | "array" | "object" | "invalid";
 type SettingsShape = {rootType: ShapeType; unknownFieldsPresent: boolean; unknownMediaFieldsPresent: boolean;
   fields: {field: typeof SETTINGS_SHAPE_FIELDS[number]; type: ShapeType; finite?: boolean; inRange?: boolean}[]};
-export type SetupDiagnostic = {state: "blocked" | "compatible"; stage: string; code: string; field?: string; httpStatus?: number; callbackPresent?: boolean; settingsShape?: SettingsShape};
+type RentalCallbackComparison = {presence: "absent" | "single" | "multiple"; exactTargetMatches?: boolean;
+  mode?: {type: ShapeType; exactMatch: boolean; bodyOrAbsent: boolean};
+  headers?: {type: ShapeType; exactMatch: boolean; authorizationPresent: boolean; authorizationUnique: boolean;
+    authorizationCaseMatches: boolean; authorizationValueMatches: boolean; otherHeadersPresent: boolean};
+  events?: {type: ShapeType; exactOrderMatches: boolean; exactSetMatches: boolean; messagesPostPresent: boolean;
+    statusesPostPresent: boolean; otherEventsPresent: boolean; duplicatesPresent: boolean};
+  webhookMaxAgeSeconds?: {type: ShapeType; exactMatch: boolean; inRange: boolean};
+  sendUndecryptedAd?: {type: ShapeType; exactMatch: boolean; falseOrAbsent: boolean};
+  savedSettingsHash?: string; expectedTargetOnlySettingsHash?: string};
+export type SetupDiagnostic = {state: "blocked" | "compatible"; stage: string; code: string; field?: string; httpStatus?: number; callbackPresent?: boolean; settingsShape?: SettingsShape; rentalCallbackComparison?: RentalCallbackComparison};
 // Only fixed codes and explicitly allowlisted field names are exposed. Never
 // attach provider payloads, unknown keys, URLs, headers or thrown error messages.
 class SetupValidationError extends Error {
@@ -75,6 +84,50 @@ function settingsShape(value: unknown): SettingsShape {
   return {rootType: type(value), fields,
     unknownFieldsPresent: Object.keys(root).some(key => !SETTINGS_SHAPE_FIELDS.some(field => !field.includes(".") && field === key)),
     unknownMediaFieldsPresent: Object.keys(media).some(key => !["auto_download", "init_avatars"].includes(key))};
+}
+function rentalCallbackComparison(settings: ObjectValue & {webhooks: ObjectValue[]}, secret: string): RentalCallbackComparison {
+  const matches = settings.webhooks.filter(hook => hook.url === COLLECTION_CALLBACK);
+  if (matches.length !== 1) return {presence: matches.length ? "multiple" : "absent"};
+  const hook = matches[0], headers = object(hook.headers) ? hook.headers : {};
+  const type = (key: string): ShapeType => !Object.hasOwn(hook, key) ? "absent" : hook[key] === null ? "null"
+    : Array.isArray(hook[key]) ? "array" : object(hook[key]) ? "object" : typeof hook[key] === "boolean" ? "boolean"
+    : typeof hook[key] === "string" ? "string" : typeof hook[key] === "number" ? "number" : "invalid";
+  const authorizationKeys = Object.keys(headers).filter(key => key.toLowerCase() === "authorization");
+  const authorizationValueMatches = authorizationKeys.length === 1 && headers[authorizationKeys[0]] === `Bearer ${secret}`;
+  const expectedEvents = [{type: "messages", method: "post"}, {type: "statuses", method: "post"}];
+  const expectedHeaders = {Authorization: `Bearer ${secret}`};
+  const expected = {url: COLLECTION_CALLBACK, mode: "body", headers: expectedHeaders, events: expectedEvents,
+    webhook_max_age_seconds: null, send_undecrypted_ad: false};
+  const events = Array.isArray(hook.events) ? hook.events : [];
+  const expectedEvent = (event: Json) => object(event) && event.method === "post" && typeof event.type === "string" && ["messages", "statuses"].includes(event.type);
+  const messagesPostPresent = events.some(event => object(event) && event.type === "messages" && event.method === "post");
+  const statusesPostPresent = events.some(event => object(event) && event.type === "statuses" && event.method === "post");
+  // Comparisons disclose only fixed booleans/types. Never return provider keys,
+  // header values, URLs, event values or any proposed repair/acceptance decision.
+  const comparison: RentalCallbackComparison = {presence: "single", exactTargetMatches: canonical(hook) === canonical(expected),
+    mode: {type: type("mode"), exactMatch: hook.mode === "body", bodyOrAbsent: hook.mode === "body" || !Object.hasOwn(hook, "mode")},
+    headers: {type: type("headers"), exactMatch: canonical(headers) === canonical(expectedHeaders),
+      authorizationPresent: authorizationKeys.length > 0, authorizationUnique: authorizationKeys.length === 1,
+      authorizationCaseMatches: authorizationKeys.length === 1 && authorizationKeys[0] === "Authorization",
+      authorizationValueMatches, otherHeadersPresent: Object.keys(headers).some(key => key.toLowerCase() !== "authorization")},
+    events: {type: type("events"), exactOrderMatches: canonical(events) === canonical(expectedEvents),
+      exactSetMatches: events.length === 2 && messagesPostPresent && statusesPostPresent && events.every(expectedEvent),
+      messagesPostPresent, statusesPostPresent, otherEventsPresent: events.some(event => !expectedEvent(event)),
+      duplicatesPresent: new Set(events.map(event => canonical(event))).size !== events.length},
+    webhookMaxAgeSeconds: {type: type("webhook_max_age_seconds"), exactMatch: hook.webhook_max_age_seconds === null,
+      inRange: typeof hook.webhook_max_age_seconds === "number" && Number.isFinite(hook.webhook_max_age_seconds)
+        && hook.webhook_max_age_seconds >= 15 && hook.webhook_max_age_seconds <= 172800},
+    sendUndecryptedAd: {type: type("send_undecrypted_ad"), exactMatch: hook.send_undecrypted_ad === false,
+      falseOrAbsent: hook.send_undecrypted_ad === false || !Object.hasOwn(hook, "send_undecrypted_ad")}};
+  // Only hash a saved snapshot proven to contain this configured high-entropy
+  // secret. The second digest replaces one hook IN MEMORY; it neither approves
+  // equivalence nor updates the provider, ledger, authorization or settings.
+  if (authorizationValueMatches) {
+    comparison.savedSettingsHash = fingerprint(settings);
+    comparison.expectedTargetOnlySettingsHash = fingerprint({...settings,
+      webhooks: settings.webhooks.map(existing => existing === hook ? expected : existing)});
+  }
+  return comparison;
 }
 function webhook(value: unknown): asserts value is ObjectValue {
   if (!object(value)) return fail("webhook_shape");
@@ -328,7 +381,8 @@ async function assertDiagnosticAdministrator(actor: string) {
 
 export async function diagnoseCallbackSetup(): Promise<SetupDiagnostic> {
   let stage = "authorization";
-  let actor: string | null = null, authorized = false, shape: SettingsShape | undefined, result: SetupDiagnostic;
+  let actor: string | null = null, authorized = false, shape: SettingsShape | undefined,
+    comparison: RentalCallbackComparison | undefined, result: SetupDiagnostic;
   try {
     actor = await reportAdministrator();
     if (!actor) return {state: "blocked", stage, code: "administrator_required"};
@@ -346,6 +400,7 @@ export async function diagnoseCallbackSetup(): Promise<SetupDiagnostic> {
     shape = settingsShape(settings);
     stage = "settings_validation";
     validateSettings(settings);
+    comparison = rentalCallbackComparison(settings, config.secret);
     stage = "callback_preservation";
     const plan = planCallbackSetup(settings, config);
     result = {state: "compatible", stage: "complete", code: "read_only_checks_passed", callbackPresent: plan.alreadyConfigured};
@@ -366,5 +421,5 @@ export async function diagnoseCallbackSetup(): Promise<SetupDiagnostic> {
       return {state: "blocked", stage: "authorization", code: error instanceof SetupValidationError ? error.code : "request_failed"};
     }
   }
-  return {...result, ...(shape ? {settingsShape: shape} : {})};
+  return {...result, ...(shape ? {settingsShape: shape} : {}), ...(comparison ? {rentalCallbackComparison: comparison} : {})};
 }

@@ -729,7 +729,7 @@ function diagnosticHarness(options={}) {
   return h;
 }
 function diagnosticCore(result) {
-  const { settingsShape, ...core } = safeOutput(result);
+  const { settingsShape, rentalCallbackComparison, ...core } = safeOutput(result);
   return core;
 }
 test('read-only diagnostic is disabled by default and requires fresh Super Admin before configuration disclosure',async()=>{
@@ -917,6 +917,127 @@ test('diagnostic describes installed/conflicting callback without repairing it o
   assert.deepEqual(diagnosticCore(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code:'rental_callback_conflict'});
   assert.equal(h.consumed,false);assert.equal(patches(h).length,0);
 });
+
+function installedSettings() {
+  const mod=moduleUnderTest();return mod.planCallbackSetup(settings(),config(mod)).after;
+}
+function callbackHash(value) {
+  const {createHash}=require('node:crypto');
+  return createHash('sha256').update(JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)
+    ?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item)).digest('hex');
+}
+
+test('read-only callback comparison identifies exact protected target without disclosing settings or header values',async()=>{
+  const current=installedSettings(),h=diagnosticHarness({settings:current});
+  const result=safeOutput(await h.mod.diagnoseCallbackSetup()),comparison=result.rentalCallbackComparison;
+  assert.equal(result.state,'compatible');assert.equal(comparison.presence,'single');assert.equal(comparison.exactTargetMatches,true);
+  assert.deepEqual(comparison.mode,{type:'string',exactMatch:true,bodyOrAbsent:true});
+  assert.deepEqual(comparison.headers,{type:'object',exactMatch:true,authorizationPresent:true,authorizationUnique:true,
+    authorizationCaseMatches:true,authorizationValueMatches:true,otherHeadersPresent:false});
+  assert.deepEqual(comparison.events,{type:'array',exactOrderMatches:true,exactSetMatches:true,messagesPostPresent:true,
+    statusesPostPresent:true,otherEventsPresent:false,duplicatesPresent:false});
+  assert.deepEqual(comparison.webhookMaxAgeSeconds,{type:'null',exactMatch:true,inRange:false});
+  assert.deepEqual(comparison.sendUndecryptedAd,{type:'boolean',exactMatch:true,falseOrAbsent:true});
+  assert.equal(comparison.savedSettingsHash,callbackHash(current));
+  assert.equal(comparison.expectedTargetOnlySettingsHash,callbackHash(current));
+  assert.deepEqual(h.calls.map(call=>call.method),['GET','GET']);assert.equal(h.permissionReads.length,2);
+  assert.deepEqual(h.rpcs.map(call=>call.name),['dekez_collection_assert_admin','dekez_collection_assert_admin']);
+  assert.equal(claims(h).length,0);assert.equal(patches(h).length,0);
+  const serialized=JSON.stringify(comparison);
+  for(const forbidden of ['Bearer',REPORT_CALLBACK,CALLBACK,'Authorization'])assert.equal(serialized.includes(forbidden),false);
+});
+
+test('provider-normalized fields are diagnosed precisely without accepting, repairing or retrying the mismatch',async()=>{
+  const expected=installedSettings(),current=clone(expected),hook=current.webhooks[1];
+  hook.headers={authorization:hook.headers.Authorization};hook.events.reverse();
+  delete hook.mode;delete hook.webhook_max_age_seconds;delete hook.send_undecrypted_ad;
+  const h=diagnosticHarness({settings:current}),result=safeOutput(await h.mod.diagnoseCallbackSetup()),comparison=result.rentalCallbackComparison;
+  assert.equal(result.state,'blocked');assert.equal(result.code,'rental_callback_conflict');assert.equal(comparison.exactTargetMatches,false);
+  assert.deepEqual(comparison.mode,{type:'absent',exactMatch:false,bodyOrAbsent:true});
+  assert.equal(comparison.headers.exactMatch,false);assert.equal(comparison.headers.authorizationValueMatches,true);
+  assert.equal(comparison.headers.authorizationCaseMatches,false);assert.equal(comparison.headers.authorizationUnique,true);
+  assert.equal(comparison.events.exactOrderMatches,false);assert.equal(comparison.events.exactSetMatches,true);
+  assert.deepEqual(comparison.webhookMaxAgeSeconds,{type:'absent',exactMatch:false,inRange:false});
+  assert.deepEqual(comparison.sendUndecryptedAd,{type:'absent',exactMatch:false,falseOrAbsent:true});
+  assert.equal(comparison.savedSettingsHash,callbackHash(current));assert.equal(comparison.expectedTargetOnlySettingsHash,callbackHash(expected));
+  assert.notEqual(comparison.savedSettingsHash,comparison.expectedTargetOnlySettingsHash);
+  assert.deepEqual(h.current,current);assert.equal(claims(h).length,0);assert.equal(patches(h).length,0);assert.deepEqual(h.outcomes,[]);
+  const mod=moduleUnderTest();assert.throws(()=>mod.planCallbackSetup(current,config(mod)),/Setup validation failed/);
+});
+
+test('callback comparison reports wrong authentication, extra headers and events only as fixed booleans',async()=>{
+  const current=installedSettings(),hook=current.webhooks[1];
+  hook.headers={Authorization:`Bearer ${TOKEN}`,'X-Private-Setting':SECRET};
+  hook.events.push({type:'messages',method:'post'},{type:'groups',method:'put'});
+  hook.mode='path';hook.webhook_max_age_seconds=900;hook.send_undecrypted_ad=true;
+  const h=diagnosticHarness({settings:current}),result=safeOutput(await h.mod.diagnoseCallbackSetup()),comparison=result.rentalCallbackComparison;
+  assert.equal(result.code,'rental_callback_conflict');assert.equal(comparison.headers.authorizationValueMatches,false);
+  assert.equal(comparison.headers.otherHeadersPresent,true);assert.equal(comparison.headers.exactMatch,false);
+  assert.equal(comparison.events.exactSetMatches,false);assert.equal(comparison.events.otherEventsPresent,true);assert.equal(comparison.events.duplicatesPresent,true);
+  assert.deepEqual(comparison.mode,{type:'string',exactMatch:false,bodyOrAbsent:false});
+  assert.deepEqual(comparison.webhookMaxAgeSeconds,{type:'number',exactMatch:false,inRange:true});
+  assert.deepEqual(comparison.sendUndecryptedAd,{type:'boolean',exactMatch:false,falseOrAbsent:false});
+  assert.equal(Object.hasOwn(comparison,'savedSettingsHash'),false);assert.equal(Object.hasOwn(comparison,'expectedTargetOnlySettingsHash'),false);
+  assert.doesNotMatch(JSON.stringify(comparison),/X-Private-Setting|groups|put|900|Bearer|Authorization/);
+  assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+});
+
+test('absent, duplicate, unauthenticated or malformed target callbacks cannot expose snapshot fingerprints',async()=>{
+  for(const kind of ['absent','duplicate','missing-auth','malformed']){
+    const current=installedSettings();
+    if(kind==='absent')current.webhooks.pop();
+    if(kind==='duplicate')current.webhooks.push(clone(current.webhooks[1]));
+    if(kind==='missing-auth')current.webhooks[1].headers={};
+    if(kind==='malformed')current.webhooks[1][SECRET]=TOKEN;
+    const h=diagnosticHarness({settings:current}),result=safeOutput(await h.mod.diagnoseCallbackSetup());
+    if(kind==='absent')assert.deepEqual(result.rentalCallbackComparison,{presence:'absent'});
+    if(kind==='duplicate')assert.deepEqual(result.rentalCallbackComparison,{presence:'multiple'});
+    if(kind==='missing-auth'){
+      assert.equal(result.rentalCallbackComparison.headers.authorizationPresent,false);
+      assert.equal(result.rentalCallbackComparison.headers.authorizationValueMatches,false);
+    }
+    if(kind==='malformed')assert.equal(Object.hasOwn(result,'rentalCallbackComparison'),false);
+    assert.equal(Object.hasOwn(result.rentalCallbackComparison??{},'savedSettingsHash'),false);
+    assert.equal(Object.hasOwn(result.rentalCallbackComparison??{},'expectedTargetOnlySettingsHash'),false);
+    assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+  }
+});
+
+test('in-memory target-only fingerprint can compare a consumed reservation without any new setup or provider write',async()=>{
+  const h=orchestration({afterPatch:value=>{
+    delete value.webhooks[1].webhook_max_age_seconds;delete value.webhooks[1].send_undecrypted_ad;return value;
+  }}),preview=await h.mod.previewCallbackSetup();
+  assert.equal((await h.mod.executeCallbackSetup(preview.ticket,true)).state,'consumed_review_required');
+  const reservedHash=claims(h)[0].args.p_after_hash,callsBefore=h.calls.length,rpcsBefore=h.rpcs.length,outcomesBefore=clone(h.outcomes);
+  process.env.DEKEZ_COLLECTION_SETUP_ENABLED='false';process.env.DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED='true';
+  delete process.env.DEKEZ_COLLECTION_SETUP_OPERATION;
+  const result=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.equal(result.code,'rental_callback_conflict');assert.equal(result.rentalCallbackComparison.expectedTargetOnlySettingsHash,reservedHash);
+  assert.notEqual(result.rentalCallbackComparison.savedSettingsHash,reservedHash);
+  assert.deepEqual(h.calls.slice(callsBefore).map(call=>call.method),['GET','GET']);
+  assert.deepEqual(h.rpcs.slice(rpcsBefore).map(call=>call.name),['dekez_collection_assert_admin','dekez_collection_assert_admin']);
+  assert.equal(patches(h).length,1);assert.equal(claims(h).length,1);assert.deepEqual(h.outcomes,outcomesBefore);
+  h.setSettings({...h.current,locale:'unrelated-change'});
+  const changed=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.notEqual(changed.rentalCallbackComparison.expectedTargetOnlySettingsHash,reservedHash);
+  assert.equal(patches(h).length,1);assert.equal(claims(h).length,1);
+});
+
+test('callback comparison and fingerprints are withheld after fresh role or scope revocation',async()=>{
+  for(const revoked of ['identity','company','module']){
+    const current=installedSettings();delete current.webhooks[1].send_undecrypted_ad;
+    const companyAuthorization={data:null,error:null},permission={data:null,error:null};
+    const h=diagnosticHarness({settings:current,companyAuthorization,permission,
+      admin:call=>revoked==='identity'&&call>1?null:ACTOR,
+      fetch:async url=>{if(url.endsWith('/settings')){
+        if(revoked==='company')companyAuthorization.error={message:TOKEN};
+        if(revoked==='module')permission.data={access_level:'view'};
+      }},
+    }),result=safeOutput(await h.mod.diagnoseCallbackSetup());
+    assert.equal(result.stage,'authorization');assert.equal(Object.hasOwn(result,'rentalCallbackComparison'),false);
+    assert.equal(Object.hasOwn(result,'settingsShape'),false);assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+  }
+});
 test('diagnostic reports safe HTTP, JSON and transport failure categories, never response body or error text',async()=>{
   for(const [response,expected] of [
     [()=>new Response(TOKEN+SECRET,{status:401}),{code:'provider_http',httpStatus:401}],
@@ -965,6 +1086,22 @@ test('same-origin diagnostic action displays bounded fixed-name types and ranges
   assert.match(result.message,/unknown-root-fields=true/);
   assert.doesNotMatch(result.message,/Authorization|socks5|6000|1200000/);
   assert.ok(result.message.length<2500);assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+});
+
+test('Admin diagnostic action displays sanitized callback mismatch comparisons and protected digests only',async()=>{
+  const current=installedSettings();delete current.webhooks[1].webhook_max_age_seconds;delete current.webhooks[1].send_undecrypted_ad;
+  const h=diagnosticHarness({settings:current});
+  const action=makeLoader({
+    'next/headers':{headers:async()=>new Headers({origin:'https://dekez.vercel.app','sec-fetch-site':'same-origin'})},
+    '@/lib/rental-collection/callback-setup':h.mod,
+  })('app/admin-setup/rental-reminders/callback-setup/actions.ts');
+  const result=safeOutput(await action.callbackSetupAction(PREVIOUS,form('diagnose')));
+  assert.match(result.message,/rental_callback_conflict/);assert.match(result.message,/"authorizationValueMatches":true/);
+  assert.match(result.message,/"webhookMaxAgeSeconds":\{"type":"absent","exactMatch":false,"inRange":false\}/);
+  assert.match(result.message,/"savedSettingsHash":"[a-f0-9]{64}"/);
+  assert.match(result.message,/"expectedTargetOnlySettingsHash":"[a-f0-9]{64}"/);
+  assert.doesNotMatch(result.message,/Bearer|Authorization|https:\/\//);assert.ok(result.message.length<4000);
+  assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);assert.deepEqual(h.outcomes,[]);
 });
 test('read-only diagnostic UI never exposes setup/inspection/execution or credential controls, including stale preview state',()=>{
   for(const state of [PREVIOUS,{state:'preview',message:'stale',ticket:'synthetic-old-ticket'}]){
