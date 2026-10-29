@@ -1,0 +1,84 @@
+DEKEZ RENTAL CALLBACK V2 — PREPARED FOR SEPARATE APPROVAL ONLY
+29 October 2026. No production changes made by this preparation.
+
+APPROVED EXECUTION UPDATE — 29 October 2026
+The user separately approved the one-time callback connection. The reviewed
+constraint-only SQL was applied once and recorded by production as version
+20261029091616. The source filename is reconciled to that recorded version;
+SQL SHA256 remains e35647980c8ee2a131c86f5e0e15cfcf904a9cec8a72f570fe8d0f63c3bd76fd.
+The prior revoked permit remains unchanged. A scheduled physical backup from
+28 October 2026 23:55:11 UTC was verified available before execution.
+Authorization issuance, provider connection and retirement require their
+separate runtime verification; this migration alone activates none of them.
+
+Why a new bounded slot is necessary
+The previous v1 preflight stopped before a provider PATCH. Its unused permit
+5770722d-fb7a-4992-84aa-ef1186d24da9 was revoked and its seven setup RPC grants
+were retired. Do not reset that permit, change its expiry, delete it, or silently
+restore setup access. A fresh reviewed slot retains that original audit record.
+
+Minimum change
+1. Migration 20261029091616_rental_callback_v2_reviewed_slot.sql expands only
+   the private callback_setup operation-key constraint to v1 OR v2. The lifetime
+   company/operation uniqueness, fixed company/channel, forced RLS, expiry and
+   other constraints remain. It makes no row, function or grant changes.
+2. The migration fails unless exactly the known revoked, unused v1 record exists,
+   all seven setup RPCs are retired, direct table/column access is absent and the
+   expected owner, RLS, executor and original operation constraint are intact.
+3. Separate scripts/authorize-rental-callback-setup-v2.sql requires explicitly
+   supplied fresh operation UUID and verified executing Super Admin UUID. It
+   creates exactly one v2 row for the fixed company/channel, with a ten-minute
+   lifetime derived from ONE database clock. No seed/default authorization or
+   public issuance/reset API exists. It refuses all reissue attempts.
+4. That operator script atomically restores only the existing seven service-role
+   EXECUTE grants. Browser roles receive none; private table grants remain absent.
+   The restricted executor owner is assumed only inside the transaction; exact
+   original operator memberships are checked after restoration. Failure rolls
+   back both the row and grants. Runtime still freshly verifies Super Admin,
+   company membership, module access, origin, fixed channel/sender, deployment,
+   secret separation, both outbound flags OFF and the short confirmation ticket.
+5. The existing setup engine claims before PATCH and never retries an uncertain
+   outcome. Its existing row lock/expiry checks are reused without modifications.
+6. Reuse scripts/retire-rental-callback-setup.sql immediately after the attempt
+   or any failure. It revokes active permits and all seven setup grants, retains
+   all records, and handles the non-superuser function-owner ACL distinction.
+
+Separate approval required BEFORE any production execution
+- Approve this exact migration and bounded v2 authorization/grant procedure.
+- Confirm the corrected deployed GET-only diagnostic is compatible, the correct
+  production project and a recoverable backup, and no other operator is changing
+  Whapi settings during the controlled setup window.
+- Keep tenant and Rosley sending false. Leave invoice scan, management report,
+  incoming management commands, credentials and all schedules unchanged.
+- Apply ONLY the new reviewed migration, once, after checking migration history.
+- Prepare the reviewed deployment with setup operation set to the fresh approved
+  UUID. Existing stale deployments remain bound to the revoked v1 UUID.
+- Provision the one ten-minute permit only after the deployment is ready and the
+  approved Super Admin is available. Operator parameters are non-secret UUIDs,
+  not browser-supplied identity; no live UUID is seeded in the script.
+- Preview then expressly confirm the provider settings change within the short
+  preview lifetime. Do not grant a new permit or extend time if it fails/expires.
+- Independently read back settings, retaining existing callbacks and every field.
+- Run the reviewed retirement script, turn setup off in a cleanup deployment,
+  remove its operation setting, and verify all seven effective grants are false.
+
+Recovery
+A transaction or five-second lock failure rolls back completely; do not force
+locks. A claimed/uncertain provider operation is permanently consumed. Use GET
+only to investigate, never replay PATCH. Unused expiry also requires fresh review,
+not reissue. Safe rollback is revocation plus disabled setup, retaining both rows
+and the enumerated v2 constraint. Do not remove the v2 constraint after a v2 row
+exists or delete audit history to make a rollback pass.
+
+Evidence scope
+Local synthetic PostgreSQL/PGlite tests cover original-row immutability, no
+migration issuance or restored grants, fresh role/company/module checks, expiry,
+browser denials, rollback, exactly restored role memberships and cleanup.
+Independent native PostgreSQL sessions cover competing v2 operator issuance and
+competing v2 claims: one winner, observed lock waits, no provider calls. Full
+business/consent/delivery/scan fixture snapshots remain unchanged. Production
+compatibility and a real authenticated callback event remain separate checks.
+
+Configuration read-back is NOT proof of a genuine Whapi delivery receipt or STOP
+event and is NOT permission to send tenant/Rosley reminders. Consent, provider,
+legal, access-safety and volume approvals remain independent safeguards.

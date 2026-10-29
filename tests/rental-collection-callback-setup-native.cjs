@@ -128,6 +128,52 @@ async function main(){
   assert.deepEqual(row,{id:operation,revoked_before_start:true,consumed_at:null});
   assert.equal(await observer.json("select to_json(has_function_privilege('service_role','public.dekez_collection_assert_admin(uuid,uuid)','EXECUTE'))"),true);
  });
+ const originalPermit='5770722d-fb7a-4992-84aa-ef1186d24da9',v2Operation=id(201);
+ let originalPermitSnapshot;
+ await test('reviewed v2 migration preserves retired v1; two operator sessions cannot issue twice',async()=>{
+  // Synthetic fixture only: model the exact unused/revoked production precondition.
+  await observer.query(`update dekez_collections_private.callback_setup set id=${q(originalPermit)}`);
+  originalPermitSnapshot=await observer.json(`select to_json(t) from dekez_collections_private.callback_setup t where id=${q(originalPermit)}`);
+  const filename='20261029091616_rental_callback_v2_reviewed_slot.sql',migration=fs.readFileSync(path.join(repo,'supabase/migrations',filename));
+  run('psql',args(),{env:env(),input:Buffer.concat([Buffer.from('set role fixture_migrator;\n'),migration])});
+  evidence.migrations.push({filename,sha256:crypto.createHash('sha256').update(migration).digest('hex'),unmodified:true,migrationRole:'fixture_migrator (non-superuser)'});
+  assert.equal(await observer.json('select count(*)::int from dekez_collections_private.callback_setup'),1);
+  await rejected(check(),/42501|permission denied/);
+  const issuance=fs.readFileSync(path.join(repo,'scripts/authorize-rental-callback-setup-v2.sql'),'utf8');
+  evidence.authorizationScript={filename:'scripts/authorize-rental-callback-setup-v2.sql',sha256:crypto.createHash('sha256').update(issuance).digest('hex'),unmodified:true};
+  const issuerA=await session('issuer-a','fixture_migrator'),issuerB=await session('issuer-b','fixture_migrator');
+  const parameters=`select set_config('dekez.callback_v2.actor',${q(actor)},false),set_config('dekez.callback_v2.operation',${q(v2Operation)},false);`;
+  await issuerA.query(parameters);await issuerB.query(parameters);
+  // Keep the real script transaction open only in this synthetic fixture so the
+  // second actual session demonstrably waits on its exclusive ledger lock.
+  await issuerA.query(issuance.replace(/commit;\s*$/,''));
+  const pending=assert.rejects(issuerB.query(issuance),/must be retired|lifetime authorization/);
+  await blocked(issuerB,issuerA,'concurrent bounded v2 issuance');await issuerA.query('commit');await pending;
+  issuerA.close();issuerB.close();
+  assert.equal(await observer.json('select count(*)::int from dekez_collections_private.callback_setup'),2);
+  assert.deepEqual(await observer.json(`select to_json(t) from dekez_collections_private.callback_setup t where id=${q(originalPermit)}`),originalPermitSnapshot);
+  assert.equal(await observer.json(`select to_json(expires_at-created_at=interval '10 minutes') from dekez_collections_private.callback_setup where id=${q(v2Operation)}`),true);
+  assert.equal((await a.json(check().replace(operation,originalPermit))).state,'revoked');
+  return{issuancePids:[issuerA.pid,issuerB.pid],permits:2,oldPermitUnchanged:true};
+ });
+ await test('v2 independent claims have one winner; same retirement revokes all seven grants and retains both records',async()=>{
+  const v2Claim=claim().replace(operation,v2Operation);
+  await a.query('begin');const first=await a.json(v2Claim);const pending=b.json(v2Claim);
+  await blocked(b,a,'v2 same authorization');await a.query('commit');const second=await pending;
+  assert.equal(first.state,'claimed');assert.equal(second.state,'used');
+  await a.json(finish('uncertain').replace(operation,v2Operation));
+  await rejected(finish('verified').replace(operation,v2Operation),/immutable/);
+  const script=fs.readFileSync(path.join(repo,'scripts/retire-rental-callback-setup.sql'));
+  run('psql',args(),{env:env(),input:Buffer.concat([Buffer.from('set role fixture_migrator;\n'),script])});
+  assert.equal(await observer.json('select count(*)::int from dekez_collections_private.callback_setup where revoked_at is not null'),2);
+  assert.deepEqual(await observer.json(`select to_json(t) from dekez_collections_private.callback_setup t where id=${q(originalPermit)}`),originalPermitSnapshot);
+  await rejected(v2Claim,/42501|permission denied/);
+  assert.equal(await observer.json(`select count(*)::int from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where ((n.nspname='public' and p.proname in ('dekez_collection_setup_assert_admin','dekez_collection_setup_check','dekez_collection_setup_claim','dekez_collection_setup_finish'))
+    or(n.nspname='dekez_collections_private' and p.proname in ('setup_check','setup_claim','setup_finish')))
+   and (has_function_privilege('service_role',p.oid,'EXECUTE') or has_function_privilege('anon',p.oid,'EXECUTE') or has_function_privilege('authenticated',p.oid,'EXECUTE'))`),0);
+  return{callerPids:[a.pid,b.pid],first:first.state,second:second.state,allSevenRetired:true};
+ });
  await test('business, consent, delivery, scan and prior reporting data are unchanged',async()=>{
   assert.deepEqual(await snapshot(),original);
   for(const table of ['controls','contact_controls','number_suppressions','attempts','failure_reports','worker_runs','audit'])assert.equal(await observer.json(`select count(*)::int from dekez_collections_private.${table}`),0,table);
