@@ -667,6 +667,10 @@ function diagnosticHarness(options={}) {
   delete process.env.DEKEZ_COLLECTION_SETUP_OPERATION;
   return h;
 }
+function diagnosticCore(result) {
+  const { settingsShape, ...core } = safeOutput(result);
+  return core;
+}
 test('read-only diagnostic is disabled by default and requires fresh Super Admin before configuration disclosure',async()=>{
   const h=orchestration();
   assert.deepEqual(await h.mod.diagnoseCallbackSetup(),{state:'blocked',stage:'configuration',code:'diagnostics_disabled'});
@@ -677,7 +681,7 @@ test('read-only diagnostic is disabled by default and requires fresh Super Admin
 });
 test('retired installer diagnosis uses GET only and existing read-only authorization, never setup grants or a permit',async()=>{
   const h=diagnosticHarness(),before=ENV_KEYS.map(key=>process.env[key]);
-  assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'compatible',stage:'complete',code:'read_only_checks_passed',callbackPresent:false});
+  assert.deepEqual(diagnosticCore(await h.mod.diagnoseCallbackSetup()),{state:'compatible',stage:'complete',code:'read_only_checks_passed',callbackPresent:false});
   assert.deepEqual(h.calls.map(call=>call.method),['GET','GET']);
   assert.deepEqual(h.rpcs.map(call=>call.name),['dekez_collection_assert_admin','dekez_collection_assert_admin']);
   assert.equal(h.permissionReads.length,2);assert.equal(h.consumed,false);assert.deepEqual(h.outcomes,[]);
@@ -721,8 +725,94 @@ test('diagnostic identifies missing preservation fields without accepting sparse
     ['callback_backoff_delay_ms','required_bounded_number'],['data_mode','required_enum'],
     ['ignored_presences','required_string_array'],['media','required_object'],['webhooks','required_bounded_array']]){
     const current=settings();delete current[field];const h=diagnosticHarness({settings:current});
-    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'settings_validation',code,field});
+    assert.deepEqual(diagnosticCore(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'settings_validation',code,field});
     assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+  }
+});
+
+test('diagnostic returns one fixed-name shape inventory without exposing setting or credential values',async()=>{
+  const current=settings();
+  current.proxy=`socks5://${TOKEN}:${SECRET}@private.example.invalid:1080`;
+  current.locale='private-language-value';current.mock_pairing_code='private-pairing-value';
+  current.proxy_trust_filters=true;
+  const h=diagnosticHarness({settings:current}),result=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.equal(result.state,'compatible');
+  assert.deepEqual(result.settingsShape.fields.map(item=>item.field),[
+    'pdo_sync','callback_persist','offline_mode','full_history','auto_read_messages','outgoing_calls_enabled',
+    'callback_backoff_delay_ms','max_callback_backoff_delay_ms','media','media.auto_download','media.init_avatars','webhooks',
+    'proxy','proxy_trust_filters','mobile_proxy','locale','mock_pairing_code','ignored_presences','data_mode',
+  ]);
+  assert.equal(result.settingsShape.rootType,'object');
+  assert.equal(result.settingsShape.unknownFieldsPresent,false);assert.equal(result.settingsShape.unknownMediaFieldsPresent,false);
+  const shape=Object.fromEntries(result.settingsShape.fields.map(item=>[item.field,item]));
+  assert.deepEqual(shape.callback_backoff_delay_ms,{field:'callback_backoff_delay_ms',type:'number',finite:true,inRange:true});
+  assert.equal(shape.webhooks.type,'array');assert.equal(shape['media.init_avatars'].type,'boolean');
+  assert.equal(shape.proxy_trust_filters.type,'boolean');
+  for(const item of result.settingsShape.fields){
+    assert.ok(['absent','null','boolean','string','number','array','object','invalid'].includes(item.type));
+    assert.ok(Object.keys(item).every(key=>['field','type','finite','inRange'].includes(key)));
+  }
+  const serialized=JSON.stringify(result);
+  for(const value of ['private.example.invalid','private-language-value','private-pairing-value',REPORT_CALLBACK,CALLBACK,'Authorization','6000','1200000']){
+    assert.equal(serialized.includes(value),false);
+  }
+  assert.deepEqual(h.calls.map(call=>call.method),['GET','GET']);assert.equal(h.permissionReads.length,2);
+  assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+});
+
+test('diagnostic distinguishes absent, null and wrong types across all settings without loosening validation',async()=>{
+  const current=settings();delete current.outgoing_calls_enabled;delete current.proxy;
+  current.callback_persist='false';current.full_history=null;current.media.init_avatars=0;
+  current.callback_backoff_delay_ms=2999;current.max_callback_backoff_delay_ms='1200000';
+  current.ignored_presences={};current.webhooks=null;
+  const h=diagnosticHarness({settings:current}),result=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.equal(result.state,'blocked');assert.equal(result.stage,'settings_validation');
+  const shape=Object.fromEntries(result.settingsShape.fields.map(item=>[item.field,item]));
+  assert.equal(shape.outgoing_calls_enabled.type,'absent');assert.equal(shape.proxy.type,'absent');
+  assert.equal(shape.callback_persist.type,'string');assert.equal(shape.full_history.type,'null');
+  assert.equal(shape['media.init_avatars'].type,'number');assert.equal(shape.ignored_presences.type,'object');
+  assert.equal(shape.webhooks.type,'null');
+  assert.deepEqual(shape.callback_backoff_delay_ms,{field:'callback_backoff_delay_ms',type:'number',finite:true,inRange:false});
+  assert.deepEqual(shape.max_callback_backoff_delay_ms,{field:'max_callback_backoff_delay_ms',type:'string',finite:false,inRange:false});
+  assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);assert.equal(h.permissionReads.length,2);
+});
+
+test('diagnostic numeric metadata rejects non-finite provider numbers without reflecting their representation',async()=>{
+  const h=diagnosticHarness({fetch:async url=>url.endsWith('/settings')
+    ?new Response(JSON.stringify(settings()).replace('"callback_backoff_delay_ms":6000','"callback_backoff_delay_ms":1e999')):undefined});
+  const result=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.equal(result.code,'required_bounded_number');
+  assert.deepEqual(result.settingsShape.fields.find(item=>item.field==='callback_backoff_delay_ms'),
+    {field:'callback_backoff_delay_ms',type:'number',finite:false,inRange:false});
+  assert.equal(JSON.stringify(result).includes('1e999'),false);assert.equal(patches(h).length,0);
+});
+
+test('diagnostic reports unknown-key presence only and never enumerates provider-controlled names',async()=>{
+  const current=settings();current[SECRET]=TOKEN;current.media[TOKEN]=SECRET;
+  current['media.auto_download']='provider-root-alias';
+  const h=diagnosticHarness({settings:current}),result=safeOutput(await h.mod.diagnoseCallbackSetup());
+  assert.equal(result.code,'unknown_setting');assert.equal(result.settingsShape.unknownFieldsPresent,true);
+  assert.equal(result.settingsShape.unknownMediaFieldsPresent,true);
+  assert.equal(result.settingsShape.fields.length,19);
+  assert.equal(JSON.stringify(result).includes('provider-root-alias'),false);
+  assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+});
+
+test('diagnostic metadata is withheld after identity, company or module revocation even on validation failure',async()=>{
+  for(const revoked of ['identity','company','module']){
+    const current=settings();delete current.outgoing_calls_enabled;
+    const companyAuthorization={data:null,error:null},permission={data:null,error:null};
+    const h=diagnosticHarness({settings:current,companyAuthorization,permission,
+      admin:call=>revoked==='identity'&&call>1?null:ACTOR,
+      fetch:async url=>{if(url.endsWith('/settings')){
+        if(revoked==='company')companyAuthorization.error={message:TOKEN};
+        if(revoked==='module')permission.data={access_level:'view'};
+      }},
+    });
+    const result=safeOutput(await h.mod.diagnoseCallbackSetup());
+    assert.deepEqual(result,{state:'blocked',stage:'authorization',code:
+      revoked==='identity'?'administrator_required':revoked==='company'?'company_authorization':'module_authorization'});
+    assert.equal(Object.hasOwn(result,'settingsShape'),false);assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
   }
 });
 test('diagnostic never reflects unknown keys, masked values, arbitrary URLs or header content',async()=>{
@@ -744,7 +834,7 @@ test('diagnostic distinguishes existing report callback authentication from sche
     [s=>{s.webhooks[0].events=[];},'report_callback_events'],
   ]){
     const current=settings();mutate(current);const h=diagnosticHarness({settings:current});
-    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code});
+    assert.deepEqual(diagnosticCore(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code});
     assert.equal(patches(h).length,0);
   }
 });
@@ -754,7 +844,7 @@ test('diagnostic describes installed/conflicting callback without repairing it o
   assert.equal(safeOutput(await ready.mod.diagnoseCallbackSetup()).callbackPresent,true);assert.equal(patches(ready).length,0);
   installed.webhooks[1].headers.Authorization='Bearer wrong';
   const h=diagnosticHarness({settings:installed});
-  assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code:'rental_callback_conflict'});
+  assert.deepEqual(diagnosticCore(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code:'rental_callback_conflict'});
   assert.equal(h.consumed,false);assert.equal(patches(h).length,0);
 });
 test('diagnostic reports safe HTTP, JSON and transport failure categories, never response body or error text',async()=>{
@@ -789,6 +879,22 @@ test('diagnostic action cannot bypass fresh Admin authorization even from the ca
   })('app/admin-setup/rental-reminders/callback-setup/actions.ts');
   const result=safeOutput(await action.callbackSetupAction(PREVIOUS,form('diagnose')));
   assert.match(result.message,/administrator_required/);assert.equal(h.rpcs.length,0);assert.equal(h.calls.length,0);
+});
+
+test('same-origin diagnostic action displays bounded fixed-name types and ranges, never raw settings',async()=>{
+  const current=settings();delete current.outgoing_calls_enabled;current.proxy=TOKEN;current[SECRET]=REPORT_SECRET;
+  const h=diagnosticHarness({settings:current});
+  const action=makeLoader({
+    'next/headers':{headers:async()=>new Headers({origin:'https://dekez.vercel.app','sec-fetch-site':'same-origin'})},
+    '@/lib/rental-collection/callback-setup':h.mod,
+  })('app/admin-setup/rental-reminders/callback-setup/actions.ts');
+  const result=safeOutput(await action.callbackSetupAction(PREVIOUS,form('diagnose')));
+  assert.match(result.message,/Settings shape \(types only\): root=object/);
+  assert.match(result.message,/outgoing_calls_enabled=absent/);assert.match(result.message,/proxy=string/);
+  assert.match(result.message,/callback_backoff_delay_ms=number \(finite=true, in-range=true\)/);
+  assert.match(result.message,/unknown-root-fields=true/);
+  assert.doesNotMatch(result.message,/Authorization|socks5|6000|1200000/);
+  assert.ok(result.message.length<2500);assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
 });
 test('read-only diagnostic UI never exposes setup/inspection/execution or credential controls, including stale preview state',()=>{
   for(const state of [PREVIOUS,{state:'preview',message:'stale',ticket:'synthetic-old-ticket'}]){

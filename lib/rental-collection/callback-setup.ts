@@ -18,7 +18,13 @@ type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
 type ObjectValue = {[key: string]: Json};
 type SetupConfig = {companyId: string; operationId: string; token: string; secret: string; reportSecret: string; deployment: string};
 export type SetupResult = {state: string; message: string; ticket?: string; existingWebhookCount?: number};
-export type SetupDiagnostic = {state: "blocked" | "compatible"; stage: string; code: string; field?: string; httpStatus?: number; callbackPresent?: boolean};
+const SETTINGS_SHAPE_FIELDS = ["pdo_sync", "callback_persist", "offline_mode", "full_history", "auto_read_messages", "outgoing_calls_enabled",
+  "callback_backoff_delay_ms", "max_callback_backoff_delay_ms", "media", "media.auto_download", "media.init_avatars", "webhooks",
+  "proxy", "proxy_trust_filters", "mobile_proxy", "locale", "mock_pairing_code", "ignored_presences", "data_mode"] as const;
+type ShapeType = "absent" | "null" | "boolean" | "string" | "number" | "array" | "object" | "invalid";
+type SettingsShape = {rootType: ShapeType; unknownFieldsPresent: boolean; unknownMediaFieldsPresent: boolean;
+  fields: {field: typeof SETTINGS_SHAPE_FIELDS[number]; type: ShapeType; finite?: boolean; inRange?: boolean}[]};
+export type SetupDiagnostic = {state: "blocked" | "compatible"; stage: string; code: string; field?: string; httpStatus?: number; callbackPresent?: boolean; settingsShape?: SettingsShape};
 // Only fixed codes and explicitly allowlisted field names are exposed. Never
 // attach provider payloads, unknown keys, URLs, headers or thrown error messages.
 class SetupValidationError extends Error {
@@ -46,6 +52,29 @@ export function setupConfig(env: NodeJS.ProcessEnv = process.env): SetupConfig |
 
 function exactKeys(value: ObjectValue, allowed: readonly string[], code = "unknown_webhook_field") {
   if (Object.keys(value).some(key => !allowed.includes(key))) fail(code);
+}
+function settingsShape(value: unknown): SettingsShape {
+  const type = (item: unknown, present = true): ShapeType => !present ? "absent" : item === null ? "null"
+    : Array.isArray(item) ? "array" : object(item) ? "object"
+    : typeof item === "boolean" ? "boolean" : typeof item === "string" ? "string" : typeof item === "number" ? "number" : "invalid";
+  const root = object(value) ? value : {}, media = object(root.media) ? root.media : {};
+  // Output names come only from this fixed list, never from provider keys. Do
+  // not disclose settings values, URLs, proxy credentials or webhook headers.
+  const fields = SETTINGS_SHAPE_FIELDS.map(field => {
+    const nested = field.startsWith("media."), source = nested ? media : root;
+    const key = nested ? field.slice(6) : field, present = Object.hasOwn(source, key), item = source[key];
+    const shape: SettingsShape["fields"][number] = {field, type: type(item, present)};
+    const bounds = field === "callback_backoff_delay_ms" ? [3000, 15000]
+      : field === "max_callback_backoff_delay_ms" ? [600000, 3600000] : undefined;
+    if (bounds && present) {
+      shape.finite = typeof item === "number" && Number.isFinite(item);
+      shape.inRange = shape.finite && typeof item === "number" && item >= bounds[0] && item <= bounds[1];
+    }
+    return shape;
+  });
+  return {rootType: type(value), fields,
+    unknownFieldsPresent: Object.keys(root).some(key => !SETTINGS_SHAPE_FIELDS.some(field => !field.includes(".") && field === key)),
+    unknownMediaFieldsPresent: Object.keys(media).some(key => !["auto_download", "init_avatars"].includes(key))};
 }
 function webhook(value: unknown): asserts value is ObjectValue {
   if (!object(value)) return fail("webhook_shape");
@@ -295,31 +324,43 @@ async function assertDiagnosticAdministrator(actor: string) {
 
 export async function diagnoseCallbackSetup(): Promise<SetupDiagnostic> {
   let stage = "authorization";
+  let actor: string | null = null, authorized = false, shape: SettingsShape | undefined, result: SetupDiagnostic;
   try {
-    const actor = await reportAdministrator();
+    actor = await reportAdministrator();
     if (!actor) return {state: "blocked", stage, code: "administrator_required"};
     stage = "configuration";
     const config = diagnosticConfig(process.env);
     stage = "authorization";
     await assertDiagnosticAdministrator(actor);
+    authorized = true;
     stage = "health_request";
     const health = await provider(config, "/health?wakeup=false");
     stage = "health_validation";
     verifyChannel(health);
     stage = "settings_request";
     const settings = await provider(config, "/settings");
+    shape = settingsShape(settings);
     stage = "settings_validation";
     validateSettings(settings);
     stage = "callback_preservation";
     const plan = planCallbackSetup(settings, config);
-    stage = "authorization";
-    if (await reportAdministrator() !== actor) return fail("administrator_required");
-    await assertDiagnosticAdministrator(actor);
-    return {state: "compatible", stage: "complete", code: "read_only_checks_passed", callbackPresent: plan.alreadyConfigured};
+    result = {state: "compatible", stage: "complete", code: "read_only_checks_passed", callbackPresent: plan.alreadyConfigured};
   } catch (error) {
-    return error instanceof SetupValidationError
+    result = error instanceof SetupValidationError
       ? {state: "blocked", stage, code: error.code, ...(error.field ? {field: error.field} : {}),
         ...(error.httpStatus !== undefined ? {httpStatus: error.httpStatus} : {})}
       : {state: "blocked", stage, code: "request_failed"};
   }
+  // Recheck identity on every authenticated result, including failure paths.
+  // Any provider read also requires fresh company/module authorization before
+  // returning even this limited metadata; a revoked actor gets no diagnostics.
+  if (actor) {
+    try {
+      if (await reportAdministrator() !== actor) return fail("administrator_required");
+      if (authorized) await assertDiagnosticAdministrator(actor);
+    } catch (error) {
+      return {state: "blocked", stage: "authorization", code: error instanceof SetupValidationError ? error.code : "request_failed"};
+    }
+  }
+  return {...result, ...(shape ? {settingsShape: shape} : {})};
 }

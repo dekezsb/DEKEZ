@@ -19,6 +19,10 @@ export async function callbackSetupAction(_previous: SetupResult, form: FormData
       + (result.field ? ` · Field: ${result.field}` : "")
       + (result.httpStatus !== undefined ? ` · HTTP ${result.httpStatus}` : "")
       + (result.callbackPresent !== undefined ? ` · Rental callback ${result.callbackPresent ? "present" : "not present"}.` : ".")
+      + (result.settingsShape ? ` Settings shape (types only): root=${result.settingsShape.rootType}; `
+        + result.settingsShape.fields.map(item => `${item.field}=${item.type}`
+          + (item.finite !== undefined ? ` (finite=${item.finite}, in-range=${item.inRange})` : "")).join("; ")
+        + `; unknown-root-fields=${result.settingsShape.unknownFieldsPresent}; unknown-media-fields=${result.settingsShape.unknownMediaFieldsPresent}.` : "")
       + " No settings, messages or setup permits were changed. This does not verify actual provider callback delivery."};
   }
   if (form.get("operation") === "preview") return previewCallbackSetup();
