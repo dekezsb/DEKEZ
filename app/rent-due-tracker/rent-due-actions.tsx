@@ -10,7 +10,6 @@ import { DocumentPreview } from "@/components/ui/document-preview";
 import {
   markRentBillPaid,
   rejectRentSubmission,
-  sendRentReminder,
   verifyRentSubmission,
 } from "./actions";
 
@@ -41,7 +40,6 @@ export function RentDueActions({
   outstandingAmount,
   outstandingAmountValue,
   paidDateDefault,
-  reminderMessage,
   receiptUrl,
   latestSubmissionId,
   latestSubmissionStatus,
@@ -115,18 +113,14 @@ export function RentDueActions({
       )}
 
       {reminderOpen ? (
-        <Modal title="Send WhatsApp reminder" onClose={() => setReminderOpen(false)}>
-          <form action={sendRentReminder} className="space-y-4">
-            <input name="billId" type="hidden" value={billId} />
-            <label className="block">
-              <span className="text-sm font-medium text-gray-700">Message preview</span>
-              <textarea className="mt-2 min-h-40 w-full rounded-md border border-[#d7dde5] px-3 py-2 text-sm" name="message" defaultValue={reminderMessage} required />
-            </label>
+        <Modal title="Rental reminder follow-up" onClose={() => setReminderOpen(false)}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700">Rental WhatsApp reminders are managed by the protected reminder system. This screen does not send messages. Review phone verification, genuine consent, STOP requests and payment exceptions in Reminder follow-ups.</p>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setReminderOpen(false)}>Cancel</Button>
-              <Button type="submit">Confirm & Send</Button>
+              <Button type="button" variant="outline" onClick={() => setReminderOpen(false)}>Close</Button>
+              <Button asChild><Link href="/rent-due-tracker/reminder-followups">Review reminder follow-ups</Link></Button>
             </div>
-          </form>
+          </div>
         </Modal>
       ) : null}
 

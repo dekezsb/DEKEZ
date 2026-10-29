@@ -113,7 +113,15 @@ async function main(){
   await provision();await observer.query("update dekez_collections_private.callback_setup set created_at=created_at+interval '5 minutes',expires_at=expires_at+interval '5 minutes'");
   assert.equal((await a.json(check())).state,'expired');
   const script=fs.readFileSync(path.join(repo,'scripts/retire-rental-callback-setup.sql'));
-  run('psql',args(),{env:env(),input:script});
+  const memberships=async()=>observer.json("select coalesce(jsonb_agg(to_jsonb(m) order by m.grantor),'[]'::jsonb) from pg_auth_members m where m.roleid='dekez_collection_executor'::regrole and m.member='fixture_migrator'::regrole");
+  const originalMemberships=await memberships();
+  run('psql',args(),{env:env(),input:Buffer.concat([Buffer.from('set role fixture_migrator;\n'),script])});
+  assert.deepEqual(await memberships(),originalMemberships);
+  for(const signature of ['public.dekez_collection_setup_assert_admin(uuid,uuid)','public.dekez_collection_setup_check(uuid,uuid,uuid)',
+    'public.dekez_collection_setup_claim(uuid,uuid,uuid,text,text,text)','public.dekez_collection_setup_finish(uuid,uuid,uuid,text)',
+    'dekez_collections_private.setup_check(uuid,uuid,uuid)','dekez_collections_private.setup_claim(uuid,uuid,uuid,text,text,text)',
+    'dekez_collections_private.setup_finish(uuid,uuid,uuid,text)'])
+    assert.equal(await observer.json(`select to_json(has_function_privilege('service_role',${q(signature)},'EXECUTE'))`),false,signature);
   evidence.cleanupScript={filename:'scripts/retire-rental-callback-setup.sql',sha256:crypto.createHash('sha256').update(script).digest('hex'),unmodified:true};
   await rejected(check(),/42501|permission denied/);await rejected(claim(),/42501|permission denied/);
   const row=await observer.json('select json_build_object(\'id\',id,\'revoked_before_start\',revoked_at<created_at,\'consumed_at\',consumed_at) from dekez_collections_private.callback_setup');

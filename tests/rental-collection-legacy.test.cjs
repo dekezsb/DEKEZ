@@ -107,3 +107,83 @@ test('scheduled route has no rent/database/provider mutation path and preserves 
     ['/api/management-report', '0 12 * * *'],
   ]) assert.deepEqual(crons.filter(cron => cron.path === route), [{ path: route, schedule }]);
 });
+
+function manualReminderAction(authorize) {
+  return loader({
+    'next/cache': { revalidatePath: forbidden },
+    'next/navigation': { redirect: location => { throw Object.assign(new Error('redirect'), { location }); } },
+    '@/lib/auth/session': { requireRole: authorize },
+    '@/lib/data/organization': { getCurrentUser: forbidden, getProperties: forbidden },
+    '@/lib/data/rent-due': { dayDifference: forbidden, malaysiaDateString: forbidden },
+    '@/lib/payments/payment-folder': {},
+    '@/lib/payments/verification-row': {},
+    '@/lib/tenancy/reservation-policy': {},
+    '@/lib/invoices/deposit-payments': {},
+    '@/lib/payments/payment-purpose': {},
+    '@/lib/supabase/admin': { createAdminClient: forbidden },
+    '@/lib/supabase/server': { createClient: forbidden },
+    '@/lib/ttlock/fingerprint': { extendFingerprintAccessAfterPayment: forbidden },
+    '@/lib/whatsapp/config': { normalizePhoneNumber: forbidden },
+    '@/lib/whatsapp/meta': { sendWhatsAppText: forbidden, sendWhatsAppTemplate: forbidden },
+  })('app/rent-due-tracker/actions.ts').sendRentReminder;
+}
+
+test('retired manual action preserves existing authorization before redirecting', async () => {
+  const calls = [];
+  const action = manualReminderAction(async (...args) => calls.push(args));
+  await assert.rejects(action(new FormData()), error => error.location === '/rent-due-tracker/reminder-followups');
+  assert.deepEqual(calls, [[['super_admin', 'owner', 'admin'], { module: 'rent_due_tracker', level: 'manage' }]]);
+  assert.equal(forbiddenCalls, 0);
+  const denied = manualReminderAction(async () => { throw new Error('Access denied'); });
+  await assert.rejects(denied(new FormData()), /Access denied/);
+  assert.equal(forbiddenCalls, 0);
+});
+
+test('stale and simultaneous manual requests cannot send, mutate records or bypass STOP with flags or payloads', async () => {
+  const action = manualReminderAction(async () => {});
+  const form = new FormData();
+  for (const [key, value] of Object.entries({ billId: 'fixture-bill', message: 'Send this now', phone: '60191111111',
+    consent: 'opted_in', override: 'true', send: 'true', legacy: 'true' })) form.set(key, value);
+  for (const value of [undefined, 'false', 'true', 'TRUE', '1']) {
+    for (const key of ['DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED']) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    const results = await Promise.allSettled(Array.from({ length: 3 }, () => action(form)));
+    assert.ok(results.every(result => result.status === 'rejected'
+      && result.reason.location === '/rent-due-tracker/reminder-followups'));
+  }
+  assert.equal(forbiddenCalls, 0);
+});
+
+test('rental action no longer imports Meta sending or offers a second sender', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app/rent-due-tracker/actions.ts'), 'utf8');
+  assert.doesNotMatch(source, /from ["']@\/lib\/whatsapp\/meta["']/);
+  const body = source.split('export async function sendRentReminder(')[1].split('export async function markRentBillPaid')[0];
+  assert.doesNotMatch(body, /getAdmin\(|getCurrentUser\(|getBillContext\(|sendWhatsApp|\.from\(|\.rpc\(|revalidatePath\(/);
+});
+
+test('existing WhatsApp entry opens follow-up guidance, while cash, upload and payment actions remain', () => {
+  const React = require('react');
+  const { renderToStaticMarkup } = require('react-dom/server');
+  let state = 0;
+  const { RentDueActions } = loader({
+    react: { ...React, useState: () => [state++ === 0, () => {}] },
+    './admin-payment-slip-upload': { AdminPaymentSlipUpload: () => null },
+    '@/components/app-link': { Link: ({ children, ...props }) => React.createElement('a', props, children) },
+    '@/components/ui/button': { Button: ({ asChild, size, variant, children, ...props }) => React.createElement('button', props, children) },
+    '@/components/ui/document-preview': { DocumentPreview: () => null },
+    './actions': { markRentBillPaid: forbidden, rejectRentSubmission: forbidden, sendRentReminder: forbidden, verifyRentSubmission: forbidden },
+  })('app/rent-due-tracker/rent-due-actions.tsx');
+  const html = renderToStaticMarkup(React.createElement(RentDueActions, {
+    billId: 'fixture-bill', tenantName: 'Fixture tenant', propertyName: 'Fixture property', roomName: 'D1',
+    billMonth: '2026-10', amountDue: 'RM500', outstandingAmount: 'RM300', outstandingAmountValue: 300,
+    paidDateDefault: '2026-10-29', reminderMessage: 'Obsolete unsafe reminder', latestSubmissionId: 'fixture-slip',
+    latestSubmissionStatus: 'pending_verification',
+  }));
+  assert.match(html, /Rental reminder follow-up/);
+  assert.match(html, /This screen does not send messages/);
+  assert.match(html, /href="\/rent-due-tracker\/reminder-followups"/);
+  assert.doesNotMatch(html, /Confirm &amp; Send|Obsolete unsafe reminder|<textarea|<form/);
+  for (const label of ['Cash received', 'Rental / Deposit folder', 'View Bill', 'Verify Payment', 'Reject Payment']) assert.ok(html.includes(label));
+  assert.equal(forbiddenCalls, 0);
+});

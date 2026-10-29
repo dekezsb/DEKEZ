@@ -21,7 +21,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { extendFingerprintAccessAfterPayment } from "@/lib/ttlock/fingerprint";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
-import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -400,79 +399,16 @@ function single<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export async function sendRentReminder(formData: FormData) {
+export async function sendRentReminder(_formData: FormData) {
   await requireRole(["super_admin", "owner", "admin"], {
     module: "rent_due_tracker",
     level: "manage",
   });
-  const user = await getCurrentUser();
-  const billId = textValue(formData, "billId");
-  const message = textValue(formData, "message");
-
-  if (!user || !billId || !message) {
-    redirect("/rent-due-tracker?error=reminder_missing");
-  }
-
-  const supabase = await getAdmin();
-  const bill = await getBillContext(supabase, billId);
-  const tenant = bill?.tenant;
-  const phoneNumber = tenant?.phone;
-
-  if (!bill || !phoneNumber) {
-    redirect("/rent-due-tracker?error=tenant_phone");
-  }
-
-  const stage = reminderStage(dayDifference(bill.due_date));
-  const reminderTenantId = tenant.id ?? bill.tenant_id;
-  const { data: existing } = await supabase
-    .from("rent_reminder_logs")
-    .select("id")
-    .eq("bill_id", bill.id)
-    .eq("reminder_stage", stage)
-    .eq("channel", "whatsapp")
-    .maybeSingle();
-
-  if (existing) {
-    redirect("/rent-due-tracker?error=duplicate_reminder");
-  }
-
-  const conversationId = await createOrUpdateConversation(supabase, reminderTenantId, phoneNumber);
-  let providerMessageId: string | null = null;
-  let status: "sent" | "failed" = "sent";
-  let errorMessage: string | null = null;
-
-  try {
-    const sent = await sendWhatsAppText(phoneNumber, message);
-    providerMessageId = sent.messages?.[0]?.id ?? null;
-  } catch (error) {
-    status = "failed";
-    errorMessage = error instanceof Error ? error.message : "WhatsApp send failed";
-  }
-
-  await logWhatsAppMessage(supabase, {
-    conversationId,
-    tenantId: reminderTenantId,
-    phoneNumber,
-    message,
-    providerMessageId,
-    status,
-    errorMessage,
-  });
-
-  await supabase.from("rent_reminder_logs").insert({
-    bill_id: bill.id,
-    tenant_id: reminderTenantId,
-    tenant_record_id: bill.tenant_record_id,
-    reminder_stage: stage,
-    channel: "whatsapp",
-    provider_message_id: providerMessageId,
-    status,
-    error_message: errorMessage,
-    created_by: user.id,
-  });
-
-  revalidatePath("/rent-due-tracker");
-  redirect(status === "sent" ? "/rent-due-tracker?sent=1" : "/rent-due-tracker?error=whatsapp_failed");
+  // Retained for stale forms/server-action references, but permanently no-send.
+  // Rental messages must use the one consent/STOP-aware collection engine and
+  // its atomic daily reservations. No flag or form payload may restore Meta
+  // rental sending or bypass that engine's eligibility checks.
+  redirect("/rent-due-tracker/reminder-followups");
 }
 
 export async function markRentBillPaid(formData: FormData) {

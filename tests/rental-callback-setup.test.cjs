@@ -39,6 +39,7 @@ function environment(change = {}) {
     VERCEL_ENV: 'production', VERCEL_PROJECT_ID: 'prj_YkRkOBkodAdGUErZMYsoIwjqaFiQ',
     VERCEL_URL: 'dekez-synthetic-review.vercel.app', VERCEL_DEPLOYMENT_ID: 'dpl_SyntheticReview12345', DEKEZ_REPORT_COMPANY_ID: COMPANY,
     DEKEZ_COLLECTION_SETUP_ENABLED: 'true', DEKEZ_COLLECTION_SETUP_OPERATION: OPERATION,
+    DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED: 'false',
     DEKEZ_COLLECTION_SEND_ENABLED: 'false', DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED: 'false',
     WHAPI_TOKEN: TOKEN, WHAPI_COLLECTION_WEBHOOK_SECRET: SECRET,
     WHAPI_REPORT_WEBHOOK_SECRET: REPORT_SECRET, CRON_SECRET,
@@ -256,12 +257,20 @@ const ACTOR = '22222222-2222-4222-8222-222222222222';
 const NOW = Date.parse('2026-10-28T10:00:00.000Z');
 function orchestration(options = {}) {
   Object.assign(process.env, environment()); Date.now = () => NOW;
-  const calls = [], rpcs = [], authCalls = [], outcomes = [];
+  const calls = [], rpcs = [], authCalls = [], outcomes = [], permissionReads = [];
   let current = clone(options.settings ?? settings()), consumed = false, reservation;
   const expiry = new Date(NOW + 10 * 60 * 1000).toISOString();
-  const db = { rpc: (name, args) => ({ abortSignal: async signal => {
+  const db = { from: table => {
+    assert.equal(table,'user_module_permissions');
+    const filters=[];const query={select:fields=>{assert.equal(fields,'access_level');return query;},
+      eq:(field,value)=>{filters.push([field,value]);return query;},abortSignal:signal=>{assert.ok(signal instanceof AbortSignal);return query;},
+      maybeSingle:async()=>{assert.deepEqual(filters,[['profile_id',ACTOR],['module_key','admin_setup']]);
+        permissionReads.push(filters);return options.permission ?? {data:null,error:null};}};return query;
+  }, rpc: (name, args) => ({ abortSignal: async signal => {
     assert.ok(signal instanceof AbortSignal); rpcs.push({ name, args });
-    assert.equal(args.p_company, COMPANY); assert.equal(args.p_actor, ACTOR); assert.equal(args.p_operation, OPERATION);
+    assert.equal(args.p_company, COMPANY); assert.equal(args.p_actor, ACTOR);
+    if(name==='dekez_collection_assert_admin'){assert.equal(args.p_operation,undefined);return options.companyAuthorization ?? {data:null,error:null};}
+    assert.equal(args.p_operation, OPERATION);
     const action = name.replace('dekez_collection_setup_', '');
     if (options.rpc) {
       const result = await options.rpc(action, args, { consumed });
@@ -309,7 +318,7 @@ function orchestration(options = {}) {
     if (options.afterPatch) current = options.afterPatch(clone(current));
     return Response.json(result);
   };
-  return { mod, calls, rpcs, outcomes, authCalls, get current() { return current; },
+  return { mod, calls, rpcs, outcomes, authCalls, permissionReads, get current() { return current; },
     setSettings(value) { current = clone(value); }, get consumed() { return consumed; } };
 }
 const patches = harness => harness.calls.filter(call => call.method === 'PATCH');
@@ -542,7 +551,8 @@ function actionHarness(requestHeaders) {
   const { callbackSetupAction } = makeLoader({
     'next/headers': { headers: async () => new Headers(requestHeaders) },
     '@/lib/rental-collection/callback-setup': { previewCallbackSetup: invoke('preview'),
-      executeCallbackSetup: invoke('execute'), inspectCallbackSetup: invoke('verify') },
+      executeCallbackSetup: invoke('execute'), inspectCallbackSetup: invoke('verify'),
+      diagnoseCallbackSetup: async()=>{calls.push({name:'diagnose',args:[]});return {state:'blocked',stage:'settings_validation',code:'required_boolean',field:'outgoing_calls_enabled'};} },
   })('app/admin-setup/rental-reminders/callback-setup/actions.ts');
   return { callbackSetupAction, calls };
 }
@@ -562,7 +572,7 @@ test('server actions reject missing or cross-site origins before reaching setup 
     { origin: 'http://dekez.vercel.app', 'sec-fetch-site': 'same-origin' },
   ]) {
     const h = actionHarness(headers);
-    for (const operation of ['preview', 'verify', 'execute']) {
+    for (const operation of ['preview', 'verify', 'execute', 'diagnose']) {
       assert.equal((await h.callbackSetupAction(PREVIOUS, form(operation, { ticket: 'synthetic', confirmed: 'yes' }))).state, 'denied');
     }
     assert.equal(h.calls.length, 0);
@@ -583,13 +593,13 @@ test('canonical same-origin actions keep preview, execution and read-only inspec
   assert.equal(h.calls.length, count);
 });
 
-function renderControl(state, pending = false) {
+function renderControl(state, pending = false, controls = {setupEnabled:true, diagnosticsEnabled:false}) {
   const React = require('react'), { renderToStaticMarkup } = require('react-dom/server');
   const { CallbackSetupControl } = makeLoader({
     react: { ...React, useActionState: () => [state, () => {}, pending], useId: () => 'synthetic-confirmation' },
     './actions': { callbackSetupAction: async () => {} },
   })('app/admin-setup/rental-reminders/callback-setup/setup-control.tsx');
-  return renderToStaticMarkup(React.createElement(CallbackSetupControl));
+  return renderToStaticMarkup(React.createElement(CallbackSetupControl,controls));
 }
 
 test('setup UI initially exposes only preview and read-only recovery, never a credential input', () => {
@@ -620,9 +630,170 @@ test('setup page is absent for unauthorized users or a disabled installation', a
     const page = makeLoader({
       'next/navigation': { notFound: () => { throw Error('NOT_FOUND'); } },
       '@/lib/management-report/authorization': { reportAdministrator: async () => actor },
-      '@/lib/rental-collection/callback-setup': { setupConfig: () => enabled ? {} : null },
+      '@/lib/rental-collection/callback-setup': { setupConfig: () => enabled ? {} : null, callbackDiagnosticsEnabled:()=>false },
       './setup-control': { CallbackSetupControl: () => null },
     })('app/admin-setup/rental-reminders/callback-setup/page.tsx');
     await assert.rejects(page.default(), /NOT_FOUND/);
   }
+});
+
+function diagnosticHarness(options={}) {
+  const h=orchestration(options);
+  process.env.DEKEZ_COLLECTION_SETUP_ENABLED='false';
+  process.env.DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED='true';
+  delete process.env.DEKEZ_COLLECTION_SETUP_OPERATION;
+  return h;
+}
+test('read-only diagnostic is disabled by default and requires fresh Super Admin before configuration disclosure',async()=>{
+  const h=orchestration();
+  assert.deepEqual(await h.mod.diagnoseCallbackSetup(),{state:'blocked',stage:'configuration',code:'diagnostics_disabled'});
+  assert.equal(h.calls.length,0);assert.equal(h.rpcs.length,0);
+  const denied=diagnosticHarness({admin:()=>null});
+  assert.deepEqual(await denied.mod.diagnoseCallbackSetup(),{state:'blocked',stage:'authorization',code:'administrator_required'});
+  assert.equal(denied.calls.length,0);assert.equal(denied.rpcs.length,0);
+});
+test('retired installer diagnosis uses GET only and existing read-only authorization, never setup grants or a permit',async()=>{
+  const h=diagnosticHarness(),before=ENV_KEYS.map(key=>process.env[key]);
+  assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'compatible',stage:'complete',code:'read_only_checks_passed',callbackPresent:false});
+  assert.deepEqual(h.calls.map(call=>call.method),['GET','GET']);
+  assert.deepEqual(h.rpcs.map(call=>call.name),['dekez_collection_assert_admin','dekez_collection_assert_admin']);
+  assert.equal(h.permissionReads.length,2);assert.equal(h.consumed,false);assert.deepEqual(h.outcomes,[]);
+  assert.deepEqual(ENV_KEYS.map(key=>process.env[key]),before);
+});
+test('diagnostic cannot enable setup or ignore disabled-send, deployment and company requirements',async()=>{
+  for(const [changes,code] of [
+    [{DEKEZ_COLLECTION_SETUP_ENABLED:'true'},'installer_not_disabled'],
+    [{VERCEL_ENV:'preview'},'production_project'],[{VERCEL_PROJECT_ID:'other'},'production_project'],
+    [{DEKEZ_REPORT_COMPANY_ID:OPERATION},'company_scope'],[{VERCEL_DEPLOYMENT_ID:''},'deployment_identity'],
+    [{DEKEZ_COLLECTION_SEND_ENABLED:'true'},'sending_not_disabled'],
+    [{DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED:'true'},'sending_not_disabled'],
+    [{WHAPI_TOKEN:''},'provider_credential'],[{WHAPI_REPORT_WEBHOOK_SECRET:''},'report_credential'],
+    [{CRON_SECRET:''},'cron_credential'],[{WHAPI_COLLECTION_WEBHOOK_SECRET:TOKEN},'dedicated_callback_credential'],
+  ]){
+    const h=diagnosticHarness();Object.assign(process.env,changes);
+    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'configuration',code});
+    assert.equal(h.calls.length,0);assert.equal(h.rpcs.length,0);
+  }
+});
+test('diagnostic fresh company and explicit module authorization failures cannot read provider settings',async()=>{
+  for(const [options,code] of [[{companyAuthorization:{error:{message:TOKEN}}},'company_authorization'],
+    [{permission:{data:{access_level:'view'},error:null}},'module_authorization'],
+    [{permission:{data:null,error:{message:SECRET}}},'module_authorization']]){
+    const h=diagnosticHarness(options);
+    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'authorization',code});
+    assert.equal(h.calls.length,0);assert.equal(claims(h).length,0);
+  }
+});
+test('diagnostic distinguishes health channel, session and sender validation without exposing actual identities',async()=>{
+  const healthy={channel_id:'FALCON-D9NS9',status:{text:'AUTH'},user:{id:'60168173911'}};
+  for(const [change,code] of [[{channel_id:SECRET},'channel_identity'],[{status:{text:'QR'}},'channel_not_authenticated'],
+    [{user:{id:TOKEN}},'sender_identity']]){
+    const h=diagnosticHarness({fetch:async()=>Response.json({...healthy,...change})});
+    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'health_validation',code});
+    assert.equal(h.calls.length,1);assert.equal(patches(h).length,0);
+  }
+});
+test('diagnostic identifies missing preservation fields without accepting sparse settings',async()=>{
+  for(const [field,code] of [['outgoing_calls_enabled','required_boolean'],['callback_persist','required_boolean'],
+    ['callback_backoff_delay_ms','required_bounded_number'],['data_mode','required_enum'],
+    ['ignored_presences','required_string_array'],['media','required_object'],['webhooks','required_bounded_array']]){
+    const current=settings();delete current[field];const h=diagnosticHarness({settings:current});
+    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'settings_validation',code,field});
+    assert.equal(patches(h).length,0);assert.equal(claims(h).length,0);
+  }
+});
+test('diagnostic never reflects unknown keys, masked values, arbitrary URLs or header content',async()=>{
+  for(const [mutate,code] of [
+    [s=>{s[SECRET]=TOKEN;},'unknown_setting'],
+    [s=>{s.proxy='********';},'optional_string_unavailable'],
+    [s=>{s.webhooks[0].url='https://'+SECRET+'.invalid/?credential='+TOKEN;},'webhook_url'],
+    [s=>{s.webhooks[0].headers.Authorization='Bearer ********';},'webhook_headers'],
+  ]){
+    const current=settings();mutate(current);const h=diagnosticHarness({settings:current});
+    const result=safeOutput(await h.mod.diagnoseCallbackSetup());assert.equal(result.stage,'settings_validation');assert.equal(result.code,code);
+    assert.equal(patches(h).length,0);
+  }
+});
+test('diagnostic distinguishes existing report callback authentication from schema validation',async()=>{
+  for(const [mutate,code] of [
+    [s=>{s.webhooks=[];},'report_callback_count'],[s=>{s.webhooks[0].mode='path';},'report_callback_mode'],
+    [s=>{s.webhooks[0].headers.Authorization='Bearer wrong';},'report_callback_authentication'],
+    [s=>{s.webhooks[0].events=[];},'report_callback_events'],
+  ]){
+    const current=settings();mutate(current);const h=diagnosticHarness({settings:current});
+    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code});
+    assert.equal(patches(h).length,0);
+  }
+});
+test('diagnostic describes installed/conflicting callback without repairing it or consuming authorization',async()=>{
+  const mod=moduleUnderTest(),installed=mod.planCallbackSetup(settings(),config(mod)).after;
+  const ready=diagnosticHarness({settings:installed});
+  assert.equal(safeOutput(await ready.mod.diagnoseCallbackSetup()).callbackPresent,true);assert.equal(patches(ready).length,0);
+  installed.webhooks[1].headers.Authorization='Bearer wrong';
+  const h=diagnosticHarness({settings:installed});
+  assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'callback_preservation',code:'rental_callback_conflict'});
+  assert.equal(h.consumed,false);assert.equal(patches(h).length,0);
+});
+test('diagnostic reports safe HTTP, JSON and transport failure categories, never response body or error text',async()=>{
+  for(const [response,expected] of [
+    [()=>new Response(TOKEN+SECRET,{status:401}),{code:'provider_http',httpStatus:401}],
+    [()=>new Response(TOKEN+SECRET),{code:'provider_json'}],
+    [()=>{throw Error(TOKEN+SECRET);},{code:'request_failed'}],
+  ]){
+    const h=diagnosticHarness({fetch:async()=>response()});
+    assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'health_request',...expected});
+    assert.equal(patches(h).length,0);
+  }
+});
+test('diagnostic rechecks administrator after provider reads and never reports success after revocation',async()=>{
+  const h=diagnosticHarness({admin:call=>call===1?ACTOR:null});
+  assert.deepEqual(safeOutput(await h.mod.diagnoseCallbackSetup()),{state:'blocked',stage:'authorization',code:'administrator_required'});
+  assert.equal(patches(h).length,0);assert.equal(h.consumed,false);
+});
+
+test('same-origin diagnostic action ignores form credentials/permit data and calls only the read-only export',async()=>{
+  const h=actionHarness({origin:'https://dekez.vercel.app','sec-fetch-site':'same-origin'});
+  const result=safeOutput(await h.callbackSetupAction(PREVIOUS,form('diagnose',{ticket:TOKEN,confirmed:'yes',recipient:SECRET})));
+  assert.equal(result.state,'diagnostic');assert.match(result.message,/settings_validation \/ required_boolean/);
+  assert.match(result.message,/Field: outgoing_calls_enabled/);assert.match(result.message,/No settings, messages or setup permits were changed/);
+  assert.deepEqual(h.calls,[{name:'diagnose',args:[]}]);
+});
+test('diagnostic action cannot bypass fresh Admin authorization even from the canonical page',async()=>{
+  const h=diagnosticHarness({admin:()=>null});
+  const action=makeLoader({
+    'next/headers':{headers:async()=>new Headers({origin:'https://dekez.vercel.app','sec-fetch-site':'same-origin'})},
+    '@/lib/rental-collection/callback-setup':h.mod,
+  })('app/admin-setup/rental-reminders/callback-setup/actions.ts');
+  const result=safeOutput(await action.callbackSetupAction(PREVIOUS,form('diagnose')));
+  assert.match(result.message,/administrator_required/);assert.equal(h.rpcs.length,0);assert.equal(h.calls.length,0);
+});
+test('read-only diagnostic UI never exposes setup/inspection/execution or credential controls, including stale preview state',()=>{
+  for(const state of [PREVIOUS,{state:'preview',message:'stale',ticket:'synthetic-old-ticket'}]){
+    const html=renderControl(state,false,{setupEnabled:false,diagnosticsEnabled:true});
+    assert.match(html,/Run read-only callback checks/);assert.match(html,/value="diagnose"/);
+    assert.doesNotMatch(html,/value="preview"|value="verify"|value="execute"|name="ticket"|name="confirmed"|type="password"/);
+    assert.match(html,/installer stays disabled/);assert.match(html,/separate approval/);safeOutput(html);
+  }
+  assert.match(renderControl(PREVIOUS,true,{setupEnabled:false,diagnosticsEnabled:true}),/button disabled=""/);
+});
+test('existing Admin page exposes diagnostic-only view only with fresh Super Admin and separate diagnostic flag',async()=>{
+  const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
+  for(const [actor,diagnostic] of [[null,true],[ACTOR,false],[ACTOR,true]]){
+    const page=makeLoader({
+      'next/navigation':{notFound:()=>{throw Error('NOT_FOUND');}},
+      '@/lib/management-report/authorization':{reportAdministrator:async()=>actor},
+      '@/lib/rental-collection/callback-setup':{setupConfig:()=>null,callbackDiagnosticsEnabled:()=>diagnostic},
+      './setup-control':{CallbackSetupControl:props=>React.createElement('div',{'data-setup':props.setupEnabled,'data-diagnostic':props.diagnosticsEnabled})},
+    })('app/admin-setup/rental-reminders/callback-setup/page.tsx');
+    if(!actor||!diagnostic){await assert.rejects(page.default(),/NOT_FOUND/);continue;}
+    const html=renderToStaticMarkup(await page.default());
+    assert.match(html,/Rental callback diagnostics/);assert.match(html,/Read-only checks/);
+    assert.match(html,/data-setup="false"/);assert.match(html,/data-diagnostic="true"/);
+  }
+});
+test('diagnostic page availability never re-enables an active installer or defaults to enabled',()=>{
+  const h=orchestration();assert.equal(h.mod.callbackDiagnosticsEnabled(),false);
+  process.env.DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED='true';assert.equal(h.mod.callbackDiagnosticsEnabled(),false);
+  process.env.DEKEZ_COLLECTION_SETUP_ENABLED='false';assert.equal(h.mod.callbackDiagnosticsEnabled(),true);
+  delete process.env.DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED;assert.equal(h.mod.callbackDiagnosticsEnabled(),false);
 });

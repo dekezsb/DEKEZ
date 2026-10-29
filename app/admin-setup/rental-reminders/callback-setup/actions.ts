@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { executeCallbackSetup, inspectCallbackSetup, previewCallbackSetup, type SetupResult } from "@/lib/rental-collection/callback-setup";
+import { diagnoseCallbackSetup, executeCallbackSetup, inspectCallbackSetup, previewCallbackSetup, type SetupResult } from "@/lib/rental-collection/callback-setup";
 
 export async function callbackSetupAction(_previous: SetupResult, form: FormData): Promise<SetupResult> {
   // Next's Server Action origin protection remains enabled; additionally accept
@@ -10,6 +10,16 @@ export async function callbackSetupAction(_previous: SetupResult, form: FormData
   if (requestHeaders.get("origin") !== "https://dekez.vercel.app"
     || requestHeaders.get("sec-fetch-site") !== "same-origin") {
     return {state: "denied", message: "Open this control from the production Admin Portal."};
+  }
+  if (form.get("operation") === "diagnose") {
+    const result = await diagnoseCallbackSetup();
+    // Diagnostic output consists exclusively of fixed codes, allowlisted field
+    // names and a numeric status. Never render raw provider errors/settings.
+    return {state: "diagnostic", message: `Read-only check: ${result.stage} / ${result.code}`
+      + (result.field ? ` · Field: ${result.field}` : "")
+      + (result.httpStatus !== undefined ? ` · HTTP ${result.httpStatus}` : "")
+      + (result.callbackPresent !== undefined ? ` · Rental callback ${result.callbackPresent ? "present" : "not present"}.` : ".")
+      + " No settings, messages or setup permits were changed. This does not verify actual provider callback delivery."};
   }
   if (form.get("operation") === "preview") return previewCallbackSetup();
   if (form.get("operation") === "verify") return inspectCallbackSetup();

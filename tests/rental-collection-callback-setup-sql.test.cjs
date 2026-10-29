@@ -122,11 +122,18 @@ test('actual retirement script revokes a future-dated permit and setup grants wi
  await provision();
  await db.exec("update dekez_collections_private.callback_setup set created_at=created_at+interval '5 minutes',expires_at=expires_at+interval '5 minutes'");
  assert.equal((await check()).state,'expired');
- await db.exec(fs.readFileSync('scripts/retire-rental-callback-setup.sql','utf8'));
+ const memberships=async()=>(await db.query("select coalesce(jsonb_agg(to_jsonb(m) order by m.grantor),'[]'::jsonb) rows from pg_auth_members m where m.roleid='dekez_collection_executor'::regrole and m.member='fixture_migrator'::regrole")).rows[0].rows;
+ const originalMemberships=await memberships();
+ await db.exec('set role fixture_migrator');
+ try {await db.exec(fs.readFileSync('scripts/retire-rental-callback-setup.sql','utf8'));}
+ finally {await db.exec('reset role');}
+ assert.deepEqual(await memberships(),originalMemberships,'Temporary SET privilege must be restored exactly');
  const row=(await db.query('select id,revoked_at<created_at revoked_before_start,consumed_at from dekez_collections_private.callback_setup')).rows[0];
  assert.deepEqual(row,{id:id(200),revoked_before_start:true,consumed_at:null});
- for(const signature of ['public.dekez_collection_setup_check(uuid,uuid,uuid)','public.dekez_collection_setup_claim(uuid,uuid,uuid,text,text,text)',
-  'dekez_collections_private.setup_check(uuid,uuid,uuid)','dekez_collections_private.setup_claim(uuid,uuid,uuid,text,text,text)'])
+ for(const signature of ['public.dekez_collection_setup_assert_admin(uuid,uuid)','public.dekez_collection_setup_check(uuid,uuid,uuid)',
+  'public.dekez_collection_setup_claim(uuid,uuid,uuid,text,text,text)','public.dekez_collection_setup_finish(uuid,uuid,uuid,text)',
+  'dekez_collections_private.setup_check(uuid,uuid,uuid)','dekez_collections_private.setup_claim(uuid,uuid,uuid,text,text,text)',
+  'dekez_collections_private.setup_finish(uuid,uuid,uuid,text)'])
   assert.equal((await db.query("select has_function_privilege('service_role',$1,'EXECUTE') ok",[signature])).rows[0].ok,false);
  await assert.rejects(check(),/permission denied/);
  assert.equal((await db.query("select has_function_privilege('service_role','public.dekez_collection_assert_admin(uuid,uuid)','EXECUTE') ok")).rows[0].ok,true);
