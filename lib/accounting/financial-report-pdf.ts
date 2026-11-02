@@ -33,17 +33,20 @@ export async function financialReportPdf(report: FinancialReportExport, generate
     }
     return lines;
   };
-  const width = 595.28, height = 841.89, margin = 40, bottom = 62, body = 515;
+  const landscape = report.orientation === "landscape";
+  const width = landscape ? 841.89 : 595.28, height = landscape ? 595.28 : 841.89;
+  const margin = landscape ? 30 : 40, bottom = 62, body = landscape ? 782 : 515;
   let page: PDFPage, y = 0;
   const draft = report.warnings.length > 0;
-  const draw = (text: string, x: number, baseline: number, size = 9, strong = false) => {
+  const draw = (text: string, x: number, baseline: number, size = 9, strong = false, profit = false) => {
     const value = clean(text);
     if (/[^\x20-\x7e]/.test(value) && unicodeCharacters) {
       for (const character of value) {
         if (!unicodeCharacters.has(character.codePointAt(0)!)) throw new Error(`The report font does not support "${character}". Please review this character before exporting.`);
       }
     }
-    page.drawText(value, { x, y: baseline, size, font: fontFor(value, strong), color: rgb(.08, .08, .08) });
+    const color = profit && /RM -/.test(value) ? rgb(.7, .1, .1) : profit && value !== "RM 0.00" ? rgb(.1, .4, .25) : rgb(.08, .08, .08);
+    page.drawText(value, { x, y: baseline, size, font: fontFor(value, strong), color });
   };
   const rule = () => page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: .5, color: rgb(.6, .6, .6) });
   function newPage() {
@@ -51,6 +54,7 @@ export async function financialReportPdf(report: FinancialReportExport, generate
     if (pdf.getPageCount() > 1) {
       draw(report.company.name, margin, y, 10, true); y -= 17;
       draw(`${report.title}${draft ? " - DRAFT / REVIEW REQUIRED" : ""}`, margin, y, 9); y -= 14;
+      if (landscape) { draw(report.period, margin, y, 9); y -= 14; }
       rule(); y -= 17;
     }
   }
@@ -71,7 +75,7 @@ export async function financialReportPdf(report: FinancialReportExport, generate
     let x = margin;
     lines.forEach((column, i) => {
       const cellWidth = section ? body : report.widths[i];
-      column.forEach((line, j) => draw(line, !section && i >= 2 ? x + cellWidth - 6 - measure(line, 9, strong) : x + 6, y - 15 - j * 13, 9, strong));
+      column.forEach((line, j) => draw(line, !section && i >= (report.numericFrom ?? 2) ? x + cellWidth - 6 - measure(line, 9, strong) : x + 6, y - 15 - j * 13, 9, strong, !header && !section && i === report.profitColumn));
       x += cellWidth;
     });
     y -= h;

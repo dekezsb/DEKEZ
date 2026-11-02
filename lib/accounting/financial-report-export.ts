@@ -1,6 +1,6 @@
 import type { ProfitLossReport, ProfitLossRow } from "./report-data";
 import { profitLossGroups } from "./profit-loss-groups";
-import { outletProfit } from "./outlet-profit";
+import { outletComparison, outletComparisonColumns, comparisonAmounts } from "./outlet-comparison";
 
 // Presentation snapshots only. No database client, posting, or alternative
 // accounting calculation belongs in this module.
@@ -12,6 +12,9 @@ export type FinancialReportExport = {
   period: string;
   scope: string;
   filename: string;
+  orientation?: "landscape";
+  numericFrom?: number;
+  profitColumn?: number;
   columns: string[];
   widths: number[];
   rows: ReportPrintRow[];
@@ -85,23 +88,20 @@ export function outletProfitExport(input: {
   company: ReportCompany; report: ProfitLossReport; outlets: { id: string; name: string }[];
   startDate: string; endDate: string;
 }): FinancialReportExport {
-  const groups = profitLossGroups(input.report);
+  const comparison = outletComparison(input.report, input.outlets);
   return {
-    company: input.company, title: "OUTLET / PROPERTY PROFIT & LOSS",
+    company: input.company, title: "ALL OUTLETS PROFIT & LOSS COMPARISON",
     period: `For the period ${reportDate(input.startDate)} to ${reportDate(input.endDate)}`,
-    scope: "All outlets / properties; Office / unallocated shown separately",
+    scope: "All outlets / properties; Office / Unallocated shown separately",
     filename: `DEKEZ_Outlet_PnL_${input.startDate}_to_${input.endDate}.pdf`,
-    columns: ["", "Report line", "Amount (RM)"], widths: [15, 365, 135],
-    rows: [...outletProfit(input.report, input.outlets).flatMap((row) => [
-      { ...section(row.name), keepWithNext: 5 }, { cells: ["", "Revenue", reportMoney(row.income)] },
-      { cells: ["", "Utilities", reportMoney(row.utilities)] }, { cells: ["", "Operating Expenses", reportMoney(row.operating)] },
-      amountRow("Total Expenses", row.totalExpenses), amountRow("Net Profit / (Loss)", row.profit, "final"),
-    ]), section("ALL OUTLETS / COMPANY TOTAL"), amountRow("Revenue", input.report.totalRevenue),
-    amountRow("Total Utilities", groups.totalUtilities), amountRow("Total Operating Expenses", groups.totalOperating),
-    amountRow("Total Expenses", groups.totalExpenses), amountRow("Net Profit / (Loss)", input.report.netProfit, "final")],
-    notes: ["Accrual basis. The same property assignments and figures as the on-screen comparison.",
-      "Office / unallocated costs are not distributed to properties. Refundable tenant deposits are excluded from income."],
-    warnings: [],
+    orientation: "landscape", numericFrom: 1, profitColumn: 8,
+    columns: outletComparisonColumns,
+    widths: [150, 76, 76, 72, 68, 92, 82, 82, 84],
+    rows: [...comparison.rows.map(row => ({cells: [row.name, ...comparisonAmounts(row).map(reportMoney)]})),
+      {kind: "final", cells: ["TOTAL", ...comparisonAmounts(comparison.totals).map(reportMoney)]}],
+    notes: ["Accrual basis. Same selected period, property assignments and amounts as the screen.",
+      "Office / Unallocated costs remain separate. Refundable tenant deposits are excluded from income."],
+    warnings: comparison.warnings,
   };
 }
 
