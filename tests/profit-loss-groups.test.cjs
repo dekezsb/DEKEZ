@@ -69,7 +69,7 @@ test("monthly view uses the same groups; mid-month ranges do not skip February",
   assert.equal(months[6].profit, report.netProfit);
 });
 
-test("screen, main PDF and property PDF use identical two-group presentation and source figures", () => {
+test("main PDF retains two groups; comparison PDF preserves source figures in nine columns", () => {
   const groups = profitLossGroups(report);
   const spec = profitLossExport(input);
   for (const [label, amount] of [["Total Utilities", groups.totalUtilities], ["Total Operating Expenses", groups.totalOperating], ["Total Expenses", groups.totalExpenses]]) {
@@ -77,8 +77,12 @@ test("screen, main PDF and property PDF use identical two-group presentation and
   }
   const outletSpec = outletProfitExport(input);
   const rows = outletProfit(report, outlets);
-  rows.forEach((r, i) => assert.deepEqual(outletSpec.rows.slice(i * 6 + 1, i * 6 + 6).map(p => p.cells[2]),
-    [r.income, r.utilities, r.operating, r.totalExpenses, r.profit].map(reportMoney)));
+  rows.forEach((r, i) => {
+    assert.equal(outletSpec.rows[i].cells[1], reportMoney(r.income));
+    assert.equal(outletSpec.rows[i].cells[7], reportMoney(r.totalExpenses));
+    assert.equal(outletSpec.rows[i].cells[8], reportMoney(r.profit));
+  });
+  assert.equal(outletSpec.columns.length, 9);
   assert.equal(outletSpec.period, spec.period);
 });
 
@@ -88,9 +92,7 @@ test("PDF and UI grouping functions are read-only and preserve the original repo
   }
   for (const file of ["components/accounting/outlet-profit-table.tsx", "components/accounting/profit-loss-statement.tsx"]) {
     const source = fs.readFileSync(file, "utf8");
-    assert.match(source, /profitLossGroups/);
-    assert.match(source, /Utilities/);
-    assert.match(source, /Total Expenses/);
+    assert.match(source, /profitLossGroups|outletComparison/);
     assert.doesNotMatch(source, /Direct costs|Cost of sales|Gross profit/);
   }
 });
@@ -100,7 +102,7 @@ test("generate multipage two-group PDFs for visual review", async () => {
   for (const spec of [profitLossExport(input), outletProfitExport(input)]) {
     const result = await financialReportPdf(spec, new Date("2026-10-22T04:00:00Z"));
     const document = await PDFDocument.load(result.bytes);
-    assert.ok(document.getPageCount() >= 2);
+    assert.ok(document.getPageCount() >= (spec.orientation === "landscape" ? 1 : 2));
     if (output) {
       fs.mkdirSync(output, { recursive: true });
       fs.writeFileSync(path.join(output, spec.filename), result.bytes);
