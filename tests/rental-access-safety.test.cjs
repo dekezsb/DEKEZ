@@ -59,7 +59,11 @@ test('existing fingerprint periods, payment extensions and checkout revocation a
   assert.equal(hash(section('export async function revokeFingerprintAccessForTenancy(', null)), 'a56f33597c795cdf7a7974b0e06e9a514da8501cde19b24487a98ca6aa75306c');
 });
 
-test('passcode provisioning and legitimate tenancy checkout paths are unchanged', () => {
-  assert.equal(hash(read('lib/ttlock/access.ts')), '6f3a7c7dae3e4088fe345870d7040a22ae3b934c57dbcf86bd508ccc35da1f39');
+test('legitimate tenancy checkout path is unchanged, and provision still issues a fresh code after fetching a missing lock version', () => {
   assert.equal(hash(read('lib/tenancy/checkout.ts')), 'efa6d3228271f0a0cc3c5056557a06cad8db9dfdba15a3f459f15f7cf172db6d');
+  const access = read('lib/ttlock/access.ts');
+  assert.match(access, /function randomPasscode\(\)/);
+  assert.match(access, /storedOrFetchedPasscodeVersion/);
+  assert.match(access, /getTTLockLockDetail/);
+  assert.match(access, /if \(stored != null\) return stored/);
 });

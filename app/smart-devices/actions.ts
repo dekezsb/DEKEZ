@@ -6,7 +6,8 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
-import { getTTLockConfigStatus, listTTLockDevices, listTTLockElectricMeters } from "@/lib/ttlock/client";
+import { getTTLockConfigStatus, getTTLockLockDetail, listTTLockDevices, listTTLockElectricMeters } from "@/lib/ttlock/client";
+import { fillMissingLockVersions } from "@/lib/ttlock/lock-version";
 import {
   AUTO_ALIAS_SOURCE,
   MANUAL_ASSIGNMENT_SOURCE,
@@ -39,7 +40,7 @@ function lockPayload(live: {
   groupName?: string | null;
   keyboardPwdVersion?: number | null;
   specialValue?: number | null;
-}, onboardingKey: string) {
+}, onboardingKey: string, existingProviderData?: Record<string, unknown> | null) {
   const now = new Date().toISOString();
   return {
     provider_lock_id: live.lockId,
@@ -53,8 +54,11 @@ function lockPayload(live: {
     last_synced_at: now,
     snapshot_captured_at: now,
     provider_data: {
-      keyboardPasswordVersion: live.keyboardPwdVersion ?? null,
-      specialValue: live.specialValue ?? null,
+      keyboardPasswordVersion:
+        live.keyboardPwdVersion
+        ?? existingProviderData?.keyboardPasswordVersion
+        ?? null,
+      specialValue: live.specialValue ?? existingProviderData?.specialValue ?? null,
       source: "ttlock_account_inventory",
       liveData: true,
     },
@@ -122,12 +126,12 @@ export async function syncTTLockDevices() {
       { data: companies, error: companyError },
       { data: properties, error: propertyError },
       { data: rooms, error: roomError },
-      liveDevices,
+      listedDevices,
       liveMeters,
     ] = await Promise.all([
       admin
         .from("smart_lock_devices")
-        .select("id,company_id,onboarding_key,provider_lock_id,provider_lock_name,sync_status,property_id,room_id,access_scope")
+        .select("id,company_id,onboarding_key,provider_lock_id,provider_lock_name,sync_status,property_id,room_id,access_scope,provider_data")
         .eq("provider", "ttlock"),
       admin
         .from("smart_meters")
@@ -154,6 +158,10 @@ export async function syncTTLockDevices() {
     if (propertyError) throw propertyError;
     if (roomError) throw roomError;
 
+    const liveDevices = await fillMissingLockVersions(
+      listedDevices,
+      getTTLockLockDetail,
+    );
     const assignmentProperties = properties ?? [];
     const assignmentRooms = rooms ?? [];
     const lockPlan = planTTLockLockSync({
@@ -168,7 +176,11 @@ export async function syncTTLockDevices() {
     for (const update of lockPlan.updates) {
       const { error } = await admin
         .from("smart_lock_devices")
-        .update(lockPayload(update.live, update.existing.onboarding_key))
+        .update(lockPayload(
+          update.live,
+          update.existing.onboarding_key,
+          update.existing.provider_data,
+        ))
         .eq("id", update.existing.id);
       if (error) throw error;
       matched += 1;
@@ -227,6 +239,8 @@ export async function syncTTLockDevices() {
             hasGateway: insert.has_gateway === null ? undefined : insert.has_gateway ? 1 : 0,
             groupId: insert.provider_group_id ?? undefined,
             groupName: insert.provider_group_name ?? undefined,
+            keyboardPwdVersion: insert.keyboardPwdVersion ?? undefined,
+            specialValue: insert.specialValue ?? undefined,
           },
           insert.onboarding_key,
         ),

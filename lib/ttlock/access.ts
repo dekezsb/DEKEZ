@@ -6,7 +6,12 @@ import {
   addTTLockPasscode,
   changeTTLockPasscode,
   deleteTTLockPasscode,
+  getTTLockLockDetail,
 } from "@/lib/ttlock/client";
+import {
+  applyLockDetailToProviderData,
+  readKeyboardPwdVersion,
+} from "@/lib/ttlock/lock-version";
 
 type Relation<T> = T | T[] | null;
 
@@ -147,6 +152,32 @@ async function currentGrant(deviceId: string, tenancyId: string) {
   return (data ?? null) as ExistingGrant | null;
 }
 
+
+async function storedOrFetchedPasscodeVersion(device: SmartLockRow): Promise<number> {
+  const stored = readKeyboardPwdVersion(device.provider_data);
+  if (stored != null) return stored;
+
+  const lockId = Number(device.provider_lock_id);
+  if (!Number.isSafeInteger(lockId) || lockId <= 0) return 0;
+
+  const detail = await getTTLockLockDetail(lockId);
+  const provider_data = applyLockDetailToProviderData(device.provider_data, detail);
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { provider_data, updated_at: now };
+  if (detail.hasGateway === 0 || detail.hasGateway === 1) {
+    patch.has_gateway = detail.hasGateway === 1;
+    device.has_gateway = detail.hasGateway === 1;
+  }
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("smart_lock_devices")
+    .update(patch)
+    .eq("id", device.id);
+  if (error) throw error;
+  device.provider_data = provider_data;
+  return readKeyboardPwdVersion(detail) ?? 0;
+}
+
 async function provisionDevice(input: {
   device: SmartLockRow;
   tenancy: TenancyAccessRow;
@@ -157,13 +188,11 @@ async function provisionDevice(input: {
 }) {
   const admin = createAdminClient();
   const lockId = Number(input.device.provider_lock_id);
-  const keyboardPasswordVersion = Number(
-    input.device.provider_data?.keyboardPasswordVersion ?? 0,
-  );
 
   if (!Number.isSafeInteger(lockId) || lockId <= 0) {
     throw new Error(`${input.device.provider_lock_name} has no live TTLock ID.`);
   }
+  const keyboardPasswordVersion = await storedOrFetchedPasscodeVersion(input.device);
   if (!input.device.has_gateway) {
     throw new Error(`${input.device.provider_lock_name} has no connected gateway.`);
   }
