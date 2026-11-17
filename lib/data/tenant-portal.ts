@@ -7,6 +7,12 @@ import {
   verifiedDepositPaid,
 } from "@/lib/invoices/deposit-payments";
 import { tenantInvoiceVisibilityCutoffDate } from "@/lib/billing/tenant-invoice-visibility";
+import {
+  attachPrepaidElectricityTopUps,
+  invoiceTotalsWithPrepaidTopUps,
+  type InvoiceChargeLine,
+  type VerifiedElectricityTopUp,
+} from "@/lib/billing/electricity-top-up-bill-lines";
 
 type Relation<T> = T | T[] | null;
 
@@ -135,7 +141,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("smart_meter_top_up_requests")
         .select(
-          "id, tenancy_id, room_id, meter_id, amount, status, rejection_reason, provider_reference, verified_at, credited_at, created_at",
+          "id, tenancy_id, rent_bill_id, bill_month, room_id, meter_id, amount, status, rejection_reason, provider_reference, verified_at, credited_at, created_at",
         )
         .eq("tenant_profile_id", user.id)
         .order("created_at", { ascending: false }),
@@ -349,6 +355,27 @@ export async function getTenantPortalData() {
     tenancyIds,
     [],
   );
+  const billIds = bills.map((bill) => bill.id);
+  const lineItemsResult = billIds.length
+    ? await dataClient
+        .from("rental_invoice_line_items")
+        .select("id, rent_bill_id, category, description, amount, smart_meter_top_up_request_id")
+        .in("rent_bill_id", billIds)
+        .order("created_at", { ascending: true })
+    : { data: [], error: null };
+  const lineItemsByBill = new Map<string, InvoiceChargeLine[]>();
+  for (const item of lineItemsResult.data ?? []) {
+    const list = lineItemsByBill.get(item.rent_bill_id) ?? [];
+    list.push({
+      id: item.id,
+      category: item.category,
+      description: item.description,
+      amount: numberValue(item.amount),
+      smartMeterTopUpRequestId: item.smart_meter_top_up_request_id ?? null,
+    });
+    lineItemsByBill.set(item.rent_bill_id, list);
+  }
+  const verifiedTopUps = (topUpRequestsResult.data ?? []) as VerifiedElectricityTopUp[];
   const invoiceBills = bills.map((bill) => {
     const amount = numberValue(bill.amount);
     const paidAmount = numberValue(bill.paid_amount);
@@ -358,19 +385,31 @@ export async function getTenantPortalData() {
       tenantRecordId: null,
       depositAmount,
     });
-    const invoiceTotal = amount + depositAmount;
-    const invoicePaidAmount = Math.min(
-      paidAmount + depositPaidAmount,
-      invoiceTotal,
-    );
-    const outstanding = ["cancelled", "waived"].includes(String(bill.status))
-      ? 0
-      : Math.max(invoiceTotal - invoicePaidAmount, 0);
+    const attached = attachPrepaidElectricityTopUps({
+      bill: {
+        id: bill.id,
+        tenancy_id: bill.tenancy_id,
+        bill_month: bill.bill_month,
+      },
+      lineItems: lineItemsByBill.get(bill.id) ?? [],
+      topUps: verifiedTopUps,
+    });
+    const { extraChargeAmount, invoiceTotal, invoicePaidAmount, outstanding } =
+      invoiceTotalsWithPrepaidTopUps({
+        amount,
+        depositAmount,
+        paidAmount,
+        depositPaidAmount,
+        lineItems: attached.lineItems,
+        prepaidAddedAmount: attached.prepaidAddedAmount,
+        cancelled: ["cancelled", "waived"].includes(String(bill.status)),
+      });
+    const collectedPaid = paidAmount + depositPaidAmount;
     const invoiceStatus = ["cancelled", "waived"].includes(String(bill.status))
       ? String(bill.status)
       : outstanding <= 0.005
         ? "paid"
-        : invoicePaidAmount > 0
+        : collectedPaid > 0
           ? "partial"
           : String(bill.status);
 
@@ -379,6 +418,8 @@ export async function getTenantPortalData() {
       amount,
       depositAmount,
       depositPaidAmount,
+      extraChargeAmount,
+      lineItems: attached.lineItems,
       invoiceTotal,
       paidAmount,
       invoicePaidAmount,

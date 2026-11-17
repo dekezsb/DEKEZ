@@ -238,6 +238,7 @@ export default async function RentalInvoicePage({ params }: PageProps) {
               </span>
               <span className="pr-4 font-medium">
                 {item.description.toUpperCase()}
+                {item.alreadyPaid ? " — PAID" : ""}
               </span>
               <span className="text-center">1</span>
               <span className="text-center">UNIT</span>
