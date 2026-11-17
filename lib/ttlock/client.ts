@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { pickSafeLockDetail } from "@/lib/ttlock/lock-version";
 
 const defaultBaseUrl = "https://api.sciener.com";
 
@@ -160,6 +161,14 @@ export async function listTTLockDevices() {
     },
   );
   return payload.list ?? [];
+}
+
+export async function getTTLockLockDetail(lockId: number) {
+  const payload = await authenticatedPost<Record<string, unknown>>(
+    "/v3/lock/detail",
+    { lockId: String(lockId) },
+  );
+  return pickSafeLockDetail(payload);
 }
 
 export async function addTTLockPasscode(input: {

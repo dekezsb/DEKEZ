@@ -17,6 +17,7 @@ export type ExistingTTLock = {
   onboarding_key: string;
   provider_lock_id?: number | string | null;
   sync_status: string;
+  provider_data?: Record<string, unknown> | null;
 };
 
 export type LiveTTLockMeter = {
@@ -366,6 +367,8 @@ export function planTTLockLockSync(input: {
     provider_group_name: string | null;
     battery_level: number | null;
     has_gateway: boolean | null;
+    keyboardPwdVersion: number | null;
+    specialValue: number | null;
   }> = [];
 
   for (const live of input.live) {
@@ -393,6 +396,8 @@ export function planTTLockLockSync(input: {
         live.hasGateway === undefined || live.hasGateway === null
           ? null
           : live.hasGateway === 1,
+      keyboardPwdVersion: live.keyboardPwdVersion ?? null,
+      specialValue: live.specialValue ?? null,
     });
   }
 
