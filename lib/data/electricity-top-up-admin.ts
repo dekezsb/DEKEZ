@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasTenantElectricityTopUpAccess } from "@/lib/smart-meter/top-up-access";
+import { hasElectricityTopUpAccess } from "@/lib/smart-meter/top-up-access";
 
 type Relation<T> = T | T[] | null;
 
@@ -29,10 +29,7 @@ export type StaffTopUpCandidate = {
 };
 
 /**
- * Every active tenancy at a property with the tenant electricity top-up
- * feature (see hasTenantElectricityTopUpAccess), for staff who need to
- * submit a top-up slip on a tenant's behalf because the tenant can't do it
- * themselves from their own portal.
+ * Active tenancies whose room has a linked TTLock electricity meter.
  */
 export async function getStaffElectricityTopUpCandidates(): Promise<
   StaffTopUpCandidate[]
@@ -46,31 +43,24 @@ export async function getStaffElectricityTopUpCandidates(): Promise<
     )
     .eq("status", "active");
 
-  const eligible = (tenancies ?? []).filter((tenancy) => {
-    if (["completed", "terminated"].includes(String(tenancy.billing_status))) {
-      return false;
-    }
-    const property = one(tenancy.properties);
-    return hasTenantElectricityTopUpAccess(
-      property?.property_code,
-      property?.name,
-    );
-  });
+  const active = (tenancies ?? []).filter(
+    (tenancy) => !["completed", "terminated"].includes(String(tenancy.billing_status)),
+  );
+  if (!active.length) return [];
 
-  if (!eligible.length) return [];
-
-  const tenantIds = [...new Set(eligible.map((tenancy) => tenancy.tenant_id))];
-  const roomIds = [...new Set(eligible.map((tenancy) => tenancy.room_id))];
-  const tenancyIds = eligible.map((tenancy) => tenancy.id);
+  const tenantIds = [...new Set(active.map((tenancy) => tenancy.tenant_id))];
+  const roomIds = [...new Set(active.map((tenancy) => tenancy.room_id))];
+  const tenancyIds = active.map((tenancy) => tenancy.id);
 
   const [tenantsResult, metersResult, openRequestsResult] = await Promise.all([
     supabase.from("tenants").select("id, full_name, profile_id").in("id", tenantIds),
     supabase
       .from("smart_meters")
       .select(
-        "room_id, meter_number, remaining_units, remaining_credit, unit_label, connection_status",
+        "room_id, meter_number, remaining_units, remaining_credit, unit_label, connection_status, provider",
       )
       .eq("meter_type", "electricity")
+      .eq("provider", "ttlock")
       .eq("status", "active")
       .in("room_id", roomIds),
     supabase
@@ -92,6 +82,15 @@ export async function getStaffElectricityTopUpCandidates(): Promise<
       request,
     ]),
   );
+
+  const eligible = active.filter((tenancy) => {
+    const property = one(tenancy.properties);
+    const meter = meterMap.get(tenancy.room_id);
+    return hasElectricityTopUpAccess({
+      provider: meter?.provider,
+      hasElectricityMeter: Boolean(meter),
+    });
+  });
 
   return eligible
     .map((tenancy) => {

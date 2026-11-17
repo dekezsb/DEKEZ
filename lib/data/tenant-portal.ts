@@ -25,6 +25,12 @@ function numberValue(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function numberOrNull(value: unknown) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function visiblePaymentSubmissions<
   T extends {
     rent_bill_id: string | null;
@@ -141,7 +147,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("smart_meter_top_up_requests")
         .select(
-          "id, tenancy_id, rent_bill_id, bill_month, room_id, meter_id, amount, status, rejection_reason, provider_reference, verified_at, credited_at, created_at",
+          "id, tenancy_id, rent_bill_id, bill_month, room_id, meter_id, amount, status, rejection_reason, provider_reference, payment_date, verified_at, credited_at, created_at",
         )
         .eq("tenant_profile_id", user.id)
         .order("created_at", { ascending: false }),
@@ -311,6 +317,7 @@ export async function getTenantPortalData() {
     meter_number: string;
     remaining_credit: number | string;
     remaining_units: number | string;
+    total_units: number | string | null;
     unit_label: string;
     connection_status: string;
     power_state: string;
@@ -447,7 +454,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("smart_meters")
         .select(
-          "id, tenancy_id, tenant_id, room_id, meter_number, remaining_credit, remaining_units, unit_label, connection_status, power_state, provider, rate, status",
+          "id, tenancy_id, tenant_id, room_id, meter_number, remaining_credit, remaining_units, total_units, unit_label, connection_status, power_state, provider, rate, status",
         )
         .eq("meter_type", "electricity")
         .eq("status", "active")
@@ -572,6 +579,8 @@ export async function getTenantPortalData() {
                 id: electricityMeter.id,
                 meterNumber: electricityMeter.meter_number,
                 remainingUnits: numberValue(electricityMeter.remaining_units),
+                remainingCredit: numberOrNull(electricityMeter.remaining_credit),
+                totalUnits: numberOrNull(electricityMeter.total_units),
                 unitLabel: electricityMeter.unit_label,
                 connectionStatus: electricityMeter.connection_status,
                 powerState: electricityMeter.power_state,
