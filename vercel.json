@@ -10,7 +10,9 @@
       "feature/rental-collection-policy-20261027": false
     }
   },
-  "regions": ["sin1"],
+  "regions": [
+    "sin1"
+  ],
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "crons": [
@@ -45,6 +47,10 @@
     {
       "path": "/api/rental-collections",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/ttlock-contract-end",
+      "schedule": "10 16 * * *"
     }
   ]
 }

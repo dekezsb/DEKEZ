@@ -451,7 +451,10 @@ export async function reconcileSmartLockAccessForTenancy(
   return result;
 }
 
-export async function revokeSmartLockAccessForTenancy(tenancyId: string) {
+export async function revokeSmartLockAccessForTenancy(
+  tenancyId: string,
+  options?: { reason?: string },
+) {
   const admin = createAdminClient();
   const { data: grants, error } = await admin
     .from("smart_lock_access_grants")
@@ -462,6 +465,7 @@ export async function revokeSmartLockAccessForTenancy(tenancyId: string) {
     .in("credential_state", ["pending_generation", "active", "revoke_pending"]);
   if (error) throw error;
 
+  const reason = options?.reason;
   const errors: string[] = [];
   for (const grant of grants ?? []) {
     const device = one(
@@ -479,6 +483,9 @@ export async function revokeSmartLockAccessForTenancy(tenancyId: string) {
         credential_state: "revoke_pending",
         revoke_requested_at: requestedAt,
         updated_at: requestedAt,
+        ...(reason
+          ? { provider_status: { operation: "revoke_requested", reason } }
+          : {}),
       })
       .eq("id", grant.id);
 
@@ -500,7 +507,11 @@ export async function revokeSmartLockAccessForTenancy(tenancyId: string) {
           revoked_at: revokedAt,
           last_error: null,
           last_provider_sync_at: revokedAt,
-          provider_status: { operation: "deleted_via_gateway", syncedAt: revokedAt },
+          provider_status: {
+            operation: "deleted_via_gateway",
+            ...(reason ? { reason } : {}),
+            syncedAt: revokedAt,
+          },
           updated_at: revokedAt,
         })
         .eq("id", grant.id);
