@@ -28,6 +28,7 @@ import {
   PROPERTY_TYPES,
 } from "@/lib/tenancy/property-settings";
 import { executeTenantCheckout } from "@/lib/tenancy/checkout";
+import { dueDayForNewTenancy } from "@/lib/tenancy/due-day";
 import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
 
 function textValue(formData: FormData, key: string) {
@@ -145,7 +146,7 @@ async function ensureCanonicalTenancy(
   }
 
   const startDate = record.contract_start ?? today();
-  const dueDay = record.due_day ?? Number(startDate.slice(8, 10));
+  const dueDay = dueDayForNewTenancy(startDate);
   const monthlyRent = Number(record.monthly_rent ?? room.monthly_rent ?? 0);
   const deposit = requiredTenancyDeposit({
     isCommercial: property.is_commercial,
@@ -1255,7 +1256,7 @@ export async function registerTenant(formData: FormData) {
     createdTenant = true;
   }
 
-  const dueDay = Number(checkInDate.slice(8, 10));
+  const dueDay = dueDayForNewTenancy(checkInDate);
   const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
     .insert({

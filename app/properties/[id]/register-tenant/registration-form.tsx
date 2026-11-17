@@ -3,6 +3,7 @@
 import { Link } from "@/components/app-link";
 import { useState } from "react";
 import { formatMalaysiaDate } from "@/lib/date-format";
+import { dueDayFromStartDate } from "@/lib/tenancy/due-day";
 import { Button } from "@/components/ui/button";
 
 type VacantRoom = {
@@ -34,7 +35,7 @@ export function RegistrationForm({
   const [roomId, setRoomId] = useState(initialRoom?.id ?? "");
   const [checkInDate, setCheckInDate] = useState("");
   const selectedRoom = rooms.find((room) => room.id === roomId);
-  const dueDay = checkInDate ? Number(checkInDate.slice(8, 10)) : null;
+  const dueDay = dueDayFromStartDate(checkInDate);
   const nextDates = (() => {
     if (!checkInDate) return [];
     const [year, month, day] = checkInDate.split("-").map(Number);
