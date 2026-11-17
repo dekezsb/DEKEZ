@@ -27,7 +27,7 @@ const rooms = [
   { id: 'room-5', property_id: 'prop-bds', room_number: 'Room 5', name: 'Room 5' },
 ];
 
-test('sync discovers unknown TTLock locks as unassigned and never auto-assigns them', () => {
+test('sync still discovers unknown TTLock locks as inventory inserts without baking in a room', () => {
   const existing = [
     { id: 'lock-2', onboarding_key: 'bds-office-2', provider_lock_id: 22, sync_status: 'connected' },
     { id: 'lock-main', onboarding_key: 'bds-main-office', provider_lock_id: 11, sync_status: 'connected' },
@@ -50,7 +50,7 @@ test('sync discovers unknown TTLock locks as unassigned and never auto-assigns t
   assert.ok(plan.inserts.every((item) => !('property_id' in item) || item.property_id == null));
 });
 
-test('mixed-case Bundusan aliases only suggest a room, they are not applied automatically', () => {
+test('mixed-case Bundusan aliases resolve to the matching room or main door', () => {
   const one = discovery.suggestAssignmentFromAlias('Bundusan Office 1', properties, rooms, { allowMainDoor: true });
   const three = discovery.suggestAssignmentFromAlias('BDS OFFICE 3', properties, rooms, { allowMainDoor: true });
   const four = discovery.suggestAssignmentFromAlias('BUNDUSAN OFFICE 4', properties, rooms, { allowMainDoor: true });
@@ -63,7 +63,7 @@ test('mixed-case Bundusan aliases only suggest a room, they are not applied auto
   assert.equal(discovery.suggestAssignmentFromAlias('Unknown 9', properties, rooms), null);
 });
 
-test('TTLock meters are discovered unassigned and Bds aliases suggest the matching room', () => {
+test('TTLock meters are discovered as inventory inserts and Bds aliases resolve to the matching room', () => {
   const plan = discovery.planTTLockMeterSync({
     existing: [{ id: 'm-old', provider: 'cnyiot', provider_meter_id: '18201009497' }],
     live: [
@@ -214,22 +214,162 @@ test('verified top-up auto-recharge is idempotent and does not credit older appr
   assert.doesNotMatch(review, /approved_awaiting_top_up[\s\S]*from\("smart_meter_top_up_requests"\)[\s\S]*tryAutoRechargeTTLockTopUp/);
 });
 
-test('Smart Devices sync and assignment stay behind Super Admin confirmation', () => {
+test('Smart Devices auto-link unambiguous names and leave unclear ones for Super Admin confirmation', () => {
   const actions = fs.readFileSync(path.join(root, 'app/smart-devices/actions.ts'), 'utf8');
   assert.match(actions, /planTTLockLockSync/);
   assert.match(actions, /planTTLockMeterSync/);
+  assert.match(actions, /planDiscoveredLockAutoLinks/);
+  assert.match(actions, /planDiscoveredMeterAutoLinks/);
   assert.match(actions, /listTTLockElectricMeters/);
   assert.match(actions, /property_id: null/);
+  assert.match(actions, /assignment_source: AUTO_ALIAS_SOURCE/);
+  assert.match(actions, /is\("property_id", null\)/);
   assert.match(actions, /assignTTLockDevice/);
   assert.match(actions, /assignTTLockMeter/);
+  assert.match(actions, /unassignTTLockDevice/);
+  assert.match(actions, /unassignTTLockMeter/);
   assert.match(actions, /requireRole\(\["super_admin"\]/);
+  const syncFn = actions.slice(actions.indexOf('export async function syncTTLockDevices()'), actions.indexOf('async function loadAssignmentOptions()'));
+  assert.doesNotMatch(syncFn, /reconcileSmartLockAccessForTenancy\(/);
+  assert.doesNotMatch(syncFn, /addTTLock|deleteTTLock|changeTTLock|rechargeTTLock/);
   const page = fs.readFileSync(path.join(root, 'app/smart-devices/page.tsx'), 'utf8');
   const form = fs.readFileSync(path.join(root, 'components/smart-devices/assign-location-form.tsx'), 'utf8');
   assert.match(page, /AssignLocationForm/);
+  assert.match(page, /Auto-linked/);
+  assert.match(page, /UnassignLocationForm/);
   assert.match(form, /Confirm assignment/);
   assert.match(form, /Suggested/);
+  assert.match(form, /Unassign/);
   assert.match(page, /Existing credential expiry still needs separate access-policy review/);
   const client = fs.readFileSync(path.join(root, 'lib/ttlock/client.ts'), 'utf8');
   assert.match(client, /\/v3\/electricMeter\/list/);
   assert.match(client, /\/v3\/electricMeter\/recharge/);
+});
+
+
+const moreProperties = [
+  ...properties,
+  { id: 'prop-hlt', name: 'Hilltop Residence', property_code: 'HLT' },
+  { id: 'prop-sls', name: 'Sulaman', property_code: 'SLS' },
+  { id: 'prop-bvh', name: 'Beverly Hill', property_code: 'BVH' },
+];
+const moreRooms = [
+  ...rooms,
+  { id: 'hlt-10', property_id: 'prop-hlt', room_number: 'Room 10', name: 'Room 10' },
+  { id: 'hlt-1', property_id: 'prop-hlt', room_number: 'Room 1', name: 'Room 1' },
+  { id: 'sls-2', property_id: 'prop-sls', room_number: 'Room 2', name: 'Room 2' },
+];
+
+test('unambiguous property codes and name words are auto-linked, including main doors', () => {
+  const plan = discovery.planDiscoveredLockAutoLinks({
+    devices: [
+      { key: 'new-1', alias: 'Bundusan Office 1' },
+      { key: 'new-3', alias: 'BDS OFFICE 3' },
+      { key: 'new-4', alias: 'BUNDUSAN OFFICE 4' },
+      { key: 'new-main', alias: 'BDS MAIN OFFICE' },
+      { key: 'new-door', alias: 'BDS MAIN DOOR' },
+      { key: 'hlt-10', alias: 'HLT 10' },
+      { key: 'already', alias: 'Bundusan Office 1', property_id: 'prop-bds', room_id: 'room-5', access_scope: 'room_entry' },
+    ],
+    properties: moreProperties,
+    rooms: moreRooms,
+  });
+  const byKey = Object.fromEntries(plan.linked.map((item) => [item.device.key, item.decision]));
+  assert.equal(byKey['new-1'].roomId, 'room-1');
+  assert.equal(byKey['new-3'].roomId, 'room-3');
+  assert.equal(byKey['new-4'].roomId, 'room-4');
+  assert.equal(byKey['new-main'].accessScope, 'property_entry');
+  assert.equal(byKey['new-main'].roomId, null);
+  assert.equal(byKey['new-door'].accessScope, 'property_entry');
+  assert.equal(byKey['hlt-10'].roomId, 'hlt-10');
+  assert.equal(byKey['hlt-10'].propertyId, 'prop-hlt');
+  assert.equal(byKey.already, undefined);
+  assert.equal(plan.linked.length, 6);
+});
+
+test('ambiguous or incomplete names stay unassigned', () => {
+  const plan = discovery.planDiscoveredLockAutoLinks({
+    devices: [
+      { key: 'unknown', alias: 'Unknown 9' },
+      { key: 'main-and-room', alias: 'BDS MAIN OFFICE 2' },
+      { key: 'two-numbers', alias: 'BDS 2 4' },
+      { key: 'empty', alias: '   ' },
+      { key: 'code-only', alias: 'BDS OFFICE' },
+      { key: 'room-only', alias: 'Room 2' },
+    ],
+    properties: moreProperties,
+    rooms: moreRooms,
+  });
+  const reasons = Object.fromEntries(plan.skipped.map((item) => [item.device.key, item.reason]));
+  assert.equal(plan.linked.length, 0);
+  assert.equal(reasons.unknown, 'no_match');
+  assert.equal(reasons['main-and-room'], 'ambiguous_main_and_room');
+  assert.equal(reasons['two-numbers'], 'ambiguous_room');
+  assert.equal(reasons.empty, 'no_match');
+  assert.equal(reasons['code-only'], 'no_room');
+  assert.equal(reasons['room-only'], 'no_match');
+});
+
+test('room 10 is not confused with room 1, and name matching is case-insensitive', () => {
+  assert.equal(discovery.resolveAutoLinkFromAlias('hlt room 10', moreProperties, moreRooms).roomId, 'hlt-10');
+  assert.equal(discovery.resolveAutoLinkFromAlias('Hlt Room 1', moreProperties, moreRooms).roomId, 'hlt-1');
+  assert.equal(discovery.resolveAutoLinkFromAlias('bds office 2', moreProperties, moreRooms).roomId, 'room-2');
+  assert.equal(discovery.resolveAutoLinkFromAlias('BEVERLY  missing', moreProperties, moreRooms).ok, false);
+});
+
+test('two properties sharing a name word stay unassigned', () => {
+  const properties = [
+    { id: 'a', name: 'Sunrise Court', property_code: 'AAA' },
+    { id: 'b', name: 'Sunrise Villa', property_code: 'BBB' },
+  ];
+  const rooms = [
+    { id: 'a-1', property_id: 'a', room_number: 'Room 1', name: 'Room 1' },
+    { id: 'b-1', property_id: 'b', room_number: 'Room 1', name: 'Room 1' },
+  ];
+  const decision = discovery.resolveAutoLinkFromAlias('Sunrise 1', properties, rooms);
+  assert.deepEqual(decision, { ok: false, reason: 'ambiguous_property' });
+  assert.equal(discovery.resolveAutoLinkFromAlias('AAA 1', properties, rooms).roomId, 'a-1');
+});
+
+test('meters auto-link by name but never overwrite an assignment or share a room', () => {
+  const plan = discovery.planDiscoveredMeterAutoLinks({
+    meters: [
+      { key: 'm2', alias: 'BDS 2' },
+      { key: 'm4', alias: 'Bds 4' },
+      { key: 'm5', alias: 'Bds 5' },
+      { key: 'kept', alias: 'BDS 2', property_id: 'prop-bds', room_id: 'room-2' },
+      { key: 'dup-a', alias: 'SLS 2' },
+      { key: 'dup-b', alias: 'Sulaman 2' },
+      { key: 'taken', alias: 'HLT 1' },
+    ],
+    properties: moreProperties,
+    rooms: moreRooms,
+    occupiedRoomIds: ['hlt-1'],
+  });
+  const linked = Object.fromEntries(plan.linked.map((item) => [item.device.key, item.decision.roomId]));
+  const skipped = Object.fromEntries(plan.skipped.map((item) => [item.device.key, item.reason]));
+  assert.equal(linked.m2, 'room-2');
+  assert.equal(linked.m4, 'room-4');
+  assert.equal(linked.m5, 'room-5');
+  assert.equal(linked.kept, undefined);
+  assert.equal(skipped['dup-a'], 'meter_room_conflict');
+  assert.equal(skipped['dup-b'], 'meter_room_conflict');
+  assert.equal(skipped.taken, 'meter_room_occupied');
+});
+
+test('lock inventory updates never carry a new property or room, so existing assignments stay put', () => {
+  const plan = discovery.planTTLockLockSync({
+    existing: [
+      { id: 'lock-2', onboarding_key: 'bds-office-2', provider_lock_id: 22, sync_status: 'connected' },
+    ],
+    live: [{ lockId: 22, lockAlias: 'BDS OFFICE 2' }],
+  });
+  assert.equal(plan.updates.length, 1);
+  assert.ok(!('property_id' in plan.updates[0]));
+  const actions = fs.readFileSync(path.join(root, 'app/smart-devices/actions.ts'), 'utf8');
+  const updateBlock = actions.slice(actions.indexOf('for (const update of lockPlan.updates)'), actions.indexOf('for (const missing of lockPlan.missing)'));
+  assert.match(updateBlock, /lockPayload/);
+  assert.doesNotMatch(updateBlock, /property_id:/);
+  assert.doesNotMatch(updateBlock, /room_id:/);
+  assert.doesNotMatch(updateBlock, /assignment_source/);
 });
