@@ -21,7 +21,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
-import { getCnyiotConfigStatus } from "@/lib/cnyiot/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
 import { AssignLocationForm, UnassignLocationForm } from "@/components/smart-devices/assign-location-form";
@@ -360,7 +359,6 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     return value ? `/smart-devices?${value}` : "/smart-devices";
   };
   const config = getTTLockConfigStatus();
-  const meterConfig = getCnyiotConfigStatus();
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
   const numberedRoomLockCount = devices.filter((device) => numberedRoomLockPattern.test(device.provider_lock_name)).length;
@@ -392,7 +390,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <p className="text-xs font-semibold uppercase tracking-wide text-[#b47d17]">Admin control</p>
           <h1 className="mt-1 text-3xl font-bold text-gray-950">Smart Devices</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
-            Manage TTLock door access and CNYIOT prepaid electricity meters from one DEKEZ workspace.
+            Manage TTLock door access and prepaid electricity meters from one DEKEZ workspace.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -492,24 +490,12 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
               <Zap className="h-5 w-5 text-[#b47d17]" /> Electricity meters
             </CardTitle>
             <p className="mt-1 text-sm text-gray-500">
-              CNYIOT and TTLock prepaid meters. New TTLock meters stay unassigned until a Super Admin confirms the room.
+              TTLock prepaid meters. New meters stay unassigned until a Super Admin confirms the room.
             </p>
           </div>
           <Badge>{smartMeters.length} devices</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!meterConfig.complete ? (
-            <div className="flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-semibold">Inventory connected; automatic provider commands are waiting for the CNYIOT server API.</p>
-                <p className="mt-1 leading-6">
-                  DEKEZ will not reuse the vendor website password or CAPTCHA session. Once CNYIOT issues an API URL, account ID and key, approved top-ups can be sent to the physical meter automatically.
-                </p>
-              </div>
-            </div>
-          ) : null}
-
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <MeterSummary icon={Gauge} label="Mapped meters" value={String(smartMeters.length)} />
             <MeterSummary
