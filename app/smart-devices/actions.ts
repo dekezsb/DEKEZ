@@ -8,9 +8,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 import { getTTLockConfigStatus, listTTLockDevices, listTTLockElectricMeters } from "@/lib/ttlock/client";
 import {
+  AUTO_ALIAS_SOURCE,
+  MANUAL_ASSIGNMENT_SOURCE,
   meterConnectionStatus,
   meterPowerState,
   numberValue,
+  planDiscoveredLockAutoLinks,
+  planDiscoveredMeterAutoLinks,
   planTTLockLockSync,
   planTTLockMeterSync,
   validateAssignment,
@@ -106,24 +110,36 @@ export async function syncTTLockDevices() {
   let discovered = 0;
   let metersSynced = 0;
   let metersDiscovered = 0;
+  let autoLinkedLocks = 0;
+  let autoLinkedMeters = 0;
+  let autoLinkSkipped = 0;
 
   try {
     const [
       { data: deviceRows, error: deviceError },
       { data: meterRows, error: meterError },
+      { data: occupiedMeterRows, error: occupiedError },
       { data: companies, error: companyError },
+      { data: properties, error: propertyError },
+      { data: rooms, error: roomError },
       liveDevices,
       liveMeters,
     ] = await Promise.all([
       admin
         .from("smart_lock_devices")
-        .select("id,company_id,onboarding_key,provider_lock_id,sync_status")
+        .select("id,company_id,onboarding_key,provider_lock_id,provider_lock_name,sync_status,property_id,room_id,access_scope")
         .eq("provider", "ttlock"),
       admin
         .from("smart_meters")
-        .select("id,provider,provider_meter_id,meter_number,status")
+        .select("id,provider,provider_meter_id,meter_number,status,property_id,room_id,provider_metadata")
         .eq("provider", "ttlock"),
+      admin
+        .from("smart_meters")
+        .select("id,room_id,status")
+        .not("room_id", "is", null),
       admin.from("companies").select("id").order("created_at", { ascending: true }).limit(1),
+      admin.from("properties").select("id,name,property_code").order("name"),
+      admin.from("rooms").select("id,property_id,name,room_number").order("room_number"),
       listTTLockDevices(),
       listTTLockElectricMeters().catch((error) => {
         console.error("TTLock electric meter list failed", error);
@@ -133,8 +149,13 @@ export async function syncTTLockDevices() {
 
     if (deviceError) throw deviceError;
     if (meterError) throw meterError;
+    if (occupiedError) throw occupiedError;
     if (companyError) throw companyError;
+    if (propertyError) throw propertyError;
+    if (roomError) throw roomError;
 
+    const assignmentProperties = properties ?? [];
+    const assignmentRooms = rooms ?? [];
     const lockPlan = planTTLockLockSync({
       existing: deviceRows ?? [],
       live: liveDevices,
@@ -170,14 +191,34 @@ export async function syncTTLockDevices() {
     if (lockPlan.inserts.length && !companyId) {
       throw new Error("A company is required before new TTLock locks can be stored.");
     }
-    for (const insert of lockPlan.inserts) {
-      const { error } = await admin.from("smart_lock_devices").insert({
-        company_id: companyId,
+
+    const newLockAutoLinks = planDiscoveredLockAutoLinks({
+      devices: lockPlan.inserts.map((insert) => ({
+        key: insert.onboarding_key,
+        alias: insert.provider_lock_name,
         property_id: null,
         room_id: null,
+      })),
+      properties: assignmentProperties,
+      rooms: assignmentRooms,
+    });
+    const newLockLinkByKey = new Map(newLockAutoLinks.linked.map((item) => [item.device.key, item.decision]));
+    const newLockSkipByKey = new Map(newLockAutoLinks.skipped.map((item) => [item.device.key, item.reason]));
+
+    for (const insert of lockPlan.inserts) {
+      const now = new Date().toISOString();
+      const link = newLockLinkByKey.get(insert.onboarding_key);
+      const skip = newLockSkipByKey.get(insert.onboarding_key);
+      const { error } = await admin.from("smart_lock_devices").insert({
+        company_id: companyId,
+        property_id: link?.propertyId ?? null,
+        room_id: link?.roomId ?? null,
         provider: "ttlock",
         onboarding_key: insert.onboarding_key,
-        access_scope: "room_entry",
+        access_scope: link?.accessScope ?? "room_entry",
+        assignment_source: link ? AUTO_ALIAS_SOURCE : null,
+        auto_linked_at: link ? now : null,
+        auto_link_skip_reason: link ? null : skip ?? null,
         ...lockPayload(
           {
             lockId: insert.provider_lock_id,
@@ -192,6 +233,54 @@ export async function syncTTLockDevices() {
       });
       if (error) throw error;
       discovered += 1;
+      if (link) autoLinkedLocks += 1;
+      else autoLinkSkipped += 1;
+    }
+
+    const existingUnassignedLocks = (deviceRows ?? []).filter((device) => {
+      if (!device.property_id) return true;
+      return device.access_scope !== "property_entry" && !device.room_id;
+    });
+    const existingLockAutoLinks = planDiscoveredLockAutoLinks({
+      devices: existingUnassignedLocks.map((device) => ({
+        key: device.id,
+        alias: device.provider_lock_name ?? device.onboarding_key,
+        property_id: device.property_id,
+        room_id: device.room_id,
+        access_scope: device.access_scope,
+      })),
+      properties: assignmentProperties,
+      rooms: assignmentRooms,
+    });
+    for (const item of existingLockAutoLinks.linked) {
+      const now = new Date().toISOString();
+      const { error } = await admin
+        .from("smart_lock_devices")
+        .update({
+          property_id: item.decision.propertyId,
+          room_id: item.decision.roomId,
+          access_scope: item.decision.accessScope,
+          assignment_source: AUTO_ALIAS_SOURCE,
+          auto_linked_at: now,
+          auto_link_skip_reason: null,
+          updated_at: now,
+        })
+        .eq("id", item.device.key)
+        .is("property_id", null);
+      if (error) throw error;
+      autoLinkedLocks += 1;
+    }
+    for (const item of existingLockAutoLinks.skipped) {
+      const { error } = await admin
+        .from("smart_lock_devices")
+        .update({
+          auto_link_skip_reason: item.reason,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", item.device.key)
+        .is("property_id", null);
+      if (error) throw error;
+      autoLinkSkipped += 1;
     }
 
     const meterPlan = planTTLockMeterSync({
@@ -206,17 +295,100 @@ export async function syncTTLockDevices() {
       if (error) throw error;
       metersSynced += 1;
     }
-    for (const live of meterPlan.inserts) {
-      const { error } = await admin.from("smart_meters").insert({
+
+    const occupiedRoomIds = new Set(
+      (occupiedMeterRows ?? [])
+        .filter((meter) => meter.status !== "replaced" && meter.room_id)
+        .map((meter) => meter.room_id as string),
+    );
+    const newMeterAutoLinks = planDiscoveredMeterAutoLinks({
+      meters: meterPlan.inserts.map((live) => ({
+        key: String(live.electricMeterId),
+        alias: String(live.name || live.number || `TTLock ${live.electricMeterId}`),
         property_id: null,
         room_id: null,
+      })),
+      properties: assignmentProperties,
+      rooms: assignmentRooms,
+      occupiedRoomIds,
+    });
+    const newMeterLinkByKey = new Map(newMeterAutoLinks.linked.map((item) => [item.device.key, item.decision]));
+    const newMeterSkipByKey = new Map(newMeterAutoLinks.skipped.map((item) => [item.device.key, item.reason]));
+
+    for (const live of meterPlan.inserts) {
+      const now = new Date().toISOString();
+      const key = String(live.electricMeterId);
+      const link = newMeterLinkByKey.get(key);
+      const skip = newMeterSkipByKey.get(key);
+      if (link?.roomId) occupiedRoomIds.add(link.roomId);
+      const payload = meterPayload(live);
+      const { error } = await admin.from("smart_meters").insert({
+        property_id: link?.propertyId ?? null,
+        room_id: link?.roomId ?? null,
         status: "active",
         rate: 0,
         remaining_credit: 0,
-        ...meterPayload(live),
+        assignment_source: link ? AUTO_ALIAS_SOURCE : null,
+        auto_linked_at: link ? now : null,
+        auto_link_skip_reason: link ? null : skip ?? null,
+        ...payload,
       });
       if (error) throw error;
       metersDiscovered += 1;
+      if (link) autoLinkedMeters += 1;
+      else autoLinkSkipped += 1;
+    }
+
+    const existingUnassignedMeters = (meterRows ?? []).filter((meter) => !meter.property_id || !meter.room_id);
+    const existingMeterAutoLinks = planDiscoveredMeterAutoLinks({
+      meters: existingUnassignedMeters.map((meter) => ({
+        key: meter.id,
+        alias: String(
+          (meter.provider_metadata as { name?: string | null } | null)?.name
+          || meter.meter_number
+          || meter.provider_meter_id
+          || meter.id,
+        ),
+        property_id: meter.property_id,
+        room_id: meter.room_id,
+      })),
+      properties: assignmentProperties,
+      rooms: assignmentRooms,
+      occupiedRoomIds,
+    });
+    for (const item of existingMeterAutoLinks.linked) {
+      const now = new Date().toISOString();
+      const { data, error } = await admin
+        .from("smart_meters")
+        .update({
+          property_id: item.decision.propertyId,
+          room_id: item.decision.roomId,
+          assignment_source: AUTO_ALIAS_SOURCE,
+          auto_linked_at: now,
+          auto_link_skip_reason: null,
+          updated_at: now,
+        })
+        .eq("id", item.device.key)
+        .is("property_id", null)
+        .is("room_id", null)
+        .select("id");
+      if (error) throw error;
+      if (data?.length) {
+        autoLinkedMeters += 1;
+        if (item.decision.roomId) occupiedRoomIds.add(item.decision.roomId);
+      }
+    }
+    for (const item of existingMeterAutoLinks.skipped) {
+      const { error } = await admin
+        .from("smart_meters")
+        .update({
+          auto_link_skip_reason: item.reason,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", item.device.key)
+        .is("property_id", null);
+      if (error) throw error;
+      autoLinkSkipped += 1;
     }
 
     revalidatePath("/smart-devices");
@@ -226,7 +398,7 @@ export async function syncTTLockDevices() {
   }
 
   redirect(
-    `/smart-devices?synced=${matched}&discovered=${discovered}&metersSynced=${metersSynced}&metersDiscovered=${metersDiscovered}`,
+    `/smart-devices?synced=${matched}&discovered=${discovered}&metersSynced=${metersSynced}&metersDiscovered=${metersDiscovered}&autoLinkedLocks=${autoLinkedLocks}&autoLinkedMeters=${autoLinkedMeters}&autoLinkSkipped=${autoLinkSkipped}`,
   );
 }
 
@@ -272,6 +444,9 @@ export async function assignTTLockDevice(formData: FormData) {
         property_id: result.property.id,
         room_id: result.room?.id ?? null,
         access_scope: accessScope,
+        assignment_source: MANUAL_ASSIGNMENT_SOURCE,
+        auto_linked_at: null,
+        auto_link_skip_reason: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", deviceId);
@@ -309,6 +484,9 @@ export async function assignTTLockMeter(formData: FormData) {
       .update({
         property_id: result.property.id,
         room_id: result.room.id,
+        assignment_source: MANUAL_ASSIGNMENT_SOURCE,
+        auto_linked_at: null,
+        auto_link_skip_reason: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", meterId);
@@ -320,6 +498,62 @@ export async function assignTTLockMeter(formData: FormData) {
 
   revalidatePath("/smart-devices");
   redirect("/smart-devices?assigned=meter");
+}
+
+
+export async function unassignTTLockDevice(formData: FormData) {
+  await requireRole(["super_admin"], { module: "properties", level: "manage" });
+  const deviceId = textValue(formData, "deviceId");
+  if (!deviceId) redirect("/smart-devices?error=assign");
+
+  try {
+    const { error } = await createAdminClient()
+      .from("smart_lock_devices")
+      .update({
+        property_id: null,
+        room_id: null,
+        access_scope: "room_entry",
+        assignment_source: null,
+        auto_linked_at: null,
+        auto_link_skip_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", deviceId);
+    if (error) throw error;
+  } catch (error) {
+    console.error("TTLock lock unassign failed", error);
+    redirect("/smart-devices?error=assign");
+  }
+
+  revalidatePath("/smart-devices");
+  redirect("/smart-devices?assigned=lock-cleared");
+}
+
+export async function unassignTTLockMeter(formData: FormData) {
+  await requireRole(["super_admin"], { module: "properties", level: "manage" });
+  const meterId = textValue(formData, "deviceId");
+  if (!meterId) redirect("/smart-devices?error=assign");
+
+  try {
+    const { error } = await createAdminClient()
+      .from("smart_meters")
+      .update({
+        property_id: null,
+        room_id: null,
+        assignment_source: null,
+        auto_linked_at: null,
+        auto_link_skip_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", meterId);
+    if (error) throw error;
+  } catch (error) {
+    console.error("TTLock meter unassign failed", error);
+    redirect("/smart-devices?error=assign");
+  }
+
+  revalidatePath("/smart-devices");
+  redirect("/smart-devices?assigned=meter-cleared");
 }
 
 export async function provisionTTLockAccess() {

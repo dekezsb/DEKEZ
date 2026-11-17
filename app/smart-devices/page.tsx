@@ -24,11 +24,13 @@ import { requireRole } from "@/lib/auth/session";
 import { getCnyiotConfigStatus } from "@/lib/cnyiot/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
-import { AssignLocationForm } from "@/components/smart-devices/assign-location-form";
+import { AssignLocationForm, UnassignLocationForm } from "@/components/smart-devices/assign-location-form";
 import {
+  AUTO_LINK_SKIP_LABELS,
   isUnassignedLock,
   isUnassignedMeter,
   suggestAssignmentFromAlias,
+  type AutoLinkSkipReason,
   type PropertyOption,
   type RoomOption,
 } from "@/lib/ttlock/device-discovery";
@@ -39,6 +41,8 @@ import {
   sendFingerprintEnrollmentInvite,
   syncTTLockFingerprintEnrollments,
   syncTTLockDevices,
+  unassignTTLockDevice,
+  unassignTTLockMeter,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +69,9 @@ type SmartDevicesPageProps = {
     synced?: string;
     discovered?: string;
     assigned?: string;
+    autoLinkedLocks?: string;
+    autoLinkedMeters?: string;
+    autoLinkSkipped?: string;
   }>;
 };
 
@@ -80,6 +87,9 @@ type SmartLockDevice = {
   property_id: string | null;
   room_id: string | null;
   access_scope: "property_entry" | "room_entry";
+  assignment_source: "auto_alias" | "manual" | null;
+  auto_linked_at: string | null;
+  auto_link_skip_reason: AutoLinkSkipReason | null;
   properties: { name: string; property_code: string | null } | null;
   rooms: { name: string | null; room_number: string | null } | null;
 };
@@ -140,6 +150,9 @@ type SmartMeterDevice = {
   last_reported_at: string | null;
   last_synced_at: string | null;
   last_sync_error: string | null;
+  assignment_source: "auto_alias" | "manual" | null;
+  auto_linked_at: string | null;
+  auto_link_skip_reason: AutoLinkSkipReason | null;
   provider_metadata: { name?: string | null; number?: string | null } | null;
   properties: Relation<{ name: string; property_code: string | null }>;
   rooms: Relation<{ name: string | null; room_number: string | null }>;
@@ -156,6 +169,7 @@ const statusLabels: Record<string, string> = {
   error: "Sync needs attention",
   retired: "Retired",
   unassigned: "Unassigned",
+  auto_alias: "Auto-linked",
 };
 
 const numberedRoomLockPattern = /\boffice\s+\d+\b/i;
@@ -164,6 +178,7 @@ function statusClass(status: string) {
   if (status === "connected") return "bg-emerald-100 text-emerald-800";
   if (status === "error" || status === "offline") return "bg-red-100 text-red-700";
   if (status === "unassigned") return "bg-amber-100 text-amber-900";
+  if (status === "auto_alias") return "bg-sky-100 text-sky-800";
   return "bg-amber-100 text-amber-800";
 }
 
@@ -203,7 +218,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     admin
       .from("smart_lock_devices")
       .select(
-        "id,provider_lock_name,battery_level,has_gateway,sync_status,snapshot_captured_at,last_synced_at,last_sync_error,property_id,room_id,access_scope,properties(name,property_code),rooms(name,room_number)",
+        "id,provider_lock_name,battery_level,has_gateway,sync_status,snapshot_captured_at,last_synced_at,last_sync_error,property_id,room_id,access_scope,assignment_source,auto_linked_at,auto_link_skip_reason,properties(name,property_code),rooms(name,room_number)",
       )
       .neq("sync_status", "retired")
       .order("provider_lock_name"),
@@ -238,7 +253,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     admin
       .from("smart_meters")
       .select(
-        "id,property_id,room_id,provider,provider_meter_id,meter_number,rate,remaining_units,total_units,unit_label,provider_metadata,connection_status,power_state,last_reported_at,last_synced_at,last_sync_error,properties(name,property_code),rooms(name,room_number)",
+        "id,property_id,room_id,provider,provider_meter_id,meter_number,rate,remaining_units,total_units,unit_label,provider_metadata,connection_status,power_state,last_reported_at,last_synced_at,last_sync_error,assignment_source,auto_linked_at,auto_link_skip_reason,properties(name,property_code),rooms(name,room_number)",
       )
       .eq("meter_type", "electricity")
       .eq("status", "active"),
@@ -408,18 +423,22 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <p>{errorMessage}</p>
         </div>
       ) : null}
-      {params.synced || params.discovered || params.metersSynced || params.metersDiscovered ? (
+      {params.synced || params.discovered || params.metersSynced || params.metersDiscovered || params.autoLinkedLocks || params.autoLinkedMeters ? (
         <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
           <p>
-            TTLock sync finished: {params.synced ?? "0"} lock(s) updated, {params.discovered ?? "0"} new unassigned lock(s), {params.metersSynced ?? "0"} meter(s) updated, and {params.metersDiscovered ?? "0"} new unassigned meter(s). Confirm any suggested room before the device is used.
+            TTLock sync finished: {params.synced ?? "0"} lock(s) updated, {params.discovered ?? "0"} new lock(s), {params.autoLinkedLocks ?? "0"} lock(s) auto-linked, {params.metersSynced ?? "0"} meter(s) updated, {params.metersDiscovered ?? "0"} new meter(s), and {params.autoLinkedMeters ?? "0"} meter(s) auto-linked. {params.autoLinkSkipped && params.autoLinkSkipped !== "0" ? `${params.autoLinkSkipped} device(s) were left unassigned because the name was unclear or the room already has a meter.` : "Unclear names stay unassigned for you to confirm."}
           </p>
         </div>
       ) : null}
       {params.assigned ? (
         <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-          <p>The {params.assigned === "meter" ? "meter" : "lock"} is now assigned.</p>
+          <p>
+            {params.assigned === "lock-cleared" || params.assigned === "meter-cleared"
+              ? `The ${params.assigned === "meter-cleared" ? "meter" : "lock"} assignment was removed.`
+              : `The ${params.assigned === "meter" ? "meter" : "lock"} is now assigned.`}
+          </p>
         </div>
       ) : null}
       {params.fingerprintError ? (
@@ -532,6 +551,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                     deviceId={meter.id}
                     properties={assignmentProperties}
                     rooms={assignmentRooms}
+                    skipReason={meter.auto_link_skip_reason ? AUTO_LINK_SKIP_LABELS[meter.auto_link_skip_reason] : null}
                     suggestion={meterSuggestionById.get(meter.id)}
                   />
                 </div>
@@ -583,9 +603,17 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                     <td className="px-4 py-3 text-gray-600">{dateTimeLabel(meter.last_reported_at)}</td>
                     <td className="px-4 py-3 text-right">
                       {meter.property_id && meter.room_id ? (
-                        <Link className="font-medium text-[#9b6c14] hover:underline" href={`/properties/${meter.property_id}/rooms/${meter.room_id}`}>
-                          Open room
-                        </Link>
+                        <div className="flex flex-col items-end gap-2">
+                          {meter.assignment_source === "auto_alias" ? (
+                            <Badge className={statusClass("auto_alias")}>Auto-linked</Badge>
+                          ) : null}
+                          <Link className="font-medium text-[#9b6c14] hover:underline" href={`/properties/${meter.property_id}/rooms/${meter.room_id}`}>
+                            Open room
+                          </Link>
+                          {meter.assignment_source === "auto_alias" ? (
+                            <UnassignLocationForm action={unassignTTLockMeter} deviceId={meter.id} />
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-xs text-amber-800">Unassigned</span>
                       )}
@@ -703,6 +731,9 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                           <Badge className={statusClass(isUnassignedLock(device) ? "unassigned" : device.sync_status)}>
                             {isUnassignedLock(device) ? "Unassigned" : (statusLabels[device.sync_status] ?? device.sync_status)}
                           </Badge>
+                          {device.assignment_source === "auto_alias" && !isUnassignedLock(device) ? (
+                            <Badge className={statusClass("auto_alias")}>Auto-linked</Badge>
+                          ) : null}
                           <span className="inline-flex items-center gap-1 text-sm font-semibold text-gray-800">
                             <BatteryCharging className="h-4 w-4 text-emerald-600" />
                             {device.battery_level === null ? "Not checked" : `${device.battery_level}%`}
@@ -759,8 +790,16 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                             deviceId={device.id}
                             properties={assignmentProperties}
                             rooms={assignmentRooms}
+                            skipReason={device.auto_link_skip_reason ? AUTO_LINK_SKIP_LABELS[device.auto_link_skip_reason] : null}
                             suggestion={lockSuggestionById.get(device.id)}
                           />
+                        ) : device.assignment_source === "auto_alias" ? (
+                          <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50/80 p-4">
+                            <p className="text-sm text-sky-950">
+                              Auto-linked from the device name{device.auto_linked_at ? ` on ${dateTimeLabel(device.auto_linked_at)}` : ""}. You can unassign it if the room is wrong.
+                            </p>
+                            <UnassignLocationForm action={unassignTTLockDevice} deviceId={device.id} />
+                          </div>
                         ) : null}
 
                         {lockAccess.length ? (

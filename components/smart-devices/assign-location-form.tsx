@@ -11,6 +11,7 @@ type AssignLocationFormProps = {
   rooms: RoomOption[];
   suggestion?: AssignmentSuggestion | null;
   allowMainDoor?: boolean;
+  skipReason?: string | null;
 };
 
 export function AssignLocationForm({
@@ -20,6 +21,7 @@ export function AssignLocationForm({
   rooms,
   suggestion,
   allowMainDoor = false,
+  skipReason,
 }: AssignLocationFormProps) {
   const [propertyId, setPropertyId] = useState(suggestion?.propertyId ?? "");
   const [accessScope, setAccessScope] = useState<"property_entry" | "room_entry">(
@@ -44,6 +46,7 @@ export function AssignLocationForm({
           This device is unassigned. Choose the property and room, then confirm.
         </p>
       )}
+      {skipReason ? <p className="text-sm text-amber-800">{skipReason}</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm">
           <span className="mb-1 block text-xs uppercase tracking-wide text-amber-800">Property</span>
@@ -108,6 +111,23 @@ export function AssignLocationForm({
           </Button>
         </div>
       </div>
+    </form>
+  );
+}
+
+
+type UnassignLocationFormProps = {
+  action: (formData: FormData) => void | Promise<void>;
+  deviceId: string;
+};
+
+export function UnassignLocationForm({ action, deviceId }: UnassignLocationFormProps) {
+  return (
+    <form action={action} className="mt-3">
+      <input name="deviceId" type="hidden" value={deviceId} />
+      <Button size="sm" type="submit" variant="outline">
+        Unassign
+      </Button>
     </form>
   );
 }
