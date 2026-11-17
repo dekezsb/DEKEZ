@@ -19,6 +19,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { formatMalaysiaDate } from "@/lib/date-format";
+import {
+  DEFAULT_ELECTRICITY_RM_PER_KWH,
+  ELECTRICITY_TOP_UP_MAX_AMOUNT,
+  ELECTRICITY_TOP_UP_MIN_AMOUNT,
+  electricityTopUpStatusLabel,
+  isValidElectricityTopUpAmount,
+  kwhEstimateForTopUp,
+} from "@/lib/smart-meter/top-up-access";
 
 const presetAmounts = [50, 100];
 
@@ -28,20 +37,43 @@ const money = new Intl.NumberFormat("en-MY", {
   minimumFractionDigits: 2,
 });
 
+type TopUpHistoryItem = {
+  id?: string;
+  amount: number;
+  status: string;
+  rejectionReason?: string | null;
+  rejection_reason?: string | null;
+  payment_date?: string | null;
+  created_at?: string | null;
+  verified_at?: string | null;
+  credited_at?: string | null;
+};
+
+function rejectionText(item: TopUpHistoryItem) {
+  return item.rejectionReason || item.rejection_reason || "";
+}
+
 type ElectricityTopUpPilotProps = {
   propertyName: string;
   roomName: string;
   tenancyId?: string | null;
   meterNumber?: string | null;
   remainingUnits?: number | null;
+  remainingCredit?: number | null;
+  totalUnits?: number | null;
   unitLabel?: string | null;
-  latestRequest?: {
-    amount: number;
-    status: string;
-    rejectionReason?: string | null;
-  } | null;
+  provider?: string | null;
+  powerState?: string | null;
+  rmPerKwh?: number;
+  latestRequest?: TopUpHistoryItem | null;
+  history?: TopUpHistoryItem[];
   adminPreview?: boolean;
 };
+
+function formatUnits(value: number | null | undefined, unit: string) {
+  if (value == null) return "Not reported";
+  return `${value.toLocaleString("en-MY", { maximumFractionDigits: 3 })} ${unit}`;
+}
 
 export function ElectricityTopUpPilot({
   propertyName,
@@ -49,8 +81,13 @@ export function ElectricityTopUpPilot({
   tenancyId,
   meterNumber,
   remainingUnits,
+  remainingCredit,
+  totalUnits,
   unitLabel,
+  powerState,
+  rmPerKwh = DEFAULT_ELECTRICITY_RM_PER_KWH,
   latestRequest,
+  history = [],
   adminPreview = false,
 }: ElectricityTopUpPilotProps) {
   const [selectedAmount, setSelectedAmount] = useState(50);
@@ -63,7 +100,9 @@ export function ElectricityTopUpPilot({
     customAmount && Number.isFinite(parsedCustomAmount)
       ? parsedCustomAmount
       : selectedAmount;
-  const validAmount = amount >= 10 && amount <= 500 && amount % 1 === 0;
+  const validAmount = isValidElectricityTopUpAmount(amount);
+  const estimatedKwh = validAmount ? kwhEstimateForTopUp(amount, rmPerKwh) : null;
+  const unit = unitLabel ?? "kWh";
   const openRequest = latestRequest && [
     "pending_verification",
     "approved_awaiting_top_up",
@@ -95,37 +134,41 @@ export function ElectricityTopUpPilot({
             </div>
           </div>
           <div className="rounded-lg border border-amber-200 bg-white px-4 py-3 sm:text-right">
-            <p className="text-xs font-medium text-gray-500">Meter remaining</p>
+            <p className="text-xs font-medium text-gray-500">Remaining</p>
             <p className="mt-1 text-xl font-bold text-gray-950">
-              {remainingUnits === null || remainingUnits === undefined
-                ? "Not connected"
-                : `${remainingUnits.toFixed(2)} ${unitLabel ?? "kWh"}`}
+              {formatUnits(remainingUnits, unit)}
             </p>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-5 pt-5">
-        <div className="grid gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-2">
-          <div className="flex items-center gap-3">
-            <Gauge className="h-5 w-5 text-amber-700" />
-            <div>
-              <p className="text-gray-500">Smart meter</p>
-              <p className="font-semibold text-gray-950">
-                {meterNumber || "Waiting for meter assignment"}
-              </p>
-            </div>
+        <dl className="grid gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-400">Latest reading</dt>
+            <dd className="mt-1 font-semibold text-gray-950">{formatUnits(totalUnits, unit)}</dd>
           </div>
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="h-5 w-5 text-emerald-700" />
-            <div>
-              <p className="text-gray-500">Safety</p>
-              <p className="font-semibold text-gray-950">
-                Credit only after payment confirmation
-              </p>
-            </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-400">Remaining</dt>
+            <dd className="mt-1 font-semibold text-gray-950">{formatUnits(remainingUnits, unit)}</dd>
           </div>
-        </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-400">Credit</dt>
+            <dd className="mt-1 font-semibold text-gray-950">
+              {remainingCredit == null ? "Not reported" : money.format(remainingCredit)}
+            </dd>
+          </div>
+          <div>
+            <dt className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-400">
+              <Gauge className="h-3.5 w-3.5" />
+              Meter
+            </dt>
+            <dd className="mt-1 font-semibold text-gray-950">
+              {meterNumber || "TTLock meter"}
+              {powerState ? ` · ${powerState}` : ""}
+            </dd>
+          </div>
+        </dl>
 
         {openRequest ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
@@ -135,11 +178,11 @@ export function ElectricityTopUpPilot({
                 <p className="font-bold text-amber-950">
                   {latestRequest.status === "pending_verification"
                     ? "Payment slip pending verification"
-                    : "Payment approved — awaiting meter top-up"}
+                    : "Payment verified — meter top-up in progress"}
                 </p>
                 <p className="mt-1 text-sm leading-6 text-amber-900">
-                  {money.format(latestRequest.amount)} will not be added to the
-                  meter until the payment and physical meter credit are both confirmed.
+                  {money.format(latestRequest.amount)} will be added after staff
+                  verify your bank slip. The same amount then appears on your monthly bill.
                 </p>
               </div>
             </div>
@@ -150,7 +193,7 @@ export function ElectricityTopUpPilot({
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             <p className="font-semibold">Previous payment slip was rejected.</p>
             <p className="mt-1">
-              {latestRequest.rejectionReason || "Please attach the correct payment slip and submit again."}
+              {rejectionText(latestRequest) || "Please attach the correct payment slip and submit again."}
             </p>
           </div>
         ) : null}
@@ -190,8 +233,8 @@ export function ElectricityTopUpPilot({
                   aria-describedby="top-up-limit"
                   className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-base font-semibold outline-none"
                   inputMode="numeric"
-                  max="500"
-                  min="10"
+                  max={ELECTRICITY_TOP_UP_MAX_AMOUNT}
+                  min={ELECTRICITY_TOP_UP_MIN_AMOUNT}
                   onChange={(event) => setCustomAmount(event.target.value)}
                   placeholder="Example: 30"
                   step="1"
@@ -200,9 +243,18 @@ export function ElectricityTopUpPilot({
                 />
               </div>
               <span className="mt-1 block text-xs text-gray-500" id="top-up-limit">
-                Pilot range: RM 10 to RM 500 in whole Ringgit.
+                Minimum RM {ELECTRICITY_TOP_UP_MIN_AMOUNT}, maximum RM {ELECTRICITY_TOP_UP_MAX_AMOUNT}, in whole Ringgit.
               </span>
             </label>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <p className="font-semibold">
+                Estimated credit: {estimatedKwh == null ? "Enter an amount" : `${estimatedKwh} kWh`}
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                Calculated at {money.format(rmPerKwh)} per kWh.
+              </p>
+            </div>
 
             <Button
               className="h-12 w-full bg-amber-500 text-base font-bold text-amber-950 hover:bg-amber-400"
@@ -234,8 +286,12 @@ export function ElectricityTopUpPilot({
               <dl className="mt-3 divide-y rounded-lg border border-gray-200 bg-white px-4">
                 <ReviewRow label="Property" value={propertyName} />
                 <ReviewRow label="Room" value={roomName} />
-                <ReviewRow label="Meter" value={meterNumber || "Not assigned yet"} />
+                <ReviewRow label="Meter" value={meterNumber || "TTLock meter"} />
                 <ReviewRow label="Top-up amount" value={money.format(amount)} strong />
+                <ReviewRow
+                  label="Estimated kWh"
+                  value={estimatedKwh == null ? "—" : `${estimatedKwh} kWh at ${money.format(rmPerKwh)}/kWh`}
+                />
               </dl>
             </div>
 
@@ -264,9 +320,9 @@ export function ElectricityTopUpPilot({
             <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
               <p className="font-semibold">Protected verification flow</p>
               <p className="mt-1 leading-6">
-                Uploading the slip does not top up the meter. DEKEZ must verify
-                the payment first, then confirm the physical meter credit with
-                a provider reference.
+                Uploading the slip does not top up the meter. After staff verify
+                the payment, the TTLock meter is topped up automatically and the
+                amount appears on your monthly bill.
               </p>
             </div>
 
@@ -309,9 +365,44 @@ export function ElectricityTopUpPilot({
           </div>
         ) : null}
 
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Top-up history</h3>
+          {history.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-500">No top-up slips submitted yet.</p>
+          ) : (
+            <div className="mt-2 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-wide text-gray-400">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">Date</th>
+                    <th className="py-2 pr-3 font-medium">Amount</th>
+                    <th className="py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((item, index) => (
+                    <tr className="border-t border-gray-100" key={item.id ?? `${item.created_at}-${index}`}>
+                      <td className="py-2 pr-3">
+                        {formatMalaysiaDate(item.payment_date ?? item.created_at ?? item.verified_at)}
+                      </td>
+                      <td className="py-2 pr-3">{money.format(item.amount)}</td>
+                      <td className="py-2">
+                        {electricityTopUpStatusLabel(item.status)}
+                        {item.status === "rejected" && rejectionText(item)
+                          ? ` · ${rejectionText(item)}`
+                          : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {adminPreview ? (
           <p className="rounded-md border border-violet-200 bg-violet-50 px-4 py-3 text-xs font-medium text-violet-800">
-            Admin preview: every active tenant receives this card.
+            Admin preview: this card is shown to tenants whose room has a linked TTLock meter.
           </p>
         ) : null}
       </CardContent>

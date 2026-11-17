@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
-import { hasTenantElectricityTopUpAccess } from "@/lib/smart-meter/top-up-access";
+import {
+  hasElectricityTopUpAccess,
+  isValidElectricityTopUpAmount,
+} from "@/lib/smart-meter/top-up-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const allowedSlipTypes = new Set([
@@ -28,6 +31,40 @@ function topUpResult(result: string) {
   return `/dashboard?${result}`;
 }
 
+function malaysiaToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+  }).format(new Date());
+}
+
+async function requireElectricityTopUpMeter(
+  supabase: ReturnType<typeof createAdminClient>,
+  tenancy: { property_id: string; room_id: string },
+) {
+  const { data: meter } = await supabase
+    .from("smart_meters")
+    .select("id, provider")
+    .eq("room_id", tenancy.room_id)
+    .eq("meter_type", "electricity")
+    .eq("provider", "ttlock")
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (
+    !hasElectricityTopUpAccess({
+      provider: meter?.provider,
+      hasElectricityMeter: Boolean(meter?.id),
+    })
+  ) {
+    redirect(topUpResult("topup_error=access"));
+  }
+
+  return meter;
+}
+
+
 export async function submitSmartMeterTopUp(formData: FormData) {
   await requireRole(["tenant"], {
     module: "payments",
@@ -42,9 +79,7 @@ export async function submitSmartMeterTopUp(formData: FormData) {
   if (
     !user ||
     !tenancyId ||
-    !Number.isInteger(amount) ||
-    amount < 10 ||
-    amount > 500 ||
+    !isValidElectricityTopUpAmount(amount) ||
     !slip ||
     slip.size > 5 * 1024 * 1024 ||
     !allowedSlipTypes.has(slip.type)
@@ -67,19 +102,7 @@ export async function submitSmartMeterTopUp(formData: FormData) {
     redirect(topUpResult("topup_error=tenancy"));
   }
 
-  const { data: property } = await supabase
-    .from("properties")
-    .select("property_code, name")
-    .eq("id", tenancy.property_id)
-    .maybeSingle();
-  if (
-    !hasTenantElectricityTopUpAccess(
-      property?.property_code,
-      property?.name,
-    )
-  ) {
-    redirect(topUpResult("topup_error=access"));
-  }
+  const meter = await requireElectricityTopUpMeter(supabase, tenancy);
 
   const [{ data: tenant }, { data: existingRequest }] =
     await Promise.all([
@@ -108,16 +131,6 @@ export async function submitSmartMeterTopUp(formData: FormData) {
     );
   }
 
-  const { data: meter } = await supabase
-    .from("smart_meters")
-    .select("id")
-    .eq("room_id", tenancy.room_id)
-    .eq("meter_type", "electricity")
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   const safeName = slip.name.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `${user.id}/${tenancy.room_id}/${Date.now()}-${safeName}`;
   const { error: uploadError } = await supabase.storage
@@ -142,6 +155,7 @@ export async function submitSmartMeterTopUp(formData: FormData) {
       submitted_by: user.id,
       meter_id: meter?.id ?? null,
       amount,
+      payment_date: malaysiaToday(),
       payment_slip_path: path,
       payment_slip_name: slip.name,
       payment_slip_type: slip.type,
@@ -199,9 +213,7 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
   if (
     !user ||
     !tenancyId ||
-    !Number.isInteger(amount) ||
-    amount < 10 ||
-    amount > 500 ||
+    !isValidElectricityTopUpAmount(amount) ||
     !slip ||
     slip.size > 5 * 1024 * 1024 ||
     !allowedSlipTypes.has(slip.type)
@@ -224,19 +236,7 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
     redirect(topUpResult("topup_error=tenancy"));
   }
 
-  const { data: property } = await supabase
-    .from("properties")
-    .select("property_code, name")
-    .eq("id", tenancy.property_id)
-    .maybeSingle();
-  if (
-    !hasTenantElectricityTopUpAccess(
-      property?.property_code,
-      property?.name,
-    )
-  ) {
-    redirect(topUpResult("topup_error=access"));
-  }
+  const meter = await requireElectricityTopUpMeter(supabase, tenancy);
 
   const { data: tenant } = await supabase
     .from("tenants")
@@ -265,16 +265,6 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
     redirect(topUpResult("topup_error=pending"));
   }
 
-  const { data: meter } = await supabase
-    .from("smart_meters")
-    .select("id")
-    .eq("room_id", tenancy.room_id)
-    .eq("meter_type", "electricity")
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   const safeName = slip.name.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `${tenant.profile_id}/${tenancy.room_id}/${Date.now()}-${safeName}`;
   const { error: uploadError } = await supabase.storage
@@ -299,6 +289,7 @@ export async function submitSmartMeterTopUpForTenant(formData: FormData) {
       submitted_by: user.id,
       meter_id: meter?.id ?? null,
       amount,
+      payment_date: malaysiaToday(),
       payment_slip_path: path,
       payment_slip_name: slip.name,
       payment_slip_type: slip.type,

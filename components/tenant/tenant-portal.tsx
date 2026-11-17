@@ -37,7 +37,10 @@ import {
 } from "@/lib/date-format";
 import { statusBadgeClass } from "@/lib/status-styles";
 import type { TenantPortalData } from "@/lib/data/tenant-portal";
-import { hasTenantElectricityTopUpAccess } from "@/lib/smart-meter/top-up-access";
+import {
+  hasElectricityTopUpAccess,
+  resolveElectricityRmPerKwh,
+} from "@/lib/smart-meter/top-up-access";
 import { agreementTypeLabel } from "@/lib/tenancy/agreement-types";
 import { PaymentAmountFields } from "./payment-amount-fields";
 import { PaymentSubmitButton } from "./payment-submit-button";
@@ -355,30 +358,42 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
       ) : null}
 
       {data.tenancies.some((tenancy) =>
-        hasTenantElectricityTopUpAccess(
-          tenancy.propertyCode,
-          tenancy.propertyName,
-        ),
+        hasElectricityTopUpAccess({
+          provider: tenancy.electricityMeter?.provider,
+          hasElectricityMeter: Boolean(tenancy.electricityMeter),
+        }),
       ) ? (
         <div className="space-y-4">
           {data.tenancies
             .filter((tenancy) =>
-              hasTenantElectricityTopUpAccess(
-                tenancy.propertyCode,
-                tenancy.propertyName,
-              ),
+              hasElectricityTopUpAccess({
+                provider: tenancy.electricityMeter?.provider,
+                hasElectricityMeter: Boolean(tenancy.electricityMeter),
+              }),
             )
             .map((tenancy) => (
               <ElectricityTopUpPilot
                 key={tenancy.id}
+                history={data.topUpRequests.filter(
+                  (request) =>
+                    request.tenancy_id === tenancy.id
+                    || request.room_id === tenancy.roomId,
+                )}
                 latestRequest={data.topUpRequests.find(
-                  (request) => request.tenancy_id === tenancy.id,
+                  (request) =>
+                    request.tenancy_id === tenancy.id
+                    || request.room_id === tenancy.roomId,
                 )}
                 meterNumber={tenancy.electricityMeter?.meterNumber}
+                powerState={tenancy.electricityMeter?.powerState}
                 propertyName={tenancy.propertyName}
+                provider={tenancy.electricityMeter?.provider}
+                remainingCredit={tenancy.electricityMeter?.remainingCredit}
                 remainingUnits={tenancy.electricityMeter?.remainingUnits}
+                rmPerKwh={resolveElectricityRmPerKwh(tenancy.electricityMeter?.rate)}
                 roomName={tenancy.roomName}
                 tenancyId={tenancy.id}
+                totalUnits={tenancy.electricityMeter?.totalUnits}
                 unitLabel={tenancy.electricityMeter?.unitLabel}
               />
             ))}
