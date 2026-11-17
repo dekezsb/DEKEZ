@@ -23,6 +23,7 @@ const {
   hasElectricityTopUpAccess,
   isTTLockElectricityMeter,
   isValidElectricityTopUpAmount,
+  formatKwhEstimate,
   kwhEstimateForTopUp,
 } = require('../lib/smart-meter/top-up-access.ts');
 
@@ -65,8 +66,17 @@ test('kWh estimate uses RM0.57 unless a meter rate is supplied', () => {
   assert.equal(DEFAULT_ELECTRICITY_RM_PER_KWH, 0.57);
   assert.equal(kwhEstimateForTopUp(57, 0.57), 100);
   assert.equal(kwhEstimateForTopUp(50, 0.57), 87.719);
+  assert.equal(formatKwhEstimate(kwhEstimateForTopUp(50, 0.57)), '87.72');
   assert.match(uiSource, /Estimated credit/);
-  assert.match(uiSource, /money\.format\(rmPerKwh\)/);
+  assert.match(uiSource, /formatKwhEstimate\(estimatedKwh\)/);
+});
+
+test('tenant portal top-up box does not show the per-kWh rate', () => {
+  assert.doesNotMatch(uiSource, /money\.format\(rmPerKwh\)/);
+  assert.doesNotMatch(uiSource, /per kWh/);
+  assert.doesNotMatch(uiSource, /\/kWh/);
+  assert.doesNotMatch(uiSource, /0\.57/);
+  assert.match(portalSource, /rmPerKwh=\{resolveElectricityRmPerKwh/);
 });
 
 test('history statuses are shown as pending, verified, or rejected', () => {

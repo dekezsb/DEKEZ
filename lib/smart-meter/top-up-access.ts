@@ -60,6 +60,15 @@ export function kwhEstimateForTopUp(
   return Math.round((amount / rmPerKwh) * 1000) / 1000;
 }
 
+/** Tenant-facing kWh estimate, rounded to 2 decimals. */
+export function formatKwhEstimate(kwh: number | null) {
+  if (kwh == null) return null;
+  return kwh.toLocaleString("en-MY", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function electricityTopUpStatusLabel(status: string) {
   switch (status) {
     case "pending_verification":

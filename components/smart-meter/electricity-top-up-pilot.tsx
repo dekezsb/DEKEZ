@@ -26,6 +26,7 @@ import {
   ELECTRICITY_TOP_UP_MIN_AMOUNT,
   electricityTopUpStatusLabel,
   isValidElectricityTopUpAmount,
+  formatKwhEstimate,
   kwhEstimateForTopUp,
 } from "@/lib/smart-meter/top-up-access";
 
@@ -249,10 +250,7 @@ export function ElectricityTopUpPilot({
 
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               <p className="font-semibold">
-                Estimated credit: {estimatedKwh == null ? "Enter an amount" : `${estimatedKwh} kWh`}
-              </p>
-              <p className="mt-1 text-xs text-amber-800">
-                Calculated at {money.format(rmPerKwh)} per kWh.
+                Estimated credit: {estimatedKwh == null ? "Enter an amount" : `${formatKwhEstimate(estimatedKwh)} kWh`}
               </p>
             </div>
 
@@ -290,7 +288,7 @@ export function ElectricityTopUpPilot({
                 <ReviewRow label="Top-up amount" value={money.format(amount)} strong />
                 <ReviewRow
                   label="Estimated kWh"
-                  value={estimatedKwh == null ? "—" : `${estimatedKwh} kWh at ${money.format(rmPerKwh)}/kWh`}
+                  value={estimatedKwh == null ? "—" : `${formatKwhEstimate(estimatedKwh)} kWh`}
                 />
               </dl>
             </div>
