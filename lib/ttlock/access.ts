@@ -178,6 +178,43 @@ async function storedOrFetchedPasscodeVersion(device: SmartLockRow): Promise<num
   return readKeyboardPwdVersion(detail) ?? 0;
 }
 
+
+async function recordFailedProvision(input: {
+  device: SmartLockRow;
+  tenancy: TenancyAccessRow;
+  tenantProfileId: string;
+  tenantName: string;
+  validFrom: Date;
+  validUntil: Date;
+  message: string;
+}) {
+  try {
+    const existing = await currentGrant(input.device.id, input.tenancy.id);
+    if (existing) return;
+    const now = new Date().toISOString();
+    const admin = createAdminClient();
+    await admin.from("smart_lock_access_grants").insert({
+      device_id: input.device.id,
+      company_id: input.tenancy.company_id,
+      property_id: input.tenancy.property_id,
+      room_id:
+        input.device.access_scope === "room_entry" ? input.tenancy.room_id : null,
+      tenancy_id: input.tenancy.id,
+      tenant_profile_id: input.tenantProfileId,
+      access_scope: input.device.access_scope,
+      keyboard_password: null,
+      passcode_name: passcodeName(input.tenantName, input.device.access_scope),
+      credential_state: "error",
+      valid_from: input.validFrom.toISOString(),
+      valid_until: input.validUntil.toISOString(),
+      last_error: input.message.slice(0, 500),
+      updated_at: now,
+    });
+  } catch {
+    // Keep the original provision error even if this audit row cannot be saved.
+  }
+}
+
 async function provisionDevice(input: {
   device: SmartLockRow;
   tenancy: TenancyAccessRow;
@@ -188,16 +225,32 @@ async function provisionDevice(input: {
 }) {
   const admin = createAdminClient();
   const lockId = Number(input.device.provider_lock_id);
+  let grantRecorded = false;
+
+  const fail = async (error: unknown): Promise<never> => {
+    if (!grantRecorded) {
+      await recordFailedProvision({
+        ...input,
+        message: providerError(error),
+      });
+    }
+    throw error instanceof Error ? error : new Error(providerError(error));
+  };
 
   if (!Number.isSafeInteger(lockId) || lockId <= 0) {
-    throw new Error(`${input.device.provider_lock_name} has no live TTLock ID.`);
+    await fail(new Error(`${input.device.provider_lock_name} has no live TTLock ID.`));
   }
-  const keyboardPasswordVersion = await storedOrFetchedPasscodeVersion(input.device);
+  let keyboardPasswordVersion = 0;
+  try {
+    keyboardPasswordVersion = await storedOrFetchedPasscodeVersion(input.device);
+  } catch (error) {
+    await fail(error);
+  }
   if (!input.device.has_gateway) {
-    throw new Error(`${input.device.provider_lock_name} has no connected gateway.`);
+    await fail(new Error(`${input.device.provider_lock_name} has no connected gateway.`));
   }
   if (keyboardPasswordVersion !== 4) {
-    throw new Error(`${input.device.provider_lock_name} does not support V4 passcodes.`);
+    await fail(new Error(`${input.device.provider_lock_name} does not support V4 passcodes.`));
   }
 
   const existing = await currentGrant(input.device.id, input.tenancy.id);
@@ -281,7 +334,11 @@ async function provisionDevice(input: {
     .select("id")
     .single();
 
-  if (grantError || !grant) throw grantError ?? new Error("Access grant could not be created.");
+  const grantId = grant?.id;
+  if (grantError || !grantId) {
+    await fail(grantError ?? new Error("Access grant could not be created."));
+  }
+  grantRecorded = true;
 
   let keyboardPwdId: number | null = null;
   try {
@@ -304,7 +361,7 @@ async function provisionDevice(input: {
         provider_status: { operation: "added_via_gateway", syncedAt: activatedAt },
         updated_at: activatedAt,
       })
-      .eq("id", grant.id);
+      .eq("id", grantId);
     if (error) throw error;
     return "created" as const;
   } catch (error) {
@@ -319,7 +376,7 @@ async function provisionDevice(input: {
         last_error: providerError(error),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", grant.id);
+      .eq("id", grantId);
     throw error;
   }
 }
