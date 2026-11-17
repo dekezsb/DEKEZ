@@ -85,6 +85,7 @@ type PageProps = {
     topup_approved?: string;
     topup_rejected?: string;
     topup_credited?: string;
+    topup_recharged?: string;
   }>;
 };
 
@@ -559,6 +560,8 @@ function StatusMessage({ params }: { params: Awaited<PageProps["searchParams"]> 
 
   const success = params.reviewed
     ? "Verification record updated."
+    : params.topup_recharged
+      ? "Payment verified and the mapped TTLock meter was recharged. The monthly invoice now shows the paid top-up."
     : params.topup_credited
       ? "Meter credit confirmed. Top Up Utilities income, the monthly invoice item and its audit receipt are now linked."
     : params.topup_approved
