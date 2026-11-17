@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
 import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
+import { dueDayForNewTenancy } from "@/lib/tenancy/due-day";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 
 type ConvertApplicationOptions = {
@@ -321,7 +322,7 @@ export async function convertTenantApplication(
       .eq("id", tenant.id);
   }
 
-  const dueDay = Number(application.proposed_start_date.slice(8, 10));
+  const dueDay = dueDayForNewTenancy(application.proposed_start_date);
   const { data: tenancy, error: tenancyError } = await supabase
     .from("tenancies")
     .insert({

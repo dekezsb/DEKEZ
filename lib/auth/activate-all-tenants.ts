@@ -3,6 +3,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeInternationalPhone } from "./phone";
 import { activateTenantAccount } from "./tenant-account";
+import { dueDayForNewTenancy } from "@/lib/tenancy/due-day";
 
 type TenantRecordRow = {
   id: string;
@@ -76,12 +77,6 @@ function identityKey(value: string | null) {
 function numberValue(value: number | string | null, fallback = 0) {
   const parsed = Number(value ?? fallback);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function validDueDay(value: number | null, startDate: string) {
-  if (value && value >= 1 && value <= 31) return value;
-  const startDay = Number(startDate.slice(8, 10));
-  return startDay >= 1 && startDay <= 31 ? startDay : 1;
 }
 
 function groupsOf<T>(items: T[], size: number) {
@@ -348,6 +343,8 @@ export async function activateAllTenantAccounts(
         }
       }
 
+      let createdTenancyForRecord = false;
+      let createdDueDay: number | undefined;
       if (!tenancy) {
         const startDate = record.contract_start ?? today;
         const endDate =
@@ -358,7 +355,8 @@ export async function activateAllTenantAccounts(
           record.monthly_rent,
           numberValue(room.monthly_rent),
         );
-        const dueDay = validDueDay(record.due_day, startDate);
+        const dueDay = dueDayForNewTenancy(startDate);
+        createdDueDay = dueDay;
         const { data: createdTenancy, error: tenancyCreateError } = await admin
           .from("tenancies")
           .insert({
@@ -394,6 +392,7 @@ export async function activateAllTenantAccounts(
         tenancy = createdTenancy as TenancyRow;
         tenancyById.set(tenancy.id, tenancy);
         activeTenancyByRoom.set(room.id, tenancy);
+        createdTenancyForRecord = true;
         result.tenanciesCreated += 1;
       }
 
@@ -406,6 +405,7 @@ export async function activateAllTenantAccounts(
           tenant_id: tenancy.tenant_id,
           tenancy_id: tenancy.id,
           phone: phone.e164,
+          ...(createdTenancyForRecord && createdDueDay ? { due_day: createdDueDay } : {}),
           updated_at: now,
         })
         .eq("id", record.id);
