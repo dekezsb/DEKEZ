@@ -33,7 +33,7 @@ export function RoomSmartDevicesCard({ devices }: { devices: RoomSmartDevices })
         </h3>
         {devices.meters.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
-            No smart meter is assigned to this room. If this property uses TTLock or CNYIOT meters,
+            No smart meter is assigned to this room. If this property uses TTLock meters,
             they appear here once linked on Smart Devices.
           </p>
         ) : (
