@@ -34,6 +34,7 @@ import {
   type PropertyOption,
   type RoomOption,
 } from "@/lib/ttlock/device-discovery";
+import { compareSmartLockDevices, compareSmartMeters, failedGrantsToShow } from "@/lib/ttlock/device-list-sort";
 import {
   assignTTLockDevice,
   assignTTLockMeter,
@@ -96,11 +97,13 @@ type SmartLockDevice = {
 
 type SmartLockAccessGrant = {
   id: string;
+  tenancy_id: string | null;
   access_scope: "property_entry" | "room_entry";
   keyboard_password: string | null;
   credential_state: string;
   valid_from: string;
   valid_until: string;
+  last_error: string | null;
   smart_lock_devices: Relation<{ id: string; provider_lock_name: string }>;
   tenancies: Relation<{ tenants: Relation<{ full_name: string }> }>;
   rooms: Relation<{ name: string | null; room_number: string | null }>;
@@ -225,9 +228,9 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     admin
       .from("smart_lock_access_grants")
       .select(
-        "id,access_scope,keyboard_password,credential_state,valid_from,valid_until,smart_lock_devices(id,provider_lock_name),tenancies(tenants(full_name)),rooms(name,room_number)",
+        "id,tenancy_id,access_scope,keyboard_password,credential_state,valid_from,valid_until,last_error,smart_lock_devices(id,provider_lock_name),tenancies(tenants(full_name)),rooms(name,room_number)",
       )
-      .eq("credential_state", "active")
+      .in("credential_state", ["active", "pending_generation", "revoke_pending", "error"])
       .order("valid_until"),
     admin
       .from("smart_lock_fingerprint_grants")
@@ -266,7 +269,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     ...device,
     properties: relatedOne(device.properties),
     rooms: relatedOne(device.rooms),
-  })).sort((left, right) => Number(isUnassignedLock(right)) - Number(isUnassignedLock(left)));
+  })).sort(compareSmartLockDevices);
   const accessGrants = (accessData ?? []) as unknown as SmartLockAccessGrant[];
   const accessGrantsByDeviceId = accessGrants.reduce<Record<string, SmartLockAccessGrant[]>>(
     (grouped, grant) => {
@@ -292,13 +295,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
       properties: relatedOne(meter.properties),
       rooms: relatedOne(meter.rooms),
     }))
-    .sort((left, right) =>
-      `${left.properties?.property_code ?? ""} ${left.rooms?.room_number ?? ""}`.localeCompare(
-        `${right.properties?.property_code ?? ""} ${right.rooms?.room_number ?? ""}`,
-        "en",
-        { numeric: true },
-      ),
-    );
+    .sort(compareSmartMeters);
   const activeTenancyByRoomId = new Map(
     activeTenancies.map((tenancy) => [tenancy.room_id, tenancy]),
   );
@@ -632,7 +629,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         <SummaryCard icon={Building2} label="Unassigned locks" value={String(unassignedLocks.length)} />
         <SummaryCard icon={Building2} label="Room locks assigned" value={`${assignedCount} / ${numberedRoomLockCount}`} />
         <SummaryCard icon={Router} label="Live connected" value={`${connectedCount} / ${devices.length}`} />
-        <SummaryCard icon={KeyRound} label="Active tenant credentials" value={String(accessGrants.length)} />
+        <SummaryCard icon={KeyRound} label="Active tenant credentials" value={String(accessGrants.filter((grant) => grant.credential_state === "active").length)} />
         <SummaryCard icon={Fingerprint} label="Fingerprint records" value={String(fingerprintGrants.length)} />
       </div>
 
@@ -689,7 +686,10 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           {visibleDevices.length ? (
             <div className="overflow-hidden rounded-lg border border-gray-200">
               {visibleDevices.map((device) => {
-                const lockAccess = accessGrantsByDeviceId[device.id] ?? [];
+                const lockAccess = (accessGrantsByDeviceId[device.id] ?? []).filter((grant) =>
+                  ["active", "pending_generation", "revoke_pending"].includes(grant.credential_state),
+                );
+                const failedAccess = failedGrantsToShow(accessGrantsByDeviceId[device.id] ?? []);
                 const lockFingerprints = fingerprintGrantsByDeviceId[device.id] ?? [];
                 const roomTenancy = device.room_id
                   ? activeTenancyByRoomId.get(device.room_id) ?? null
@@ -744,6 +744,8 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                             <Badge className="bg-emerald-100 text-emerald-800">
                               {lockAccess.length} code · {lockFingerprints.length} fingerprint
                             </Badge>
+                          ) : failedAccess.length ? (
+                            <Badge className="bg-red-100 text-red-800">Passcode failed</Badge>
                           ) : (
                             <span className="text-xs text-gray-500">No active access</span>
                           )}
@@ -856,6 +858,26 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                             This lock has no active tenant access.
                           </p>
                         )}
+                        {failedAccess.length ? (
+                          <div className="mt-4 rounded-lg border border-red-200 bg-red-50/70 p-4">
+                            <p className="text-sm font-semibold text-red-950">Failed passcode attempt</p>
+                            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                              {failedAccess.map((grant) => {
+                                const tenancy = relatedOne(grant.tenancies);
+                                const tenant = relatedOne(tenancy?.tenants ?? null);
+                                return (
+                                  <div className="rounded-md border border-red-100 bg-white p-3" key={grant.id}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="font-semibold text-gray-950">{tenant?.full_name ?? "Tenant"}</p>
+                                      <Badge className="bg-red-100 text-red-800">Failed</Badge>
+                                    </div>
+                                    <p className="mt-2 text-sm text-red-800">{grant.last_error || "The passcode could not be issued."}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
 
                         <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
