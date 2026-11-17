@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatMalaysiaDate } from "@/lib/date-format";
+import { dueDayFromStartDate } from "@/lib/tenancy/due-day";
 import {
   addDays,
   calculateTermEndDate,
@@ -298,7 +299,7 @@ function renderAgreement(
         ? `For this tenancy, the agreed Security Deposit remains RM ${agreementAmount(securityDeposit)} and the Utility Deposit remains RM ${agreementAmount(utilityDeposit)}, totalling RM ${agreementAmount(totalDeposit)}. No deposit top-up is required for the current agreed rent.`
         : `For this commercial office tenancy, the Security Deposit is fixed at two (2) months of Monthly Rent and the Utility Deposit is fixed at one-half (0.5) month of Monthly Rent. The total commercial deposit required is RM ${agreementAmount(totalDeposit)}.`
       : "The deposit amounts applicable to this tenancy are the amounts stated above.",
-    rent_due_day: context.rent_due_day ?? new Date(`${startDate}T00:00:00Z`).getUTCDate(),
+    rent_due_day: context.rent_due_day ?? dueDayFromStartDate(startDate),
     tenancy_start_date: formatMalaysiaDate(startDate),
     tenancy_end_date: formatMalaysiaDate(endDate),
     contract_duration_months: durationMonths,
