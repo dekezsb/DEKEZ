@@ -24,7 +24,17 @@ import { requireRole } from "@/lib/auth/session";
 import { getCnyiotConfigStatus } from "@/lib/cnyiot/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTTLockConfigStatus } from "@/lib/ttlock/client";
+import { AssignLocationForm } from "@/components/smart-devices/assign-location-form";
 import {
+  isUnassignedLock,
+  isUnassignedMeter,
+  suggestAssignmentFromAlias,
+  type PropertyOption,
+  type RoomOption,
+} from "@/lib/ttlock/device-discovery";
+import {
+  assignTTLockDevice,
+  assignTTLockMeter,
   provisionTTLockAccess,
   sendFingerprintEnrollmentInvite,
   syncTTLockFingerprintEnrollments,
@@ -50,7 +60,11 @@ type SmartDevicesPageProps = {
     fingerprintSkipped?: string;
     lockPage?: string;
     lockSearch?: string;
+    metersDiscovered?: string;
+    metersSynced?: string;
     synced?: string;
+    discovered?: string;
+    assigned?: string;
   }>;
 };
 
@@ -112,19 +126,21 @@ type ActiveLockTenancy = {
 
 type SmartMeterDevice = {
   id: string;
-  property_id: string;
-  room_id: string;
+  property_id: string | null;
+  room_id: string | null;
   provider: string;
   provider_meter_id: string | null;
   meter_number: string;
   rate: number;
   remaining_units: number;
+  total_units: number | null;
   unit_label: string;
   connection_status: "online" | "offline" | "unknown";
   power_state: "on" | "off" | "unknown";
   last_reported_at: string | null;
   last_synced_at: string | null;
   last_sync_error: string | null;
+  provider_metadata: { name?: string | null; number?: string | null } | null;
   properties: Relation<{ name: string; property_code: string | null }>;
   rooms: Relation<{ name: string | null; room_number: string | null }>;
 };
@@ -139,6 +155,7 @@ const statusLabels: Record<string, string> = {
   offline: "Offline",
   error: "Sync needs attention",
   retired: "Retired",
+  unassigned: "Unassigned",
 };
 
 const numberedRoomLockPattern = /\boffice\s+\d+\b/i;
@@ -146,6 +163,7 @@ const numberedRoomLockPattern = /\boffice\s+\d+\b/i;
 function statusClass(status: string) {
   if (status === "connected") return "bg-emerald-100 text-emerald-800";
   if (status === "error" || status === "offline") return "bg-red-100 text-red-700";
+  if (status === "unassigned") return "bg-amber-100 text-amber-900";
   return "bg-amber-100 text-amber-800";
 }
 
@@ -178,6 +196,8 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     { data: fingerprintData, error: fingerprintError },
     { data: tenancyData, error: tenancyError },
     { data: meterData, error: meterError },
+    { data: propertyData, error: propertyError },
+    { data: roomData, error: roomError },
     params,
   ] = await Promise.all([
     admin
@@ -218,10 +238,12 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     admin
       .from("smart_meters")
       .select(
-        "id,property_id,room_id,provider,provider_meter_id,meter_number,rate,remaining_units,unit_label,connection_status,power_state,last_reported_at,last_synced_at,last_sync_error,properties(name,property_code),rooms(name,room_number)",
+        "id,property_id,room_id,provider,provider_meter_id,meter_number,rate,remaining_units,total_units,unit_label,provider_metadata,connection_status,power_state,last_reported_at,last_synced_at,last_sync_error,properties(name,property_code),rooms(name,room_number)",
       )
       .eq("meter_type", "electricity")
       .eq("status", "active"),
+    admin.from("properties").select("id,name,property_code").order("name"),
+    admin.from("rooms").select("id,property_id,name,room_number").order("room_number"),
     searchParams,
   ]);
 
@@ -229,7 +251,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     ...device,
     properties: relatedOne(device.properties),
     rooms: relatedOne(device.rooms),
-  }));
+  })).sort((left, right) => Number(isUnassignedLock(right)) - Number(isUnassignedLock(left)));
   const accessGrants = (accessData ?? []) as unknown as SmartLockAccessGrant[];
   const accessGrantsByDeviceId = accessGrants.reduce<Record<string, SmartLockAccessGrant[]>>(
     (grouped, grant) => {
@@ -264,6 +286,31 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     );
   const activeTenancyByRoomId = new Map(
     activeTenancies.map((tenancy) => [tenancy.room_id, tenancy]),
+  );
+  const assignmentProperties = (propertyData ?? []) as PropertyOption[];
+  const assignmentRooms = (roomData ?? []) as RoomOption[];
+  const unassignedLocks = devices.filter((device) => isUnassignedLock(device));
+  const unassignedMeters = smartMeters.filter((meter) => isUnassignedMeter(meter));
+  const lockSuggestionById = new Map(
+    devices.map((device) => [
+      device.id,
+      suggestAssignmentFromAlias(
+        device.provider_lock_name,
+        assignmentProperties,
+        assignmentRooms,
+        { allowMainDoor: true },
+      ),
+    ]),
+  );
+  const meterSuggestionById = new Map(
+    smartMeters.map((meter) => [
+      meter.id,
+      suggestAssignmentFromAlias(
+        meter.provider_metadata?.name || meter.meter_number,
+        assignmentProperties,
+        assignmentRooms,
+      ),
+    ]),
   );
   const lockSearchText = (params.lockSearch ?? "").trim();
   const lockSearch = lockSearchText.toLocaleLowerCase("en");
@@ -305,7 +352,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
   const numberedRoomLockCount = devices.filter((device) => numberedRoomLockPattern.test(device.provider_lock_name)).length;
-  const errorMessage = error || accessError || fingerprintError || tenancyError || meterError
+  const errorMessage = error || accessError || fingerprintError || tenancyError || meterError || propertyError || roomError
     ? "Smart-device records could not be loaded."
     : params.error === "credentials"
       ? "TTLock has not released or configured the API credentials yet."
@@ -315,6 +362,8 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           ? "Current tenant access could not be prepared. No existing passcode was changed."
           : params.error === "revoke"
             ? "A TTLock passcode could not be revoked. The access record remains flagged for attention."
+        : params.error === "assign"
+          ? "That lock or meter could not be assigned. Check the property and room, then try again."
         : null;
   const accessAttempted =
     params.accessCreated !== undefined ||
@@ -337,7 +386,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         <div className="flex flex-wrap gap-2">
           <form action={syncTTLockDevices}>
             <Button disabled={!config.complete} type="submit" variant="outline">
-              <RefreshCw className="h-4 w-4" /> Sync installed locks
+              <RefreshCw className="h-4 w-4" /> Sync TTLock locks and meters
             </Button>
           </form>
           <form action={provisionTTLockAccess}>
@@ -359,10 +408,18 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <p>{errorMessage}</p>
         </div>
       ) : null}
-      {params.synced ? (
+      {params.synced || params.discovered || params.metersSynced || params.metersDiscovered ? (
         <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-          <p>{params.synced} installed lock(s) synchronized successfully.</p>
+          <p>
+            TTLock sync finished: {params.synced ?? "0"} lock(s) updated, {params.discovered ?? "0"} new unassigned lock(s), {params.metersSynced ?? "0"} meter(s) updated, and {params.metersDiscovered ?? "0"} new unassigned meter(s). Confirm any suggested room before the device is used.
+          </p>
+        </div>
+      ) : null}
+      {params.assigned ? (
+        <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+          <p>The {params.assigned === "meter" ? "meter" : "lock"} is now assigned.</p>
         </div>
       ) : null}
       {params.fingerprintError ? (
@@ -416,10 +473,10 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-[#b47d17]" /> Hilltop electricity meters
+              <Zap className="h-5 w-5 text-[#b47d17]" /> Electricity meters
             </CardTitle>
             <p className="mt-1 text-sm text-gray-500">
-              Verified CNYIOT inventory mapped directly to HLT Room 1–9.
+              CNYIOT and TTLock prepaid meters. New TTLock meters stay unassigned until a Super Admin confirms the room.
             </p>
           </div>
           <Badge>{smartMeters.length} devices</Badge>
@@ -452,12 +509,44 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             <MeterSummary icon={Zap} label="Electricity rate" value="RM 0.57 / kWh" />
           </div>
 
+          {unassignedMeters.length ? (
+            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/70 p-4">
+              <p className="text-sm font-semibold text-amber-950">
+                {unassignedMeters.length} unassigned TTLock meter(s). Confirm the suggested room before top-ups can use them.
+              </p>
+              {unassignedMeters.map((meter) => (
+                <div className="rounded-md border border-amber-200 bg-white p-3" key={meter.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-gray-950">
+                      {meter.provider_metadata?.name || meter.meter_number}
+                    </p>
+                    <Badge className={statusClass("unassigned")}>Unassigned</Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Remaining {Number(meter.remaining_units).toFixed(2)} {meter.unit_label}
+                    {meter.total_units != null ? ` · Total usage ${Number(meter.total_units).toFixed(2)} ${meter.unit_label}` : ""}
+                    {` · ${meter.connection_status}`}
+                  </p>
+                  <AssignLocationForm
+                    action={assignTTLockMeter}
+                    deviceId={meter.id}
+                    properties={assignmentProperties}
+                    rooms={assignmentRooms}
+                    suggestion={meterSuggestionById.get(meter.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div className="overflow-x-auto rounded-lg border border-gray-200">
             <table className="w-full min-w-[780px] text-left text-sm">
               <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-4 py-3">Room</th>
                   <th className="px-4 py-3">Meter</th>
+                  <th className="px-4 py-3">Provider</th>
+                  <th className="px-4 py-3">Total usage</th>
                   <th className="px-4 py-3">Remaining</th>
                   <th className="px-4 py-3">Connection</th>
                   <th className="px-4 py-3">Power</th>
@@ -472,7 +561,11 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                       {meter.properties?.property_code ?? "-"} · {meter.rooms?.room_number ?? "Unassigned"}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                      {meter.provider_meter_id ?? meter.meter_number}
+                      {meter.provider_metadata?.name || meter.provider_meter_id || meter.meter_number}
+                    </td>
+                    <td className="px-4 py-3 uppercase text-xs text-gray-600">{meter.provider}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-950">
+                      {meter.total_units == null ? "—" : `${Number(meter.total_units).toFixed(2)} ${meter.unit_label}`}
                     </td>
                     <td className="px-4 py-3 font-semibold text-gray-950">
                       {Number(meter.remaining_units).toFixed(2)} {meter.unit_label}
@@ -489,9 +582,13 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                     </td>
                     <td className="px-4 py-3 text-gray-600">{dateTimeLabel(meter.last_reported_at)}</td>
                     <td className="px-4 py-3 text-right">
-                      <Link className="font-medium text-[#9b6c14] hover:underline" href={`/properties/${meter.property_id}/rooms/${meter.room_id}`}>
-                        Open room
-                      </Link>
+                      {meter.property_id && meter.room_id ? (
+                        <Link className="font-medium text-[#9b6c14] hover:underline" href={`/properties/${meter.property_id}/rooms/${meter.room_id}`}>
+                          Open room
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-amber-800">Unassigned</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -501,9 +598,10 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
         <SummaryCard icon={Link2} label="TTLock integration" value={config.complete ? "Ready to sync" : "Under review"} />
         <SummaryCard icon={LockKeyhole} label="Installed locks" value={String(devices.length)} />
+        <SummaryCard icon={Building2} label="Unassigned locks" value={String(unassignedLocks.length)} />
         <SummaryCard icon={Building2} label="Room locks assigned" value={`${assignedCount} / ${numberedRoomLockCount}`} />
         <SummaryCard icon={Router} label="Live connected" value={`${connectedCount} / ${devices.length}`} />
         <SummaryCard icon={KeyRound} label="Active tenant credentials" value={String(accessGrants.length)} />
@@ -602,8 +700,8 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge className={statusClass(device.sync_status)}>
-                            {statusLabels[device.sync_status] ?? device.sync_status}
+                          <Badge className={statusClass(isUnassignedLock(device) ? "unassigned" : device.sync_status)}>
+                            {isUnassignedLock(device) ? "Unassigned" : (statusLabels[device.sync_status] ?? device.sync_status)}
                           </Badge>
                           <span className="inline-flex items-center gap-1 text-sm font-semibold text-gray-800">
                             <BatteryCharging className="h-4 w-4 text-emerald-600" />
@@ -654,6 +752,16 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                             {device.last_sync_error ? <p className="mt-1 text-xs text-red-600">{device.last_sync_error}</p> : null}
                           </div>
                         </div>
+                        {isUnassignedLock(device) ? (
+                          <AssignLocationForm
+                            action={assignTTLockDevice}
+                            allowMainDoor
+                            deviceId={device.id}
+                            properties={assignmentProperties}
+                            rooms={assignmentRooms}
+                            suggestion={lockSuggestionById.get(device.id)}
+                          />
+                        ) : null}
 
                         {lockAccess.length ? (
                           <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">

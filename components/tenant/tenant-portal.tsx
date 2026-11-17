@@ -671,6 +671,18 @@ export function TenantBills({
                       {money(bill.depositAmount)}
                     </p>
                   ) : null}
+                  {bill.lineItems?.length ? (
+                    <ul className="mt-2 space-y-1 text-sm text-gray-600">
+                      {bill.lineItems.map((item) => (
+                        <li key={item.id}>
+                          {item.description}
+                          {": "}
+                          {money(item.amount)}
+                          {item.alreadyPaid ? " (paid)" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {bill.verifiedReceipts.length ? (
                     <div className="mt-3">
                       <p className="text-xs font-semibold uppercase text-emerald-700">

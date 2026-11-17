@@ -123,6 +123,7 @@ function manualReminderAction(authorize) {
     '@/lib/supabase/admin': { createAdminClient: forbidden },
     '@/lib/supabase/server': { createClient: forbidden },
     '@/lib/ttlock/fingerprint': { extendFingerprintAccessAfterPayment: forbidden },
+    '@/lib/ttlock/payment-access': { extendDoorAccessAfterPayment: async () => ({ errors: [] }) },
     '@/lib/whatsapp/config': { normalizePhoneNumber: forbidden },
     '@/lib/whatsapp/meta': { sendWhatsAppText: forbidden, sendWhatsAppTemplate: forbidden },
   })('app/rent-due-tracker/actions.ts').sendRentReminder;

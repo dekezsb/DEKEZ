@@ -23,7 +23,7 @@ Module._load = function(request, ...args) {
   if (request === '@/lib/supabase/admin') return { createAdminClient: () => db };
   if (request === '@/lib/supabase/server') return { createClient: async () => db };
   if (request === '@/lib/invoices/deposit-payments') return { getVerifiedDepositPaymentMaps: async () => ({}), verifiedDepositPaid: () => 0 };
-  if (['@/lib/tenancy/agreement', '@/lib/tenancy/convert-application', '@/lib/ttlock/fingerprint'].includes(request)) return {};
+  if (['@/lib/tenancy/agreement', '@/lib/tenancy/convert-application', '@/lib/ttlock/fingerprint', '@/lib/ttlock/payment-access', '@/lib/ttlock/passcode-payment'].includes(request)) return { extendDoorAccessAfterPayment: async () => ({ errors: [] }) };
   return load.call(this, request, ...args);
 };
 for (const ext of ['.ts', '.tsx']) Module._extensions[ext] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), {

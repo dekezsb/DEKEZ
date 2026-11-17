@@ -5,6 +5,11 @@ import {
   verifiedDepositPaid,
 } from "@/lib/invoices/deposit-payments";
 import { tenantInvoiceVisibilityCutoffDate } from "@/lib/billing/tenant-invoice-visibility";
+import {
+  attachPrepaidElectricityTopUps,
+  invoiceTotalsWithPrepaidTopUps,
+  type VerifiedElectricityTopUp,
+} from "@/lib/billing/electricity-top-up-bill-lines";
 
 type BillRow = {
   id: string;
@@ -85,6 +90,8 @@ export type RentalInvoiceLineItem = {
   category: string;
   description: string;
   amount: number;
+  alreadyPaid?: boolean;
+  smartMeterTopUpRequestId?: string | null;
 };
 
 export type RentalInvoiceView = {
@@ -333,7 +340,7 @@ async function hydrateInvoices(
     ),
   ];
 
-  const [propertiesResult, roomsResult, tenanciesResult, recordsResult, lineItemsResult] =
+  const [propertiesResult, roomsResult, tenanciesResult, recordsResult, lineItemsResult, topUpsResult] =
     await Promise.all([
       supabase
         .from("properties")
@@ -359,12 +366,26 @@ async function hydrateInvoices(
         : Promise.resolve({ data: [], error: null }),
       supabase
         .from("rental_invoice_line_items")
-        .select("id, rent_bill_id, category, description, amount, created_at")
+        .select("id, rent_bill_id, category, description, amount, created_at, smart_meter_top_up_request_id")
         .in(
           "rent_bill_id",
           bills.map((bill) => bill.id),
         )
         .order("created_at", { ascending: true }),
+      tenancyIds.length || bills.length
+        ? supabase
+            .from("smart_meter_top_up_requests")
+            .select("id, tenancy_id, rent_bill_id, bill_month, amount, status")
+            .in("status", ["approved_awaiting_top_up", "credited"])
+            .or(
+              [
+                bills.length ? `rent_bill_id.in.(${bills.map((bill) => bill.id).join(",")})` : "",
+                tenancyIds.length ? `tenancy_id.in.(${tenancyIds.join(",")})` : "",
+              ]
+                .filter(Boolean)
+                .join(","),
+            )
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
   const tenancies = (tenanciesResult.data ?? []) as InvoiceTenancy[];
@@ -417,9 +438,12 @@ async function hydrateInvoices(
       category: item.category,
       description: item.description,
       amount: numberValue(item.amount),
+      smartMeterTopUpRequestId: item.smart_meter_top_up_request_id ?? null,
     });
     lineItemsByBill.set(item.rent_bill_id, lineItems);
   }
+
+  const verifiedTopUps = (topUpsResult.data ?? []) as VerifiedElectricityTopUp[];
 
   const invoices = bills.map((bill) => {
     const property = propertyById.get(bill.property_id);
@@ -445,24 +469,32 @@ async function hydrateInvoices(
       tenantRecordId: bill.tenant_record_id,
       depositAmount,
     });
-    const lineItems = lineItemsByBill.get(bill.id) ?? [];
-    const extraChargeAmount = lineItems.reduce(
-      (total, item) => total + item.amount,
-      0,
-    );
-    const invoiceTotal = amount + depositAmount + extraChargeAmount;
-    const invoicePaidAmount = Math.min(
-      paidAmount + depositPaidAmount,
-      invoiceTotal,
-    );
-    const outstanding = ["cancelled", "waived"].includes(bill.status)
-      ? 0
-      : Math.max(invoiceTotal - invoicePaidAmount, 0);
+    const attached = attachPrepaidElectricityTopUps({
+      bill: {
+        id: bill.id,
+        tenancy_id: bill.tenancy_id,
+        bill_month: bill.bill_month,
+      },
+      lineItems: lineItemsByBill.get(bill.id) ?? [],
+      topUps: verifiedTopUps,
+    });
+    const lineItems = attached.lineItems;
+    const { extraChargeAmount, invoiceTotal, invoicePaidAmount, outstanding } =
+      invoiceTotalsWithPrepaidTopUps({
+        amount,
+        depositAmount,
+        paidAmount,
+        depositPaidAmount,
+        lineItems,
+        prepaidAddedAmount: attached.prepaidAddedAmount,
+        cancelled: ["cancelled", "waived"].includes(bill.status),
+      });
+    const collectedPaid = paidAmount + depositPaidAmount;
     const invoiceStatus = ["cancelled", "waived"].includes(bill.status)
       ? bill.status
       : outstanding <= 0.005
         ? "paid"
-        : invoicePaidAmount > 0
+        : collectedPaid > 0
           ? "partial"
           : bill.status;
     const receipts = receiptsByBill.get(bill.id) ?? [];

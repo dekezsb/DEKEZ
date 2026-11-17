@@ -279,3 +279,75 @@ export async function deleteTTLockFingerprint(input: {
     },
   );
 }
+
+export type TTLockElectricMeter = {
+  electricMeterId: number;
+  name?: string;
+  number?: string;
+  online?: number;
+  rssi?: number;
+  onOff?: number;
+  payMode?: number;
+  totalKwh?: string;
+  remainderKwh?: string;
+  price?: string;
+  groupId?: number;
+  groupName?: string;
+};
+
+type TTLockElectricMeterListResponse = {
+  list?: TTLockElectricMeter[];
+  total?: number;
+  errcode?: number;
+  errmsg?: string;
+};
+
+/**
+ * Official Sciener/TTLock cloud APIs (same paths on api.sciener.com,
+ * euapi.ttlock.com and euapi.sciener.com; this client uses TTLOCK_API_BASE_URL
+ * or https://api.sciener.com):
+ *   POST /v3/electricMeter/list
+ *   POST /v3/electricMeter/detail
+ *   POST /v3/electricMeter/syncState
+ *   POST /v3/electricMeter/recharge        (admin prepaid top-up)
+ *   POST /v3/electricMeter/controlOnOff
+ *   POST /v3/electricMeter/listOperationRecords
+ *   POST /v3/electricMeter/add
+ *   POST /v3/electricMeter/rename
+ *   POST /v3/electricMeter/updatePrice
+ *   POST /v3/electricMeter/updatePayMode
+ *   POST /v3/electricMeterUser/recharge
+ *   POST /v3/electricMeterUser/listRecharge
+ */
+export async function listTTLockElectricMeters() {
+  const payload = await authenticatedPost<TTLockElectricMeterListResponse>(
+    "/v3/electricMeter/list",
+    {
+      pageNo: "1",
+      pageSize: "1000",
+    },
+  );
+  return payload.list ?? [];
+}
+
+export async function rechargeTTLockElectricMeter(input: {
+  electricMeterId: string | number;
+  rechargeAmount: number;
+  rechargeKwh: number;
+}) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/electricMeter/recharge",
+    {
+      electricMeterId: String(input.electricMeterId),
+      rechargeAmount: input.rechargeAmount.toFixed(2),
+      rechargeKwh: input.rechargeKwh.toFixed(3),
+    },
+  );
+}
+
+export async function syncTTLockElectricMeterState(electricMeterId: string | number) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/electricMeter/syncState",
+    { electricMeterId: String(electricMeterId) },
+  );
+}
