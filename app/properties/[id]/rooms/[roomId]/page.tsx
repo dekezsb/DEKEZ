@@ -1,5 +1,5 @@
 import { Link } from "@/components/app-link";
-import { ChevronRight, FileText, Gauge, Phone, Power, UserRound, Wifi } from "lucide-react";
+import { ChevronRight, FileText, Phone, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,8 @@ import { PaymentHistory } from "@/components/tenant/payment-history";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { getRoomDetails } from "@/lib/data/property-details";
+import { getRoomSmartDevices } from "@/lib/data/room-smart-devices";
+import { RoomSmartDevicesCard } from "./room-smart-devices";
 import { statusBadgeClass } from "@/lib/status-styles";
 import {
   activateTenantPortalAccess,
@@ -86,9 +88,12 @@ export default async function RoomDetailsPage({
   const role = await requireRole(["super_admin", "owner", "admin"]);
   const canManage = role === "super_admin" || role === "admin";
   const [{ id, roomId }, query] = await Promise.all([params, searchParams]);
-  const details = await getRoomDetails(id, roomId, {
-    includeSensitiveDocuments: canManage,
-  });
+  const [details, smartDevices] = await Promise.all([
+    getRoomDetails(id, roomId, {
+      includeSensitiveDocuments: canManage,
+    }),
+    getRoomSmartDevices(id, roomId),
+  ]);
   const { property, room } = details;
   const { data: reservation } = canManage && room.status === "reserved" && !room.tenantName
     ? await createAdminClient().from("tenant_applications").select("id, full_name")
@@ -310,90 +315,9 @@ export default async function RoomDetailsPage({
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Gauge className="h-5 w-5 text-[#126b5f]" />
-            <CardTitle>Tenant Smart Meter Usage</CardTitle>
-          </div>
-          <CardDescription>
-            Individual room consumption and top-ups. These readings are separate from the property utility bills paid by DEKEZ.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {details.smartMeters.length ? (
-            <div className="space-y-5">
-              {details.smartMeters.map((meter) => (
-                <div className="rounded-md border border-[#d7dde5]" key={meter.id}>
-                  <div className="flex flex-col justify-between gap-3 border-b border-[#e5e9ef] p-4 sm:flex-row sm:items-center">
-                    <div>
-                      <p className="font-semibold text-gray-950">
-                        {meter.meter_type === "electricity" ? "Electricity" : "Water"} Meter
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Room {room.roomNumber} · Meter {meter.provider_meter_id ?? meter.meter_number}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Gauge className="h-4 w-4 text-[#126b5f]" />
-                      <span className="text-sm font-medium">
-                        Remaining {Number(meter.remaining_units ?? 0).toFixed(2)} {meter.unit_label ?? "kWh"}
-                      </span>
-                      <Badge className={meter.connection_status === "online" ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-700"}>
-                        <Wifi className="mr-1 h-3 w-3" /> {meter.connection_status ?? "unknown"}
-                      </Badge>
-                      <Badge className={meter.power_state === "on" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}>
-                        <Power className="mr-1 h-3 w-3" /> {meter.power_state ?? "unknown"}
-                      </Badge>
-                      <Badge className={statusBadgeClass(meter.status)}>{meter.status}</Badge>
-                    </div>
-                  </div>
-                  {meter.readings.length ? (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Billing Month</TableHead>
-                            <TableHead>Reading Date</TableHead>
-                            <TableHead>Previous</TableHead>
-                            <TableHead>Current</TableHead>
-                            <TableHead>Usage</TableHead>
-                            <TableHead>Rate</TableHead>
-                            <TableHead>Charge</TableHead>
-                            <TableHead>Top-up</TableHead>
-                            <TableHead>Remaining Credit</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {meter.readings.map((reading) => (
-                            <TableRow key={reading.id}>
-                              <TableCell>{reading.billing_month}</TableCell>
-                              <TableCell>{reading.reading_date}</TableCell>
-                              <TableCell>{Number(reading.previous_reading ?? 0).toFixed(2)}</TableCell>
-                              <TableCell>{Number(reading.current_reading ?? 0).toFixed(2)}</TableCell>
-                              <TableCell>{Number(reading.usage ?? 0).toFixed(2)}</TableCell>
-                              <TableCell>{money.format(Number(reading.rate ?? meter.rate ?? 0))}</TableCell>
-                              <TableCell>{money.format(Number(reading.charge_amount ?? 0))}</TableCell>
-                              <TableCell>{money.format(Number(reading.top_up_amount ?? 0))}</TableCell>
-                              <TableCell>{money.format(Number(reading.remaining_credit ?? 0))}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <p className="p-4 text-sm text-gray-500">No smart-meter readings recorded yet.</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">No smart meter is assigned to this room.</p>
-          )}
-        </CardContent>
-      </Card>
+      <RoomSmartDevicesCard devices={smartDevices} />
 
-      {room.tenantName && canManage ? (
+            {room.tenantName && canManage ? (
         <Card className="border-red-200">
           <CardHeader>
             <CardTitle className="text-base text-red-700">Check Out</CardTitle>
