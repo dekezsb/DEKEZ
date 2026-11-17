@@ -26,7 +26,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { createRentChangeAgreement } from "@/lib/tenancy/agreement";
 import { convertTenantApplication } from "@/lib/tenancy/convert-application";
-import { extendFingerprintAccessAfterPayment } from "@/lib/ttlock/fingerprint";
+import { extendDoorAccessAfterPayment } from "@/lib/ttlock/payment-access";
 
 function textValue(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -581,17 +581,18 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
     }
 
     if (effectivePaymentType === "monthly_rent" && effectiveTenancyId) {
-      await extendFingerprintAccessAfterPayment({
+      const accessResult = await extendDoorAccessAfterPayment({
         tenancyId: effectiveTenancyId,
         paymentSubmissionId: currentSubmission.id,
         performedBy: user.id,
-      }).catch((fingerprintError) => {
-        console.error("Booking payment could not update TTLock fingerprint access.", {
+      });
+      if (accessResult.errors.length) {
+        console.error("Booking payment could not update TTLock door access.", {
           tenancyId: effectiveTenancyId,
           paymentSubmissionId: currentSubmission.id,
-          error: fingerprintError,
+          errors: accessResult.errors,
         });
-      });
+      }
     }
 
     for (const path of [
@@ -623,7 +624,18 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
     });
     if (folderError) finish(returnTo, bankReferenceResult(folderError.message, "error=review"));
     if (effectiveTenancyId && effectivePaymentType === "monthly_rent") {
-      await extendFingerprintAccessAfterPayment({ tenancyId: effectiveTenancyId, paymentSubmissionId: currentSubmission.id, performedBy: user.id }).catch(() => null);
+      const accessResult = await extendDoorAccessAfterPayment({
+        tenancyId: effectiveTenancyId,
+        paymentSubmissionId: currentSubmission.id,
+        performedBy: user.id,
+      });
+      if (accessResult.errors.length) {
+        console.error("Folder payment could not update TTLock door access.", {
+          tenancyId: effectiveTenancyId,
+          paymentSubmissionId: currentSubmission.id,
+          errors: accessResult.errors,
+        });
+      }
     }
     for (const path of ["/verification", "/payment-verification", "/rent-due-tracker", "/dashboard", "/payments"]) revalidatePath(path);
     finish(returnTo, "reviewed=1");
@@ -1126,22 +1138,15 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
     }
 
     if (rentBillId) {
-      const fingerprintResult = await extendFingerprintAccessAfterPayment({
+      const accessResult = await extendDoorAccessAfterPayment({
         tenancyId: tenancy.id,
         paymentSubmissionId: submission.id,
         performedBy: user.id,
-      }).catch((fingerprintError) => {
-        console.error("Verified payment could not update TTLock fingerprint access.", {
-          tenancyId: tenancy.id,
-          paymentSubmissionId: submission.id,
-          error: fingerprintError,
-        });
-        return null;
       });
-      if (fingerprintResult?.errors.length) {
-        console.error("Some TTLock fingerprint credentials need attention.", {
+      if (accessResult.errors.length) {
+        console.error("Some TTLock door credentials need attention.", {
           tenancyId: tenancy.id,
-          errors: fingerprintResult.errors,
+          errors: accessResult.errors,
         });
       }
     }

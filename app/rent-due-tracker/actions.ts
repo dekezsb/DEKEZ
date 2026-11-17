@@ -19,7 +19,7 @@ import {
 } from "@/lib/payments/payment-purpose";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { extendFingerprintAccessAfterPayment } from "@/lib/ttlock/fingerprint";
+import { extendDoorAccessAfterPayment } from "@/lib/ttlock/payment-access";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 
 function textValue(formData: FormData, key: string) {
@@ -827,24 +827,17 @@ export async function verifyRentSubmission(formData: FormData) {
     reason: submission.reference_number || "Tenant payment proof verified",
   });
 
-  const fingerprintResult = bill.tenancy_id
-    ? await extendFingerprintAccessAfterPayment({
+  const accessResult = bill.tenancy_id
+    ? await extendDoorAccessAfterPayment({
         tenancyId: bill.tenancy_id,
         paymentSubmissionId: submission.id,
         performedBy: user.id,
-      }).catch((fingerprintError) => {
-        console.error("Verified rent could not update TTLock fingerprint access.", {
-          tenancyId: bill.tenancy_id,
-          paymentSubmissionId: submission.id,
-          error: fingerprintError,
-        });
-        return null;
       })
     : null;
-  if (fingerprintResult?.errors.length) {
-    console.error("Some TTLock fingerprint credentials need attention.", {
+  if (accessResult?.errors.length) {
+    console.error("Some TTLock door credentials need attention.", {
       tenancyId: bill.tenancy_id,
-      errors: fingerprintResult.errors,
+      errors: accessResult.errors,
     });
   }
 

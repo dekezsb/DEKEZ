@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { normalizeRole } from "@/lib/auth/roles";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { tryAutoRechargeTTLockTopUp } from "@/lib/ttlock/meter-recharge";
 import { createClient } from "@/lib/supabase/server";
 import {
   createAgreementForTenancy,
@@ -123,12 +124,38 @@ export async function reviewSmartMeterTopUp(formData: FormData) {
       decision === "rejected" ? { reason } : {},
   });
 
+  let credited = false;
+  if (decision === "approved") {
+    try {
+      const recharge = await tryAutoRechargeTTLockTopUp({
+        requestId: reviewedRequest.id,
+        performedBy: user.id,
+      });
+      credited = Boolean(recharge.credited);
+      if (recharge.attempted && !recharge.credited) {
+        console.error("TTLock electricity top-up stayed in the manual queue.", {
+          requestId: reviewedRequest.id,
+          reason: recharge.reason,
+        });
+      }
+    } catch (error) {
+      console.error("TTLock electricity auto-recharge failed.", {
+        requestId: reviewedRequest.id,
+        error,
+      });
+    }
+  }
+
   revalidatePath("/verification");
   revalidatePath("/dashboard");
   redirect(
     verificationPath(
       "meter_topups",
-      decision === "approved" ? "topup_approved=1" : "topup_rejected=1",
+      decision === "rejected"
+        ? "topup_rejected=1"
+        : credited
+          ? "topup_recharged=1"
+          : "topup_approved=1",
     ),
   );
 }
