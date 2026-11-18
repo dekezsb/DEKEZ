@@ -11,6 +11,7 @@ import { loadAgreementAppendixDocuments } from "@/lib/tenancy/agreement-appendix
 import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
+import { reconcileFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
 import { malaysiaToday } from "@/lib/tenancy/agreement";
 import { canApplySignedTerm, canSignAgreement, signableAgreementStatuses } from "@/lib/tenancy/signing-policy";
 
@@ -341,6 +342,14 @@ export async function signAgreement(formData: FormData) {
       await reconcileSmartLockAccessForTenancy(agreement.tenancy_id).catch(
         (error) => {
           console.error("Renewed tenancy smart-lock access could not be extended.", {
+            tenancyId: agreement.tenancy_id,
+            error,
+          });
+        },
+      );
+      await reconcileFingerprintAccessForTenancy(agreement.tenancy_id).catch(
+        (error) => {
+          console.error("Renewed tenancy fingerprint access could not be extended.", {
             tenancyId: agreement.tenancy_id,
             error,
           });

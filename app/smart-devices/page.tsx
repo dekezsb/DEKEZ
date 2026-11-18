@@ -118,7 +118,11 @@ type SmartLockFingerprintGrant = {
   valid_from: string | null;
   valid_until: string | null;
   last_error: string | null;
-  tenancies: Relation<{ tenants: Relation<{ full_name: string }> }>;
+  tenancies: Relation<{
+    tenants: Relation<{ full_name: string }>;
+    properties: Relation<{ name: string | null; property_code: string | null }>;
+    rooms: Relation<{ name: string | null; room_number: string | null }>;
+  }>;
 };
 
 type ActiveLockTenancy = {
@@ -234,7 +238,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     admin
       .from("smart_lock_fingerprint_grants")
       .select(
-        "id,device_id,access_scope,credential_state,enrollment_code,fingerprint_name,valid_from,valid_until,last_error,tenancies(tenants(full_name))",
+        "id,device_id,access_scope,credential_state,enrollment_code,fingerprint_name,valid_from,valid_until,last_error,tenancies(tenants(full_name),properties(name,property_code),rooms!tenancies_room_id_fkey(name,room_number))",
       )
       .in("credential_state", [
         "pending_enrollment",
@@ -481,6 +485,54 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             Access reconciliation finished: {params.accessCreated ?? "0"} created, {params.accessUpdated ?? "0"} extended, {params.accessUnchanged ?? "0"} already correct, {params.accessSkipped ?? "0"} expired or not eligible, and {params.accessErrors ?? "0"} error(s).
           </p>
         </div>
+      ) : null}
+
+      {fingerprintGrants.filter((grant) => grant.credential_state === "pending_enrollment").length ? (
+        <Card className="border-[#eadcb9] bg-[#fbf8f1]">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Fingerprint className="h-5 w-5 text-[#b47d17]" /> Pending fingerprint requests
+            </CardTitle>
+            <p className="mt-1 text-sm text-gray-600">
+              Open the official TTLock app at the lock, over Bluetooth, and add the tenant&apos;s finger.
+              Name the fingerprint with the reference below. The gateway cannot add a fingerprint;
+              it is only used afterwards to set the valid-until date to the contract end.
+              Matching usually happens within the hour, or press Match enrolled fingerprints.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {fingerprintGrants
+              .filter((grant) => grant.credential_state === "pending_enrollment")
+              .map((grant) => {
+                const tenancy = relatedOne(grant.tenancies);
+                const tenant = relatedOne(tenancy?.tenants ?? null);
+                const property = relatedOne(tenancy?.properties ?? null);
+                const room = relatedOne(tenancy?.rooms ?? null);
+                const device = devices.find((item) => item.id === grant.device_id);
+                const roomLabel = room?.room_number ?? room?.name ?? device?.rooms?.room_number ?? device?.rooms?.name ?? "Room";
+                return (
+                  <div
+                    className="rounded-lg border border-[#d8c28c] bg-white px-4 py-3 text-sm"
+                    key={grant.id}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-gray-950">{tenant?.full_name ?? "Tenant"}</p>
+                        <p className="mt-1 text-gray-600">
+                          {property?.property_code ?? property?.name ?? "Property"} · {roomLabel} ·{" "}
+                          {grant.access_scope === "property_entry" ? "Main entrance" : "Room lock"}
+                          {device?.provider_lock_name ? ` · ${device.provider_lock_name}` : ""}
+                        </p>
+                      </div>
+                      <p className="font-mono text-base font-semibold tracking-wide text-gray-950">
+                        {grant.enrollment_code}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+          </CardContent>
+        </Card>
       ) : null}
 
       <Card>
@@ -986,18 +1038,18 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <div className="grid gap-4 md:grid-cols-3">
             <AccessRule
               number="1"
-              title="Verified TA opens enrollment"
-              text="After the tenant signs and Admin verifies the TA, DEKEZ sends one WhatsApp reference for physical fingerprint enrollment at the main entrance and assigned room lock."
+              title="Tenant request or verified TA"
+              text="The tenant can request a fingerprint in the portal, or staff can send the setup after the TA is verified. Staff then enrol the finger in the TTLock app at the lock, over Bluetooth, using the reference number."
             />
             <AccessRule
               number="2"
-              title="Payment renews the same finger"
-              text="A verified rental payment extends the same fingerprint for another 30-day cycle. A pending payment slip prevents an overdue suspension while Admin reviews it."
+              title="Valid until contract end"
+              text="Once matched, the same fingerprint stays valid until the contract end date, just like the door codes. If staff update the contract end on renewal, the fingerprint is extended to the new end."
             />
             <AccessRule
               number="3"
-              title="Overdue and checkout are controlled"
-              text="Rental arrears require management review and never trigger automatic fingerprint suspension. Existing credential expiry still needs separate access-policy review. Authorized checkout revokes access and retains the audit record."
+              title="Checkout and contract end remove access"
+              text="Rental arrears require management review and never trigger automatic fingerprint suspension. Existing credential expiry still needs separate access-policy review. Authorized checkout or a contract that ends without renewal deletes the fingerprints."
             />
           </div>
           <p className="mt-4 rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-600">
@@ -1016,7 +1068,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
             <NextStep number="2" title="Secrets secured" text="The API credentials are encrypted in Vercel and never sent to the browser." />
             <NextStep number="3" title="Installed locks connected" text="Live IDs, battery, gateway and V4 support are confirmed." />
             <NextStep number="4" title="Rooms mapped" text="The main entrance and numbered BDS room locks are linked." />
-            <NextStep number="5" title="Fingerprint lifecycle" text="Signed TA enables setup; verified rent extends access; overdue policy suspends; checkout deletes." />
+            <NextStep number="5" title="Fingerprint lifecycle" text="Tenant request or a signed TA starts setup; staff enrol at the lock; access runs to contract end; checkout or contract end deletes it." />
           </ol>
         </CardContent>
       </Card>

@@ -165,6 +165,8 @@ export default async function DashboardPage({
     uploaded?: string;
     topup_submitted?: string;
     topup_error?: string;
+    fingerprint_requested?: string;
+    fingerprint_error?: string;
     checkout_error?: string;
     checkout_saved?: string;
     phone_release?: string;
@@ -648,7 +650,12 @@ async function AdminFollowUps({ query }: { query: AdminDashboardQuery }) {
 async function TenantDashboard({
   query,
 }: {
-  query: { topup_submitted?: string; topup_error?: string };
+  query: {
+    topup_submitted?: string;
+    topup_error?: string;
+    fingerprint_requested?: string;
+    fingerprint_error?: string;
+  };
 }) {
   const data = await getTenantPortalData();
   if (!data) return null;
@@ -661,6 +668,15 @@ async function TenantDashboard({
     upload: "The payment slip could not be uploaded. Please try again.",
     create: "The top-up request could not be created. Please try again.",
   };
+  const fingerprintErrors: Record<string, string> = {
+    invalid: "The fingerprint request could not be submitted. Please try again.",
+    tenancy: "The selected active tenancy could not be found.",
+    access: "Fingerprint requests are available only for your own room with a TTLock fingerprint reader.",
+    agreement: "Your tenancy agreement must be signed and verified by Admin first.",
+    phone: "Your portal profile needs a phone number before a fingerprint can be requested.",
+    ended: "This tenancy has already ended, so a fingerprint cannot be added.",
+    create: "The fingerprint request could not be created. Please try again.",
+  };
 
   return (
     <div className="space-y-5">
@@ -672,6 +688,16 @@ async function TenantDashboard({
       {query.topup_error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
           {topUpErrors[query.topup_error] ?? "The electricity top-up request could not be submitted."}
+        </p>
+      ) : null}
+      {query.fingerprint_requested === "1" ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          Fingerprint requested. Show the reference number to staff at the lock. They will add it in the TTLock app over Bluetooth.
+        </p>
+      ) : null}
+      {query.fingerprint_error ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {fingerprintErrors[query.fingerprint_error] ?? "The fingerprint request could not be submitted."}
         </p>
       ) : null}
       <TenantHome data={data} />

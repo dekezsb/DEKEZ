@@ -7,6 +7,7 @@ import {
   deleteTTLockFingerprint,
   listTTLockFingerprints,
 } from "@/lib/ttlock/client";
+import { fingerprintValidityPeriod } from "@/lib/ttlock/fingerprint-period";
 import { normalizePhoneNumber } from "@/lib/whatsapp/config";
 import { sendWhatsAppText } from "@/lib/whatsapp/meta";
 
@@ -90,7 +91,6 @@ const openStates = [
   "suspended",
   "revoke_pending",
 ];
-const dayMs = 24 * 60 * 60 * 1000;
 
 function one<T>(value: Relation<T>) {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -102,41 +102,14 @@ function providerError(error: unknown) {
     : "TTLock fingerprint request failed.";
 }
 
-function malaysiaEnd(date: string) {
-  return new Date(`${date}T23:59:59+08:00`);
-}
-
-function tenancyEnd(tenancy: TenancyRow) {
-  const value =
-    tenancy.tenancy_end_date ?? tenancy.contract_end ?? tenancy.end_date;
-  return value ? malaysiaEnd(value) : null;
-}
-
 function accessPeriod(input: {
   tenancy: TenancyRow;
   currentUntil?: string | null;
 }) {
-  const now = new Date();
-  const currentUntil = input.currentUntil
-    ? new Date(input.currentUntil)
-    : null;
-  const base = currentUntil && currentUntil.getTime() > now.getTime()
-    ? currentUntil
-    : now;
-  const requestedUntil = new Date(base.getTime() + 30 * dayMs);
-  const contractUntil = tenancyEnd(input.tenancy);
-  const validUntil = contractUntil && contractUntil < requestedUntil
-    ? contractUntil
-    : requestedUntil;
-
-  if (validUntil.getTime() <= now.getTime()) {
-    throw new Error("The tenancy has already ended.");
-  }
-
-  return {
-    validFrom: new Date(now.getTime() - 5 * 60_000),
-    validUntil,
-  };
+  return fingerprintValidityPeriod({
+    tenancy: input.tenancy,
+    currentUntil: input.currentUntil,
+  });
 }
 
 function tenantAccessName(tenantName: string, scope: DeviceRow["access_scope"], code: string) {
@@ -295,7 +268,9 @@ async function recordWhatsApp(input: {
 export async function prepareFingerprintEnrollment(
   tenancyId: string,
   performedBy: string | null,
+  options?: { notifyTenant?: boolean; ignoreNotificationError?: boolean },
 ) {
+  const notifyTenant = options?.notifyTenant !== false;
   const admin = createAdminClient();
   const tenancy = await loadTenancy(tenancyId);
   if (!tenancy || !eligibleTenant(tenancy)) {
@@ -379,56 +354,62 @@ export async function prepareFingerprintEnrollment(
       ? `Hello ${tenant.full_name}, your Sulaman registration and first monthly payment have been verified.`
       : `Hello ${tenant.full_name}, your tenancy agreement has been signed and verified.`,
     `Fingerprint setup is ready for ${property?.name ?? "your property"} ${roomLabel}. Reference: ${enrollmentCode}.`,
-    "Your finger must be registered physically at both the main entrance lock and your room lock. WhatsApp and the website do not collect or store your fingerprint image.",
-    "Please contact the management team while you are at the locks. Ask them to name each TTLock fingerprint with the reference above, then DEKEZ will match it automatically.",
+    "Your finger must be registered physically at both the main entrance lock and your room lock. Staff will open the official TTLock app at the lock, over Bluetooth. The gateway cannot add a fingerprint. WhatsApp and the website do not collect or store your fingerprint image.",
+    "Please contact the management team while you are at the locks. Ask them to name each TTLock fingerprint with the reference above. Once it is matched, it stays valid until your contract end date. DEKEZ will match it automatically.",
     "Your current access validity is shown in the Tenant Portal. Please contact Management before it expires if you need help. Rental reminders do not authorize automatic door-access suspension; any access concern requires separate Management review.",
     `Portal: ${siteUrl}/dashboard`,
   ].join("\n\n");
 
   let providerMessageId: string | null = null;
-  try {
-    const response = await sendWhatsAppText(tenant.phone, text);
-    providerMessageId = response.messages?.[0]?.id ?? null;
-    await recordWhatsApp({
-      tenantProfileId: tenant.profile_id,
-      phone: tenant.phone,
-      text,
-      providerMessageId,
-      status: "sent",
-    });
-  } catch (error) {
-    await recordWhatsApp({
-      tenantProfileId: tenant.profile_id,
-      phone: tenant.phone,
-      text,
-      providerMessageId: null,
-      status: "failed",
-      errorMessage: providerError(error),
-    }).catch(() => undefined);
-    throw error;
+  let invitationSent = false;
+  if (notifyTenant) {
+    try {
+      const response = await sendWhatsAppText(tenant.phone, text);
+      providerMessageId = response.messages?.[0]?.id ?? null;
+      await recordWhatsApp({
+        tenantProfileId: tenant.profile_id,
+        phone: tenant.phone,
+        text,
+        providerMessageId,
+        status: "sent",
+      });
+      invitationSent = true;
+    } catch (error) {
+      await recordWhatsApp({
+        tenantProfileId: tenant.profile_id,
+        phone: tenant.phone,
+        text,
+        providerMessageId: null,
+        status: "failed",
+        errorMessage: providerError(error),
+      }).catch(() => undefined);
+      if (options?.ignoreNotificationError !== true) throw error;
+    }
   }
 
-  const sentAt = new Date().toISOString();
-  for (const grant of pendingGrants) {
-    await admin
-      .from("smart_lock_fingerprint_grants")
-      .update({ invitation_sent_at: sentAt, updated_at: sentAt })
-      .eq("id", grant.id);
-    await addAudit({
-      grant,
-      action: "enrollment_invited",
-      oldState: grant.credential_state,
-      newState: grant.credential_state,
-      performedBy,
-      details: { enrollmentCode, providerMessageId },
-    });
+  if (invitationSent) {
+    const sentAt = new Date().toISOString();
+    for (const grant of pendingGrants) {
+      await admin
+        .from("smart_lock_fingerprint_grants")
+        .update({ invitation_sent_at: sentAt, updated_at: sentAt })
+        .eq("id", grant.id);
+      await addAudit({
+        grant,
+        action: "enrollment_invited",
+        oldState: grant.credential_state,
+        newState: grant.credential_state,
+        performedBy,
+        details: { enrollmentCode, providerMessageId },
+      });
+    }
   }
 
   return {
     grants: grants.length,
     enrollmentCode,
     tenantName: tenant.full_name,
-    invitationSent: true,
+    invitationSent,
   };
 }
 
@@ -587,10 +568,14 @@ export async function extendFingerprintAccessAfterPayment(input: {
     }
 
     try {
-      const { validFrom, validUntil } = accessPeriod({
+      const { validFrom, validUntil, unchanged } = accessPeriod({
         tenancy,
         currentUntil: grant.credential_state === "active" ? grant.valid_until : null,
       });
+      if (unchanged && grant.credential_state === "active") {
+        result.skipped += 1;
+        continue;
+      }
       await changeTTLockFingerprintPeriod({ lockId, fingerprintId, validFrom, validUntil });
       const reactivated = grant.credential_state !== "active";
       const now = new Date().toISOString();
@@ -630,7 +615,7 @@ export async function extendFingerprintAccessAfterPayment(input: {
 
   const tenant = one(tenancy.tenants);
   if (reactivatedCount && tenant?.profile_id && tenant.phone) {
-    const text = `Hello ${tenant.full_name}, your rental payment has been verified. Your main-door and room fingerprint access has been restored for the next access cycle.`;
+    const text = `Hello ${tenant.full_name}, your rental payment has been verified. Your main-door and room fingerprint access has been restored until your contract end date.`;
     try {
       const response = await sendWhatsAppText(tenant.phone, text);
       await recordWhatsApp({
@@ -642,6 +627,91 @@ export async function extendFingerprintAccessAfterPayment(input: {
       });
     } catch (noticeError) {
       result.errors.push(providerError(noticeError));
+    }
+  }
+
+  return result;
+}
+
+export async function reconcileFingerprintAccessForTenancy(
+  tenancyId: string,
+  performedBy?: string | null,
+) {
+  const result: FingerprintResult = {
+    created: 0,
+    matched: 0,
+    extended: 0,
+    suspended: 0,
+    revoked: 0,
+    skipped: 0,
+    errors: [],
+  };
+  const tenancy = await loadTenancy(tenancyId);
+  if (!tenancy || !eligibleTenant(tenancy)) {
+    result.skipped += 1;
+    return result;
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("smart_lock_fingerprint_grants")
+    .select("id,device_id,tenancy_id,tenant_profile_id,access_scope,provider_fingerprint_id,provider_fingerprint_number,fingerprint_name,enrollment_code,credential_state,valid_from,valid_until,last_extension_reference,smart_lock_devices(id,company_id,property_id,room_id,provider_lock_id,provider_lock_name,access_scope,has_gateway,sync_status)")
+    .eq("tenancy_id", tenancyId)
+    .in("credential_state", ["active", "suspension_due", "suspended"]);
+  if (error) throw error;
+
+  for (const grant of (data ?? []) as unknown as FingerprintGrantRow[]) {
+    const device = one(grant.smart_lock_devices);
+    const lockId = Number(device?.provider_lock_id);
+    const fingerprintId = Number(grant.provider_fingerprint_id);
+    if (
+      !device?.has_gateway
+      || !Number.isSafeInteger(lockId)
+      || lockId <= 0
+      || !Number.isSafeInteger(fingerprintId)
+      || fingerprintId <= 0
+    ) {
+      result.errors.push(`${device?.provider_lock_name ?? "TTLock"} has an incomplete fingerprint link.`);
+      continue;
+    }
+
+    try {
+      const { validFrom, validUntil, unchanged } = accessPeriod({
+        tenancy,
+        currentUntil: grant.valid_until,
+      });
+      if (unchanged && grant.credential_state === "active") {
+        result.skipped += 1;
+        continue;
+      }
+      await changeTTLockFingerprintPeriod({ lockId, fingerprintId, validFrom, validUntil });
+      const now = new Date().toISOString();
+      const { error: updateError } = await admin
+        .from("smart_lock_fingerprint_grants")
+        .update({
+          credential_state: "active",
+          valid_from: validFrom.toISOString(),
+          valid_until: validUntil.toISOString(),
+          last_error: null,
+          last_provider_sync_at: now,
+          provider_status: { operation: "aligned_to_contract_end" },
+          updated_at: now,
+        })
+        .eq("id", grant.id);
+      if (updateError) throw updateError;
+      await addAudit({
+        grant,
+        action: "access_extended",
+        oldState: grant.credential_state,
+        newState: "active",
+        performedBy,
+        details: { validUntil: validUntil.toISOString(), reason: "contract_end_updated" },
+      });
+      result.extended += 1;
+    } catch (extendError) {
+      result.errors.push(await recordProviderError(grant, extendError, {
+        operation: "contract_end_alignment",
+      }));
     }
   }
 

@@ -50,12 +50,22 @@ test('enrollment and Admin copy no longer promise rent-based physical lockout', 
   assert.match(page, /Existing credential expiry still needs separate access-policy review/);
 });
 
-// These regression guards deliberately require an explicit, separately reviewed
-// access-policy change before the payment/expiry or legitimate checkout code can
-// be altered. This reminder-only change must not modify those behaviors.
-test('existing fingerprint periods, payment extensions and checkout revocation are unchanged', () => {
-  assert.equal(hash(section('function accessPeriod(', 'function tenantAccessName(')), 'a6b8d5a5210103b7c827b793cfc26a3a3a9fd33630e9bc2bb27f99bb904b7bbe');
-  assert.equal(hash(section('export async function extendFingerprintAccessAfterPayment(', 'export async function suspendOverdueFingerprintAccess(')), 'abc6ee190028c7dfe7c4ee0f5f68eb02d4dcd44f771308eba51d5a6d04fe1bcd');
+// Checkout revocation stays pinned. Fingerprint validity now follows the
+// contract end (reviewed access-policy change), so those hashes are no longer
+// used as the period/payment guard.
+test('fingerprint validity follows contract end, and checkout revocation is unchanged', () => {
+  const period = read('lib/ttlock/fingerprint-period.ts');
+  assert.match(period, /resolveContractEndDate/);
+  assert.match(period, /malaysiaEnd\(endDate\)/);
+  assert.doesNotMatch(section('function accessPeriod(', 'function tenantAccessName('), /30 \* dayMs|requestedUntil/);
+  assert.match(section('function accessPeriod(', 'function tenantAccessName('), /fingerprintValidityPeriod/);
+  const extend = section(
+    'export async function extendFingerprintAccessAfterPayment(',
+    'export async function reconcileFingerprintAccessForTenancy(',
+  );
+  assert.match(extend, /unchanged && grant\.credential_state === "active"/);
+  assert.doesNotMatch(extend, /30 \* dayMs/);
+  assert.match(source, /export async function reconcileFingerprintAccessForTenancy\(/);
   assert.equal(hash(section('export async function revokeFingerprintAccessForTenancy(', null)), 'a56f33597c795cdf7a7974b0e06e9a514da8501cde19b24487a98ca6aa75306c');
 });
 

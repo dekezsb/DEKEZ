@@ -7,6 +7,7 @@ import {
   verifiedDepositPaid,
 } from "@/lib/invoices/deposit-payments";
 import { tenantInvoiceVisibilityCutoffDate } from "@/lib/billing/tenant-invoice-visibility";
+import { hasFingerprintEnrollmentAccess } from "@/lib/ttlock/fingerprint-support";
 import {
   attachPrepaidElectricityTopUps,
   invoiceTotalsWithPrepaidTopUps,
@@ -325,6 +326,26 @@ export async function getTenantPortalData() {
     rate: number | string;
     status: string;
   }> = [];
+  let fingerprintGrants: Array<{
+    id: string;
+    tenancy_id: string;
+    access_scope: string;
+    enrollment_code: string;
+    credential_state: string;
+    valid_from: string | null;
+    valid_until: string | null;
+    fingerprint_name: string | null;
+    smart_lock_devices: Relation<{ provider_lock_name: string | null }>;
+  }> = [];
+  let lockDevices: Array<{
+    id: string;
+    property_id: string | null;
+    room_id: string | null;
+    access_scope: string;
+    sync_status: string;
+    provider: string;
+    provider_data: Record<string, unknown> | null;
+  }> = [];
 
   const billColumns =
     "id, tenancy_id, property_id, room_id, invoice_number, invoice_date, issued_at, retain_until, bill_month, due_date, amount, deposit_amount, paid_amount, status, created_at, properties(name), rooms(name, room_number)";
@@ -436,7 +457,7 @@ export async function getTenantPortalData() {
   });
 
   if (tenancyIds.length) {
-    const [paymentsResult, agreementsResult, smartMetersResult] = await Promise.all([
+    const [paymentsResult, agreementsResult, smartMetersResult, fingerprintGrantsResult, propertyLocksResult, roomLocksResult] = await Promise.all([
       dataClient
         .from("payments")
         .select(
@@ -459,10 +480,49 @@ export async function getTenantPortalData() {
         .eq("meter_type", "electricity")
         .eq("status", "active")
         .in("room_id", tenancyRoomIds),
+      dataClient
+        .from("smart_lock_fingerprint_grants")
+        .select(
+          "id,tenancy_id,access_scope,enrollment_code,credential_state,valid_from,valid_until,fingerprint_name,smart_lock_devices(provider_lock_name)",
+        )
+        .eq("tenant_profile_id", user.id)
+        .in("tenancy_id", tenancyIds)
+        .in("credential_state", [
+          "pending_enrollment",
+          "active",
+          "revoke_pending",
+          "revoked",
+          "error",
+        ])
+        .order("created_at", { ascending: false }),
+      dataClient
+        .from("smart_lock_devices")
+        .select("id,property_id,room_id,access_scope,sync_status,provider,provider_data")
+        .eq("provider", "ttlock")
+        .eq("access_scope", "property_entry")
+        .in(
+          "property_id",
+          tenancies
+            .map((tenancy) => tenancy.property_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      tenancyRoomIds.length
+        ? dataClient
+            .from("smart_lock_devices")
+            .select("id,property_id,room_id,access_scope,sync_status,provider,provider_data")
+            .eq("provider", "ttlock")
+            .eq("access_scope", "room_entry")
+            .in("room_id", tenancyRoomIds)
+        : Promise.resolve({ data: [] }),
     ]);
     payments = (paymentsResult.data ?? []) as typeof payments;
     agreements = (agreementsResult.data ?? []) as typeof agreements;
     smartMeters = (smartMetersResult.data ?? []) as typeof smartMeters;
+    fingerprintGrants = (fingerprintGrantsResult.data ?? []) as typeof fingerprintGrants;
+    lockDevices = [
+      ...(propertyLocksResult.data ?? []),
+      ...(roomLocksResult.data ?? []),
+    ] as typeof lockDevices;
   }
 
   const tickets = await Promise.all(
@@ -588,6 +648,28 @@ export async function getTenantPortalData() {
                 rate: numberValue(electricityMeter.rate),
               }
             : null,
+          canRequestFingerprint: hasFingerprintEnrollmentAccess(
+            lockDevices.filter(
+              (device) =>
+                device.room_id === tenancy.room_id
+                || (
+                  device.access_scope === "property_entry"
+                  && device.property_id === tenancy.property_id
+                ),
+            ),
+          ),
+          fingerprintGrants: fingerprintGrants
+            .filter((grant) => grant.tenancy_id === tenancy.id)
+            .map((grant) => ({
+              id: grant.id,
+              tenancyId: grant.tenancy_id,
+              accessScope: grant.access_scope,
+              enrollmentCode: grant.enrollment_code,
+              state: grant.credential_state,
+              validUntil: grant.valid_until,
+              lockName:
+                one(grant.smart_lock_devices)?.provider_lock_name?.trim() ?? "TTLock",
+            })),
         };
       }),
   );
