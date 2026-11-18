@@ -3,7 +3,7 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const loader = require('./marketplace-component-loader.cjs');
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const now = new Date('2026-11-15T01:00:00Z'), day = '2026-11-15', fingerprint = 'a'.repeat(32);
-const keys = ['DEKEZ_REPORT_COMPANY_ID', 'WHAPI_TOKEN', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED', 'DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED'];
+const keys = ['DEKEZ_REPORT_COMPANY_ID', 'WHAPI_TOKEN', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED', 'DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED', 'WHAPI_RETIRED'];
 let saved, originalFetch, calls, sends, previews, options, clock, signals, previewDeadlines;
 const realNow=Date.now;
 const budgeting=loader({'server-only':{},'@/lib/supabase/admin':{}})('lib/rental-collection/service.ts');
@@ -13,7 +13,7 @@ const failure = () => ({attempt_id:id(99),company_id:id(1),tenant_id:id(4),state
 const authorization = () => ({verified:true,company_id:id(1),recipient:'60188702371',management_profile_id:id(3),approved_management_account:true,active_company_membership:true,
   rent_due_tracker_manage:true,whatsapp_ownership_verified:true,whatsapp_consent:'opted_in'});
 const evidencePage = () => ({report_date:day,fingerprint,recipient_authorization:authorization(),items:[{key:'attempt:'+id(99),kind:'attempt',data:failure()}],next_cursor:null,total:1,daily_reservation:'not_reserved'});
-const enable = () => Object.assign(process.env,{DEKEZ_REPORT_COMPANY_ID:id(1),WHAPI_TOKEN:'synthetic-only',DEKEZ_COLLECTION_POLICY_ENABLED:'true',DEKEZ_COLLECTION_SEND_ENABLED:'true',DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED:'true'});
+const enable = () => Object.assign(process.env,{WHAPI_RETIRED:'false',DEKEZ_REPORT_COMPANY_ID:id(1),WHAPI_TOKEN:'synthetic-only',DEKEZ_COLLECTION_POLICY_ENABLED:'true',DEKEZ_COLLECTION_SEND_ENABLED:'true',DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED:'true'});
 test.beforeEach(() => {
   saved = Object.fromEntries(keys.map(key=>[key,process.env[key]]));for(const key of keys)delete process.env[key];
   calls=[];sends=[];previews=[];signals=[];previewDeadlines=[];options={};clock=1_000_000;Date.now=()=>clock;originalFetch=global.fetch;global.fetch=()=>{throw Error('Network forbidden');};

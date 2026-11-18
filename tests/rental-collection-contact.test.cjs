@@ -11,11 +11,12 @@ const PHONE = '60191111111';
 const NOW = new Date('2026-10-27T01:00:00.000Z');
 const SECONDS = NOW.getTime() / 1000;
 const { collectionEvents, contactCommand } = makeLoader()('lib/rental-collection/contact-events.ts');
-const envKeys = ['WHAPI_COLLECTION_WEBHOOK_SECRET', 'WHAPI_REPORT_WEBHOOK_SECRET', 'WHAPI_TOKEN', 'CRON_SECRET', 'DEKEZ_COLLECTION_INTAKE_ENABLED', 'DEKEZ_REPORT_COMPANY_ID', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED'];
+const envKeys = ['WHAPI_COLLECTION_WEBHOOK_SECRET', 'WHAPI_REPORT_WEBHOOK_SECRET', 'WHAPI_TOKEN', 'CRON_SECRET', 'DEKEZ_COLLECTION_INTAKE_ENABLED', 'DEKEZ_REPORT_COMPANY_ID', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED', 'WHAPI_RETIRED'];
 let priorEnv, priorFetch, fetches;
 beforeEach(() => {
   priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
   for (const key of envKeys) delete process.env[key];
+  process.env.WHAPI_RETIRED = 'false';
   priorFetch = global.fetch; fetches = 0;
   global.fetch = async () => { fetches++; throw new Error('Network forbidden in callback tests'); };
 });
@@ -35,6 +36,7 @@ const status = (change = {}) => ({ id: 'synthetic-provider-message-1', status: '
 const statuses = (...items) => ({ channel_id: 'FALCON-D9NS9', event: { type: 'statuses', event: 'post' }, statuses: items.length ? items : [status()] });
 const parse = payload => collectionEvents(payload, NOW);
 function readyEnv() {
+  process.env.WHAPI_RETIRED = 'false';
   process.env.WHAPI_COLLECTION_WEBHOOK_SECRET = SECRET;
   process.env.DEKEZ_COLLECTION_INTAKE_ENABLED = 'true';
   process.env.DEKEZ_REPORT_COMPANY_ID = COMPANY;

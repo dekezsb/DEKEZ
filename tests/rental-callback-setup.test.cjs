@@ -17,6 +17,7 @@ const ENV_KEYS = Object.keys(environment());
 beforeEach(() => {
   originalFetch = global.fetch; forbiddenFetches = 0;
   originalNow = Date.now; originalEnv = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
+  process.env.WHAPI_RETIRED = 'false';
   global.fetch = async () => { forbiddenFetches++; throw Error('Real network forbidden in setup tests'); };
 });
 afterEach(() => {
@@ -41,6 +42,7 @@ function environment(change = {}) {
     DEKEZ_COLLECTION_SETUP_ENABLED: 'true', DEKEZ_COLLECTION_SETUP_OPERATION: OPERATION,
     DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED: 'false',
     DEKEZ_COLLECTION_SEND_ENABLED: 'false', DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED: 'false',
+    WHAPI_RETIRED: 'false',
     WHAPI_TOKEN: TOKEN, WHAPI_COLLECTION_WEBHOOK_SECRET: SECRET,
     WHAPI_REPORT_WEBHOOK_SECRET: REPORT_SECRET, CRON_SECRET,
     ...change,
