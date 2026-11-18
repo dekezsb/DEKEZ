@@ -3,10 +3,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { malaysiaReportDate } from "../model";
 import { reportPreview } from "../service";
 import { sendWhapiReport } from "../whapi";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 import { commandConfig } from "./config";
 import { commandHelp, formatCommandReport, REPORT_CHANNEL, REPORT_CHAT, type DueSnapshot, type IncomingReportCommand } from "./model";
 
 export async function executeReportCommand(message: IncomingReportCommand, now = new Date()) {
+  if (isWhapiRetired()) return { state: "retired" };
   const config = commandConfig();
   if (!config.ready) return { state: "disabled" };
   if (message.sender !== config.recipient || message.chat !== REPORT_CHAT || message.channel !== REPORT_CHANNEL) return { state: "ignored" };

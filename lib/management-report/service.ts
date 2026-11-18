@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 import { reportConfig } from "./config";
 import { formatReport, isDailyReportTime, malaysiaReportDate, type ReportKind, type ReportSnapshot } from "./model";
 import { sendWhapiReport } from "./whapi";
@@ -17,6 +18,7 @@ export async function reportPreview(now = new Date()) {
 }
 
 export async function deliverManagementReport(kind: ReportKind, actor: string | null = null, now = new Date()) {
+  if (isWhapiRetired()) return { state: "retired" };
   const config = reportConfig();
   if (!config.sendEnabled || !config.configured || (kind === "test" ? !config.testEnabled || !actor : !config.scheduleEnabled)) {
     return { state: "disabled" };
