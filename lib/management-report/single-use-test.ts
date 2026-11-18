@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 import { reportConfig } from "./config";
 import { APPROVED_REPORT_RECIPIENT } from "./recipient";
 import { formatReport, malaysiaReportDate } from "./model";
@@ -24,6 +25,7 @@ function testConfigurationReady(config: ReturnType<typeof reportConfig>) {
 }
 
 export async function requestTestAuthorization(actor: string): Promise<TestAuthorization | { state: "unavailable" | "duplicate" }> {
+  if (isWhapiRetired()) return { state: "unavailable" };
   const config = reportConfig();
   if (!UUID.test(actor) || !testConfigurationReady(config)) return { state: "unavailable" };
   const snapshot = await reportPreview();
@@ -46,6 +48,7 @@ export async function requestTestAuthorization(actor: string): Promise<TestAutho
 }
 
 export async function executeAuthorizedTest(actor: string, authorizationId: string) {
+  if (isWhapiRetired()) return { state: "unavailable" };
   const config = reportConfig();
   if (!UUID.test(actor) || !UUID.test(authorizationId) || !testConfigurationReady(config)) return { state: "unavailable" };
 

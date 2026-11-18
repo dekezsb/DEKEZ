@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { reportAdministrator } from "@/lib/management-report/authorization";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // TEMPORARY, REVIEW-ONLY INSTALLER. Remove after separately approved execution.
@@ -46,6 +47,7 @@ const canonical = (value: Json): string => JSON.stringify(value, (_key, item) =>
 const fingerprint = (value: Json) => createHash("sha256").update(canonical(value)).digest("hex");
 
 export function setupConfig(env: NodeJS.ProcessEnv = process.env): SetupConfig | null {
+  if (isWhapiRetired()) return null;
   const token = env.WHAPI_TOKEN?.trim() ?? "", secret = env.WHAPI_COLLECTION_WEBHOOK_SECRET ?? "";
   const reportSecret = env.WHAPI_REPORT_WEBHOOK_SECRET ?? "", cron = env.CRON_SECRET ?? "";
   const operationId = env.DEKEZ_COLLECTION_SETUP_OPERATION ?? "", deployment = env.VERCEL_DEPLOYMENT_ID ?? "";
@@ -275,6 +277,7 @@ function ticketValue(ticket: string, config: SetupConfig, actor: string): Ticket
 const unavailable = (): SetupResult => ({state: "unavailable", message: "Setup is unavailable, expired or not authorized. No settings were changed."});
 
 export async function previewCallbackSetup(): Promise<SetupResult> {
+  if (isWhapiRetired()) return {state: "unavailable", message: "Whapi is retired. Channel settings were not read or changed."};
   try {
     const config = setupConfig(), actor = await reportAdministrator(); if (!config || !actor) return unavailable();
     const permit = await ledger(config, actor, "check");
@@ -292,6 +295,7 @@ export async function previewCallbackSetup(): Promise<SetupResult> {
 }
 
 export async function executeCallbackSetup(ticket: string, confirmed: boolean): Promise<SetupResult> {
+  if (isWhapiRetired()) return {state: "unavailable", message: "Whapi is retired. Channel settings were not read or changed."};
   let claimed = false, attempted = false, config: SetupConfig | null = null, actor: string | null = null;
   try {
     config = setupConfig(); actor = await reportAdministrator(); if (!confirmed || !config || !actor) return unavailable();
@@ -333,6 +337,7 @@ export async function executeCallbackSetup(ticket: string, confirmed: boolean): 
 // Recovery is deliberately GET-only, including after an uncertain/expired claim.
 // It never reopens the permit or rewrites the historical outcome.
 export async function inspectCallbackSetup(): Promise<SetupResult> {
+  if (isWhapiRetired()) return {state: "unavailable", message: "Whapi is retired. Channel settings were not read or changed."};
   try {
     const config = setupConfig(), actor = await reportAdministrator(); if (!config || !actor) return unavailable();
     const permit = await ledger(config, actor, "check");
@@ -348,7 +353,7 @@ export async function inspectCallbackSetup(): Promise<SetupResult> {
 // Separate, default-off GET-only diagnosis works after installer retirement.
 // It never consults/changes a setup permit or needs a retired setup RPC grant.
 export function callbackDiagnosticsEnabled() {
-  return process.env.DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED === "true"
+  return !isWhapiRetired() && process.env.DEKEZ_COLLECTION_DIAGNOSTICS_ENABLED === "true"
     && process.env.DEKEZ_COLLECTION_SETUP_ENABLED === "false";
 }
 
@@ -380,6 +385,7 @@ async function assertDiagnosticAdministrator(actor: string) {
 }
 
 export async function diagnoseCallbackSetup(): Promise<SetupDiagnostic> {
+  if (isWhapiRetired()) return {state: "blocked", stage: "retired", code: "whapi_retired"};
   let stage = "authorization";
   let actor: string | null = null, authorized = false, shape: SettingsShape | undefined,
     comparison: RentalCallbackComparison | undefined, result: SetupDiagnostic;
