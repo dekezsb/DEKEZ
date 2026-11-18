@@ -6,7 +6,7 @@ const now=new Date('2026-11-15T01:00:00Z');
 function item(days=14,paid=200){return {company_id:id(1),report_date:'2026-11-15',key:id(4),tenant_id:id(4),name:'Synthetic tenant',phone:'60191111111',recipient_source:'tenant_portal_login',whatsapp_ownership_verified:true,delivery_blocks:[],stage:model.collectionStage(days,500-paid),days_overdue:days,outstanding:500-paid,partial_invoices:paid>0&&paid<500?1:0,
  invoices:[{id:id(100),tenancy_id:id(21),property_id:id(10),room_id:id(11),reference:'SYNTH-100',property:'Synthetic property',property_code:'TEST',room:'A1',due_date:'2026-11-01',days_overdue:days,base_amount:500,extra_amount:0,paid_amount:paid,verified_paid:paid,outstanding:500-paid,status:'unpaid',pending:[],exceptions:[]}],
  pending:[],pending_verification:false,exceptions:[],policy:{enabled:true,compliance_approved:true,consent:'opted_in',approved_recipient:'60191111111',opt_out_ready:true,hold:'none'},send_eligible:true,resolved:paid===500,fingerprint:'synthetic-fingerprint'};}
-const keys=['DEKEZ_REPORT_COMPANY_ID','WHAPI_TOKEN','DEKEZ_COLLECTION_POLICY_ENABLED','DEKEZ_COLLECTION_SEND_ENABLED','CRON_SECRET'];
+const keys=['DEKEZ_REPORT_COMPANY_ID','WHAPI_TOKEN','DEKEZ_COLLECTION_POLICY_ENABLED','DEKEZ_COLLECTION_SEND_ENABLED','CRON_SECRET','WHAPI_RETIRED'];
 const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
 let calls=[],sends=[],followups=[],signals=[],current,overrides={},clock,delivery={state:'accepted',providerId:'synthetic-id',httpStatus:200,errorCode:null};
 const realNow=Date.now;
@@ -17,7 +17,7 @@ const client={rpc:(name,args)=>({abortSignal:async signal=>{signals.push(signal)
  name==='dekez_collection_claim'?{claimed:true,attempt_id:id(99),recipient:current.phone,body:args.p_body}:null,error:null};}})};
 const service=loader({'server-only':{},'@/lib/supabase/admin':{createAdminClient:()=>client},'node:timers/promises':{setTimeout:async ms=>{clock+=ms;}},'./failure-service':{sendCollectionFailureDigest:async(at,deadline)=>{followups.push({at,deadline});return {state:'disabled'};}},'@/lib/management-report/whapi':{sendWhapiReport:async(...args)=>{sends.push(args);return delivery;}}})('lib/rental-collection/service.ts');
 const route=loader({'@/lib/rental-collection/service':{runRentalCollections:()=>service.runRentalCollections(now)}})('app/api/rental-collections/route.ts');
-const enable=()=>Object.assign(process.env,{DEKEZ_REPORT_COMPANY_ID:id(1),WHAPI_TOKEN:'synthetic-only',DEKEZ_COLLECTION_POLICY_ENABLED:'true',DEKEZ_COLLECTION_SEND_ENABLED:'true'});
+const enable=()=>Object.assign(process.env,{WHAPI_RETIRED:'false',DEKEZ_REPORT_COMPANY_ID:id(1),WHAPI_TOKEN:'synthetic-only',DEKEZ_COLLECTION_POLICY_ENABLED:'true',DEKEZ_COLLECTION_SEND_ENABLED:'true'});
 test.beforeEach(()=>{for(const k of keys)delete process.env[k];calls=[];sends=[];followups=[];signals=[];overrides={};clock=1_000_000;Date.now=()=>clock;current=item();delivery={state:'accepted',providerId:'synthetic-id',httpStatus:200,errorCode:null};});
 test.afterEach(()=>{Date.now=realNow;});
 test.after(()=>{for(const k of keys){if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}});

@@ -6,11 +6,11 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const makeLoader = require('./marketplace-component-loader.cjs');
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const day = '2026-11-15', now = new Date(`${day}T01:00:00Z`), rosley = '60188702371';
-const keys = ['DEKEZ_REPORT_COMPANY_ID', 'WHAPI_TOKEN', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED', 'DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED', 'CRON_SECRET'];
+const keys = ['DEKEZ_REPORT_COMPANY_ID', 'WHAPI_TOKEN', 'DEKEZ_COLLECTION_POLICY_ENABLED', 'DEKEZ_COLLECTION_SEND_ENABLED', 'DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED', 'CRON_SECRET', 'WHAPI_RETIRED'];
 let saved, originalNow, originalFetch, networkCalls;
 test.beforeEach(() => {
   saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
-  Object.assign(process.env, {DEKEZ_REPORT_COMPANY_ID: id(1), WHAPI_TOKEN: 'synthetic-capacity-only',
+  Object.assign(process.env, {WHAPI_RETIRED: 'false', DEKEZ_REPORT_COMPANY_ID: id(1), WHAPI_TOKEN: 'synthetic-capacity-only',
     DEKEZ_COLLECTION_POLICY_ENABLED: 'true', DEKEZ_COLLECTION_SEND_ENABLED: 'true', DEKEZ_COLLECTION_FAILURE_REPORT_ENABLED: 'true', CRON_SECRET: 'synthetic-capacity-cron'});
   originalNow = Date.now; originalFetch = global.fetch; networkCalls = 0;
   global.fetch = async () => { networkCalls++; throw Error('Network forbidden in capacity characterization'); };

@@ -3,7 +3,7 @@
 // overlaps them. Native multi-session PostgreSQL lock contention is not simulated.
 const test=require('node:test'),assert=require('node:assert/strict');
 const loader=require('./marketplace-component-loader.cjs');
-const keys=['WHAPI_TOKEN','WHAPI_REPORT_TO','DEKEZ_REPORT_COMPANY_ID','DEKEZ_REPORT_SEND_ENABLED','DEKEZ_REPORT_TEST_ENABLED','DEKEZ_REPORT_SCHEDULE_ENABLED'];
+const keys=['WHAPI_TOKEN','WHAPI_REPORT_TO','DEKEZ_REPORT_COMPANY_ID','DEKEZ_REPORT_SEND_ENABLED','DEKEZ_REPORT_TEST_ENABLED','DEKEZ_REPORT_SCHEDULE_ENABLED','WHAPI_RETIRED'];
 const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]])),originalFetch=global.fetch;
 let db,id,httpCalls,rpcCalls,response,failFinish=false,loseConsumeResponse=false;
 const client={rpc:async(name,args)=>{
@@ -22,7 +22,7 @@ const counts=async()=>(await db.query(`select
  (select count(*)::int from dekez_reports_private.test_authorizations) approvals,
  (select count(*)::int from dekez_reports_private.report_runs) runs,
  (select count(*)::int from dekez_reports_private.delivery_attempts) attempts`)).rows[0];
-function configure(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60198894911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'false',DEKEZ_REPORT_TEST_ENABLED:'false',DEKEZ_REPORT_SCHEDULE_ENABLED:'false'});}
+function configure(){Object.assign(process.env,{WHAPI_RETIRED:'false',WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60198894911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'false',DEKEZ_REPORT_TEST_ENABLED:'false',DEKEZ_REPORT_SCHEDULE_ENABLED:'false'});}
 test.before(async()=>{db=await require('./fixtures/management-report.cjs')({singleUseMigration:true,recipientMigration:true});id=db.id;
  await db.query('insert into profiles values ($1,$2,$3)',[id(5),'super_admin','approved']);
 });
