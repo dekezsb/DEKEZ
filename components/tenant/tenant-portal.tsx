@@ -23,6 +23,7 @@ import { uploadMonthlyPaymentProof } from "@/app/payments/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ElectricityTopUpPilot } from "@/components/smart-meter/electricity-top-up-pilot";
+import { TenantFingerprintAccess } from "@/components/tenant/fingerprint-access";
 import {
   Card,
   CardContent,
@@ -305,6 +306,22 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
 
       {data.referralProgramme ? (
         <ReferralProgramme programme={data.referralProgramme} />
+      ) : null}
+
+      {data.tenancies.some((tenancy) => tenancy.canRequestFingerprint) ? (
+        <div className="space-y-4">
+          {data.tenancies
+            .filter((tenancy) => tenancy.canRequestFingerprint)
+            .map((tenancy) => (
+              <TenantFingerprintAccess
+                key={`fingerprint-${tenancy.id}`}
+                canRequest
+                grants={tenancy.fingerprintGrants}
+                roomName={tenancy.roomName}
+                tenancyId={tenancy.id}
+              />
+            ))}
+        </div>
       ) : null}
 
       {data.lockAccess.length ? (
