@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { collectionEvents } from "@/lib/rental-collection/contact-events";
 import { collectionIntakeConfig, recordCollectionEvent } from "@/lib/rental-collection/contact-service";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,6 +17,8 @@ const reply = (status: number) => new Response(status === 200 ? "OK" : "Request 
 // Suppression/receipts only. There is deliberately no outbound messaging import.
 // Independent callback preserves the existing management command allowlist.
 export async function POST(request: Request) {
+  // Whapi is retired: acknowledge without recording events or calling the gateway.
+  if (isWhapiRetired()) return reply(200);
   const config = collectionIntakeConfig();
   if (!config.ready) return reply(503);
   const deadline = Date.now() + CALLBACK_BUDGET_MS;

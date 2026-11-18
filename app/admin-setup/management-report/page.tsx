@@ -21,15 +21,21 @@ export default async function ManagementReportPage() {
   }
   return <section className="space-y-6">
     <div><h1 className="text-2xl font-semibold sm:text-3xl">Daily Management Report</h1>
-      <p className="mt-2 text-sm text-gray-600">Private DEKEZ summary via Whapi. Existing tenant WhatsApp services are unchanged.</p>
+      <p className="mt-2 text-sm text-gray-600">Private DEKEZ summary. Existing Meta WhatsApp services for agreements and fingerprints are unchanged.</p>
       <a className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-4 text-sm font-medium" href="/admin-setup/rental-reminders">Rental Reminder Management — read-only review</a></div>
     <Card><CardHeader><CardTitle>Delivery controls</CardTitle>
       <CardDescription>8:00 PM Malaysia time. Sending and scheduling require separate approval and configuration.</CardDescription></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm">Recipient: {config.recipient} · Configuration: {config.configured ? "Ready" : "Incomplete"}</p>
         <p className="text-sm">Ordinary sending: {config.sendEnabled ? "Enabled" : "Disabled"} · Ordinary testing: {config.testEnabled ? "Enabled" : "Disabled"} · Daily schedule gate: {config.scheduleEnabled ? "Enabled" : "Disabled"}</p>
-        <p className="text-sm text-gray-600">An authorized Admin can separately request a five-minute, single-use test authorization. Review and confirmation are required; no environment switches are changed.</p>
-        <TestReportControl enabled={config.configured && config.recipient === APPROVED_REPORT_RECIPIENT && !config.scheduleEnabled} />
+        {config.retired ? (
+          <p className="text-sm text-gray-600">Whapi is retired. This page no longer sends the daily report or test messages. The read-only preview still works.</p>
+        ) : (
+          <>
+            <p className="text-sm text-gray-600">An authorized Admin can separately request a five-minute, single-use test authorization. Review and confirmation are required; no environment switches are changed.</p>
+            <TestReportControl enabled={config.configured && config.recipient === APPROVED_REPORT_RECIPIENT && !config.scheduleEnabled} />
+          </>
+        )}
       </CardContent></Card>
     <Card><CardHeader><CardTitle>Read-only preview</CardTitle><CardDescription>Current company snapshot. Previewing never reserves or sends a report.</CardDescription></CardHeader>
       <CardContent><pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{preview}</pre></CardContent></Card>

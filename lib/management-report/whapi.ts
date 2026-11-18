@@ -1,4 +1,5 @@
 import "server-only";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 
 export type DeliveryOutcome = {
   state: "accepted" | "rejected" | "uncertain";
@@ -9,6 +10,9 @@ export type DeliveryOutcome = {
 
 // Only this fixed HTTPS origin ever receives the token. No redirects/retry loop.
 export async function sendWhapiReport(token: string, to: string, body: string): Promise<DeliveryOutcome> {
+  if (isWhapiRetired()) {
+    return { state: "rejected", providerId: null, httpStatus: null, errorCode: "provider_rejected" };
+  }
   if (!token || !/^[1-9][0-9]{8,14}$/.test(to) || !body || body.length > 4000) {
     throw new Error("Report configuration is invalid.");
   }

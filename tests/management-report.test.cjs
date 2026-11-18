@@ -1,11 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const loader=require('./marketplace-component-loader.cjs');
 const load=loader({'server-only':{}}),model=load('lib/management-report/model.ts'),config=load('lib/management-report/config.ts'),whapi=load('lib/management-report/whapi.ts');
-const keys=['WHAPI_TOKEN','WHAPI_REPORT_TO','DEKEZ_REPORT_COMPANY_ID','DEKEZ_REPORT_SEND_ENABLED','DEKEZ_REPORT_TEST_ENABLED','DEKEZ_REPORT_SCHEDULE_ENABLED','CRON_SECRET'];
+const keys=['WHAPI_TOKEN','WHAPI_REPORT_TO','DEKEZ_REPORT_COMPANY_ID','DEKEZ_REPORT_SEND_ENABLED','DEKEZ_REPORT_TEST_ENABLED','DEKEZ_REPORT_SCHEDULE_ENABLED','CRON_SECRET','WHAPI_RETIRED'];
 const saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));const originalFetch=global.fetch;
 let calls=[],response,db,id,dbCalls=[];
 const now=new Date('2026-10-25T12:00:00Z');
-function enable(){Object.assign(process.env,{WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60198894911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'true',DEKEZ_REPORT_TEST_ENABLED:'true',DEKEZ_REPORT_SCHEDULE_ENABLED:'true'});}
+function enable(){Object.assign(process.env,{WHAPI_RETIRED:'false',WHAPI_TOKEN:'synthetic-only-token',WHAPI_REPORT_TO:'60198894911',DEKEZ_REPORT_COMPANY_ID:id(1),DEKEZ_REPORT_SEND_ENABLED:'true',DEKEZ_REPORT_TEST_ENABLED:'true',DEKEZ_REPORT_SCHEDULE_ENABLED:'true'});}
 const fakeClient={rpc:async(name,args)=>{
  dbCalls.push(name);const values=Object.values(args),placeholders=values.map((_,i)=>'$'+(i+1)).join(',');
  try{return {data:(await db.rpcQuery(`select public.${name}(${placeholders}) result`,values)).rows[0].result,error:null};}
@@ -14,7 +14,7 @@ const fakeClient={rpc:async(name,args)=>{
 const service=loader({'server-only':{},'@/lib/supabase/admin':{createAdminClient:()=>fakeClient}})('lib/management-report/service.ts');
 test.before(async()=>{db=await require('./fixtures/management-report.cjs')({recipientMigration:true});id=db.id;});
 test.beforeEach(async()=>{
- calls=[];dbCalls=[];for(const k of keys)delete process.env[k];
+ calls=[];dbCalls=[];for(const k of keys)delete process.env[k];process.env.WHAPI_RETIRED='false';
  response=()=>Response.json({sent:true,message:{id:'fixture-id',status:'pending'}});
  global.fetch=async(url,options)=>{calls.push({url,options});return response();};
  await db.exec('truncate dekez_reports_private.test_authorizations,dekez_reports_private.delivery_attempts,dekez_reports_private.report_runs');

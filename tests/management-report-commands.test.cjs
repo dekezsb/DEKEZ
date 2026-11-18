@@ -5,7 +5,7 @@ const loader = require('./marketplace-component-loader.cjs');
 const model = loader({})('lib/management-report/commands/model.ts');
 const config = loader({ 'server-only': {} })('lib/management-report/commands/config.ts');
 const keys = ['WHAPI_TOKEN', 'WHAPI_REPORT_TO', 'DEKEZ_REPORT_COMPANY_ID', 'DEKEZ_REPORT_SEND_ENABLED',
- 'DEKEZ_REPORT_TEST_ENABLED', 'DEKEZ_REPORT_SCHEDULE_ENABLED', 'DEKEZ_REPORT_COMMANDS_ENABLED', 'WHAPI_REPORT_WEBHOOK_SECRET'];
+ 'DEKEZ_REPORT_TEST_ENABLED', 'DEKEZ_REPORT_SCHEDULE_ENABLED', 'DEKEZ_REPORT_COMMANDS_ENABLED', 'WHAPI_REPORT_WEBHOOK_SECRET', 'WHAPI_RETIRED'];
 const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 const originalFetch = global.fetch, originalError = console.error;
 const secret = 'synthetic_webhook_secret_for_fixture_only';
@@ -19,7 +19,7 @@ function envelope(message = {}, payload = {}, now = fixedNow) {
  }], ...payload };
 }
 function configure() {
- Object.assign(process.env, { WHAPI_TOKEN: 'synthetic-provider-token', WHAPI_REPORT_TO: '60198894911',
+ Object.assign(process.env, { WHAPI_RETIRED: 'false', WHAPI_TOKEN: 'synthetic-provider-token', WHAPI_REPORT_TO: '60198894911',
   DEKEZ_REPORT_COMPANY_ID: id(1), DEKEZ_REPORT_SEND_ENABLED: 'true', DEKEZ_REPORT_TEST_ENABLED: 'false',
   DEKEZ_REPORT_SCHEDULE_ENABLED: 'true', DEKEZ_REPORT_COMMANDS_ENABLED: 'true', WHAPI_REPORT_WEBHOOK_SECRET: secret });
 }
@@ -68,6 +68,7 @@ test.before(async () => {
 test.beforeEach(async () => {
  calls = []; rpcCalls = []; logs = []; rpcFault = null;
  for (const key of keys) delete process.env[key];
+ process.env.WHAPI_RETIRED = 'false';
  await db.exec('truncate dekez_reports_private.command_requests');
  response = () => Response.json({ sent: true, message: { id: 'synthetic-reply-id', status: 'pending' } });
  global.fetch = async (url, options) => { calls.push({ url, options }); return response(); };
