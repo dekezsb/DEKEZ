@@ -8,9 +8,10 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 /**
- * Staff-verified rent payment hook. Extends fingerprints (existing 30-day
- * cycle) and any existing TTLock passcodes by one month. Failures are
- * collected and never thrown, so payment verification can finish.
+ * Staff-verified rent payment hook. Aligns existing fingerprints to the
+ * contract end (no 30-day cycle) and extends any existing TTLock passcodes
+ * by one month, capped at the contract end. Failures are collected and
+ * never thrown, so payment verification can finish.
  */
 export async function extendDoorAccessAfterPayment(input: {
   tenancyId: string;
