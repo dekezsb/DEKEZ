@@ -2,8 +2,10 @@
 
 import { headers } from "next/headers";
 import { diagnoseCallbackSetup, executeCallbackSetup, inspectCallbackSetup, previewCallbackSetup, type SetupResult } from "@/lib/rental-collection/callback-setup";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 
 export async function callbackSetupAction(_previous: SetupResult, form: FormData): Promise<SetupResult> {
+  if (isWhapiRetired()) return {state: "unavailable", message: "Whapi is retired. Channel settings were not read or changed."};
   // Next's Server Action origin protection remains enabled; additionally accept
   // only the canonical production Admin page, never a preview or forwarded host.
   const requestHeaders = await headers();

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { commandConfig } from "@/lib/management-report/commands/config";
 import { incomingReportCommands } from "@/lib/management-report/commands/model";
 import { executeReportCommand } from "@/lib/management-report/commands/service";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,8 +30,9 @@ async function readBoundedJson(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Retired or disabled hooks acknowledge without reading the body, DB or calling Whapi.
+  if (isWhapiRetired()) return response(200);
   const config = commandConfig();
-  // A disabled hook acknowledges without reading the body, DB or calling Whapi.
   if (!config.ready) return response(200);
   const expected = Buffer.from(`Bearer ${config.secret}`);
   const supplied = Buffer.from(request.headers.get("authorization") ?? "");
