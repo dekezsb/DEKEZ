@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isWhapiRetired } from "@/lib/whapi/retired";
 import { collectionConfig } from "./config";
 import { COLLECTION_CHANNEL, type CollectionEvent } from "./contact-events";
 
@@ -7,7 +8,7 @@ export function collectionIntakeConfig() {
   const config = collectionConfig();
   const secret = process.env.WHAPI_COLLECTION_WEBHOOK_SECRET ?? "";
   return {companyId: config.companyId, secret,
-    ready: config.scopeReady && process.env.DEKEZ_COLLECTION_INTAKE_ENABLED === "true" && /^[A-Za-z0-9_-]{32,256}$/.test(secret)
+    ready: !isWhapiRetired() && config.scopeReady && process.env.DEKEZ_COLLECTION_INTAKE_ENABLED === "true" && /^[A-Za-z0-9_-]{32,256}$/.test(secret)
       && ![process.env.WHAPI_REPORT_WEBHOOK_SECRET, process.env.CRON_SECRET, config.token].includes(secret)};
 }
 
