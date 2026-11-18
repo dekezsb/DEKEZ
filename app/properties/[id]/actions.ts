@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   reconcileSmartLockAccessForTenancy,
 } from "@/lib/ttlock/access";
+import { reconcileFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
 import {
   formFile,
   isValidTenantDocument,
@@ -1057,6 +1058,23 @@ export async function updateRoomField(formData: FormData) {
         deposit_received_total: depositReceived,
       },
     });
+  }
+
+  if ((field === "contractEnd" || field === "contractDuration") && tenancyId) {
+    await Promise.all([
+      reconcileSmartLockAccessForTenancy(tenancyId).catch((error) => {
+        console.error("Updated contract end smart-lock access could not be extended.", {
+          tenancyId,
+          error,
+        });
+      }),
+      reconcileFingerprintAccessForTenancy(tenancyId).catch((error) => {
+        console.error("Updated contract end fingerprint access could not be extended.", {
+          tenancyId,
+          error,
+        });
+      }),
+    ]);
   }
 
   revalidatePath(propertyPath(property.id));
