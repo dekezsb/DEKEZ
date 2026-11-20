@@ -31,7 +31,7 @@ test('public Register exposes reservation and actual payment details, not just t
 function render(code, rentalModel = 'tenancy') {
   return renderToStaticMarkup(React.createElement(RegistrationForm, {
     action: async () => {}, initialPropertyId: 'property',
-    properties: [{ id: 'property', label: code, code, rentalModel, isCommercial: ['BDS', 'PTT'].includes(code) }],
+    properties: [{ id: 'property', label: code, code, rentalModel, isCommercial: code === 'PTT' }],
     rooms: [{ id: 'room', propertyId: 'property', roomNumber: 'B4', monthlyRent: 380 }],
   }));
 }
@@ -42,9 +42,9 @@ test('normal SLS check-in retains its existing rent/deposit split and slip', () 
   assert.equal((html.match(/name="depositPaid"/g) || []).length, 1);
   assert.equal((html.match(/name="paymentSlip"/g) || []).length, 1);
 });
-test('all eligible properties expose reservation, BDS and PTT retain standard registration', () => {
-  for (const code of ['BVH', 'DGG', 'HLT', 'INS', 'KLB', 'MGT', 'SLY']) assert.match(render(code), /value="reservation"/);
-  for (const code of ['BDS', 'PTT']) assert.doesNotMatch(render(code), /value="reservation"/);
+test('all eligible properties including BDS expose reservation, PTT retains standard registration', () => {
+  for (const code of ['BVH', 'DGG', 'HLT', 'INS', 'KLB', 'MGT', 'SLY', 'BDS']) assert.match(render(code), /value="reservation"/);
+  for (const code of ['PTT']) assert.doesNotMatch(render(code), /value="reservation"/);
 });
 
 test('approved reservation with verified money cannot activate tenancy or billing', async () => {
