@@ -45,7 +45,7 @@ function render(Form, mode, code = 'KLB', identity = 'ic') {
   stateIndex = 0;
   states = Form === PublicForm ? ['tenant', identity, 'property', 'room', mode, {}, '600', '', '50', null, false]
     : ['property', 'room', '600', '600', '', '', mode, identity, 'sole_proprietor'];
-  return renderToStaticMarkup(React.createElement(Form, { action: async () => {}, properties: [{ id: 'property', label: code, code, propertyCode: code, rentalModel: 'tenancy', isCommercial: ['BDS','PTT'].includes(code), contractDurations: [6,12] }], rooms: [{ id: 'room', propertyId: 'property', roomNumber: '9', monthlyRent: 600 }] }));
+  return renderToStaticMarkup(React.createElement(Form, { action: async () => {}, properties: [{ id: 'property', label: code, code, propertyCode: code, rentalModel: 'tenancy', isCommercial: code === 'PTT', contractDurations: [6,12] }], rooms: [{ id: 'room', propertyId: 'property', roomNumber: '9', monthlyRent: 600 }] }));
 }
 test('public reservation has one deposit slip plus optional IC front/back uploads', () => {
   const html = render(PublicForm, 'reservation');
@@ -88,8 +88,11 @@ test('normal check-in retains rent/deposit split and identity photos', () => {
     assert.ok((html.match(/type="file"/g) || []).length >= 3);
   }
 });
-test('public BDS/PTT cannot force reservation mode', () => {
-  for (const code of ['BDS','PTT']) assert.doesNotMatch(render(PublicForm, 'reservation', code), /name="reservationDeposit"/);
+test('public PTT cannot force reservation mode', () => {
+  assert.doesNotMatch(render(PublicForm, 'reservation', 'PTT'), /name="reservationDeposit"/);
+});
+test('public BDS can reserve like other room properties', () => {
+  assert.match(render(PublicForm, 'reservation', 'BDS'), /name="reservationDeposit"/);
 });
 test('booking deposit validation accepts RM50 independently of later rent/security terms', () => {
   assert.equal(reservationAmount('50'), 50);
