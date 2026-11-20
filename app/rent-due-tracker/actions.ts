@@ -344,7 +344,7 @@ export async function getMonthlyPaymentFolder(billId: string) {
 
 export async function submitPaymentFolderSlip(form: FormData): Promise<{ ok: boolean; message: string; warning?: boolean }> {
   const { db, bill, property, user } = await paymentFolderContext(textValue(form, "billId"));
-  if (!supportsReservations(property.property_code)) return { ok: false, message: "This instalment workflow is not enabled for BDS or PTT." };
+  if (!supportsReservations(property.property_code)) return { ok: false, message: "This instalment workflow is not enabled for Putatan (PTT)." };
   const amount = numberValue(form, "amount");
   const purpose = textValue(form, "purpose");
   const date = textValue(form, "date");

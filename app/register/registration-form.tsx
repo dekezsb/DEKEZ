@@ -413,7 +413,7 @@ export function RegistrationForm({
                 <label><input type="radio" name="registrationMode" checked={effectiveMode === "check_in"} onChange={() => setRegistrationMode("check_in")} /> Check in</label>
                 <label><input type="radio" name="registrationMode" disabled={!flexiblePayments} checked={effectiveMode === "reservation"} onChange={() => setRegistrationMode("reservation")} /> Reserve room first</label>
               </div>
-              <p className="mt-2 text-sm text-gray-600">{!propertyId ? "Choose a property to enable reservations." : flexiblePayments ? "A reservation holds the room only. It does not start your tenancy or rental billing. Payments can be made in instalments." : "Reservations are not available for BDS and PTT."}</p>
+              <p className="mt-2 text-sm text-gray-600">{!propertyId ? "Choose a property to enable reservations." : flexiblePayments ? "A reservation holds the room only. It does not start your tenancy or rental billing. Payments can be made in instalments." : "Reservations are not available for Putatan (PTT)."}</p>
             </fieldset>
             {selectedProperty?.rentalModel !== "monthly_stay" ? (
               <label className="sm:col-span-2">

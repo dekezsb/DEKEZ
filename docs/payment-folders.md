@@ -9,6 +9,6 @@
 - Verification shows all slips inside a selected folder, including earlier verified slips. New folder slips have an explicit bank-received confirmation. Posting payment, updating the balance and recording verification are transactional and idempotent.
 - Do not bulk-verify receipts solely because they were uploaded together. Do not infer receipt amounts from the rental charge.
 - Legacy combined rent/deposit slips remain visible, but are excluded from separate pending summary totals until their allocation is reviewed.
-- BDS and PTT retain their existing single-slip registration/payment workflow.
+- PTT retains its existing single-slip registration/payment workflow. Bundusan (BDS) uses the same room reservation deposit flow as other Bilik Sewa properties.
 
 Checks: TypeScript; payment-folder unit/render tests; rollback-only database tests for duplicate submission, idempotent verification, rental totals and deposit separation. Signed-in browser verification must be reported separately from these checks.
