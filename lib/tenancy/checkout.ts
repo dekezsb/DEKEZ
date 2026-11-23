@@ -5,7 +5,9 @@ import {
   type TenantPhoneReleaseStatus,
 } from "@/lib/auth/release-tenant-phone";
 import { revokeSmartLockAccessForTenancy } from "@/lib/ttlock/access";
+import { revokeEKeyAccessForTenancy } from "@/lib/ttlock/ekey";
 import { revokeFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
+import { cutRoomMeterPowerAfterCheckout } from "@/lib/ttlock/meter-control";
 
 type Relation<T> = T | T[] | null;
 
@@ -37,6 +39,7 @@ export type TenantCheckoutResult =
       roomId: string;
       tenancyId: string;
       phoneLoginRelease: TenantPhoneReleaseStatus;
+      meterPowerErrors?: string[];
     }
   | { ok: false; reason: TenantCheckoutFailure };
 
@@ -112,6 +115,7 @@ export async function executeTenantCheckout({
     await Promise.all([
       revokeSmartLockAccessForTenancy(tenancy.id),
       revokeFingerprintAccessForTenancy(tenancy.id, actorProfileId),
+      revokeEKeyAccessForTenancy(tenancy.id, { reason: "checkout" }),
     ]);
   } catch (error) {
     console.error("Checkout stopped because smart-lock access was not revoked.", {
@@ -181,6 +185,23 @@ export async function executeTenantCheckout({
     return { ok: false, reason: "failed" };
   }
 
+  // Prepaid meter: cut power so leftover credit is not used after move-out.
+  // Never blocks checkout; failures stay on the meter row for staff.
+  const meterPower = await cutRoomMeterPowerAfterCheckout({
+    roomId: tenancy.room_id,
+    tenancyId: tenancy.id,
+    performedBy: actorProfileId,
+  }).catch((error) => ({
+    switchedOff: 0,
+    errors: [error instanceof Error ? error.message : "Meter power off failed."],
+  }));
+  if (meterPower.errors.length) {
+    console.error("Checkout finished but the room meter could not be switched off.", {
+      tenancyId: tenancy.id,
+      errors: meterPower.errors,
+    });
+  }
+
   const phoneLoginRelease = await releaseCheckedOutTenantPhone({
     phone: normalizeInternationalPhone(tenant?.phone ?? ""),
     profileId: tenant?.profile_id ?? null,
@@ -206,6 +227,7 @@ export async function executeTenantCheckout({
       source,
       note: note?.trim() || null,
       phone_login_release: phoneLoginRelease,
+      meter_power_off: meterPower,
     },
   });
   if (auditError) {
@@ -221,5 +243,6 @@ export async function executeTenantCheckout({
     roomId: tenancy.room_id,
     tenancyId: tenancy.id,
     phoneLoginRelease,
+    meterPowerErrors: meterPower.errors,
   };
 }

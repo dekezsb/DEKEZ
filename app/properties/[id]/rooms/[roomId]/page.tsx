@@ -14,6 +14,8 @@ import { formatMalaysiaDate } from "@/lib/date-format";
 import { getRoomDetails } from "@/lib/data/property-details";
 import { getRoomSmartDevices } from "@/lib/data/room-smart-devices";
 import { RoomSmartDevicesCard } from "./room-smart-devices";
+import { RoomTTLockControls } from "./room-ttlock-controls";
+import { getRoomTTLockContext } from "@/lib/data/ttlock-ekeys";
 import { statusBadgeClass } from "@/lib/status-styles";
 import {
   activateTenantPortalAccess,
@@ -26,7 +28,13 @@ import { cancelReservation } from "@/app/reservations/actions";
 
 type PageProps = {
   params: Promise<{ id: string; roomId: string }>;
-  searchParams: Promise<{ document?: string; payment?: string; portal?: string }>;
+  searchParams: Promise<{
+    document?: string;
+    payment?: string;
+    portal?: string;
+    ttlockError?: string;
+    ttlockNotice?: string;
+  }>;
 };
 
 const money = new Intl.NumberFormat("en-MY", {
@@ -88,11 +96,17 @@ export default async function RoomDetailsPage({
   const role = await requireRole(["super_admin", "owner", "admin"]);
   const canManage = role === "super_admin" || role === "admin";
   const [{ id, roomId }, query] = await Promise.all([params, searchParams]);
-  const [details, smartDevices] = await Promise.all([
+  const [details, smartDevices, ttlockContext] = await Promise.all([
     getRoomDetails(id, roomId, {
       includeSensitiveDocuments: canManage,
     }),
     getRoomSmartDevices(id, roomId),
+    canManage
+      ? getRoomTTLockContext(roomId).catch((error) => {
+          console.error("Room TTLock controls could not be loaded.", { roomId, error });
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
   const { property, room } = details;
   const { data: reservation } = canManage && room.status === "reserved" && !room.tenantName
@@ -316,6 +330,15 @@ export default async function RoomDetailsPage({
       </div>
 
       <RoomSmartDevicesCard devices={smartDevices} />
+
+      {canManage && ttlockContext ? (
+        <RoomTTLockControls
+          context={ttlockContext}
+          error={query.ttlockError}
+          notice={query.ttlockNotice}
+          returnTo={`/properties/${id}/rooms/${roomId}`}
+        />
+      ) : null}
 
             {room.tenantName && canManage ? (
         <Card className="border-red-200">

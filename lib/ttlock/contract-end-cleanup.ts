@@ -6,6 +6,8 @@ import {
   hasContractEnded,
   resolveContractEndDate,
 } from "@/lib/ttlock/contract-end";
+import { revokeEKeyAccessForTenancy } from "@/lib/ttlock/ekey";
+import { isMissingSchemaError } from "@/lib/ttlock/ekey-rules";
 import { revokeFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
 
 type Relation<T> = T | T[] | null | undefined;
@@ -42,7 +44,7 @@ function cleanupError(error: unknown) {
 
 /**
  * After 11:59:59pm MYT on the contract end date, delete remaining MAIN and
- * ROOM passcodes (and fingerprints) unless the tenancy was renewed to a later
+ * ROOM passcodes (plus fingerprints and app eKeys) unless the tenancy was renewed to a later
  * end date. Idempotent; retries revoke_pending grants on the next run.
  */
 export async function revokeAccessAfterContractEnd(input?: {
@@ -67,13 +69,25 @@ export async function revokeAccessAfterContractEnd(input?: {
       "revoke_pending",
     ]);
   if (error) throw error;
+  const { data: ekeyData, error: ekeyError } = await admin
+    .from("smart_lock_ekey_grants")
+    .select(
+      "id,tenancy_id,credential_state,tenancies(tenancy_end_date,contract_end,end_date)",
+    )
+    .in("credential_state", [
+      "pending_send",
+      "active",
+      "frozen",
+      "revoke_pending",
+    ]);
+  if (ekeyError && !isMissingSchemaError(ekeyError)) throw ekeyError;
 
   const byTenancy = new Map<
     string,
     { retried: boolean; skipped: boolean }
   >();
 
-  for (const grant of (data ?? []) as OpenGrant[]) {
+  for (const grant of [...(data ?? []), ...(ekeyData ?? [])] as OpenGrant[]) {
     if (!grant.tenancy_id) continue;
     const tenancy = one(grant.tenancies);
     const ended = hasContractEnded(resolveContractEndDate(tenancy ?? {}), now);
@@ -105,6 +119,7 @@ export async function revokeAccessAfterContractEnd(input?: {
         reason: "contract_ended",
       });
       await revokeFingerprintAccessForTenancy(tenancyId);
+      await revokeEKeyAccessForTenancy(tenancyId, { reason: "contract_ended" });
     } catch (revokeError) {
       result.errors.push(`${tenancyId}: ${cleanupError(revokeError)}`);
     }

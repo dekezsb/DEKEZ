@@ -51,6 +51,10 @@
     {
       "path": "/api/ttlock-contract-end",
       "schedule": "10 16 * * *"
+    },
+    {
+      "path": "/api/ttlock-meter-refresh",
+      "schedule": "25 * * * *"
     }
   ]
 }

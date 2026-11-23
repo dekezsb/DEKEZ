@@ -15,6 +15,7 @@ import {
   reconcileSmartLockAccessForTenancy,
 } from "@/lib/ttlock/access";
 import { reconcileFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
+import { reconcileEKeyAndMeterForTenancy } from "@/lib/ttlock/tenancy-extras";
 import {
   formFile,
   isValidTenantDocument,
@@ -1074,6 +1075,7 @@ export async function updateRoomField(formData: FormData) {
           error,
         });
       }),
+      reconcileEKeyAndMeterForTenancy(tenancyId),
     ]);
   }
 
@@ -1389,6 +1391,7 @@ export async function registerTenant(formData: FormData) {
       error,
     });
   });
+  await reconcileEKeyAndMeterForTenancy(tenancy.id);
   revalidatePath(propertyPath(property.id));
   revalidatePath("/dashboard");
   revalidatePath("/rent-due-tracker");

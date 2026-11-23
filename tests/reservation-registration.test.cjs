@@ -51,7 +51,7 @@ test('approved reservation with verified money cannot activate tenancy or billin
   const originalLoad = Module._load;
   let sideEffects = 0;
   Module._load = function (request, ...args) {
-    if (['@/lib/billing/rent-billing', '@/lib/tenancy/agreement', '@/lib/ttlock/access'].includes(request)) {
+    if (['@/lib/billing/rent-billing', '@/lib/tenancy/agreement', '@/lib/ttlock/access', '@/lib/ttlock/tenancy-extras'].includes(request)) {
       return new Proxy({}, { get: () => () => { sideEffects++; throw new Error('Reservation activated'); } });
     }
     return originalLoad.call(this, request, ...args);

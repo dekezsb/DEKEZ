@@ -1,5 +1,6 @@
 import "server-only";
 
+import { extendEKeyAccessAfterPayment } from "@/lib/ttlock/ekey";
 import { extendFingerprintAccessAfterPayment } from "@/lib/ttlock/fingerprint";
 import { extendPasscodeAccessAfterPayment } from "@/lib/ttlock/passcode-payment";
 
@@ -10,7 +11,7 @@ function errorMessage(error: unknown, fallback: string) {
 /**
  * Staff-verified rent payment hook. Aligns existing fingerprints to the
  * contract end (no 30-day cycle) and extends any existing TTLock passcodes
- * by one month, capped at the contract end. Failures are collected and
+ * and app eKeys by one month, capped at the contract end. Failures are collected and
  * never thrown, so payment verification can finish.
  */
 export async function extendDoorAccessAfterPayment(input: {
@@ -36,10 +37,18 @@ export async function extendDoorAccessAfterPayment(input: {
     skipped: 0,
     errors: [errorMessage(error, "TTLock passcode request failed.")],
   }));
+  const ekey = await extendEKeyAccessAfterPayment(input).catch((error) => ({
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    skipped: 0,
+    errors: [errorMessage(error, "TTLock eKey request failed.")],
+  }));
 
   return {
     fingerprint,
     passcode,
-    errors: [...fingerprint.errors, ...passcode.errors],
+    ekey,
+    errors: [...fingerprint.errors, ...passcode.errors, ...ekey.errors],
   };
 }
