@@ -34,6 +34,9 @@ import {
   type RoomOption,
 } from "@/lib/ttlock/device-discovery";
 import { compareSmartLockDevices, compareSmartMeters, failedGrantsToShow } from "@/lib/ttlock/device-list-sort";
+import { EKeyGrantTable, MeterControlButtons, TTLockNotice } from "@/components/smart-devices/ekey-controls";
+import { listEKeyGrants } from "@/lib/data/ttlock-ekeys";
+import { resolveElectricityRmPerKwh } from "@/lib/smart-meter/top-up-access";
 import {
   assignTTLockDevice,
   assignTTLockMeter,
@@ -68,6 +71,8 @@ type SmartDevicesPageProps = {
     metersSynced?: string;
     synced?: string;
     discovered?: string;
+    ttlockError?: string;
+    ttlockNotice?: string;
     assigned?: string;
     autoLinkedLocks?: string;
     autoLinkedMeters?: string;
@@ -363,6 +368,11 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
     return value ? `/smart-devices?${value}` : "/smart-devices";
   };
   const config = getTTLockConfigStatus();
+  const ekeys = await listEKeyGrants().catch((ekeyError) => {
+    console.error("eKey list could not be loaded", ekeyError);
+    return { grants: [], migrationPending: false, failed: true as const };
+  });
+  const electricityRate = resolveElectricityRmPerKwh();
   const connectedCount = devices.filter((device) => device.sync_status === "connected").length;
   const assignedCount = devices.filter((device) => device.room_id).length;
   const numberedRoomLockCount = devices.filter((device) => numberedRoomLockPattern.test(device.provider_lock_name)).length;
@@ -422,6 +432,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
           <p>{errorMessage}</p>
         </div>
       ) : null}
+      <TTLockNotice error={params.ttlockError} notice={params.ttlockNotice} />
       {params.synced || params.discovered || params.metersSynced || params.metersDiscovered || params.autoLinkedLocks || params.autoLinkedMeters ? (
         <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
@@ -560,7 +571,7 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
               label="Power on"
               value={`${smartMeters.filter((meter) => meter.power_state === "on").length} / ${smartMeters.length}`}
             />
-            <MeterSummary icon={Zap} label="Electricity rate" value="RM 0.57 / kWh" />
+            <MeterSummary icon={Zap} label="Electricity rate" value={`RM ${electricityRate.toFixed(2)} / kWh`} />
           </div>
 
           {unassignedMeters.length ? (
@@ -635,7 +646,12 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                         {meter.power_state}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{dateTimeLabel(meter.last_reported_at)}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {dateTimeLabel(meter.last_reported_at)}
+                      {meter.last_sync_error ? (
+                        <span className="mt-1 block max-w-xs text-xs text-red-700">Needs attention: {meter.last_sync_error}</span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {meter.property_id && meter.room_id ? (
                         <div className="flex flex-col items-end gap-2">
@@ -645,6 +661,12 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                           <Link className="font-medium text-[#9b6c14] hover:underline" href={`/properties/${meter.property_id}/rooms/${meter.room_id}`}>
                             Open room
                           </Link>
+                          <Link className="font-medium text-[#9b6c14] hover:underline" href={`/smart-devices/meters/${meter.id}`}>
+                            Usage &amp; history
+                          </Link>
+                          {meter.provider === "ttlock" && meter.provider_meter_id ? (
+                            <MeterControlButtons meterId={meter.id} powerState={meter.power_state} returnTo="/smart-devices" />
+                          ) : null}
                           {meter.assignment_source === "auto_alias" ? (
                             <UnassignLocationForm action={unassignTTLockMeter} deviceId={meter.id} />
                           ) : null}
@@ -795,6 +817,11 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
                       </summary>
 
                       <div className="border-t border-gray-200 bg-gray-50/70 p-4">
+                        <p className="mb-3 text-right text-sm">
+                          <Link className="font-medium text-[#9b6c14] hover:underline" href={`/smart-devices/locks/${device.id}/ekeys`}>
+                            App eKeys on this lock (live from TTLock)
+                          </Link>
+                        </p>
                         <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                           <div>
                             <p className="text-xs uppercase tracking-wide text-gray-500">Access path</p>
@@ -1027,6 +1054,33 @@ export default async function SmartDevicesPage({ searchParams }: SmartDevicesPag
               </div>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-[#b47d17]" /> App eKeys
+            </CardTitle>
+            <p className="mt-1 text-sm text-gray-600">
+              TTLock app keys sent to tenants. Add the tenant&apos;s TTLock account on the room page to send one.
+              They follow the passcode lifecycle: sent at move-in, extended after verified rent and renewal,
+              deleted at checkout and contract end.
+            </p>
+          </div>
+          <Badge>{ekeys.grants.length} keys</Badge>
+        </CardHeader>
+        <CardContent>
+          {ekeys.migrationPending ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              The eKey database update has not been applied yet.
+            </p>
+          ) : "failed" in ekeys ? (
+            <p className="text-sm text-red-700">eKey records could not be loaded.</p>
+          ) : (
+            <EKeyGrantTable grants={ekeys.grants} returnTo="/smart-devices" showLocation />
+          )}
         </CardContent>
       </Card>
 
