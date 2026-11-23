@@ -288,7 +288,7 @@ test('daily cron is protected by CRON_SECRET and registered for 12:10am MYT', as
     crons.filter((row) => row.path === '/api/ttlock-contract-end'),
     [{ path: '/api/ttlock-contract-end', schedule: '10 16 * * *' }],
   );
-  assert.equal(crons.length, 9);
+  assert.equal(crons.length, 10);
 
   for (const key of keys) {
     if (previous[key] == null) delete process.env[key];
