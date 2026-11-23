@@ -100,7 +100,10 @@ async function responseJson<T>(response: Response): Promise<T> {
   const payload = (await response.json()) as T & { errcode?: number; errmsg?: string };
 
   if (!response.ok || (payload.errcode !== undefined && payload.errcode !== 0)) {
-    throw new Error(payload.errmsg || `TTLock request failed (${response.status}).`);
+    throw Object.assign(
+      new Error(payload.errmsg || `TTLock request failed (${response.status}).`),
+      { errcode: payload.errcode },
+    );
   }
 
   return payload;
@@ -146,6 +149,26 @@ async function authenticatedPost<T>(
       ...fields,
       date: Date.now().toString(),
     }),
+    cache: "no-store",
+  });
+
+  return responseJson<T>(response);
+}
+
+async function authenticatedGet<T>(
+  path: string,
+  fields: Record<string, string>,
+) {
+  const config = getTTLockConfig();
+  const accessToken = await getAccessToken(config);
+  const query = new URLSearchParams({
+    clientId: config.clientId,
+    accessToken,
+    ...fields,
+    date: Date.now().toString(),
+  });
+  const response = await fetch(`${config.baseUrl}${path}?${query.toString()}`, {
+    method: "GET",
     cache: "no-store",
   });
 
@@ -358,5 +381,237 @@ export async function syncTTLockElectricMeterState(electricMeterId: string | num
   await authenticatedPost<{ errcode?: number; errmsg?: string }>(
     "/v3/electricMeter/syncState",
     { electricMeterId: String(electricMeterId) },
+  );
+}
+
+export type TTLockElectricMeterDetail = TTLockElectricMeter & {
+  mac?: string;
+  modelNum?: string;
+  hardwareRevision?: string;
+  firmwareRevision?: string;
+  syncKwhDate?: number | string;
+  maxPower?: string;
+  featureValue?: string;
+};
+
+/** Read-only: POST /v3/electricMeter/detail */
+export async function getTTLockElectricMeterDetail(electricMeterId: string | number) {
+  const payload = await authenticatedPost<TTLockElectricMeterDetail & {
+    errcode?: number;
+    errmsg?: string;
+  }>("/v3/electricMeter/detail", { electricMeterId: String(electricMeterId) });
+  // Strip anything that is not a plain reading/status field.
+  return {
+    electricMeterId: payload.electricMeterId ?? Number(electricMeterId),
+    name: payload.name,
+    number: payload.number,
+    online: payload.online,
+    rssi: payload.rssi,
+    onOff: payload.onOff,
+    payMode: payload.payMode,
+    totalKwh: payload.totalKwh,
+    remainderKwh: payload.remainderKwh,
+    price: payload.price,
+    maxPower: payload.maxPower,
+    modelNum: payload.modelNum,
+    firmwareRevision: payload.firmwareRevision,
+    syncKwhDate: payload.syncKwhDate,
+    groupId: payload.groupId,
+    groupName: payload.groupName,
+  } satisfies TTLockElectricMeterDetail;
+}
+
+/**
+ * POST /v3/electricMeter/controlOnOff — onOff 1 switches the relay on,
+ * 0 cuts power. Requires the meter to be online through its gateway/4G.
+ */
+export async function controlTTLockElectricMeterPower(input: {
+  electricMeterId: string | number;
+  on: boolean;
+}) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/electricMeter/controlOnOff",
+    {
+      electricMeterId: String(input.electricMeterId),
+      onOff: input.on ? "1" : "0",
+    },
+  );
+}
+
+export type TTLockElectricMeterUsageRecord = {
+  dateType?: number;
+  usedKwh?: string;
+  createDate?: string;
+};
+
+/**
+ * Read-only: POST /v3/electricMeter/listRecords. dateType 0 = by day
+ * (dateStr YYYY-MM-DD), 1 = by month (YYYY-MM), 2 = by year (YYYY).
+ */
+export async function listTTLockElectricMeterUsage(input: {
+  electricMeterId: string | number;
+  dateType: 0 | 1 | 2;
+  dateStr: string;
+}) {
+  const payload = await authenticatedPost<{
+    list?: TTLockElectricMeterUsageRecord[];
+    errcode?: number;
+    errmsg?: string;
+  }>("/v3/electricMeter/listRecords", {
+    electricMeterId: String(input.electricMeterId),
+    dateType: String(input.dateType),
+    dateStr: input.dateStr,
+  });
+  return payload.list ?? [];
+}
+
+export type TTLockElectricMeterOperationRecord = {
+  id?: number;
+  recordType?: number | string;
+  title?: string;
+  content?: string;
+  date?: string;
+};
+
+/** Read-only: POST /v3/electricMeter/listOperationRecords */
+export async function listTTLockElectricMeterOperationRecords(input: {
+  electricMeterId: string | number;
+  pageNo?: number;
+  pageSize?: number;
+}) {
+  const payload = await authenticatedPost<{
+    list?: TTLockElectricMeterOperationRecord[];
+    total?: number;
+    errcode?: number;
+    errmsg?: string;
+  }>("/v3/electricMeter/listOperationRecords", {
+    electricMeterId: String(input.electricMeterId),
+    pageNo: String(input.pageNo ?? 1),
+    pageSize: String(Math.min(input.pageSize ?? 50, 1000)),
+  });
+  return (payload.list ?? []).map((record) => ({
+    id: record.id,
+    recordType: record.recordType,
+    title: record.title,
+    content: record.content,
+    date: record.date,
+  }));
+}
+
+/*
+ * eKeys ("Unlock with APP"). Official Sciener/TTLock cloud API:
+ *   POST /v3/key/send          lockId, receiverUsername, keyName, startDate, endDate, remarks, keyRight, createUser
+ *   GET  /v3/lock/listKey      lockId, pageNo, pageSize (max 200), orderBy
+ *   POST /v3/key/delete        keyId
+ *   POST /v3/key/freeze        keyId
+ *   POST /v3/key/unfreeze      keyId
+ *   POST /v3/key/changePeriod  keyId, startDate, endDate
+ * keyStatus 110401 = normal, 110405 = frozen.
+ */
+export type TTLockEKey = {
+  keyId: number;
+  lockId: number;
+  username?: string;
+  keyName?: string;
+  keyStatus?: string;
+  startDate?: number;
+  endDate?: number;
+  keyRight?: number;
+  remoteEnable?: number;
+  senderUsername?: string;
+  remarks?: string;
+  date?: number;
+};
+
+export async function sendTTLockEKey(input: {
+  lockId: number;
+  receiverUsername: string;
+  keyName: string;
+  validFrom: Date;
+  validUntil: Date;
+  remarks?: string;
+}) {
+  const payload = await authenticatedPost<{
+    keyId?: number | string;
+    errcode?: number;
+    errmsg?: string;
+  }>("/v3/key/send", {
+    lockId: String(input.lockId),
+    receiverUsername: input.receiverUsername,
+    keyName: input.keyName,
+    startDate: String(input.validFrom.getTime()),
+    endDate: String(input.validUntil.getTime()),
+    ...(input.remarks ? { remarks: input.remarks } : {}),
+    // Never an admin (authorized) key, and never auto-create an account with
+    // the guessable "last six characters" default password.
+    keyRight: "0",
+    createUser: "2",
+  });
+  const keyId = Number(payload.keyId);
+  if (!Number.isSafeInteger(keyId) || keyId <= 0) {
+    throw new Error("TTLock did not return a valid eKey ID.");
+  }
+  return keyId;
+}
+
+export async function listTTLockLockEKeys(lockId: number) {
+  const keys: TTLockEKey[] = [];
+  const pageSize = 200;
+  for (let pageNo = 1; pageNo <= 50; pageNo += 1) {
+    const payload = await authenticatedGet<{
+      list?: TTLockEKey[];
+      pages?: number;
+      total?: number;
+      errcode?: number;
+      errmsg?: string;
+    }>("/v3/lock/listKey", {
+      lockId: String(lockId),
+      pageNo: String(pageNo),
+      pageSize: String(pageSize),
+      orderBy: "1",
+    });
+    const page = payload.list ?? [];
+    keys.push(...page);
+    const lastPage = payload.pages
+      ? pageNo >= payload.pages
+      : page.length < pageSize || keys.length >= Number(payload.total ?? Infinity);
+    if (lastPage) break;
+  }
+  return keys;
+}
+
+export async function deleteTTLockEKey(keyId: number) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/key/delete",
+    { keyId: String(keyId) },
+  );
+}
+
+export async function freezeTTLockEKey(keyId: number) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/key/freeze",
+    { keyId: String(keyId) },
+  );
+}
+
+export async function unfreezeTTLockEKey(keyId: number) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/key/unfreeze",
+    { keyId: String(keyId) },
+  );
+}
+
+export async function changeTTLockEKeyPeriod(input: {
+  keyId: number;
+  validFrom: Date;
+  validUntil: Date;
+}) {
+  await authenticatedPost<{ errcode?: number; errmsg?: string }>(
+    "/v3/key/changePeriod",
+    {
+      keyId: String(input.keyId),
+      startDate: String(input.validFrom.getTime()),
+      endDate: String(input.validUntil.getTime()),
+    },
   );
 }
