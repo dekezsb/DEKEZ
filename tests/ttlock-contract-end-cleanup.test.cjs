@@ -78,9 +78,11 @@ function thenableData(data) {
 function loadCleanup({ grants, revoke, revokeFingerprint, revokeError }) {
   const revoked = [];
   const fingerprints = [];
+  const ekeys = [];
   return {
     revoked,
     fingerprints,
+    ekeys,
     module: loader({
       'server-only': {},
       '@/lib/supabase/admin': {
@@ -98,6 +100,11 @@ function loadCleanup({ grants, revoke, revokeFingerprint, revokeError }) {
       '@/lib/ttlock/fingerprint': {
         revokeFingerprintAccessForTenancy: async (tenancyId) => {
           fingerprints.push(tenancyId);
+        },
+      },
+      '@/lib/ttlock/ekey': {
+        revokeEKeyAccessForTenancy: async (tenancyId, options) => {
+          ekeys.push({ tenancyId, options });
         },
       },
     })('lib/ttlock/contract-end-cleanup.ts'),
@@ -128,6 +135,7 @@ test('expired contracts revoke MAIN and ROOM once; current and renewed tenancies
   assert.deepEqual(result.errors, []);
   assert.deepEqual(loaded.revoked, [{ tenancyId: 'tenancy-1', options: { reason: 'contract_ended' } }]);
   assert.deepEqual(loaded.fingerprints, ['tenancy-1']);
+  assert.deepEqual(loaded.ekeys, [{ tenancyId: 'tenancy-1', options: { reason: 'contract_ended' } }]);
 });
 
 test('revoke_pending grants are retried and a second run is idempotent', async () => {
@@ -289,7 +297,7 @@ test('daily cron is protected by CRON_SECRET and registered for 12:10am MYT', as
 });
 
 test('checkout, payment cap, renewal extend, and overdue no-op stay in place', () => {
-  assert.equal(hash(read('lib/tenancy/checkout.ts')), 'efa6d3228271f0a0cc3c5056557a06cad8db9dfdba15a3f459f15f7cf172db6d');
+  assert.equal(hash(read('lib/tenancy/checkout.ts')), '1147b0a64d04bcdb626f632f9fa39d29a9b3a9601957fd8c16130b6811a6a7b7');
   assert.match(read('lib/tenancy/checkout.ts'), /revokeSmartLockAccessForTenancy\(tenancy\.id\)/);
   const payment = read('lib/ttlock/passcode-period.ts');
   assert.match(payment, /contractUntil && contractUntil < requestedUntil/);

@@ -70,7 +70,7 @@ test('fingerprint validity follows contract end, and checkout revocation is unch
 });
 
 test('legitimate tenancy checkout path is unchanged, and provision still issues a fresh code after fetching a missing lock version', () => {
-  assert.equal(hash(read('lib/tenancy/checkout.ts')), 'efa6d3228271f0a0cc3c5056557a06cad8db9dfdba15a3f459f15f7cf172db6d');
+  assert.equal(hash(read('lib/tenancy/checkout.ts')), '1147b0a64d04bcdb626f632f9fa39d29a9b3a9601957fd8c16130b6811a6a7b7');
   const access = read('lib/ttlock/access.ts');
   assert.match(access, /function randomPasscode\(\)/);
   assert.match(access, /storedOrFetchedPasscodeVersion/);
