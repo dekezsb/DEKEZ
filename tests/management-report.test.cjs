@@ -122,7 +122,7 @@ test('production migration version is reconciled exactly once without changing a
 
 test('approved 20:00 Malaysia daily cron is registered once, preserving all six existing schedules and source-write boundaries',()=>{
  const vercel=JSON.parse(fs.readFileSync('vercel.json','utf8')),crons=vercel.crons;
- assert.deepEqual(crons.filter(cron=>cron.path!=='/api/rental-collections'&&cron.path!=='/api/ttlock-contract-end'),[
+ assert.deepEqual(crons.filter(cron=>cron.path!=='/api/rental-collections'&&cron.path!=='/api/ttlock-contract-end'&&cron.path!=='/api/ttlock-meter-refresh'),[
   {path:'/api/dekez-chat-assistant',schedule:'* * * * *'},
   {path:'/api/dekez-chat-reminders',schedule:'7,17,27,37,47,57 * * * *'},
   {path:'/api/rental-billing',schedule:'5 16 * * *'},
