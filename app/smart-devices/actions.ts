@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/data/organization";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
+import { reconcileEKeyAndMeterForTenancy } from "@/lib/ttlock/tenancy-extras";
 import { getTTLockConfigStatus, getTTLockLockDetail, listTTLockDevices, listTTLockElectricMeters } from "@/lib/ttlock/client";
 import { fillMissingLockVersions } from "@/lib/ttlock/lock-version";
 import {
@@ -617,6 +618,10 @@ export async function provisionTTLockAccess() {
       unchanged += result.unchanged;
       skipped += result.skipped;
       errors += result.errors.length;
+      const extras = await reconcileEKeyAndMeterForTenancy(tenancy.id);
+      created += extras.ekey.created;
+      updated += extras.ekey.updated;
+      errors += extras.errors.length;
     } catch (error) {
       console.error("TTLock tenant access provisioning failed", {
         tenancyId: tenancy.id,

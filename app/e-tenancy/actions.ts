@@ -12,6 +12,7 @@ import { createSignedAgreementPdf } from "@/lib/tenancy/agreement-pdf";
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 import { reconcileFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
+import { reconcileEKeyAndMeterForTenancy } from "@/lib/ttlock/tenancy-extras";
 import { malaysiaToday } from "@/lib/tenancy/agreement";
 import { canApplySignedTerm, canSignAgreement, signableAgreementStatuses } from "@/lib/tenancy/signing-policy";
 
@@ -355,6 +356,7 @@ export async function signAgreement(formData: FormData) {
           });
         },
       );
+      await reconcileEKeyAndMeterForTenancy(agreement.tenancy_id);
     }
   }
 
