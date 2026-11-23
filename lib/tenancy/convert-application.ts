@@ -4,6 +4,7 @@ import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
 import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
 import { dueDayForNewTenancy } from "@/lib/tenancy/due-day";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
+import { reconcileEKeyAndMeterForTenancy } from "@/lib/ttlock/tenancy-extras";
 
 type ConvertApplicationOptions = {
   actorId: string;
@@ -494,5 +495,6 @@ export async function convertTenantApplication(
       error,
     });
   });
+  await reconcileEKeyAndMeterForTenancy(tenancy.id);
   return { ok: true, tenancyId: tenancy.id };
 }
