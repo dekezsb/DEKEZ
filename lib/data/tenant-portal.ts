@@ -337,6 +337,15 @@ export async function getTenantPortalData() {
     fingerprint_name: string | null;
     smart_lock_devices: Relation<{ provider_lock_name: string | null }>;
   }> = [];
+  let ekeyGrants: Array<{
+    id: string;
+    tenancy_id: string;
+    access_scope: string;
+    receiver_username: string;
+    credential_state: string;
+    valid_until: string | null;
+    smart_lock_devices: Relation<{ provider_lock_name: string | null }>;
+  }> = [];
   let lockDevices: Array<{
     id: string;
     property_id: string | null;
@@ -519,6 +528,18 @@ export async function getTenantPortalData() {
     agreements = (agreementsResult.data ?? []) as typeof agreements;
     smartMeters = (smartMetersResult.data ?? []) as typeof smartMeters;
     fingerprintGrants = (fingerprintGrantsResult.data ?? []) as typeof fingerprintGrants;
+    // TTLock app eKeys. Read separately so the portal still loads before the
+    // eKey migration is applied (the query then just returns an error).
+    const ekeyResult = await dataClient
+      .from("smart_lock_ekey_grants")
+      .select(
+        "id,tenancy_id,access_scope,receiver_username,credential_state,valid_until,smart_lock_devices(provider_lock_name)",
+      )
+      .eq("tenant_profile_id", user.id)
+      .in("tenancy_id", tenancyIds)
+      .in("credential_state", ["pending_send", "active", "frozen", "revoke_pending"])
+      .order("created_at", { ascending: false });
+    ekeyGrants = ekeyResult.error ? [] : ((ekeyResult.data ?? []) as typeof ekeyGrants);
     lockDevices = [
       ...(propertyLocksResult.data ?? []),
       ...(roomLocksResult.data ?? []),
@@ -665,6 +686,17 @@ export async function getTenantPortalData() {
               tenancyId: grant.tenancy_id,
               accessScope: grant.access_scope,
               enrollmentCode: grant.enrollment_code,
+              state: grant.credential_state,
+              validUntil: grant.valid_until,
+              lockName:
+                one(grant.smart_lock_devices)?.provider_lock_name?.trim() ?? "TTLock",
+            })),
+          ekeyGrants: ekeyGrants
+            .filter((grant) => grant.tenancy_id === tenancy.id)
+            .map((grant) => ({
+              id: grant.id,
+              accessScope: grant.access_scope,
+              account: grant.receiver_username,
               state: grant.credential_state,
               validUntil: grant.valid_until,
               lockName:
