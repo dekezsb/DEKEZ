@@ -1,4 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  isEarlyCheckout,
+  isMissingCheckoutLoginSchema,
+} from "@/lib/auth/tenant-login-rules";
 
 type Relation<T> = T | T[] | null;
 
@@ -106,6 +110,9 @@ export type TenantCheckoutHistoryItem = {
   source: string;
   note: string | null;
   needsPhoneRelease: boolean;
+  /** Contract end as it stood before checkout (null for older records). */
+  contractEnd: string | null;
+  earlyCheckout: boolean;
 };
 
 type AuditMetadata = {
@@ -116,6 +123,7 @@ type AuditMetadata = {
   room_name?: string;
   source?: string;
   note?: string | null;
+  contract_end_before_checkout?: string | null;
 };
 
 type CheckoutAuditRow = {
@@ -135,14 +143,30 @@ export async function getTenantCheckoutHistory(
   const startDate = `${month}-01`;
   const admin = createAdminClient();
 
-  const { data: tenancyRows, error: tenancyError } = await admin
-    .from("tenancies")
-    .select(
-      "id,checkout_date,properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenants(full_name,phone,profile_id)",
-    )
-    .gte("checkout_date", startDate)
-    .lt("checkout_date", nextMonth)
-    .order("checkout_date", { ascending: false });
+  type HistoryRow = {
+    id: string;
+    checkout_date: string;
+    contract_end_before_checkout?: string | null;
+    properties: unknown;
+    rooms: unknown;
+    tenants: unknown;
+  };
+  const historyQuery = (withRecordColumns: boolean) =>
+    admin
+      .from("tenancies")
+      .select(
+        (withRecordColumns
+          ? "id,checkout_date,contract_end_before_checkout,properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenants(full_name,phone,profile_id)"
+          : "id,checkout_date,properties(name),rooms!tenancies_room_id_fkey(name,room_number),tenants(full_name,phone,profile_id)") as string,
+      )
+      .gte("checkout_date", startDate)
+      .lt("checkout_date", nextMonth)
+      .order("checkout_date", { ascending: false })
+      .returns<HistoryRow[]>();
+  let { data: tenancyRows, error: tenancyError } = await historyQuery(true);
+  if (tenancyError && isMissingCheckoutLoginSchema(tenancyError)) {
+    ({ data: tenancyRows, error: tenancyError } = await historyQuery(false));
+  }
 
   if (tenancyError) {
     console.error("Tenant checkout history could not be loaded.", tenancyError);
@@ -201,6 +225,11 @@ export async function getTenantCheckoutHistory(
     }>);
     const audit = latestAuditByTenancy.get(row.id);
     const metadata = (audit?.metadata ?? {}) as AuditMetadata;
+    const contractEnd =
+      ((row as { contract_end_before_checkout?: string | null })
+        .contract_end_before_checkout ??
+        metadata.contract_end_before_checkout ??
+        null);
 
     return {
       tenancyId: row.id,
@@ -217,8 +246,89 @@ export async function getTenantCheckoutHistory(
       source: metadata.source ?? "historical_record",
       note: metadata.note ?? null,
       needsPhoneRelease: Boolean(tenant?.profile_id && tenant.phone),
+      contractEnd,
+      earlyCheckout: isEarlyCheckout(row.checkout_date as string, contractEnd),
     } satisfies TenantCheckoutHistoryItem;
   });
 
   return { month, items };
+}
+
+export type RoomCheckoutHistoryItem = {
+  tenancyId: string;
+  tenantName: string;
+  checkInDate: string | null;
+  checkoutDate: string;
+  contractEnd: string | null;
+  earlyCheckout: boolean;
+};
+
+/** Ended tenancies of one room: actual checkout date vs the original contract end. */
+export async function getRoomCheckoutHistory(
+  roomId: string,
+): Promise<RoomCheckoutHistoryItem[]> {
+  const admin = createAdminClient();
+  type RoomHistoryRow = {
+    id: string;
+    check_in_date: string | null;
+    start_date: string | null;
+    checkout_date: string;
+    contract_end_before_checkout?: string | null;
+    tenants: unknown;
+  };
+  const roomQuery = (withRecordColumns: boolean) =>
+    admin
+      .from("tenancies")
+      .select(
+        (withRecordColumns
+          ? "id,check_in_date,start_date,checkout_date,contract_end_before_checkout,tenants(full_name)"
+          : "id,check_in_date,start_date,checkout_date,tenants(full_name)") as string,
+      )
+      .eq("room_id", roomId)
+      .not("checkout_date", "is", null)
+      .order("checkout_date", { ascending: false })
+      .limit(20)
+      .returns<RoomHistoryRow[]>();
+  let { data, error } = await roomQuery(true);
+  if (error && isMissingCheckoutLoginSchema(error)) {
+    ({ data, error } = await roomQuery(false));
+  }
+  if (error || !data?.length) {
+    if (error) console.error("Room checkout history could not be loaded.", error);
+    return [];
+  }
+  const ids = data.map((row) => row.id as string);
+  const { data: audits } = await admin
+    .from("audit_logs")
+    .select("entity_id,metadata,created_at")
+    .eq("action", "tenant_checked_out")
+    .in("entity_id", ids)
+    .order("created_at", { ascending: false });
+  const auditEnd = new Map<string, string | null>();
+  for (const audit of audits ?? []) {
+    const id = audit.entity_id as string | null;
+    if (id && !auditEnd.has(id)) {
+      auditEnd.set(
+        id,
+        ((audit.metadata ?? {}) as AuditMetadata).contract_end_before_checkout ?? null,
+      );
+    }
+  }
+  return data.map((row) => {
+    const tenant = one(row.tenants as Relation<{ full_name: string }>);
+    const contractEnd =
+      (row as { contract_end_before_checkout?: string | null })
+        .contract_end_before_checkout ??
+      auditEnd.get(row.id as string) ??
+      null;
+    const checkoutDate = row.checkout_date as string;
+    return {
+      tenancyId: row.id as string,
+      tenantName: tenant?.full_name ?? "Former tenant",
+      checkInDate: (row.check_in_date ?? row.start_date ?? null) as string | null,
+      checkoutDate,
+      contractEnd,
+      earlyCheckout: isEarlyCheckout(checkoutDate, contractEnd),
+    };
+  });
 }

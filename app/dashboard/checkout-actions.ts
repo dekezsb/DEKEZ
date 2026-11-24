@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUserAccess, requireRole } from "@/lib/auth/session";
 import { normalizeInternationalPhone } from "@/lib/auth/phone";
 import { releaseCheckedOutTenantPhone } from "@/lib/auth/release-tenant-phone";
+import { revokeTenantSessions } from "@/lib/auth/tenant-login-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { currentCheckoutMonth } from "@/lib/data/tenant-checkouts";
 import { executeTenantCheckout } from "@/lib/tenancy/checkout";
@@ -98,6 +99,9 @@ export async function releaseHistoricalTenantPhone(formData: FormData) {
 
   if (result === "failed" || result === "kept_for_active_tenancy") {
     redirect(`${returnPath}&phone_release_error=${result}`);
+  }
+  if (result === "released") {
+    await revokeTenantSessions(tenant.profile_id);
   }
 
   await admin.from("audit_logs").insert({
