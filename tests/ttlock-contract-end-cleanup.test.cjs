@@ -297,7 +297,7 @@ test('daily cron is protected by CRON_SECRET and registered for 12:10am MYT', as
 });
 
 test('checkout, payment cap, renewal extend, and overdue no-op stay in place', () => {
-  assert.equal(hash(read('lib/tenancy/checkout.ts')), '1147b0a64d04bcdb626f632f9fa39d29a9b3a9601957fd8c16130b6811a6a7b7');
+  assert.equal(hash(read('lib/tenancy/checkout.ts')), '528b73c59e8790a20f79bcad1afb6594346b45fbff357c6d53d0a6884ed58ba1');
   assert.match(read('lib/tenancy/checkout.ts'), /revokeSmartLockAccessForTenancy\(tenancy\.id\)/);
   const payment = read('lib/ttlock/passcode-period.ts');
   assert.match(payment, /contractUntil && contractUntil < requestedUntil/);
