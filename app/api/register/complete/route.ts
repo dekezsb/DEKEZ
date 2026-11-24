@@ -178,7 +178,9 @@ export async function POST(request: Request) {
         !["paymentSlip", "icFront", "icBack", "passportPhoto"].includes(upload.key) ||
         upload.bucket !== (upload.key === "paymentSlip" ? "payment-receipts" : "tenant-documents")
       )) {
-        return NextResponse.json({ error: problem ?? "Attach only this reservation's deposit slip and IC or passport photos." }, { status: 400 });
+        const message = problem ?? "Attach only this reservation's deposit slip and IC or passport photos.";
+        const field = !problem ? "paymentSlip" : problem.includes("date") ? "paymentDate" : problem.includes("slip") ? "paymentSlip" : "reservationDeposit";
+        return NextResponse.json({ error: message, fieldErrors: { [field]: message } }, { status: 400 });
       }
       if (confirmedUploads.length !== uploads.length) {
         return NextResponse.json({ error: "One or more identity photos did not finish uploading. Please retry before submitting." }, { status: 400 });
@@ -224,10 +226,19 @@ export async function POST(request: Request) {
       (totalPaid > 0 && (!paymentSlip || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate))) ||
       (paymentSlip && totalPaid <= 0)
     ) {
+      const fieldErrors: Record<string, string> = {};
+      if (rentPaid === null) fieldErrors.rentPaid = "Enter the rent received as a number (0 if none).";
+      else if (rentPaid > Number(application.monthly_rent ?? 0) + 0.005) fieldErrors.rentPaid = `Rent received cannot be more than the agreed rent (RM${Number(application.monthly_rent ?? 0).toFixed(2)}).`;
+      if (depositPaid === null) fieldErrors.depositPaid = "Enter the deposit received as a number (0 if none).";
+      else if (depositPaid > requiredDeposit + 0.005) fieldErrors.depositPaid = `Deposit received cannot be more than the required deposit (RM${requiredDeposit.toFixed(2)}).`;
+      if (totalPaid > 0 && !paymentSlip) fieldErrors.paymentSlip = "Attach the payment slip for the money received.";
+      if (totalPaid > 0 && !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) fieldErrors.paymentDate = "Choose the date the money was received.";
+      if (paymentSlip && totalPaid <= 0) fieldErrors.rentPaid ??= "Enter the rent and/or deposit amount shown on the payment slip.";
       return NextResponse.json(
         {
           error:
             "Enter valid rent and deposit amounts within the agreed terms, plus the payment date and slip for money received.",
+          fieldErrors,
         },
         { status: 400 },
       );
