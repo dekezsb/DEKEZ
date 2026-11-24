@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth/access";
 import { protectedRoutes } from "@/lib/auth/roles";
 import { normalizeRole } from "@/lib/auth/roles";
+import { TENANCY_ENDED_MESSAGE } from "@/lib/auth/tenant-login-rules";
 import { normalizeSupabaseUrl } from "./config";
 
 export async function updateSession(request: NextRequest) {
@@ -76,6 +77,35 @@ export async function updateSession(request: NextRequest) {
       if (request.method !== "GET" && request.method !== "HEAD" && path !== "/auth/sign-in" && path !== "/logout" && !chatApi)
         return NextResponse.json({ error: "Read-only preview." }, { status: 403 });
       return response;
+    }
+  }
+
+  // JV rule: a checked-out tenant (no active or upcoming tenancy) cannot use
+  // the tenant portal or any API, even with a session issued before checkout.
+  if (claims?.sub && sessionProfile && normalizeRole(sessionProfile.role) === "tenant") {
+    const path = request.nextUrl.pathname;
+    if (isProtectedRoute || path.startsWith("/api/")) {
+      let decision: "allowed" | "tenancy_ended" = "allowed";
+      try {
+        // Loaded only for tenant sessions (needs the service-role client).
+        const { getTenantLoginDecision } = await import("@/lib/auth/tenant-login-lookup");
+        decision = await getTenantLoginDecision({
+          profileId: claims.sub,
+          role: "tenant",
+          revokedMarker: Boolean(claims.user_metadata?.checkout_login_revoked_at),
+        });
+      } catch {
+        decision = "allowed";
+      }
+      if (decision === "tenancy_ended") {
+        if (path.startsWith("/api/") || (request.method !== "GET" && request.method !== "HEAD")) {
+          return NextResponse.json({ error: TENANCY_ENDED_MESSAGE }, { status: 403 });
+        }
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/tenancy-ended";
+        redirectUrl.search = "";
+        return NextResponse.redirect(redirectUrl);
+      }
     }
   }
 
