@@ -15,6 +15,15 @@ import {
 import { commercialDepositSchedule } from "@/lib/tenancy/commercial-deposit-policy";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
 import { reservationPaymentError } from "@/lib/tenancy/reservation-payment";
+import {
+  summarizeRegistrationErrors,
+  validateRegistrationInput,
+  type RegistrationFieldErrors,
+} from "@/lib/registration/form-validation";
+import {
+  inferUploadType,
+  uploadMetadataProblem,
+} from "@/lib/registration/upload-files";
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -40,13 +49,15 @@ type CookieToSet = {
   options: Parameters<NextResponse["cookies"]["set"]>[2];
 };
 
-const allowedTypes = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
-const maxFileSize = 10 * 1024 * 1024;
+const uploadKeys: UploadKey[] = [
+  "companyDocument",
+  "commercialSupportingDocument",
+  "icBack",
+  "icFront",
+  "passportPhoto",
+  "paymentSlip",
+  "tradingLicense",
+];
 
 function jsonWithCookies(
   body: Record<string, unknown>,
@@ -76,12 +87,8 @@ function validUpload(value: unknown): value is UploadMetadata {
   const upload = value as Partial<UploadMetadata>;
   return (
     typeof upload.key === "string" &&
-    typeof upload.name === "string" &&
-    typeof upload.size === "number" &&
-    upload.size > 0 &&
-    upload.size <= maxFileSize &&
-    typeof upload.type === "string" &&
-    allowedTypes.has(upload.type)
+    uploadKeys.includes(upload.key as UploadKey) &&
+    uploadMetadataProblem(upload) === null
   );
 }
 
@@ -105,6 +112,17 @@ function documentType(key: UploadKey) {
     tradingLicense: "trading_license",
   };
   return values[key];
+}
+
+function fieldError(
+  field: keyof RegistrationFieldErrors,
+  message: string,
+  status = 400,
+) {
+  return NextResponse.json(
+    { error: message, fieldErrors: { [field]: message } },
+    { status },
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -134,28 +152,60 @@ export async function POST(request: NextRequest) {
   const rawUploads: unknown[] = Array.isArray(body?.uploads)
     ? body.uploads
     : [];
-  const uploads: UploadMetadata[] = rawUploads.filter(validUpload);
+  const uploads: UploadMetadata[] = rawUploads.filter(validUpload).map((upload) => ({
+    ...upload,
+    type: inferUploadType(upload.name, upload.type),
+  }));
   const isReservation = accountType === "tenant" && registrationMode === "reservation";
 
-  if (
-    !["owner", "tenant"].includes(accountType) ||
-    !["ic", "passport"].includes(identityType) ||
-    !fullName ||
-    !phone ||
-    (accountType === "owner" && !identityNumber)
-  ) {
-    return NextResponse.json(
-      { error: "Complete all required registration details." },
-      { status: 400 },
-    );
+  // Name every field that needs attention instead of one generic message, so
+  // the form can highlight the exact input (phone format, missing name, ...).
+  const fieldErrors = validateRegistrationInput({
+    accountType,
+    registrationMode,
+    identityType,
+    fullName,
+    phone: cleanText(body?.phone),
+    identityNumber,
+    propertyId: body?.propertyId,
+    roomId: body?.roomId,
+    // The deposit rule depends on the property; it is checked after lookup.
+    rentalModel: "monthly_stay",
+    agreedMonthlyRent: body?.agreedMonthlyRent,
+    reservationDeposit: body?.reservationDeposit,
+    paymentDate: body?.paymentDate,
+    hasPaymentSlip: rawUploads.some(
+      (upload) => (upload as Partial<UploadMetadata> | null)?.key === "paymentSlip",
+    ),
+  });
+  if (!["ic", "passport"].includes(identityType)) {
+    fieldErrors.identityNumber = "Choose IC or Passport, then enter the number.";
   }
-
-  if (
-    uploads.length !== rawUploads.length ||
-    new Set(uploads.map((upload) => upload.key)).size !== uploads.length
-  ) {
+  const seenKeys = new Set<string>();
+  for (const raw of rawUploads) {
+    const upload = (raw ?? {}) as Partial<UploadMetadata>;
+    const key = typeof upload.key === "string" && uploadKeys.includes(upload.key as UploadKey)
+      ? (upload.key as UploadKey)
+      : null;
+    if (!key) {
+      fieldErrors.paymentSlip ??= "One attached file was not recognised. Please choose it again.";
+      continue;
+    }
+    if (seenKeys.has(key)) {
+      fieldErrors[key] = "Attach only one file here.";
+      continue;
+    }
+    seenKeys.add(key);
+    const problem = uploadMetadataProblem(upload);
+    if (problem) fieldErrors[key] = problem;
+  }
+  if (!phone && !fieldErrors.phone) {
+    fieldErrors.phone = "Enter a valid phone number, e.g. 012-345 6789 or +country code.";
+  }
+  const summary = summarizeRegistrationErrors(fieldErrors);
+  if (summary || !phone) {
     return NextResponse.json(
-      { error: "One or more uploads are invalid or larger than 10 MB." },
+      { error: summary ?? "Check the phone number.", fieldErrors },
       { status: 400 },
     );
   }
@@ -224,6 +274,11 @@ export async function POST(request: NextRequest) {
           sessionUser?.id === existingProfile.id
             ? "This registration needs DEKEZ Admin review before it can continue. Your existing records have not been changed."
             : "Phone number already exists. If this was your unfinished registration, sign in below to continue. If the old number was entered wrongly, ask DEKEZ Admin to review it.",
+        fieldErrors: {
+          phone: sessionUser?.id === existingProfile.id
+            ? "This number already has a registration waiting for DEKEZ Admin review."
+            : "This phone number is already registered.",
+        },
       },
       cookiesToSet,
       409,
@@ -265,10 +320,7 @@ export async function POST(request: NextRequest) {
     agreedDeposit = moneyValue(body?.agreedDeposit);
 
     if (!propertyId || !roomId) {
-      return NextResponse.json(
-        { error: "Choose a property and room." },
-        { status: 400 },
-      );
+      return fieldError("roomId", "Choose a property and room.");
     }
 
     const [propertyResult, roomResult, pendingResult] = await Promise.all([
@@ -298,15 +350,17 @@ export async function POST(request: NextRequest) {
     room = roomResult.data;
 
     if (!property || !room || room.status !== "vacant") {
-      return NextResponse.json(
-        { error: "That room is no longer available." },
-        { status: 409 },
+      return fieldError(
+        "roomId",
+        "That room is no longer available. Reload the page and choose another room.",
+        409,
       );
     }
     if (pendingResult.data?.length) {
-      return NextResponse.json(
-        { error: "That room already has a registration under review." },
-        { status: 409 },
+      return fieldError(
+        "roomId",
+        "That room already has a registration or reservation under review. Do not submit it again; ask DEKEZ Admin to check it.",
+        409,
       );
     }
     if (
@@ -314,20 +368,22 @@ export async function POST(request: NextRequest) {
       agreedMonthlyRent <= 0 ||
       (property.rental_model !== "monthly_stay" && agreedDeposit === null)
     ) {
-      return NextResponse.json(
-        {
-          error:
-            "Enter the agreed room rent and required security deposit for this tenant.",
-        },
-        { status: 400 },
+      return fieldError(
+        agreedMonthlyRent === null || agreedMonthlyRent <= 0 ? "agreedMonthlyRent" : "agreedDeposit",
+        "Enter the agreed room rent and required security deposit for this tenant.",
       );
     }
     if (registrationMode === "reservation" && !supportsReservations(property.property_code)) {
-      return NextResponse.json({ error: "Reservations are not available for this property." }, { status: 400 });
+      return fieldError("propertyId", "Reservations are not available for this property. Choose Check in instead.");
     }
     if (isReservation) {
       const problem = reservationPaymentError(body?.reservationDeposit, body?.paymentDate, uploads.filter((upload) => upload.key === "paymentSlip").length === 1);
-      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+      if (problem) {
+        return fieldError(
+          problem.includes("date") ? "paymentDate" : problem.includes("slip") ? "paymentSlip" : "reservationDeposit",
+          problem,
+        );
+      }
       if (uploads.some((upload) => !["paymentSlip", "icFront", "icBack", "passportPhoto"].includes(upload.key))) {
         return NextResponse.json({ error: "Attach only the reservation deposit slip and IC or passport photos." }, { status: 400 });
       }
@@ -407,6 +463,9 @@ export async function POST(request: NextRequest) {
           createError?.message.includes("already")
             ? "This phone number is already registered."
             : "The account could not be created.",
+        ...(createError?.message.includes("already")
+          ? { fieldErrors: { phone: "This phone number is already registered." } }
+          : {}),
       },
       { status: createError?.message.includes("already") ? 409 : 500 },
     );

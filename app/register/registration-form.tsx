@@ -5,7 +5,29 @@ import { Link } from "@/components/app-link";
 import { FormEvent, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
-import { reservationPaymentError } from "@/lib/tenancy/reservation-payment";
+import {
+  orderedErrorFields,
+  summarizeRegistrationErrors,
+  validateRegistrationInput,
+  type RegistrationField,
+  type RegistrationFieldErrors,
+} from "@/lib/registration/form-validation";
+import { prepareRegistrationUpload } from "@/lib/registration/upload-files";
+
+class RegistrationRequestError extends Error {
+  constructor(message: string, readonly fieldErrors: RegistrationFieldErrors = {}) {
+    super(message);
+  }
+}
+
+function FieldError({ field, errors }: { field: RegistrationField; errors: RegistrationFieldErrors }) {
+  const message = errors[field];
+  return message ? (
+    <span className="mt-1 block text-xs font-medium text-red-600" id={`${field}-error`} role="alert">
+      {message}
+    </span>
+  ) : null;
+}
 
 type AccountType = "owner" | "tenant";
 type IdentityType = "ic" | "passport";
@@ -43,16 +65,20 @@ type SignedUpload = {
 };
 
 const inputClass =
-  "mt-1.5 h-11 w-full rounded-md border border-[#cfd8e6] bg-white px-3 text-sm text-[#07142f] outline-none transition focus:border-[#b98a2c] focus:ring-2 focus:ring-[#b98a2c]/20";
+  "mt-1.5 h-11 w-full rounded-md border border-[#cfd8e6] bg-white px-3 text-sm text-[#07142f] outline-none transition focus:border-[#b98a2c] focus:ring-2 focus:ring-[#b98a2c]/20 aria-[invalid=true]:border-red-500 aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-red-200";
 
 function FilePicker({
   accept = "image/*",
+  error,
+  field,
   file,
   label,
   onSelect,
   required,
 }: {
   accept?: string;
+  error?: string;
+  field?: RegistrationField;
   file?: File;
   label: string;
   onSelect: (file: File) => void;
@@ -72,7 +98,7 @@ function FilePicker({
         {supportsCamera ? (
           <>
             <input
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               capture="environment"
               className="sr-only"
               onChange={(event) => {
@@ -93,7 +119,7 @@ function FilePicker({
           </>
         ) : null}
         <input
-          accept={accept}
+          accept={accept.startsWith("image/") ? `${accept},.heic,.heif` : accept}
           className="sr-only"
           onChange={(event) => {
             const selected = event.target.files?.[0];
@@ -103,7 +129,10 @@ function FilePicker({
           type="file"
         />
         <button
-          className="inline-flex h-10 items-center gap-2 rounded-md border border-[#cfd8e6] bg-white px-4 text-sm font-semibold text-[#24324b] transition hover:bg-[#f6f8fa]"
+          aria-describedby={error && field ? `${field}-error` : undefined}
+          aria-invalid={error ? true : undefined}
+          className={`inline-flex h-10 items-center gap-2 rounded-md border bg-white px-4 text-sm font-semibold text-[#24324b] transition hover:bg-[#f6f8fa] ${error ? "border-red-500 ring-2 ring-red-200" : "border-[#cfd8e6]"}`}
+          data-field={field}
           onClick={() => galleryRef.current?.click()}
           type="button"
         >
@@ -118,6 +147,11 @@ function FilePicker({
       <p className="mt-2 min-h-5 truncate text-xs text-[#7b879c]">
         {file?.name ?? "No file selected"}
       </p>
+      {error ? (
+        <p className="mt-1 text-xs font-medium text-red-600" id={field ? `${field}-error` : undefined} role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -145,6 +179,9 @@ export function RegistrationForm({
   const [resumePhone, setResumePhone] = useState<string | null>(null);
   const [resumePassword, setResumePassword] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  // Added after the existing state hooks so their order stays stable.
+  const [fieldErrors, setFieldErrors] = useState<RegistrationFieldErrors>({});
+  const [preparingFiles, setPreparingFiles] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
 
   const selectedProperty = properties.find(
@@ -157,13 +194,64 @@ export function RegistrationForm({
   const effectiveMode = flexiblePayments ? registrationMode : "check_in";
   const isReservation = accountType === "tenant" && effectiveMode === "reservation";
 
-  function selectFile(key: UploadKey, file: File) {
-    setFiles((current) => ({ ...current, [key]: file }));
+  function fieldProps(field: RegistrationField) {
+    return {
+      "aria-describedby": fieldErrors[field] ? `${field}-error` : undefined,
+      "aria-invalid": fieldErrors[field] ? true : undefined,
+      "data-field": field,
+    } as const;
+  }
+
+  function clearFieldError(field: string | null | undefined) {
+    if (!field) return;
+    setFieldErrors((current) => {
+      if (!(field in current)) return current;
+      const next = { ...current };
+      delete next[field as RegistrationField];
+      return next;
+    });
+  }
+
+  function showFieldErrors(errors: RegistrationFieldErrors, banner?: string) {
+    setFieldErrors(errors);
+    setError(banner ?? summarizeRegistrationErrors(errors));
+    const first = orderedErrorFields(errors)[0];
+    if (!first) return;
+    // Wait for the error styles to render, then bring the first problem into view.
+    requestAnimationFrame(() => {
+      const target = formRef.current?.querySelector<HTMLElement>(`[data-field="${first}"]`);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+    });
+  }
+
+  async function selectFile(key: UploadKey, file: File) {
+    clearFieldError(key);
+    setPreparingFiles((count) => count + 1);
+    try {
+      const allowPdf = !["icFront", "icBack", "passportPhoto"].includes(key);
+      const prepared = await prepareRegistrationUpload(file, allowPdf);
+      setFiles((current) => ({ ...current, [key]: prepared }));
+    } catch (fileError) {
+      setFiles((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setFieldErrors((current) => ({
+        ...current,
+        [key]: fileError instanceof Error ? fileError.message : "This file could not be used.",
+      }));
+    } finally {
+      setPreparingFiles((count) => Math.max(0, count - 1));
+    }
   }
 
   function switchAccountType(value: AccountType) {
     setAccountType(value);
     setError(null);
+    setFieldErrors({});
     setResumePhone(null);
     setResumePassword("");
     setNotice(null);
@@ -179,24 +267,39 @@ export function RegistrationForm({
     setError(null);
     setNotice(null);
 
+    if (preparingFiles > 0) {
+      setError("Still preparing your photo. Wait a moment, then press submit again.");
+      return;
+    }
+
     const formData = new FormData(event.currentTarget);
-    if (isReservation) {
-      const problem = reservationPaymentError(bookingDeposit, formData.get("paymentDate"), Boolean(files.paymentSlip));
-      if (problem) { setError(problem); return; }
+    const clientErrors = validateRegistrationInput({
+      accountType,
+      registrationMode: effectiveMode,
+      identityType,
+      fullName: formData.get("fullName"),
+      phone: formData.get("phone"),
+      identityNumber: formData.get("identityNumber"),
+      propertyId,
+      roomId,
+      rentalModel: selectedProperty?.rentalModel ?? null,
+      agreedMonthlyRent: formData.get("agreedMonthlyRent"),
+      agreedDeposit: formData.get("agreedDeposit"),
+      reservationDeposit: bookingDeposit,
+      paymentDate: formData.get("paymentDate"),
+      hasPaymentSlip: Boolean(files.paymentSlip),
+      rentPaid: isReservation || accountType !== "tenant" ? undefined : formData.get("rentPaid"),
+      depositPaid: isReservation || accountType !== "tenant" ? undefined : formData.get("depositPaid"),
+    });
+    // Keep any file problem found when the file was chosen.
+    for (const key of ["icFront", "icBack", "passportPhoto", "paymentSlip", "commercialSupportingDocument", "tradingLicense", "companyDocument"] as const) {
+      if (fieldErrors[key] && !files[key] && !clientErrors[key]) clientErrors[key] = fieldErrors[key];
     }
-    const reportedRent = Number(formData.get("rentPaid") ?? 0);
-    const reportedDeposit = Number(formData.get("depositPaid") ?? 0);
-    const reportedTotal =
-      (Number.isFinite(reportedRent) ? reportedRent : 0) +
-      (Number.isFinite(reportedDeposit) ? reportedDeposit : 0);
-    if (!isReservation && reportedTotal > 0 && !files.paymentSlip) {
-      setError("Attach the payment slip when rent or deposit was received.");
+    if (orderedErrorFields(clientErrors).length) {
+      showFieldErrors(clientErrors);
       return;
     }
-    if (!isReservation && files.paymentSlip && reportedTotal <= 0) {
-      setError("Enter the rent and/or deposit amount shown on the payment slip.");
-      return;
-    }
+    setFieldErrors({});
     setIsLoading(true);
     try {
       const uploads = Object.entries(files)
@@ -240,7 +343,7 @@ export function RegistrationForm({
       if (!startResponse.ok) {
         setResumePhone(result.code === "PHONE_ALREADY_REGISTERED" && accountType === "tenant"
           ? String(formData.get("phone") ?? "") : null);
-        throw new Error(result.error ?? "Registration could not start.");
+        throw new RegistrationRequestError(result.error ?? "Registration could not start.", result.fieldErrors ?? {});
       }
       setResumePhone(null);
       setResumePassword("");
@@ -277,8 +380,9 @@ export function RegistrationForm({
       const completeResult = await completeResponse.json();
 
       if (!completeResponse.ok) {
-        throw new Error(
+        throw new RegistrationRequestError(
           completeResult.error ?? "Registration could not be completed.",
+          completeResult.fieldErrors ?? {},
         );
       }
 
@@ -286,6 +390,13 @@ export function RegistrationForm({
         completeResult.redirectTo ?? "/registration-status",
       );
     } catch (registrationError) {
+      if (registrationError instanceof RegistrationRequestError && orderedErrorFields(registrationError.fieldErrors).length) {
+        showFieldErrors(
+          registrationError.fieldErrors,
+          summarizeRegistrationErrors(registrationError.fieldErrors) ?? registrationError.message,
+        );
+        return;
+      }
       setError(
         registrationError instanceof Error
           ? registrationError.message
@@ -325,7 +436,16 @@ export function RegistrationForm({
   }
 
   return (
-    <form ref={formRef} className="mt-7 space-y-6" noValidate onSubmit={handleSubmit}>
+    <form
+      ref={formRef}
+      className="mt-7 space-y-6"
+      noValidate
+      onChange={(event) => {
+        const target = event.target as HTMLElement;
+        clearFieldError(target.getAttribute("data-field") ?? target.getAttribute("name"));
+      }}
+      onSubmit={handleSubmit}
+    >
       <div className="grid grid-cols-2 rounded-md border border-[#d7dde5] bg-[#f6f7f9] p-1">
         {(["tenant", "owner"] as const).map((type) => (
           <button
@@ -366,10 +486,12 @@ export function RegistrationForm({
                 Choose a property
               </span>
               <select
+                {...fieldProps("propertyId")}
                 className={inputClass}
                 onChange={(event) => {
                   setPropertyId(event.target.value);
                   setRoomId("");
+                  clearFieldError("roomId");
                 }}
                 required
                 value={propertyId}
@@ -381,12 +503,14 @@ export function RegistrationForm({
                   </option>
                 ))}
               </select>
+              <FieldError errors={fieldErrors} field="propertyId" />
             </label>
             <label>
               <span className="text-sm font-medium text-[#17223b]">
                 Choose a room
               </span>
               <select
+                {...fieldProps("roomId")}
                 className={inputClass}
                 disabled={!propertyId}
                 onChange={(event) => setRoomId(event.target.value)}
@@ -406,6 +530,7 @@ export function RegistrationForm({
                   </option>
                 ))}
               </select>
+              <FieldError errors={fieldErrors} field="roomId" />
             </label>
             <fieldset className="rounded-md border p-4 sm:col-span-2">
               <legend className="px-1 font-semibold">Check in or reserve?</legend>
@@ -434,12 +559,14 @@ export function RegistrationForm({
         <label>
           <span className="text-sm font-medium text-[#17223b]">Full name</span>
           <input
+            {...fieldProps("fullName")}
             autoComplete="name"
             className={inputClass}
             name="fullName"
             placeholder="As per IC / passport"
             required
           />
+          <FieldError errors={fieldErrors} field="fullName" />
         </label>
 
         <div>
@@ -478,6 +605,7 @@ export function RegistrationForm({
             {identityType === "ic" ? "IC number" : "Passport number"}
           </span>
           <input
+            {...fieldProps("identityNumber")}
             className={inputClass}
             name="identityNumber"
             placeholder={
@@ -487,6 +615,7 @@ export function RegistrationForm({
             }
             required={selectedProperty?.rentalModel !== "monthly_stay"}
           />
+          <FieldError errors={fieldErrors} field="identityNumber" />
         </label>
 
         <label>
@@ -494,6 +623,7 @@ export function RegistrationForm({
             Phone / WhatsApp
           </span>
           <input
+            {...fieldProps("phone")}
             autoComplete="tel"
             className={inputClass}
             inputMode="tel"
@@ -502,8 +632,9 @@ export function RegistrationForm({
             required
             type="tel"
           />
+          <FieldError errors={fieldErrors} field="phone" />
           <span className="mt-1 block text-xs text-[#7b879c]">
-            Your initial sign-in PIN will be the last 4 digits.
+            Malaysian mobile (e.g. 012-345 6789) or +country code. Your initial sign-in PIN will be the last 4 digits.
           </span>
         </label>
 
@@ -591,6 +722,7 @@ export function RegistrationForm({
                       Agreed room rent to collect (RM)
                     </span>
                     <input
+                      {...fieldProps("agreedMonthlyRent")}
                       className={inputClass}
                       inputMode="decimal"
                       min="0.01"
@@ -600,6 +732,7 @@ export function RegistrationForm({
                       step="0.01"
                       type="number"
                     />
+                    <FieldError errors={fieldErrors} field="agreedMonthlyRent" />
                   </label>
                   {selectedProperty?.rentalModel === "monthly_stay" ? (
                     <div className="rounded-md border border-emerald-200 bg-white/70 px-3 py-2 text-sm text-emerald-950">
@@ -613,6 +746,7 @@ export function RegistrationForm({
                         Required security deposit (RM)
                       </span>
                       <input
+                        {...fieldProps("agreedDeposit")}
                         className={inputClass}
                         inputMode="decimal"
                         min="0"
@@ -622,6 +756,7 @@ export function RegistrationForm({
                         step="0.01"
                         type="number"
                       />
+                      <FieldError errors={fieldErrors} field="agreedDeposit" />
                     </label>
                   )}
                 </div>
@@ -661,12 +796,16 @@ export function RegistrationForm({
           {identityType === "ic" ? (
             <>
               <FilePicker
+                error={fieldErrors.icFront}
+                field="icFront"
                 file={files.icFront}
                 label="IC photo - FRONT"
                 onSelect={(file) => selectFile("icFront", file)}
                 required={!isReservation}
               />
               <FilePicker
+                error={fieldErrors.icBack}
+                field="icBack"
                 file={files.icBack}
                 label="IC photo - BACK"
                 onSelect={(file) => selectFile("icBack", file)}
@@ -675,7 +814,9 @@ export function RegistrationForm({
             </>
           ) : (
             <FilePicker
-              file={files.passportPhoto}
+              error={fieldErrors.passportPhoto}
+                field="passportPhoto"
+                file={files.passportPhoto}
               label="Passport photo page"
               onSelect={(file) => selectFile("passportPhoto", file)}
               required={!isReservation}
@@ -697,6 +838,8 @@ export function RegistrationForm({
               </legend>
               <FilePicker
                 accept="image/*,application/pdf"
+                error={fieldErrors.commercialSupportingDocument}
+                field="commercialSupportingDocument"
                 file={files.commercialSupportingDocument}
                 label="Trading licence / supporting document"
                 onSelect={(file) =>
@@ -708,9 +851,9 @@ export function RegistrationForm({
           ) : null}
           {isReservation ? <fieldset className="rounded-md border border-amber-200 bg-amber-50/50 p-4">
             <legend className="px-1 font-semibold">Reservation deposit — one slip only</legend>
-            <label className="mb-3 block text-sm">Reservation deposit received (RM)<input className={inputClass} name="reservationDeposit" type="number" min="0.01" step="0.01" required value={bookingDeposit} onChange={(event) => setBookingDeposit(event.target.value)} placeholder="e.g. 50.00" /></label>
-            <label className="mb-3 block text-sm">Payment date<input className={inputClass} name="paymentDate" type="date" required /></label>
-            <FilePicker file={files.paymentSlip} label="Reservation deposit slip" onSelect={(file) => selectFile("paymentSlip", file)} required />
+            <label className="mb-3 block text-sm">Reservation deposit received (RM)<input {...fieldProps("reservationDeposit")} className={inputClass} name="reservationDeposit" type="number" inputMode="decimal" min="0.01" step="0.01" required value={bookingDeposit} onChange={(event) => setBookingDeposit(event.target.value)} placeholder="e.g. 50.00" /><FieldError errors={fieldErrors} field="reservationDeposit" /></label>
+            <label className="mb-3 block text-sm">Payment date<input {...fieldProps("paymentDate")} className={inputClass} name="paymentDate" type="date" required /><FieldError errors={fieldErrors} field="paymentDate" /></label>
+            <FilePicker error={fieldErrors.paymentSlip} field="paymentSlip" file={files.paymentSlip} label="Reservation deposit slip" onSelect={(file) => selectFile("paymentSlip", file)} required />
             <label className="mt-3 block text-sm">Notes (optional)<input className={inputClass} name="paymentNote" /></label>
             <p className="mt-3 text-xs leading-5 text-slate-600">This is the room-holding payment, not another charge. Keep the same reservation when checking in; your main account verifies the slip and allocates it against the check-in balance.</p>
           </fieldset> : <fieldset className="rounded-md border border-[#d7dde5] p-4">
@@ -726,6 +869,7 @@ export function RegistrationForm({
               <label className="block text-sm">
                 Rent received today (RM)
                 <input
+                  {...fieldProps("rentPaid")}
                   className={inputClass}
                   inputMode="decimal"
                   min="0"
@@ -736,10 +880,12 @@ export function RegistrationForm({
                   type="number"
                   value={rentPaid}
                 />
+                <FieldError errors={fieldErrors} field="rentPaid" />
               </label>
               <label className="block text-sm">
                 Deposit received today (RM)
                 <input
+                  {...fieldProps("depositPaid")}
                   className={inputClass}
                   inputMode="decimal"
                   min="0"
@@ -750,16 +896,18 @@ export function RegistrationForm({
                   type="number"
                   value={depositPaid}
                 />
+                <FieldError errors={fieldErrors} field="depositPaid" />
               </label>
             </div>
             <label className="mb-3 block text-sm">Payment date
-              <input className={inputClass} name="paymentDate" type="date" required={Number(rentPaid || 0) + Number(depositPaid || 0) > 0} />
+              <input {...fieldProps("paymentDate")} className={inputClass} name="paymentDate" type="date" required={Number(rentPaid || 0) + Number(depositPaid || 0) > 0} />
+              <FieldError errors={fieldErrors} field="paymentDate" />
             </label>
             <label className="mb-3 block text-sm">Staff / payment notes
               <input className={inputClass} name="paymentNote" placeholder="e.g. Deposit only; rent will be paid separately" />
             </label>
             <FilePicker
-              file={files.paymentSlip}
+              error={fieldErrors.paymentSlip} field="paymentSlip" file={files.paymentSlip}
               label="Payment slip (required when money was received)"
               onSelect={(file) => selectFile("paymentSlip", file)}
               required={Number(rentPaid || 0) + Number(depositPaid || 0) > 0}
@@ -779,13 +927,17 @@ export function RegistrationForm({
           <div className="grid gap-5 sm:grid-cols-2">
             <FilePicker
               accept="image/*,application/pdf"
-              file={files.tradingLicense}
+              error={fieldErrors.tradingLicense}
+                field="tradingLicense"
+                file={files.tradingLicense}
               label="Trading licence"
               onSelect={(file) => selectFile("tradingLicense", file)}
             />
             <FilePicker
               accept="image/*,application/pdf"
-              file={files.companyDocument}
+              error={fieldErrors.companyDocument}
+                field="companyDocument"
+                file={files.companyDocument}
               label="Company document"
               onSelect={(file) => selectFile("companyDocument", file)}
             />
@@ -820,10 +972,10 @@ export function RegistrationForm({
 
       <button
         className="h-11 w-full rounded-md bg-[#b8892c] px-5 text-sm font-semibold text-white transition hover:bg-[#9d7424] disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={isLoading}
+        disabled={isLoading || preparingFiles > 0}
         type="submit"
       >
-        {isLoading ? "Preparing registration..." : isReservation ? "Submit reservation" : "Continue registration"}
+        {isLoading ? "Preparing registration..." : preparingFiles > 0 ? "Preparing photo..." : isReservation ? "Submit reservation" : "Continue registration"}
       </button>
 
       <p className="text-center text-sm text-gray-600">
