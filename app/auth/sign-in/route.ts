@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth/registration";
 import { normalizeRole, roleHome } from "@/lib/auth/roles";
 import { activateTenantAccount } from "@/lib/auth/tenant-account";
+import { TENANCY_ENDED_MESSAGE } from "@/lib/auth/tenant-login-rules";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSupabaseUrl } from "@/lib/supabase/config";
 import { previewPassword } from "@/lib/marketplace/preview-credential";
@@ -28,6 +29,9 @@ function responseWithCookies(
   });
   return response;
 }
+
+// Loaded only for tenant sign-ins (server-only, service-role client).
+const tenantLogin = () => import("@/lib/auth/tenant-login-access");
 
 export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -162,6 +166,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (profileLookup?.id && profileLookup.role === "tenant") {
+      // Moved in again after a checkout: lift the checkout ban first.
+      await (await tenantLogin()).restoreTenantLoginIfCurrent(profileLookup.id);
+    }
+
     if (profileLookup?.id) {
       const { data: authUser } = await admin.auth.admin.getUserById(
         profileLookup.id,
@@ -185,6 +194,22 @@ export async function POST(request: NextRequest) {
   }
 
   const signedInUser = signInResult.data.user;
+  if (
+    admin &&
+    profileLookup?.id &&
+    profileLookup.role === "tenant" &&
+    (signInResult.error || !signedInUser)
+  ) {
+    // A checked-out tenant is banned; say so plainly instead of "wrong PIN".
+    const decision = await (await tenantLogin()).getTenantLoginDecision({
+      profileId: profileLookup.id,
+      role: "tenant",
+      admin,
+    });
+    if (decision === "tenancy_ended" && /banned/i.test(signInResult.error?.message ?? "")) {
+      return responseWithCookies({ error: TENANCY_ENDED_MESSAGE }, cookiesToSet, 403);
+    }
+  }
   if (signInResult.error || !signedInUser) {
     if (admin && rateLimitKey) {
       const { data: existing } = await admin
@@ -255,6 +280,19 @@ export async function POST(request: NextRequest) {
     normalizeRole(profile.role) ??
     normalizeRole(signedInUser.app_metadata?.role) ??
     "tenant";
+
+  if (role === "tenant") {
+    const decision = await (await tenantLogin()).getTenantLoginDecision({
+      profileId: signedInUser.id,
+      role,
+      revokedMarker: Boolean(signedInUser.user_metadata?.checkout_login_revoked_at),
+      ...(admin ? { admin } : {}),
+    });
+    if (decision === "tenancy_ended") {
+      await supabase.auth.signOut();
+      return responseWithCookies({ error: TENANCY_ENDED_MESSAGE }, cookiesToSet, 403);
+    }
+  }
 
   return responseWithCookies(
     {

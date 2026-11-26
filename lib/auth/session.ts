@@ -11,6 +11,7 @@ import {
   type UserAccess,
 } from "./access";
 import { normalizeRole, type AppRole } from "./roles";
+import { getTenantLoginDecision } from "./tenant-login-lookup";
 
 function verifiedUserFromClaims(claims: JwtPayload): User {
   return {
@@ -44,7 +45,7 @@ export async function resolveUserRole(user: User) {
   return normalizeRole(profile?.role) ?? metadataRole ?? "tenant";
 }
 
-export const getOptionalUserAccess = cache(async () => {
+const loadUserAccess = cache(async () => {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
 
@@ -54,18 +55,40 @@ export const getOptionalUserAccess = cache(async () => {
 
   const user = verifiedUserFromClaims(data.claims);
   const role = await resolveUserRole(user);
+
+  // Second layer behind the checkout ban: a tenant with no active or
+  // upcoming tenancy is refused on every server page, action and API.
+  if (role === "tenant") {
+    const decision = await getTenantLoginDecision({
+      profileId: user.id,
+      role,
+      revokedMarker: Boolean(user.user_metadata?.checkout_login_revoked_at),
+    });
+    if (decision === "tenancy_ended") {
+      return { tenancyEnded: true as const };
+    }
+  }
   const access = await resolveUserModuleAccess(user, role);
 
-  return { access, role, user };
+  return { tenancyEnded: false as const, context: { access, role, user } };
 });
 
+/** Signed-in user, or null. A checked-out tenant counts as signed out. */
+export const getOptionalUserAccess = cache(async () => {
+  const loaded = await loadUserAccess();
+  if (!loaded || loaded.tenancyEnded) return null;
+  return loaded.context;
+});
+
+async function requireUserAccess() {
+  const loaded = await loadUserAccess();
+  if (!loaded) redirect("/");
+  if (loaded.tenancyEnded) redirect("/tenancy-ended");
+  return loaded.context;
+}
+
 export async function getCurrentUserRole() {
-  const context = await getOptionalUserAccess();
-
-  if (!context) {
-    redirect("/");
-  }
-
+  const context = await requireUserAccess();
   return context.role;
 }
 
@@ -94,13 +117,7 @@ export async function resolveUserModuleAccess(
 }
 
 export async function getCurrentUserAccess() {
-  const context = await getOptionalUserAccess();
-
-  if (!context) {
-    redirect("/");
-  }
-
-  return context;
+  return requireUserAccess();
 }
 
 export async function requireRole(
