@@ -3,6 +3,7 @@ import { generateRecurringRentBills } from "@/lib/billing/rent-billing";
 import { createAgreementForTenancy } from "@/lib/tenancy/agreement";
 import { requiredTenancyDeposit } from "@/lib/tenancy/commercial-deposit-policy";
 import { dueDayForNewTenancy } from "@/lib/tenancy/due-day";
+import { restoreTenantLoginIfCurrent } from "@/lib/auth/tenant-login-access";
 import { reconcileSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 import { reconcileEKeyAndMeterForTenancy } from "@/lib/ttlock/tenancy-extras";
 
@@ -496,5 +497,7 @@ export async function convertTenantApplication(
     });
   });
   await reconcileEKeyAndMeterForTenancy(tenancy.id);
+  // Returning tenant: a login disabled at an earlier checkout comes back.
+  await restoreTenantLoginIfCurrent(application.tenant_id ?? null);
   return { ok: true, tenancyId: tenancy.id };
 }
