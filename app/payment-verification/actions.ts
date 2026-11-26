@@ -15,6 +15,7 @@ import {
   isExtraChargeCategory,
   type ExtraChargeCategory,
 } from "@/lib/payments/extra-charges";
+import { isOtherPaymentSubmission } from "@/lib/payments/other-payment";
 import {
   allocatePaymentPurpose,
   isPaymentPurpose,
@@ -163,7 +164,7 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
   const supabase = await getAdmin();
   const { data: currentSubmission } = await supabase
     .from("payment_submissions")
-    .select("id, verification_status, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month, reference_number, payment_method, receipt_sha256")
+    .select("id, verification_status, bill_type, rent_bill_id, tenant_application_id, tenancy_id, tenant_id, tenant_record_id, property_id, room_id, payment_type, amount, payment_date, bill_month, reference_number, payment_method, receipt_sha256")
     .eq("id", submissionId)
     .single();
 
@@ -173,6 +174,12 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
 
   if (inline && !(await getProperties()).some(p => p.id === currentSubmission.property_id)) {
     finish(returnTo, "error=review");
+  }
+  // "Other payment" slips (key replacement, top-up, deposit balance, other) have
+  // their own review action. The rent flow below would allocate them to a rent
+  // bill, so it must never process them (stale forms included).
+  if (isOtherPaymentSubmission(currentSubmission)) {
+    finish(returnTo, "error=other_payment_review");
   }
   if (currentSubmission.verification_status === "verified") {
     finish(returnTo, "error=already_verified");
