@@ -10,10 +10,11 @@ import { paymentPurposeLabel } from "@/lib/payments/payment-purpose";
 import { usableBankReference } from "@/lib/payments/verification-row";
 import { savePaymentBankReference } from "./reference-actions";
 import { PaymentRecordActions, type PaymentRecordActionsProps } from "./payment-record-actions";
+import { OtherPaymentReview } from "./other-payment-review";
 
 type Row = PaymentRecordActionsProps & { isCheckIn?: boolean; checkInSummary?: {
   agreedRent: string; requiredDeposit: string; reportedRent: string; reportedDeposit: string; note: string | null;
-} | null; linkedByCode?: { id: string; tenantName: string; propertyRoom: string; amount: string; status: string }[] };
+} | null; otherPayment?: { typeLabel: string; submittedByStaff: string | null } | null; linkedByCode?: { id: string; tenantName: string; propertyRoom: string; amount: string; status: string }[] };
 
 export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurpose, canReverse, returnTo, errorMessages }: {
   row: Row; paymentMethod: string; paymentNote?: string | null;
@@ -46,9 +47,15 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
     <TableCell>{row.receiptUrl ? <ReceiptViewer url={row.receiptUrl}
       isImage={row.receiptIsImage} label={`Payment receipt — ${row.tenantName}`} /> : "No slip"}</TableCell>
     <TableCell className="min-w-36 max-w-64" data-payment-actions>
-      <fieldset disabled={busy}><PaymentRecordActions {...row} inline paymentMethod={paymentMethod} referenceNumber={reference}
+      <fieldset disabled={busy}>{row.otherPayment && row.status !== "verified"
+        ? <OtherPaymentReview submissionId={row.submissionId} status={row.status} tenantName={row.tenantName}
+            propertyName={row.propertyName} roomName={row.roomName} amountSubmitted={row.amountSubmitted}
+            typeLabel={row.otherPayment.typeLabel} paymentMethod={paymentMethod} referenceNumber={reference}
+            rejectionReason={row.rejectionReason} errorMessages={errorMessages}
+            onReferenceMissing={() => { setMessage("Please enter bank code."); setFailed(true); setEditing(true); input.current?.focus(); }} />
+        : <PaymentRecordActions {...row} inline paymentMethod={paymentMethod} referenceNumber={reference}
         canCorrectPurpose={canCorrectPurpose} canReverse={canReverse} returnTo={returnTo} errorMessages={errorMessages}
-        onReferenceMissing={() => { setMessage("Please enter bank code."); setFailed(true); setEditing(true); input.current?.focus(); }} /></fieldset>
+        onReferenceMissing={() => { setMessage("Please enter bank code."); setFailed(true); setEditing(true); input.current?.focus(); }} />}</fieldset>
       {paymentNote ? <p className="mt-2 max-w-64 whitespace-pre-wrap text-xs text-gray-600">{paymentNote}</p> : null}
       {row.checkInSummary ? <details className="mt-2 text-xs"><summary className="cursor-pointer">Check-in terms</summary>
         <p>Agreed rent: {row.checkInSummary.agreedRent} · Required deposit: {row.checkInSummary.requiredDeposit}</p>
@@ -60,10 +67,14 @@ export function PaymentSlipRow({ row, paymentMethod, paymentNote, canCorrectPurp
       <span className={`mt-2 inline-flex rounded px-2 py-0.5 text-xs font-semibold text-white ${row.isCheckIn ? "bg-emerald-700" : "bg-sky-700"}`}>
         {row.isCheckIn ? "NEW TENANT CHECK-IN" : "EXISTING TENANT PAYMENT"}
       </span>
+      {row.otherPayment ? <>
+        <span className="ml-2 mt-2 inline-flex rounded bg-violet-700 px-2 py-0.5 text-xs font-semibold text-white">OTHER PAYMENT</span>
+        {row.otherPayment.submittedByStaff ? <p className="mt-1 text-xs font-normal text-gray-600">Submitted by staff: {row.otherPayment.submittedByStaff}</p> : null}
+      </> : null}
     </TableCell>
     <TableCell className="min-w-32 whitespace-normal">{row.propertyName}<br />{row.roomName}</TableCell>
-    <TableCell className="whitespace-nowrap">{month}</TableCell>
-    <TableCell className="whitespace-nowrap"><strong>{row.amountSubmitted}</strong><p className="mt-1 text-xs">{paymentPurposeLabel(row.paymentPurpose)}</p></TableCell>
+    <TableCell className="whitespace-nowrap">{row.otherPayment ? "—" : month}</TableCell>
+    <TableCell className="whitespace-nowrap"><strong>{row.amountSubmitted}</strong><p className="mt-1 text-xs">{row.otherPayment ? `Other payment — ${row.otherPayment.typeLabel}` : paymentPurposeLabel(row.paymentPurpose)}</p></TableCell>
     <TableCell className="min-w-56">
       <label htmlFor={`bank-code-${row.submissionId}`} className="block text-xs font-medium">Bank Code</label>
       {editing ? <form onSubmit={event => { event.preventDefault(); void saveReference(); }} className="mt-1 flex gap-1">
