@@ -7,6 +7,9 @@ import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { getTenantPortalData } from "@/lib/data/tenant-portal";
 import { createClient } from "@/lib/supabase/server";
+import { OtherPaymentForm } from "@/components/tenant/other-payment-form";
+import { submitOtherPaymentForTenant } from "@/app/other-payments/actions";
+import { paymentCategoryLabel } from "@/lib/payments/payment-category";
 import { createPayment } from "./actions";
 
 const ringgitFormatter = new Intl.NumberFormat("en-MY", {
@@ -60,7 +63,7 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
   }
 
   const supabase = await createClient();
-  const [paymentsResult, tenantsResult, tenanciesResult] = await Promise.all([
+  const [paymentsResult, tenantsResult, tenanciesResult, activeTenanciesResult] = await Promise.all([
     supabase
       .from("payments")
       .select("id, tenant_id, tenancy_id, category, amount, payment_date, payment_method, reference_number, status")
@@ -73,7 +76,28 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
       .from("tenancies")
       .select("id, tenant_id, room_id, monthly_rental, status")
       .order("created_at", { ascending: false }),
+    ["super_admin", "admin"].includes(role)
+      ? supabase
+          .from("tenancies")
+          .select("id, status, checkout_date, tenants(full_name), rooms(room_number, name), properties(name)")
+          .eq("status", "active")
+          .is("checkout_date", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
   ]);
+  const relation = <T,>(value: T | T[] | null | undefined) =>
+    Array.isArray(value) ? value[0] : value;
+  const otherPaymentTenancies = ((activeTenanciesResult.data ?? []) as Array<{
+    id: string;
+    tenants: { full_name: string | null } | { full_name: string | null }[] | null;
+    rooms: { room_number: string | null; name: string | null } | { room_number: string | null; name: string | null }[] | null;
+    properties: { name: string } | { name: string }[] | null;
+  }>)
+    .map((tenancy) => ({
+      id: tenancy.id,
+      label: `${relation(tenancy.properties)?.name ?? "Property"} / ${relation(tenancy.rooms)?.room_number ?? relation(tenancy.rooms)?.name ?? "Room"} — ${relation(tenancy.tenants)?.full_name ?? "Tenant"}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
   const payments = paymentsResult.data ?? [];
   const tenants = tenantsResult.data ?? [];
   const tenancies = tenanciesResult.data ?? [];
@@ -185,6 +209,32 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
         </Card>
       ) : null}
 
+      {canCreate ? (
+        <Card id="other-payment">
+          <CardHeader>
+            <CardTitle>Submit an Other Payment for a Tenant</CardTitle>
+            <CardDescription>
+              For a top-up, lost key, deposit balance or other non-rent payment
+              when the tenant asks Management to submit it. Upload the slip. It
+              goes to Payment Verification marked as submitted by staff, and
+              shows in the tenant&apos;s payment history. It never changes a
+              rent invoice.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {otherPaymentTenancies.length ? (
+              <OtherPaymentForm
+                action={submitOtherPaymentForTenant}
+                mode="staff"
+                tenancies={otherPaymentTenancies}
+              />
+            ) : (
+              <p className="text-sm text-gray-500">No active tenancies are available to submit for.</p>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Payment Records</CardTitle>
@@ -212,7 +262,7 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
                         tenantById.get(tenantIdByTenancy.get(payment.tenancy_id ?? "") ?? "") ??
                         "-"}
                     </TableCell>
-                    <TableCell>{payment.category}</TableCell>
+                    <TableCell>{paymentCategoryLabel(payment.category)}</TableCell>
                     <TableCell>{ringgitFormatter.format(Number(payment.amount ?? 0))}</TableCell>
                     <TableCell>{payment.payment_method}</TableCell>
                     <TableCell><Badge>{payment.status}</Badge></TableCell>

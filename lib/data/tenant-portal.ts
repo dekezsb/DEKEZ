@@ -121,7 +121,7 @@ export async function getTenantPortalData() {
       dataClient
         .from("payment_submissions")
         .select(
-          "id, rent_bill_id, tenancy_id, bill_month, bill_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_at, rejection_reason, created_at",
+          "id, rent_bill_id, tenancy_id, bill_month, bill_type, payment_type, payment_note, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_at, rejection_reason, created_at",
         )
         .eq("tenant_id", user.id)
         .order("created_at", { ascending: false }),

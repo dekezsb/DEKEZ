@@ -19,7 +19,13 @@ import {
   Wrench,
 } from "lucide-react";
 import { createMaintenanceTicket } from "@/app/maintenance/actions";
+import { submitOtherPayment } from "@/app/other-payments/actions";
 import { uploadMonthlyPaymentProof } from "@/app/payments/actions";
+import { OtherPaymentForm } from "@/components/tenant/other-payment-form";
+import {
+  isOtherPaymentSubmission,
+  otherPaymentTypeLabel,
+} from "@/lib/payments/other-payment";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ElectricityTopUpPilot } from "@/components/smart-meter/electricity-top-up-pilot";
@@ -85,6 +91,55 @@ function UnassignedNotice() {
   );
 }
 
+function OtherPaymentCard({ data }: { data: NonNullable<TenantPortalData> }) {
+  const pending = data.submissions.filter(
+    (submission) =>
+      isOtherPaymentSubmission(submission) &&
+      submission.verification_status === "pending_verification",
+  );
+
+  return (
+    <Card className="border-[#d8c28c]" id="other-payment">
+      <CardHeader>
+        <CardTitle>Other Payment</CardTitle>
+        <CardDescription>
+          Bayaran lain. For payments that are not monthly rent, such as an
+          electricity top-up, a lost key or a deposit balance. Upload your
+          payment slip and Management will verify it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {pending.length ? (
+          <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+            <Clock className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p>
+                {pending.length} other payment{pending.length === 1 ? "" : "s"}{" "}
+                waiting for verification
+              </p>
+              <p className="mt-1 font-normal">
+                You can see each one under Payment &amp; Receipt History.
+              </p>
+            </div>
+          </div>
+        ) : null}
+        <OtherPaymentForm
+          action={submitOtherPayment}
+          mode="tenant"
+          tenancies={data.tenancies.map((tenancy) => ({
+            id: tenancy.id,
+            label: `${tenancy.propertyName} / ${tenancy.roomName}`,
+            hasMeterTopUp: hasElectricityTopUpAccess({
+              provider: tenancy.electricityMeter?.provider,
+              hasElectricityMeter: Boolean(tenancy.electricityMeter),
+            }),
+          }))}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
   const pendingBillIds = new Set(
     data.submissions
@@ -96,7 +151,9 @@ function PaymentForm({ data }: { data: NonNullable<TenantPortalData> }) {
       .map((submission) => submission.rent_bill_id),
   );
   const pendingSubmissions = data.submissions.filter(
-    (submission) => submission.verification_status === "pending_verification",
+    (submission) =>
+      submission.verification_status === "pending_verification" &&
+      !isOtherPaymentSubmission(submission),
   );
   const payableBills = data.bills.filter(
     (bill) =>
@@ -395,7 +452,7 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
           hasElectricityMeter: Boolean(tenancy.electricityMeter),
         }),
       ) ? (
-        <div className="space-y-4">
+        <div className="space-y-4" id="electricity-top-up">
           {data.tenancies
             .filter((tenancy) =>
               hasElectricityTopUpAccess({
@@ -433,6 +490,7 @@ export function TenantHome({ data }: { data: NonNullable<TenantPortalData> }) {
       ) : null}
 
       <PaymentForm data={data} />
+      <OtherPaymentCard data={data} />
     </section>
   );
 }
@@ -772,6 +830,8 @@ export function TenantBills({
         </CardContent>
       </Card>
 
+      {data.hasTenancy ? <OtherPaymentCard data={data} /> : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Payment & Receipt History</CardTitle>
@@ -789,7 +849,9 @@ export function TenantBills({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-gray-950">
-                      {titleCase(submission.bill_type)}
+                      {isOtherPaymentSubmission(submission)
+                        ? `Other payment — ${otherPaymentTypeLabel(submission.payment_type)}`
+                        : titleCase(submission.bill_type)}
                     </p>
                     <p className="mt-1 text-sm text-gray-600">
                       {date(submission.payment_date)} / {money(submission.amount)}
@@ -797,6 +859,11 @@ export function TenantBills({
                     {submission.reference_number ? (
                       <p className="mt-1 text-xs text-gray-500">
                         Reference: {submission.reference_number}
+                      </p>
+                    ) : null}
+                    {isOtherPaymentSubmission(submission) && submission.payment_note ? (
+                      <p className="mt-1 whitespace-pre-line text-xs text-gray-500">
+                        {submission.payment_note}
                       </p>
                     ) : null}
                   </div>

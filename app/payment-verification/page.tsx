@@ -9,6 +9,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getProperties } from "@/lib/data/organization";
 import { PaymentSlipRow } from "./payment-slip-row";
+import { Link } from "@/components/app-link";
+import { isOtherPaymentSubmission, otherPaymentTypeLabel } from "@/lib/payments/other-payment";
 import { paymentMatchesFilters } from "@/lib/payments/verification-row";
 import { RenovationPaymentVerification } from "./renovation-payments";
 
@@ -22,6 +24,7 @@ export type PaymentVerificationPageProps = {
     tenant?: string;
     month?: string;
     method?: string;
+    type?: string;
     renovation_status?: string;
     renovation_q?: string;
   }>;
@@ -50,6 +53,7 @@ type SubmissionRecord = {
   created_at: string;
   rejection_reason: string | null;
   payment_note: string | null;
+  submitted_by_staff_id: string | null;
   receipt_sha256: string | null;
   properties?: { name: string } | { name: string }[] | null;
   rooms?: { name: string; room_number: string | null } | { name: string; room_number: string | null }[] | null;
@@ -98,6 +102,16 @@ const errorMessages: Record<string, string> = {
   reservation_first: "This payment belongs to a room reservation. Its slip is saved. Request actual check-in from Reservations and approve the tenant before applying this payment to a rental invoice.",
   identity_first:
     "Approve the tenant check-in first, then verify this payment against its invoice.",
+  other_payment_review:
+    "This is an Other payment (key replacement, top-up, deposit balance or other). Use its own Verify / Reject buttons. Do not apply it as monthly rent.",
+  other_payment_invoice:
+    "There is no rental invoice for this tenant for the month of the payment, so the charge cannot be added and income cannot be booked. Generate that month's invoice first, then verify again.",
+  other_payment_tenancy:
+    "The tenant's active room for this payment could not be found, so nothing was verified. Check that the tenant still has an active tenancy in that room.",
+  other_payment_deposit_amount:
+    "This deposit payment is more than the deposit still owed for this tenancy. Nothing was verified. Correct the payment or reject it.",
+  other_payment_deposit_review:
+    "This tenant's deposit is recorded only through older slips, so a new deposit payment cannot be posted safely here. Please ask the developer to review it.",
   missing: "Choose a payment and action.",
   reason: "Please enter a rejection or reversal reason.",
   review: "Payment could not be updated.",
@@ -211,12 +225,14 @@ export async function PaymentVerificationContent({
   const propertyIds = params.property ? properties.filter((p) => p.id === params.property).map((p) => p.id) : properties.map((p) => p.id);
   const allSubmissions = propertyIds.length ? await allRows<SubmissionRecord>(supabase
     .from("payment_submissions")
-    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, payment_note, receipt_sha256, properties(name), rooms(name, room_number), tenant_applications(monthly_rent, deposit, utility_deposit, admin_notes, registration_mode), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
+    .select("id, tenant_id, tenant_record_id, tenant_application_id, tenancy_id, rent_bill_id, property_id, room_id, bill_month, bill_type, payment_type, amount, payment_date, payment_method, reference_number, receipt_url, verification_status, verified_by, verified_at, created_at, rejection_reason, payment_note, submitted_by_staff_id, receipt_sha256, properties(name), rooms(name, room_number), tenant_applications(monthly_rent, deposit, utility_deposit, admin_notes, registration_mode), rent_bills(bill_month, due_date, amount, deposit_amount, paid_amount, status, rental_invoice_line_items(amount))")
     .in("property_id", propertyIds).order("created_at", { ascending: false }).order("id")) : [];
   // Filters apply to individual slips, including old verified slips with no code.
   const submissions = allSubmissions.filter((submission) => paymentMatchesFilters({
     ...submission, bill_month: submission.bill_month ?? single(submission.rent_bills)?.bill_month ?? null,
-  }, { status: statusFilter, tenant: params.tenant, method: params.method, month: monthFilter }));
+  }, { status: statusFilter, tenant: params.tenant, method: params.method, month: monthFilter })
+    && (params.type === "other_payment" ? isOtherPaymentSubmission(submission)
+      : params.type === "rent" ? !isOtherPaymentSubmission(submission) : true));
   const [profileRows, recordRows] = await Promise.all([
     allRows<{ id: string; full_name: string | null; phone: string | null }>(supabase.from("profiles").select("id, full_name, phone").order("id")),
     allRows<{ id: string; full_name: string; phone: string | null }>(supabase.from("tenant_records").select("id, full_name, phone").in("property_id", propertyIds).order("id")),
@@ -303,7 +319,12 @@ export async function PaymentVerificationContent({
       ) : null}
 
       <RenovationPaymentVerification params={params} returnTo={returnTo} />
-      <h2 className="text-xl font-semibold">Rental payment verification</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">Rental payment verification</h2>
+        <Button asChild size="sm" variant="outline">
+          <Link href="/payments#other-payment">Submit an other payment for a tenant</Link>
+        </Button>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard icon={Clock} label="Pending Payments" value={pendingPayments.length} />
         <MetricCard icon={CheckCircle2} label="Verified Today" value={verifiedToday} />
@@ -318,7 +339,7 @@ export async function PaymentVerificationContent({
           <CardDescription>One row per payment slip. Choose Verified or All to add missing bank codes to older payments.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 lg:grid-cols-6" method="get">
+          <form className="grid gap-4 lg:grid-cols-7" method="get">
             {params.renovation_status && <input type="hidden" name="renovation_status" value={params.renovation_status} />}
             {params.renovation_q && <input type="hidden" name="renovation_q" value={params.renovation_q} />}
             {returnTo === "/verification?view=payments" ? (
@@ -360,6 +381,14 @@ export async function PaymentVerificationContent({
                 <option value="online_payment">Online payment</option>
                 <option value="cash">Cash</option>
                 <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Type</span>
+              <select className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="type" defaultValue={params.type ?? ""}>
+                <option value="">All slips</option>
+                <option value="other_payment">Other payments only</option>
+                <option value="rent">Rent / deposit only</option>
               </select>
             </label>
             <div className="flex items-end">
@@ -483,6 +512,14 @@ function buildRow(
     amountDue: money(invoiceOutstanding),
     amountSubmitted: money(submission.amount),
     amountSubmittedValue: Number(submission.amount ?? 0),
+    otherPayment: isOtherPaymentSubmission(submission)
+      ? {
+          typeLabel: otherPaymentTypeLabel(submission.payment_type),
+          submittedByStaff: submission.submitted_by_staff_id
+            ? profiles.get(submission.submitted_by_staff_id)?.full_name ?? "Staff"
+            : null,
+        }
+      : null,
     paymentPurpose:
       submission.payment_type === "first_month_rental"
         ? "monthly_rent"
