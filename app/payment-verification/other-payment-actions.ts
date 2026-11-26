@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/session";
+import { billMonthForDate } from "@/lib/billing/rent-billing";
 import { getCurrentUser, getProperties } from "@/lib/data/organization";
 import {
   getVerifiedDepositPaymentMaps,
@@ -13,7 +14,10 @@ import {
   isOtherPaymentSubmission,
   isOtherPaymentType,
   otherPaymentCategory,
+  otherPaymentDescriptionFromNote,
+  otherPaymentInvoiceCharge,
   otherPaymentTypeLabel,
+  settleInvoiceForOtherCharge,
 } from "@/lib/payments/other-payment";
 import {
   bankReferenceRequired,
@@ -36,15 +40,23 @@ function fail(error: string): OtherPaymentReviewResult {
   return { error, verified: false };
 }
 
+const UNUSABLE_BILL_STATUSES = new Set(["cancelled", "waived", "draft"]);
+
 /**
  * Verify or reject an "other payment" slip (key replacement, top-up, deposit
  * balance, other).
  *
- * This is deliberately separate from the rent verification action:
- *  - it never reads or writes rent_bills, invoice lines or rent_bill_audit_logs,
- *    so no rent invoice can be marked paid or have its balance changed;
- *  - it posts exactly one `payments` row, category = the slip's type;
- *  - it creates no invoice, receipt, journal or receivable posting.
+ * Separate from the rent verification action so a slip can never be applied as
+ * monthly rent. On verify:
+ *  - key replacement and "other" add an invoice other-charge line (income in
+ *    Other Tenant Charges Income) on that month's room invoice;
+ *  - an electricity top-up adds a top_up_utilities line (Top Up Utilities
+ *    Income);
+ *  - the payment settles only that new charge, so unpaid rent is unchanged;
+ *  - a deposit-balance payment posts a deposit liability only, with no invoice
+ *    line and no income.
+ * Undo uses reverse_verified_payment_submission, which deletes the invoice
+ * line, cancels the payment and recalculates the invoice.
  */
 export async function reviewOtherPaymentInline(
   formData: FormData,
@@ -76,9 +88,10 @@ export async function reviewOtherPaymentInline(
     return fail("review");
   }
   if (current.verification_status === "verified") return fail("already_verified");
-  // An other payment is never tied to a rent invoice. Refuse anything that is.
+  // A pending other payment must not already be tied to a rent invoice.
   if (current.rent_bill_id) return fail("other_payment_review");
 
+  const previousStatus = current.verification_status;
   const reviewedAt = new Date().toISOString();
 
   if (decision === "rejected") {
@@ -92,7 +105,7 @@ export async function reviewOtherPaymentInline(
         updated_at: reviewedAt,
       })
       .eq("id", current.id)
-      .eq("verification_status", current.verification_status)
+      .eq("verification_status", previousStatus)
       .select("id")
       .maybeSingle();
     if (!rejected) return fail("review");
@@ -100,7 +113,7 @@ export async function reviewOtherPaymentInline(
       payment_submission_id: current.id,
       action: "rejected",
       performed_by: user.id,
-      old_status: current.verification_status,
+      old_status: previousStatus,
       new_status: "rejected",
       reason: notes,
     });
@@ -187,6 +200,61 @@ export async function reviewOtherPaymentInline(
     }
   }
 
+  const invoiceCharge = otherPaymentInvoiceCharge(
+    type,
+    otherPaymentDescriptionFromNote(current.payment_note),
+  );
+  const billMonth = current.payment_date
+    ? billMonthForDate(String(current.payment_date).slice(0, 10))
+    : "";
+
+  let bill: {
+    id: string;
+    amount: number | string | null;
+    deposit_amount: number | string | null;
+    paid_amount: number | string | null;
+    status: string | null;
+  } | null = null;
+  let existingExtraTotal = 0;
+  let existingDepositPaid = 0;
+
+  if (invoiceCharge) {
+    if (!billMonth) return fail("other_payment_invoice");
+    const { data: bills } = await db
+      .from("rent_bills")
+      .select("id, amount, deposit_amount, paid_amount, status, removed_at")
+      .eq("tenancy_id", tenancy.id)
+      .eq("bill_month", billMonth)
+      .is("removed_at", null);
+    const usable = (bills ?? []).filter(
+      (row) => !UNUSABLE_BILL_STATUSES.has(String(row.status ?? "")),
+    );
+    if (usable.length !== 1) return fail("other_payment_invoice");
+    bill = usable[0];
+
+    const [{ data: existingItems }, { data: billPayments }] = await Promise.all([
+      db
+        .from("rental_invoice_line_items")
+        .select("amount")
+        .eq("rent_bill_id", bill.id),
+      db
+        .from("payments")
+        .select("amount, category")
+        .eq("rent_bill_id", bill.id)
+        .in("status", ["confirmed", "paid"])
+        .is("reversed_at", null),
+    ]);
+    existingExtraTotal = (existingItems ?? []).reduce(
+      (total, item) => total + Number(item.amount ?? 0),
+      0,
+    );
+    existingDepositPaid = (billPayments ?? []).reduce((total, payment) => {
+      return payment.category === "deposit"
+        ? total + Number(payment.amount ?? 0)
+        : total;
+    }, 0);
+  }
+
   // Idempotent: a retry after a partial failure must not post a second payment.
   const { data: alreadyPosted } = await db
     .from("payments")
@@ -198,10 +266,23 @@ export async function reviewOtherPaymentInline(
     .maybeSingle();
   if (alreadyPosted) return fail("already_verified");
 
+  const settlement = invoiceCharge && bill
+    ? settleInvoiceForOtherCharge({
+        rentAmount: Number(bill.amount ?? 0),
+        depositAmount: Number(bill.deposit_amount ?? 0),
+        existingExtraTotal,
+        existingPaidAmount: Number(bill.paid_amount ?? 0),
+        existingDepositPaid,
+        chargeAmount: amount,
+      })
+    : null;
+
   const { data: verified, error: verifyError } = await db
     .from("payment_submissions")
     .update({
       tenancy_id: tenancy.id,
+      rent_bill_id: bill?.id ?? null,
+      bill_month: bill ? billMonth : null,
       reference_number: reference,
       verification_status: "verified",
       verified_by: user.id,
@@ -210,18 +291,84 @@ export async function reviewOtherPaymentInline(
       updated_at: reviewedAt,
     })
     .eq("id", current.id)
-    .eq("verification_status", current.verification_status)
+    .eq("verification_status", previousStatus)
     .select("id")
     .maybeSingle();
   if (verifyError || !verified) {
     return fail(bankReferenceResult(verifyError?.message, "review").replace("error=", ""));
   }
 
+  let billSettled = false;
+  const rollback = async () => {
+    if (invoiceCharge) {
+      await db
+        .from("rental_invoice_line_items")
+        .delete()
+        .eq("payment_submission_id", current.id);
+    }
+    if (bill && billSettled) {
+      await db
+        .from("rent_bills")
+        .update({
+          paid_amount: bill.paid_amount,
+          status: bill.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", bill.id);
+    }
+    await db
+      .from("payments")
+      .update({
+        status: "cancelled",
+        reversed_at: new Date().toISOString(),
+        reversed_by: user.id,
+        reversal_reason: "Other payment posting rolled back",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("payment_submission_id", current.id)
+      .in("status", ["confirmed", "paid"]);
+    await db
+      .from("payment_submissions")
+      .update({
+        verification_status: previousStatus,
+        verified_by: null,
+        verified_at: null,
+        rent_bill_id: null,
+        tenancy_id: null,
+        bill_month: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", current.id);
+  };
+
+  if (invoiceCharge && bill) {
+    const { data: existingLine } = await db
+      .from("rental_invoice_line_items")
+      .select("id")
+      .eq("payment_submission_id", current.id)
+      .maybeSingle();
+    if (!existingLine) {
+      const { error: lineError } = await db.from("rental_invoice_line_items").insert({
+        rent_bill_id: bill.id,
+        payment_submission_id: current.id,
+        category: invoiceCharge.category,
+        description: invoiceCharge.description,
+        amount,
+        created_by: user.id,
+        updated_at: reviewedAt,
+      });
+      if (lineError) {
+        await rollback();
+        return fail("review");
+      }
+    }
+  }
+
   const { error: paymentError } = await db.from("payments").insert({
     company_id: tenancy.company_id,
     organization_id: tenancy.organization_id,
     payment_submission_id: current.id,
-    rent_bill_id: null,
+    rent_bill_id: bill?.id ?? null,
     tenant_id: current.tenant_id,
     tenancy_id: tenancy.id,
     property_id: tenancy.property_id,
@@ -239,24 +386,41 @@ export async function reviewOtherPaymentInline(
     verified_at: reviewedAt,
   });
   if (paymentError) {
-    // Put the slip back so nothing is half-verified.
-    await db
-      .from("payment_submissions")
-      .update({
-        verification_status: current.verification_status,
-        verified_by: null,
-        verified_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", current.id);
+    await rollback();
     return fail("review");
+  }
+
+  if (invoiceCharge && bill && settlement) {
+    const { error: billError } = await db
+      .from("rent_bills")
+      .update({
+        paid_amount: settlement.newPaidAmount,
+        status: settlement.status,
+        updated_at: reviewedAt,
+      })
+      .eq("id", bill.id);
+    if (billError) {
+      await rollback();
+      return fail("review");
+    }
+    billSettled = true;
+    await db.from("rent_bill_audit_logs").insert({
+      bill_id: bill.id,
+      action: "verify_payment_submission",
+      performed_by: user.id,
+      old_status: bill.status ?? null,
+      new_status: settlement.status,
+      old_paid_amount: Number(bill.paid_amount ?? 0),
+      new_paid_amount: settlement.newPaidAmount,
+      reason: `${invoiceCharge.description} (other payment)`,
+    });
   }
 
   await db.from("payment_verification_audit_logs").insert({
     payment_submission_id: current.id,
     action: "verified",
     performed_by: user.id,
-    old_status: current.verification_status,
+    old_status: previousStatus,
     new_status: "verified",
     reason: notes || `Other payment verified: ${otherPaymentTypeLabel(type)}`,
   });

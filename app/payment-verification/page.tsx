@@ -103,7 +103,9 @@ const errorMessages: Record<string, string> = {
   identity_first:
     "Approve the tenant check-in first, then verify this payment against its invoice.",
   other_payment_review:
-    "This is an Other payment (key replacement, top-up, deposit balance or other). Use its own Verify / Reject buttons. It never changes a rent invoice.",
+    "This is an Other payment (key replacement, top-up, deposit balance or other). Use its own Verify / Reject buttons. Do not apply it as monthly rent.",
+  other_payment_invoice:
+    "There is no rental invoice for this tenant for the month of the payment, so the charge cannot be added and income cannot be booked. Generate that month's invoice first, then verify again.",
   other_payment_tenancy:
     "The tenant's active room for this payment could not be found, so nothing was verified. Check that the tenant still has an active tenancy in that room.",
   other_payment_deposit_amount:

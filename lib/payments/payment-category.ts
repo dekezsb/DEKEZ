@@ -6,6 +6,7 @@ export const PAYMENT_CATEGORY_OPTIONS = [
   // Verified "Other payment" categories (not invoice extra-charge lines).
   { value: "key_replacement", label: "Lost key / key replacement" },
   { value: "top_up", label: "Electricity top-up" },
+  { value: "top_up_utilities", label: "Electricity top-up" },
   ...EXTRA_CHARGE_OPTIONS,
 ] as const;
 

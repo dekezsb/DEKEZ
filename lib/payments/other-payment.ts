@@ -5,12 +5,19 @@
  * Rules that keep accounting safe (see AGENTS.md accounting governance):
  *  - An other payment goes into the same payment_submissions verification queue
  *    as rent slips, marked with bill_type = "other_payment".
- *  - It NEVER carries a rent_bill_id and verification never touches rent_bills,
- *    so it cannot mark any rent invoice paid or change its outstanding balance.
- *  - Verification posts exactly one `payments` row whose category is the
- *    payment_type below (deposit, key_replacement, top_up, other). It creates no
- *    invoice, no invoice line, no journal and no receivable posting.
- *  - A deposit-balance payment is capped at the tenancy's remaining deposit.
+ *  - While pending it carries no rent_bill_id and no tenancy_id, so it cannot
+ *    look like a pending rent slip or suppress rent chasing.
+ *  - On verify, a key replacement or "other" payment is added as an invoice
+ *    "other charge" line on that month's room invoice and posted as Other
+ *    Tenant Charges Income (4190). An electricity top-up is added as a
+ *    top_up_utilities line and posted as Top Up Utilities Income (4100). The
+ *    invoice line creates the receivable and the income; the payment settles
+ *    only that new charge, never the rent balance.
+ *  - A deposit-balance payment stays a deposit liability: one `payments` row
+ *    with category deposit, no invoice line, no income. It is capped at the
+ *    deposit still owed.
+ *  - Only bank transfer, DuitNow or online payment are accepted. A slip is
+ *    required. Cash is not allowed.
  */
 
 export const OTHER_PAYMENT_BILL_TYPE = "other_payment";
@@ -48,20 +55,35 @@ export const OTHER_PAYMENT_TYPES = [
 
 export type OtherPaymentType = (typeof OTHER_PAYMENT_TYPES)[number]["value"];
 
-/** payments.category written when staff verify the slip. Same as the type. */
+/**
+ * payments.category written when staff verify the slip.
+ * Income types use the same categories as invoice extra-charge lines, so
+ * collection review and the P&L already understand them (key_lock and other
+ * → Other Tenant Charges Income; top_up_utilities → Top Up Utilities Income).
+ * Deposit stays a liability and is never an invoice income line.
+ */
 export const OTHER_PAYMENT_CATEGORIES: Record<OtherPaymentType, string> = {
-  top_up: "top_up",
-  key_replacement: "key_replacement",
+  top_up: "top_up_utilities",
+  key_replacement: "key_lock",
   deposit: "deposit",
   other: "other",
 };
 
-/** Tenants may not pay cash through the portal; every other payment needs a slip. */
+/** Invoice line written on verify so the charge appears on the room/month invoice and in the P&L. */
+export const OTHER_PAYMENT_INVOICE_CATEGORIES: Record<
+  Exclude<OtherPaymentType, "deposit">,
+  "top_up_utilities" | "key_lock" | "other"
+> = {
+  top_up: "top_up_utilities",
+  key_replacement: "key_lock",
+  other: "other",
+};
+
+/** Only bank methods. Cash is not accepted; a slip is always required. */
 export const OTHER_PAYMENT_METHODS = [
   { value: "bank_transfer", label: "Bank transfer" },
   { value: "duitnow", label: "DuitNow QR" },
   { value: "online_payment", label: "Online payment" },
-  { value: "other", label: "Other non-cash payment" },
 ] as const;
 
 export const OTHER_PAYMENT_MAX_AMOUNT = 50000;
@@ -90,6 +112,68 @@ export function otherPaymentTypeLabel(value: string | null | undefined) {
 
 export function otherPaymentCategory(type: OtherPaymentType) {
   return OTHER_PAYMENT_CATEGORIES[type];
+}
+
+export type OtherPaymentInvoiceCharge = {
+  category: "top_up_utilities" | "key_lock" | "other";
+  description: string;
+};
+
+/** Null for a deposit (liability, no income). Otherwise the invoice line to book. */
+export function otherPaymentInvoiceCharge(
+  type: OtherPaymentType,
+  description = "",
+): OtherPaymentInvoiceCharge | null {
+  if (type === "deposit") return null;
+  if (type === "top_up") {
+    return { category: "top_up_utilities", description: "Electricity top-up" };
+  }
+  if (type === "key_replacement") {
+    return { category: "key_lock", description: "Lost key / key replacement" };
+  }
+  const detail = description.trim();
+  return {
+    category: "other",
+    description: detail ? `Other payment — ${detail}` : "Other payment",
+  };
+}
+
+/** Description entered for type "other", kept in payment_note as "For: …". */
+export function otherPaymentDescriptionFromNote(note: string | null | undefined) {
+  const match = (note ?? "").match(/^For:\s*(.+)$/m);
+  return match?.[1]?.trim() ?? "";
+}
+
+/**
+ * How the room/month invoice should look after an income-type other payment is
+ * verified. The new charge is added to the invoice total and to paid_amount by
+ * the same amount, so unpaid rent is unchanged.
+ */
+export function settleInvoiceForOtherCharge(input: {
+  rentAmount: number;
+  depositAmount: number;
+  existingExtraTotal: number;
+  existingPaidAmount: number;
+  existingDepositPaid: number;
+  chargeAmount: number;
+}) {
+  const billAmount =
+    input.rentAmount + input.existingExtraTotal + input.chargeAmount;
+  const newPaidAmount = Math.min(
+    input.existingPaidAmount + input.chargeAmount,
+    billAmount,
+  );
+  const depositRequired = Math.max(input.depositAmount, 0);
+  const depositPaid = Math.min(input.existingDepositPaid, depositRequired);
+  const invoiceTotal = billAmount + depositRequired;
+  const invoicePaid = newPaidAmount + depositPaid;
+  const status =
+    invoicePaid >= invoiceTotal - 0.005
+      ? "paid"
+      : invoicePaid > 0.005
+        ? "partially_paid"
+        : "unpaid";
+  return { billAmount, newPaidAmount, status };
 }
 
 /** True for slips submitted through the Other payment feature. */
