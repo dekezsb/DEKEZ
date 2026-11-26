@@ -25,7 +25,7 @@ function resetDb() {
     payment_verification_audit_logs: [],
     profiles: [{ id: 'staff-1', full_name: 'Staff One' }],
     tenant_records: [],
-    rent_bills: [{ id: 'bill-1', amount: 400, paid_amount: 0, status: 'unpaid' }],
+    rent_bills: [{ id: 'bill-1', tenancy_id: 'ty-1', bill_month: '2026-11-01', amount: 400, deposit_amount: 0, paid_amount: 0, status: 'unpaid', removed_at: null }],
     rental_invoice_line_items: [],
     rent_bill_audit_logs: [],
   };
@@ -58,6 +58,14 @@ function builder(table) {
       const copies = hit.map((row) => ({ ...row }));
       return { data: single ? copies[0] ?? null : copies, error: null };
     }
+    if (op === 'delete') {
+      const gone = [];
+      const kept = [];
+      for (const row of rows) (match(row) ? gone : kept).push(row);
+      rows.length = 0;
+      rows.push(...kept);
+      return { data: single ? gone[0] ?? null : gone, error: null };
+    }
     const hit = rows.filter(match).slice(0, limit).map((row) => ({ ...row }));
     return { data: single ? hit[0] ?? null : hit, error: null };
   };
@@ -65,6 +73,7 @@ function builder(table) {
     select() { return api; },
     insert(value) { op = 'insert'; payload = value; return api; },
     update(value) { op = 'update'; payload = value; return api; },
+    delete() { op = 'delete'; return api; },
     eq(k, v) { filters.push((r) => r[k] === v); return api; },
     neq(k, v) { filters.push((r) => r[k] !== v); return api; },
     in(k, v) { filters.push((r) => v.includes(r[k])); return api; },
@@ -136,15 +145,21 @@ function beforeEachCase() {
 // ---- pure rules ----------------------------------------------------------
 test('four types map to safe payment categories and never to monthly_rent', () => {
   assert.deepEqual(other.OTHER_PAYMENT_TYPES.map((t) => t.value), ['top_up', 'key_replacement', 'deposit', 'other']);
-  assert.equal(other.otherPaymentCategory('key_replacement'), 'key_replacement');
-  assert.equal(other.otherPaymentCategory('top_up'), 'top_up');
+  assert.equal(other.otherPaymentCategory('key_replacement'), 'key_lock');
+  assert.equal(other.otherPaymentCategory('top_up'), 'top_up_utilities');
   assert.equal(other.otherPaymentCategory('deposit'), 'deposit');
   assert.equal(other.otherPaymentCategory('other'), 'other');
   for (const type of other.OTHER_PAYMENT_TYPES) assert.notEqual(other.otherPaymentCategory(type.value), 'monthly_rent');
+  assert.deepEqual(other.otherPaymentInvoiceCharge('key_replacement'), { category: 'key_lock', description: 'Lost key / key replacement' });
+  assert.deepEqual(other.otherPaymentInvoiceCharge('top_up'), { category: 'top_up_utilities', description: 'Electricity top-up' });
+  assert.deepEqual(other.otherPaymentInvoiceCharge('other', 'Parking sticker'), { category: 'other', description: 'Other payment — Parking sticker' });
+  assert.equal(other.otherPaymentInvoiceCharge('deposit'), null);
+  assert.equal(other.otherPaymentDescriptionFromNote('For: Parking sticker\nNote: paid today'), 'Parking sticker');
   assert.equal(other.otherPaymentDisplayLabel('key_replacement'), 'Other payment — Lost key / key replacement');
   assert.equal(other.isOtherPaymentSubmission({ bill_type: 'other_payment' }), true);
   assert.equal(other.isOtherPaymentSubmission({ bill_type: 'other' }), false);
   assert.equal(other.isOtherPaymentSubmission({ bill_type: 'monthly_rent' }), false);
+  assert.deepEqual(other.OTHER_PAYMENT_METHODS.map((m) => m.value), ['bank_transfer', 'duitnow', 'online_payment']);
 });
 
 test('field validation: amount, date, method, description and note', () => {
@@ -162,6 +177,7 @@ test('field validation: amount, date, method, description and note', () => {
   assert.equal(bad({ paymentDate: '2026-11-27' }), 'date');
   assert.equal(bad({ paymentDate: '2026-02-30' }), 'date');
   assert.equal(bad({ paymentMethod: 'cash' }), 'method');
+  assert.equal(bad({ paymentMethod: 'other' }), 'method');
   assert.equal(bad({ referenceNumber: 'x'.repeat(121) }), 'reference');
   assert.equal(bad({ type: 'other', description: 'ab' }), 'description');
   assert.equal(other.validateOtherPaymentFields({ ...ok, type: 'other', description: 'Parking sticker' }, '2026-11-26').ok, true);
@@ -173,6 +189,30 @@ test('deposit balance cannot exceed the deposit still owed', () => {
   assert.equal(other.depositBalanceCheck({ depositRequired: 500, depositReceived: 300, amount: 200.01 }).fits, false);
   assert.equal(other.depositBalanceCheck({ depositRequired: 500, depositReceived: 500, amount: 1 }).fits, false);
   assert.equal(other.depositBalanceCheck({ depositRequired: 0, depositReceived: 0, amount: 1 }).remaining, 0);
+});
+
+test('invoice settlement books the charge without changing unpaid rent', () => {
+  const unpaid = other.settleInvoiceForOtherCharge({
+    rentAmount: 400, depositAmount: 0, existingExtraTotal: 0,
+    existingPaidAmount: 0, existingDepositPaid: 0, chargeAmount: 25,
+  });
+  assert.equal(unpaid.billAmount, 425);
+  assert.equal(unpaid.newPaidAmount, 25);
+  assert.equal(unpaid.status, 'partially_paid');
+  assert.equal(unpaid.billAmount - unpaid.newPaidAmount, 400, 'rent still outstanding');
+  const paid = other.settleInvoiceForOtherCharge({
+    rentAmount: 400, depositAmount: 0, existingExtraTotal: 0,
+    existingPaidAmount: 400, existingDepositPaid: 0, chargeAmount: 25,
+  });
+  assert.equal(paid.billAmount, 425);
+  assert.equal(paid.newPaidAmount, 425);
+  assert.equal(paid.status, 'paid');
+  const withDeposit = other.settleInvoiceForOtherCharge({
+    rentAmount: 400, depositAmount: 500, existingExtraTotal: 0,
+    existingPaidAmount: 400, existingDepositPaid: 500, chargeAmount: 25,
+  });
+  assert.equal(withDeposit.status, 'paid');
+  assert.equal(withDeposit.newPaidAmount, 425);
 });
 
 // ---- tenant submission ---------------------------------------------------
@@ -307,19 +347,23 @@ function review(values = {}) {
   return reviewOtherPaymentInline(data);
 }
 
-test('verifying posts exactly one payment with the right category and never touches rent', async () => {
-  for (const [type, category] of [['key_replacement', 'key_replacement'], ['top_up', 'top_up'], ['other', 'other']]) {
+test('verifying an income payment adds an invoice line, settles only that charge and never marks unpaid rent paid', async () => {
+  const cases = [
+    ['key_replacement', 'key_lock', 'Lost key / key replacement'],
+    ['top_up', 'top_up_utilities', 'Electricity top-up'],
+    ['other', 'other', 'Other payment'],
+  ];
+  for (const [type, category, description] of cases) {
     beforeEachCase();
     role = 'admin';
     actor = { id: 'staff-1' };
-    pendingSlip({ payment_type: type });
-    const before = JSON.stringify(tables.rent_bills);
+    pendingSlip({ payment_type: type, payment_note: type === 'other' ? 'For: Parking sticker' : null });
     const result = await review();
     assert.deepEqual(result, { error: null, verified: true }, type);
     assert.equal(tables.payments.length, 1, type);
     const payment = tables.payments[0];
-    assert.equal(payment.category, category);
-    assert.equal(payment.rent_bill_id, null);
+    assert.equal(payment.category, category, type);
+    assert.equal(payment.rent_bill_id, 'bill-1', type);
     assert.equal(payment.amount, 25);
     assert.equal(payment.status, 'confirmed');
     assert.equal(payment.tenancy_id, 'ty-1');
@@ -328,12 +372,56 @@ test('verifying posts exactly one payment with the right category and never touc
     assert.equal(payment.reference_number, 'REF123456');
     assert.equal(tables.payment_submissions[0].verification_status, 'verified');
     assert.equal(tables.payment_submissions[0].tenancy_id, 'ty-1');
-    assert.equal(JSON.stringify(tables.rent_bills), before, 'rent bill unchanged');
-    for (const forbidden of ['rent_bills', 'rental_invoice_line_items', 'rent_bill_audit_logs']) {
-      assert.equal(accessed.has(forbidden), false, `${forbidden} must not be touched`);
-    }
+    assert.equal(tables.payment_submissions[0].rent_bill_id, 'bill-1');
+    assert.equal(tables.payment_submissions[0].bill_month, '2026-11-01');
+    const line = tables.rental_invoice_line_items[0];
+    assert.equal(tables.rental_invoice_line_items.length, 1, type);
+    assert.equal(line.category, category, type);
+    assert.equal(line.rent_bill_id, 'bill-1');
+    assert.equal(line.payment_submission_id, 'sub-1');
+    assert.equal(line.amount, 25);
+    if (type === 'other') assert.equal(line.description, 'Other payment — Parking sticker');
+    else assert.equal(line.description, description);
+    assert.equal(tables.rent_bills[0].paid_amount, 25, 'only the new charge is settled');
+    assert.equal(tables.rent_bills[0].amount, 400, 'rent amount is unchanged');
+    assert.equal(tables.rent_bills[0].status, 'partially_paid');
+    assert.equal(tables.rent_bill_audit_logs.length, 1);
     assert.equal(tables.payment_verification_audit_logs.at(-1).action, 'verified');
   }
+});
+
+test('verifying against a paid invoice keeps the invoice paid and does not reopen rent', async () => {
+  beforeEachCase();
+  role = 'admin';
+  actor = { id: 'staff-1' };
+  tables.rent_bills[0].paid_amount = 400;
+  tables.rent_bills[0].status = 'paid';
+  pendingSlip();
+  assert.equal((await review()).verified, true);
+  assert.equal(tables.rent_bills[0].paid_amount, 425);
+  assert.equal(tables.rent_bills[0].amount, 400);
+  assert.equal(tables.rent_bills[0].status, 'paid');
+  assert.equal(tables.rental_invoice_line_items[0].category, 'key_lock');
+});
+
+test('verification needs that month\'s invoice before income can be booked', async () => {
+  beforeEachCase();
+  role = 'admin';
+  actor = { id: 'staff-1' };
+  tables.rent_bills[0].bill_month = '2026-10-01';
+  pendingSlip();
+  assert.equal((await review()).error, 'other_payment_invoice');
+  assert.equal(tables.payments.length, 0);
+  assert.equal(tables.rental_invoice_line_items.length, 0);
+  assert.equal(tables.payment_submissions[0].verification_status, 'pending_verification');
+
+  beforeEachCase();
+  role = 'admin';
+  actor = { id: 'staff-1' };
+  tables.rent_bills[0].status = 'cancelled';
+  pendingSlip({ payment_type: 'top_up' });
+  assert.equal((await review()).error, 'other_payment_invoice');
+  assert.equal(tables.payments.length, 0);
 });
 
 test('verifying twice does not post a second payment', async () => {
@@ -376,9 +464,14 @@ test('deposit balance: capped at the deposit still owed, legacy slip-only deposi
   assert.equal((await review()).error, 'other_payment_deposit_amount');
   assert.equal(tables.payments.length, 1);
   tables.payment_submissions[0].amount = 200;
+  const billBefore = JSON.stringify(tables.rent_bills);
   assert.equal((await review()).verified, true);
   assert.equal(tables.payments.at(-1).category, 'deposit');
   assert.equal(tables.payments.at(-1).amount, 200);
+  assert.equal(tables.payments.at(-1).rent_bill_id, null);
+  assert.equal(tables.rental_invoice_line_items.length, 0, 'deposit is a liability, not income');
+  assert.equal(JSON.stringify(tables.rent_bills), billBefore);
+  assert.equal(tables.payment_submissions[0].rent_bill_id, null);
 
   beforeEachCase();
   role = 'admin';
@@ -394,10 +487,15 @@ test('if the payment cannot be posted the slip goes back to pending', async () =
   role = 'admin';
   actor = { id: 'staff-1' };
   pendingSlip();
+  const billBefore = JSON.stringify(tables.rent_bills);
   globalThis.__paymentInsertError = true;
   assert.equal((await review()).error, 'review');
   assert.equal(tables.payment_submissions[0].verification_status, 'pending_verification');
+  assert.equal(tables.payment_submissions[0].rent_bill_id, null);
+  assert.equal(tables.payment_submissions[0].tenancy_id, null);
   assert.equal(tables.payments.length, 0);
+  assert.equal(tables.rental_invoice_line_items.length, 0);
+  assert.equal(JSON.stringify(tables.rent_bills), billBefore);
 });
 
 test('verification fails safely when the tenant has no single active room tenancy', async () => {
@@ -434,13 +532,24 @@ test('the rent verification action refuses other-payment slips so they can never
   assert.ok(guard > 0 && guard < source.indexOf('let effectiveTenancyId'), 'guard runs before any allocation');
 });
 
-test('migration is additive and forbids a rent bill on an other payment', () => {
+test('migration is additive and forbids a rent bill on a pending other payment', () => {
   const sql = read('supabase/migrations/20261126120000_other_payments.sql');
   assert.match(sql, /add column if not exists submitted_by_staff_id uuid/);
-  assert.match(sql, /check \(bill_type <> 'other_payment' or rent_bill_id is null\)/);
+  assert.match(sql, /check \([\s\S]*bill_type <> 'other_payment'[\s\S]*rent_bill_id is null[\s\S]*verification_status = 'verified'/);
   assert.doesNotMatch(sql, /\b(drop|truncate)\b|delete from/i);
   assert.doesNotMatch(sql, /update public\./i);
   assert.doesNotMatch(sql, /insert into/i);
+});
+
+test('undo migration reverses the invoice line and clears the other-payment invoice link', () => {
+  const sql = read('supabase/migrations/20261126131500_other_payment_income_reversal.sql');
+  assert.match(sql, /create or replace function public\.reverse_verified_payment_submission/);
+  assert.match(sql, /delete from public\.rental_invoice_line_items/);
+  assert.match(sql, /set paid_amount = v_rent_paid/);
+  assert.match(sql, /v_submission\.bill_type = 'other_payment' then null/);
+  assert.match(sql, /to service_role;/);
+  assert.doesNotMatch(sql, /to authenticated/);
+  assert.match(sql, /verification_status = 'verified'/);
 });
 
 test('tenant portal and staff payments page expose the form, the verification page shows the type', () => {
@@ -460,9 +569,14 @@ test('tenant portal and staff payments page expose the form, the verification pa
   const form = read('components/tenant/other-payment-form.tsx');
   assert.match(form, /prepareSlipForUpload/);
   assert.match(form, /heic/);
+  assert.match(form, /Cash is not accepted/);
+  assert.match(form, /bank transfer, DuitNow or online payment/);
+  assert.doesNotMatch(form, /Other non-cash payment/);
   assert.match(read('lib/payments/slip-upload.ts'), /prepareRegistrationUpload/);
   assert.match(read('lib/payments/payment-category.ts'), /key_replacement/);
+  assert.match(read('lib/payments/payment-category.ts'), /top_up_utilities/);
   assert.match(read('package.json'), /tests\/other-payments\.test\.cjs/);
+  assert.match(read('app/payment-verification/page.tsx'), /other_payment_invoice/);
 });
 
 test('verification row labels the type, keeps one row of nine cells and its blue/green colours', () => {

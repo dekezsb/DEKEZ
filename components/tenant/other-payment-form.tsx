@@ -258,7 +258,7 @@ export function OtherPaymentForm({ mode, tenancies, action }: Props) {
             </label>
           </div>
           <p className="-mt-2 text-sm text-amber-700">
-            Cash payments are not accepted. A payment slip is required.
+            Only a bank transfer, DuitNow or online payment is accepted, and a payment slip is required. Cash is not accepted.
           </p>
 
           <label className="block">
