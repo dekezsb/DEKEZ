@@ -4,6 +4,16 @@ import {
   releaseCheckedOutTenantPhone,
   type TenantPhoneReleaseStatus,
 } from "@/lib/auth/release-tenant-phone";
+import {
+  revokeTenantLogin,
+  revokeTenantSessions,
+  type TenantLoginRevokeStatus,
+} from "@/lib/auth/tenant-login-access";
+import {
+  contractEndOf,
+  isEarlyCheckout,
+  isMissingCheckoutLoginSchema,
+} from "@/lib/auth/tenant-login-rules";
 import { revokeSmartLockAccessForTenancy } from "@/lib/ttlock/access";
 import { revokeEKeyAccessForTenancy } from "@/lib/ttlock/ekey";
 import { revokeFingerprintAccessForTenancy } from "@/lib/ttlock/fingerprint";
@@ -39,6 +49,8 @@ export type TenantCheckoutResult =
       roomId: string;
       tenancyId: string;
       phoneLoginRelease: TenantPhoneReleaseStatus;
+      loginRevoke: TenantLoginRevokeStatus | "via_phone_release";
+      earlyCheckout: boolean;
       meterPowerErrors?: string[];
     }
   | { ok: false; reason: TenantCheckoutFailure };
@@ -71,7 +83,7 @@ export async function executeTenantCheckout({
   const { data: tenancy, error: tenancyError } = await admin
     .from("tenancies")
     .select(
-      "id,company_id,property_id,room_id,tenant_id,status,checkout_date,check_in_date,start_date,properties(name),rooms!tenancies_room_id_fkey(id,name,room_number,status,current_tenancy_id),tenants(full_name,phone,profile_id)",
+      "id,company_id,property_id,room_id,tenant_id,status,checkout_date,check_in_date,start_date,tenancy_end_date,contract_end,end_date,properties(name),rooms!tenancies_room_id_fkey(id,name,room_number,status,current_tenancy_id),tenants(full_name,phone,profile_id)",
     )
     .eq("id", tenancyId)
     .eq("status", "active")
@@ -125,25 +137,43 @@ export async function executeTenantCheckout({
     return { ok: false, reason: "lock" };
   }
 
-  const { data: checkedOutTenancy, error: checkoutError } = await admin
-    .from("tenancies")
-    .update({
-      status: "ended",
-      checkout_date: checkoutDate,
-      billing_status: "completed",
-      end_date: checkoutDate,
-      contract_end: checkoutDate,
-      tenancy_end_date: checkoutDate,
-      renewal_status: "not_renewing",
-    })
-    .eq("id", tenancy.id)
-    .eq("property_id", tenancy.property_id)
-    .eq("room_id", tenancy.room_id)
-    .eq("status", "active")
-    .select("id")
-    .maybeSingle();
+  // Checkout ends the tenancy immediately (no wait for the contract end).
+  // The contract end that applied before checkout is kept so an early
+  // checkout stays on record; checkout_date is the actual move-out date.
+  const contractEndBeforeCheckout = contractEndOf(tenancy);
+  const earlyCheckout = isEarlyCheckout(checkoutDate, contractEndBeforeCheckout);
+  const endTenancy = (withRecordColumns: boolean) =>
+    admin
+      .from("tenancies")
+      .update({
+        status: "ended",
+        checkout_date: checkoutDate,
+        billing_status: "completed",
+        end_date: checkoutDate,
+        contract_end: checkoutDate,
+        tenancy_end_date: checkoutDate,
+        renewal_status: "not_renewing",
+        ...(withRecordColumns
+          ? {
+              checked_out_at: new Date().toISOString(),
+              contract_end_before_checkout: contractEndBeforeCheckout,
+            }
+          : {}),
+      })
+      .eq("id", tenancy.id)
+      .eq("property_id", tenancy.property_id)
+      .eq("room_id", tenancy.room_id)
+      .eq("status", "active")
+      .select("id,status")
+      .maybeSingle();
+  let { data: checkedOutTenancy, error: checkoutError } = await endTenancy(true);
+  if (checkoutError && isMissingCheckoutLoginSchema(checkoutError)) {
+    // Migration 20261124120000 not applied yet: end the tenancy without the
+    // two record columns; the original end date is still in the audit log.
+    ({ data: checkedOutTenancy, error: checkoutError } = await endTenancy(false));
+  }
 
-  if (checkoutError || !checkedOutTenancy) {
+  if (checkoutError || !checkedOutTenancy || checkedOutTenancy.status !== "ended") {
     console.error("Checkout tenancy update failed.", {
       checkoutError,
       tenancyId: tenancy.id,
@@ -209,6 +239,23 @@ export async function executeTenantCheckout({
     tenantId: tenancy.tenant_id,
   });
 
+  // JV rule: a checked-out tenant can no longer log in. The phone release
+  // above already bans and archives the login when the tenant has no other
+  // current tenancy; sign out live sessions too. If the release could not
+  // run, still disable the login directly (records are kept, never deleted).
+  let loginRevoke: TenantLoginRevokeStatus | "via_phone_release" = "via_phone_release";
+  if (phoneLoginRelease === "released") {
+    await revokeTenantSessions(tenant?.profile_id ?? null);
+  } else if (phoneLoginRelease === "kept_for_active_tenancy") {
+    loginRevoke = "kept_for_current_tenancy";
+  } else {
+    loginRevoke = await revokeTenantLogin({
+      profileId: tenant?.profile_id ?? null,
+      tenancyId: tenancy.id,
+      reason: "checkout",
+    });
+  }
+
   const { error: auditError } = await admin.from("audit_logs").insert({
     company_id: tenancy.company_id,
     actor_profile_id: actorProfileId,
@@ -227,6 +274,9 @@ export async function executeTenantCheckout({
       source,
       note: note?.trim() || null,
       phone_login_release: phoneLoginRelease,
+      login_revoke: loginRevoke,
+      contract_end_before_checkout: contractEndBeforeCheckout,
+      early_checkout: earlyCheckout,
       meter_power_off: meterPower,
     },
   });
@@ -243,6 +293,8 @@ export async function executeTenantCheckout({
     roomId: tenancy.room_id,
     tenancyId: tenancy.id,
     phoneLoginRelease,
+    loginRevoke,
+    earlyCheckout,
     meterPowerErrors: meterPower.errors,
   };
 }

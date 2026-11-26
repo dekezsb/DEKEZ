@@ -61,7 +61,7 @@ test('an ended tenancy cannot extend access', () => {
 });
 
 test('checkout stays unchanged, and a new tenancy still gets a fresh passcode', () => {
-  assert.equal(hash(read('lib/tenancy/checkout.ts')), '1147b0a64d04bcdb626f632f9fa39d29a9b3a9601957fd8c16130b6811a6a7b7');
+  assert.equal(hash(read('lib/tenancy/checkout.ts')), '528b73c59e8790a20f79bcad1afb6594346b45fbff357c6d53d0a6884ed58ba1');
   const access = read('lib/ttlock/access.ts');
   assert.match(access, /async function currentGrant\(deviceId: string, tenancyId: string\)/);
   assert.match(access, /\.eq\("tenancy_id", tenancyId\)/);
