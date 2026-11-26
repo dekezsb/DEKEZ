@@ -130,6 +130,16 @@ export function TenantCheckoutHistory({
                   <tr key={item.tenancyId}>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-[#07142f]">
                       {formatMalaysiaDate(item.checkoutDate)}
+                      {item.earlyCheckout ? (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                          Early checkout
+                        </span>
+                      ) : null}
+                      <p className="mt-1 text-xs font-normal text-gray-500">
+                        {item.contractEnd
+                          ? `Contract end ${formatMalaysiaDate(item.contractEnd)}`
+                          : "Contract end not recorded"}
+                      </p>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-[#07142f]">{item.tenantName}</p>

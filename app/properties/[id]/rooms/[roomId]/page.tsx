@@ -12,6 +12,7 @@ import { PaymentHistory } from "@/components/tenant/payment-history";
 import { requireRole } from "@/lib/auth/session";
 import { formatMalaysiaDate } from "@/lib/date-format";
 import { getRoomDetails } from "@/lib/data/property-details";
+import { getRoomCheckoutHistory } from "@/lib/data/tenant-checkouts";
 import { getRoomSmartDevices } from "@/lib/data/room-smart-devices";
 import { RoomSmartDevicesCard } from "./room-smart-devices";
 import { RoomTTLockControls } from "./room-ttlock-controls";
@@ -96,7 +97,7 @@ export default async function RoomDetailsPage({
   const role = await requireRole(["super_admin", "owner", "admin"]);
   const canManage = role === "super_admin" || role === "admin";
   const [{ id, roomId }, query] = await Promise.all([params, searchParams]);
-  const [details, smartDevices, ttlockContext] = await Promise.all([
+  const [details, smartDevices, ttlockContext, checkoutHistory] = await Promise.all([
     getRoomDetails(id, roomId, {
       includeSensitiveDocuments: canManage,
     }),
@@ -107,6 +108,7 @@ export default async function RoomDetailsPage({
           return null;
         })
       : Promise.resolve(null),
+    canManage ? getRoomCheckoutHistory(roomId).catch(() => []) : Promise.resolve([]),
   ]);
   const { property, room } = details;
   const { data: reservation } = canManage && room.status === "reserved" && !room.tenantName
@@ -296,6 +298,42 @@ export default async function RoomDetailsPage({
           ) : <p className="text-sm text-gray-500">No rent bills found for the current tenancy.</p>}
         </CardContent>
       </Card>
+
+      {checkoutHistory.length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Previous Tenancies</CardTitle>
+            <CardDescription>Actual checkout date against the contract end. Checked-out tenants can no longer log in.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tenant</TableHead>
+                  <TableHead>Check-in</TableHead>
+                  <TableHead>Contract end</TableHead>
+                  <TableHead>Checked out</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {checkoutHistory.map((item) => (
+                  <TableRow key={item.tenancyId}>
+                    <TableCell className="font-medium">{item.tenantName}</TableCell>
+                    <TableCell>{item.checkInDate ? formatMalaysiaDate(item.checkInDate) : "-"}</TableCell>
+                    <TableCell>{item.contractEnd ? formatMalaysiaDate(item.contractEnd) : "Not recorded"}</TableCell>
+                    <TableCell>
+                      {formatMalaysiaDate(item.checkoutDate)}
+                      {item.earlyCheckout ? (
+                        <Badge className="ml-2 bg-amber-100 text-amber-800">Early checkout</Badge>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
