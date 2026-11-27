@@ -1,5 +1,6 @@
 "use client";
 
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PaymentSlipFile } from "@/components/payment-slip-file";
@@ -75,7 +76,7 @@ export function MonthlyPaymentFolder({ billId, tenantName, roomName, propertyNam
             <fieldset disabled={busy || slot.saved} className="space-y-2">
               <legend className="font-semibold">New slip {index + 1}{slot.saved ? " — Saved" : ""}</legend>
               <label className="block text-sm">Amount (RM)<input name="amount" type="number" min="0.01" step="0.01" required className="mt-1 w-full rounded border p-2" /></label>
-              <label className="block text-sm">Bank-in date<input name="date" type="date" defaultValue={paymentDateDefault} required className="mt-1 w-full rounded border p-2" /></label>
+              <label className="block text-sm">Bank-in date (from the slip)<input name="date" type="date" defaultValue={paymentDateDefault} max={malaysiaToday()} required className="mt-1 w-full rounded border p-2" /></label>
               <label className="block text-sm">Bank reference<input name="reference" className="mt-1 w-full rounded border p-2" placeholder="Unique transaction reference" /></label>
               <label className="block text-sm">Note<input name="note" className="mt-1 w-full rounded border p-2" /></label>
               <label className="block text-sm">Bank-in photo / PDF<PaymentSlipFile /></label>
