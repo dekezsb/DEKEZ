@@ -1,5 +1,6 @@
 "use server";
 
+import { checkPaymentDate } from "@/lib/payments/payment-date";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -40,7 +41,7 @@ export async function addReservationPayment(form: FormData) {
   const file = formFile(form, "receipt");
   const key = text(form, "submissionKey");
   if (!Number.isFinite(amount) || amount <= 0 || !isPaymentPurpose(purpose)
-    || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !file || !isValidTenantDocument(file)
+    || !checkPaymentDate(date).ok || !file || !isValidTenantDocument(file)
     || !/^[0-9a-f-]{36}$/i.test(key)) redirect("/reservations?error=payment");
   const { data: existing } = await db.from("payment_submissions").select("id").eq("submission_key", key).maybeSingle();
   if (existing) redirect("/reservations?saved=1");

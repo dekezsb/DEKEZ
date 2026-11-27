@@ -1,3 +1,4 @@
+import { malaysiaToday, paymentDateMessages } from "@/lib/payments/payment-date";
 import { CheckCircle2, Clock, FileUp, Home, ReceiptText, UserRoundCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ type PageProps = {
 };
 
 const errorMessages: Record<string, string> = {
+  ...paymentDateMessages,
   missing: "Please fill in your name, property, room and contract duration.",
   document: "Upload both IC front and back, or upload the passport photo page.",
   commercial_document: "The selected commercial-title property requires a trading licence or supporting business document.",
@@ -249,7 +251,7 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Payment date</span>
-                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentDate" type="date" />
+                <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentDate" type="date" max={malaysiaToday()} required />
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Method</span>
