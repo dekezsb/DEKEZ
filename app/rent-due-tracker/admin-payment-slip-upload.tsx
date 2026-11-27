@@ -1,5 +1,6 @@
 "use client";
 
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Paperclip } from "lucide-react";
@@ -258,10 +259,11 @@ export function AdminPaymentSlipUpload({
                 </span>
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-gray-700">Payment date</span>
+                <span className="text-sm font-medium text-gray-700">Bank-in date (from the slip)</span>
                 <input
                   className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2"
                   defaultValue={paymentDateDefault}
+                  max={malaysiaToday()}
                   name="paymentDate"
                   required
                   type="date"

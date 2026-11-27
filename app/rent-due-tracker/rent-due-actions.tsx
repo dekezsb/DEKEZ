@@ -1,4 +1,5 @@
 "use client";
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { AdminPaymentSlipUpload } from "./admin-payment-slip-upload";
 
 import { Link } from "@/components/app-link";
@@ -143,7 +144,7 @@ export function RentDueActions({
             </label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Paid date</span>
-              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paidDate" type="date" defaultValue={paidDateDefault} required />
+              <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paidDate" type="date" defaultValue={paidDateDefault} max={malaysiaToday()} required />
             </label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Reference number</span>

@@ -252,7 +252,7 @@ export function CompactRentDueTracker({
                       latestSubmissionStatus={bill.latestSubmissionStatus}
                       outstandingAmount={money.format(bill.outstandingAmount)}
                       outstandingAmountValue={bill.outstandingAmount}
-                      paidDateDefault={today}
+                      paidDateDefault=""
                       propertyName={bill.propertyName}
                       receiptUrl={bill.latestReceiptUrl}
                       reminderMessage={reminderMessage(bill)}
