@@ -1,3 +1,4 @@
+import { paymentDateMessages } from "@/lib/payments/payment-date";
 import { Link } from "@/components/app-link";
 import {
   ArrowRight,
@@ -34,6 +35,7 @@ type PageProps = {
 };
 
 const uploadErrorMessages: Record<string, string> = {
+  ...paymentDateMessages,
   bill_not_found: "This rent bill is no longer available for payment.",
   proof_create: "The payment record could not be created. Please try again.",
   proof_missing: "Enter the payment details and attach a payment slip.",
@@ -611,7 +613,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
 
       <OutstandingRoomMap
         canUploadSlip={canUploadSlip}
-        paymentDateDefault={today}
+        paymentDateDefault=""
         properties={propertiesWithUnpaidRooms}
         selectedMonth={tracker.selectedMonth}
         selectedProperty={selectedProperty}
@@ -631,7 +633,7 @@ export default async function RentDueTrackerPage({ searchParams }: PageProps) {
           <CollectionDetails
             canUploadSlip={canUploadSlip}
             collections={outstandingCollections}
-            paymentDateDefault={today}
+            paymentDateDefault=""
             selectedMonth={tracker.selectedMonth}
             selectedProperty={selectedProperty}
           />

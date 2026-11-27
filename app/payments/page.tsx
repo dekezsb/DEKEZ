@@ -1,4 +1,6 @@
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { Badge } from "@/components/ui/badge";
+import { paymentDateMessages } from "@/lib/payments/payment-date";
 import { TenantBills } from "@/components/tenant/tenant-portal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +33,7 @@ type PaymentsPageProps = {
 };
 
 const errorMessages: Record<string, string> = {
+  ...paymentDateMessages,
   missing: "Please choose a tenant, category and amount.",
   create: "Payment could not be saved.",
   tenancy: "Choose a tenant with an active tenancy before recording payment.",
@@ -179,7 +182,7 @@ export default async function PaymentsPage({ searchParams }: PaymentsPageProps) 
                 </label>
                 <label className="block">
                   <span className="text-sm font-medium text-gray-700">Payment date</span>
-                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentDate" type="date" />
+                  <input className="mt-2 w-full rounded-md border border-[#d7dde5] px-3 py-2" name="paymentDate" type="date" max={malaysiaToday()} required />
                 </label>
                 <label className="block">
                   <span className="text-sm font-medium text-gray-700">Method</span>
