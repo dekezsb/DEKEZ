@@ -1,5 +1,6 @@
 "use server";
 
+import { checkPaymentDate } from "@/lib/payments/payment-date";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -242,6 +243,11 @@ export async function submitCheckInPayment(formData: FormData) {
     redirect("/onboarding?error=payment_missing");
   }
 
+  const checkInDate = checkPaymentDate(textValue(formData, "paymentDate"));
+  if (!checkInDate.ok) {
+    redirect(`/onboarding?error=${checkInDate.error}`);
+  }
+
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `${user.id}/${application.id}/check-in-${Date.now()}-${safeName}`;
   const bytes = Buffer.from(await receipt.arrayBuffer());
@@ -265,7 +271,7 @@ export async function submitCheckInPayment(formData: FormData) {
       bill_type: "check_in",
       payment_type: paymentType,
       amount,
-      payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
+      payment_date: checkInDate.date,
       payment_method: paymentMethod,
       reference_number: textValue(formData, "referenceNumber") || null,
       receipt_url: path,

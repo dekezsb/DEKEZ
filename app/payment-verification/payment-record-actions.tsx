@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ReceiptViewer } from "./receipt-viewer";
@@ -364,10 +365,11 @@ export function PaymentRecordActions({
                     </label>
                     <label className="block">
                       <span className="text-sm font-medium text-gray-800">
-                        Payment date
+                        Bank-in date (from the slip)
                       </span>
                       <input
                         className="mt-2 w-full rounded-md border border-[#d7dde5] bg-white px-3 py-2"
+                        max={malaysiaToday()}
                         name="paymentDateOverride"
                         type="date"
                         value={correctedPaymentDate}
