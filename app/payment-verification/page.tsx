@@ -123,7 +123,7 @@ const errorMessages: Record<string, string> = {
     "Choose what the extra payment is for and enter a clear description before verification.",
   purpose_correction:
     "Check the corrected payment details and explain why they are being changed.",
-  correction_date: "Choose a valid payment date.",
+  correction_date: "Enter the bank-in date from the slip. It must be a real date and cannot be in the future.",
   bank_reference: "Enter a bank transaction reference of at most 120 characters, on one line. Keep starting zeroes.",
   correction_month: "Choose a valid billing month.",
   correction_amount: "Enter a valid payment amount greater than RM 0.00.",

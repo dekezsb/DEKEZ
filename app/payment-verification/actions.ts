@@ -1,5 +1,6 @@
 "use server";
 
+import { checkPaymentDate } from "@/lib/payments/payment-date";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -310,13 +311,16 @@ async function performPaymentReview(formData: FormData, inline: boolean) {
   }
 
   if (paymentDateWasCorrected) {
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(paymentDateOverride) ||
-      Number.isNaN(Date.parse(`${paymentDateOverride}T00:00:00Z`))
-    ) {
+    if (!checkPaymentDate(paymentDateOverride).ok) {
       finish(returnTo, "error=correction_date");
     }
     effectivePaymentDate = paymentDateOverride;
+  }
+
+  // The receipt and journal post on the bank-in date from the slip. A missing
+  // or future date must be corrected here instead of falling back to today.
+  if (decision === "verified" && !checkPaymentDate(effectivePaymentDate).ok) {
+    finish(returnTo, "error=correction_date");
   }
 
   if (billMonthOverride && !/^\d{4}-\d{2}$/.test(billMonthOverride)) {
