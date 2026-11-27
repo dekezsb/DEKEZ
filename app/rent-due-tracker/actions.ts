@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
+import { checkPaymentDate } from "@/lib/payments/payment-date";
 import { folderSummary, type FolderSlip } from "@/lib/payments/payment-folder";
 import { bankReferenceError, sameInvoiceBankReference } from "@/lib/payments/verification-row";
 import { supportsReservations } from "@/lib/tenancy/reservation-policy";
@@ -351,7 +352,9 @@ export async function submitPaymentFolderSlip(form: FormData): Promise<{ ok: boo
   const key = textValue(form, "key");
   const reference = textValue(form, "reference");
   const file = fileValue(form, "receipt");
-  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
+  const dateCheck = checkPaymentDate(date);
+  if (!dateCheck.ok && dateCheck.error === "payment_date_future") return { ok: false, message: "The bank-in date cannot be in the future. Use the date on the bank slip." };
+  const validDate = dateCheck.ok;
   if (!file || file.size > 3 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type)
     || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001 || !validDate || !["monthly_rent", "deposit"].includes(purpose)
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) return { ok: false, message: "Enter the amount, date and a JPG, PNG, WebP or PDF slip (under 3 MB)." };
@@ -420,7 +423,9 @@ export async function markRentBillPaid(formData: FormData) {
   const billId = textValue(formData, "billId");
   const paymentType = textValue(formData, "paymentType");
   const paidAmount = numberValue(formData, "paidAmount");
-  const paidDate = textValue(formData, "paidDate") || malaysiaDateString();
+  const paidDateCheck = checkPaymentDate(textValue(formData, "paidDate"));
+  if (!paidDateCheck.ok) redirect(`/rent-due-tracker?error=${paidDateCheck.error}`);
+  const paidDate = paidDateCheck.date;
   const referenceNumber = textValue(formData, "referenceNumber");
   const notes = textValue(formData, "notes");
 
@@ -515,7 +520,9 @@ export async function uploadRentPaymentSlip(formData: FormData) {
   const user = await getCurrentUser();
   const billId = textValue(formData, "billId");
   const amount = numberValue(formData, "amount");
-  const paymentDate = textValue(formData, "paymentDate") || malaysiaDateString();
+  const paymentDateCheck = checkPaymentDate(textValue(formData, "paymentDate"));
+  if (!paymentDateCheck.ok) redirect(`/rent-due-tracker?error=${paymentDateCheck.error}`);
+  const paymentDate = paymentDateCheck.date;
   const paymentMethod = textValue(formData, "paymentMethod") || "bank_transfer";
   const requestedPurpose = textValue(formData, "paymentPurpose");
   const paymentPurpose: PaymentPurpose = isPaymentPurpose(requestedPurpose)

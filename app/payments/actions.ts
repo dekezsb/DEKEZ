@@ -1,5 +1,6 @@
 "use server";
 
+import { checkPaymentDate } from "@/lib/payments/payment-date";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -37,7 +38,9 @@ export async function createPayment(formData: FormData) {
   const tenancyId = textValue(formData, "tenancyId");
   const category = textValue(formData, "category");
   const amount = numberValue(formData, "amount");
-  const paymentDate = textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10);
+  const paymentDateCheck = checkPaymentDate(textValue(formData, "paymentDate"));
+  if (!paymentDateCheck.ok) redirect(`/payments?error=${paymentDateCheck.error}`);
+  const paymentDate = paymentDateCheck.date;
   const paymentMethod = textValue(formData, "paymentMethod") || "cash";
   const referenceNumber = textValue(formData, "referenceNumber");
   const notes = textValue(formData, "notes");
@@ -271,6 +274,11 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
     redirect("/payments?proof=1");
   }
 
+  const proofDateCheck = checkPaymentDate(textValue(formData, "paymentDate"));
+  if (!proofDateCheck.ok) {
+    redirect(`/payments?error=${proofDateCheck.error}`);
+  }
+
   const safeName = receipt.name.replace(/[^a-zA-Z0-9._-]/g, "-");
   const path = `${user.id}/${bill.id}/${paymentPurpose}-${Date.now()}-${safeName}`;
   const bytes = Buffer.from(await receipt.arrayBuffer());
@@ -301,7 +309,7 @@ export async function uploadMonthlyPaymentProof(formData: FormData) {
             : "monthly_rent",
       payment_type: paymentPurpose,
       amount,
-      payment_date: textValue(formData, "paymentDate") || new Date().toISOString().slice(0, 10),
+      payment_date: proofDateCheck.date,
       payment_method: paymentMethod,
       reference_number: textValue(formData, "referenceNumber") || null,
       receipt_url: path,
