@@ -8,6 +8,7 @@ export const bankSourceTypes = [
   "cash_bank_in",
   "expense",
   "manual_bank_transaction",
+  "accounting_voucher",
 ] as const;
 
 export type BankSourceType = (typeof bankSourceTypes)[number];
@@ -39,7 +40,7 @@ export async function getBankCandidates(
   supabase: SupabaseClient,
   companyId: string,
 ): Promise<BankCandidate[]> {
-  const [paymentsResult, paidBillsResult, batchesResult, payoutsResult, bankInsResult, expensesResult, manualResult] = await Promise.all([
+  const [paymentsResult, paidBillsResult, batchesResult, payoutsResult, bankInsResult, expensesResult, manualResult, vouchersResult, voucherBanksResult] = await Promise.all([
     supabase
       .from("payments")
       .select("id, payment_date, amount, category, reference_number, property_id, rent_bill_id, payment_method")
@@ -77,6 +78,18 @@ export async function getBankCandidates(
     supabase
       .from("bank_manual_transactions")
       .select("id, transaction_date, amount, description, reference_number, bank_account_id, accounting_accounts!bank_manual_transactions_offset_account_id_fkey(system_key)")
+      .eq("company_id", companyId)
+      // Edited / voided bank vouchers leave reversed rows behind; never offer them again.
+      .is("superseded_at", null),
+    supabase
+      .from("accounting_vouchers")
+      .select("root_voucher_id, voucher_type, voucher_number, voucher_date, party_name, description, reference_number, property_id, payment_account_id, total_amount")
+      .eq("company_id", companyId)
+      .eq("status", "posted")
+      .in("voucher_type", ["PV", "RV"]),
+    supabase
+      .from("bank_accounts")
+      .select("id, accounting_account_id")
       .eq("company_id", companyId),
   ]);
 
@@ -291,6 +304,25 @@ export async function getBankCandidates(
       description: transaction.description,
       referenceNumber: transaction.reference_number,
       propertyId: null,
+    });
+  }
+
+  // PV / RV keyed in the Voucher module and paid through a bank account. The
+  // match uses the voucher's stable root id, so an edit keeps the bank link.
+  const bankIdByLedger = new Map((voucherBanksResult.data ?? []).map((bank) => [bank.accounting_account_id, bank.id]));
+  for (const voucher of vouchersResult.data ?? []) {
+    const bankAccountId = bankIdByLedger.get(voucher.payment_account_id);
+    if (!bankAccountId) continue;
+    const amount = Math.abs(numberValue(voucher.total_amount));
+    candidates.push({
+      sourceType: "accounting_voucher",
+      sourceId: voucher.root_voucher_id,
+      bankAccountId,
+      date: voucher.voucher_date,
+      amount: voucher.voucher_type === "PV" ? -amount : amount,
+      description: `${voucher.voucher_number} · ${voucher.party_name ?? ""} · ${voucher.description}`,
+      referenceNumber: voucher.reference_number,
+      propertyId: voucher.property_id,
     });
   }
 
