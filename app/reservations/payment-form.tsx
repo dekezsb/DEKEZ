@@ -1,4 +1,5 @@
 "use client";
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { addReservationPayment } from "./actions";
@@ -15,7 +16,7 @@ export function ReservationPaymentForm({ applicationId, date }: { applicationId:
     <input type="hidden" name="applicationId" value={applicationId} />
     <input type="hidden" name="submissionKey" value={key} />
     <label>Amount received RM<input className="block w-full rounded border p-2" type="number" name="amount" min="0.01" step="0.01" required /></label>
-    <label>Payment date<input className="block w-full rounded border p-2" type="date" name="paymentDate" defaultValue={date} required /></label>
+    <label>Payment date<input className="block w-full rounded border p-2" type="date" name="paymentDate" defaultValue={date} max={malaysiaToday()} required /></label>
     <label>Apply towards<select className="block w-full rounded border p-2" name="paymentPurpose"><option value="monthly_rent">First rent / room booking</option><option value="deposit">Deposit instalment</option><option value="rent_and_deposit">Rent + deposit</option><option value="other">Other charge</option></select></label>
     <label>Bank reference<input className="block w-full rounded border p-2" name="referenceNumber" /></label>
     <label>Note<input className="block w-full rounded border p-2" name="paymentNote" /></label>
