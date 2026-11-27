@@ -4,7 +4,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 function load(file, mocks = {}) {
   const m = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-  new Function('require', 'module', 'exports', code)(id => Object.hasOwn(mocks, id) ? mocks[id] : require(id), m, m.exports);
+  new Function('require', 'module', 'exports', code)(id => Object.hasOwn(mocks, id) ? mocks[id] : id === '@/lib/payments/payment-date' ? load('lib/payments/payment-date.ts') : require(id), m, m.exports);
   return m.exports;
 }
 const model = load('lib/renovation/model.ts');
