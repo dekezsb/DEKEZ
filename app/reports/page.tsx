@@ -888,6 +888,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     { key: "journal", label: "Journal Entries", icon: BookOpen },
     { key: "vouchers", label: "Vouchers (PV / RV / JV)", icon: ReceiptText, href: "/reports/vouchers" },
     { key: "general-ledger", label: "General Ledger", icon: ReceiptText, href: "/reports/general-ledger" },
+    { key: "ar-aging", label: "AR Aging", icon: Scale, href: "/reports/ar-aging" },
     { key: "ledger", label: "Chart of Accounts", icon: BookOpen },
   ];
   const statusClasses: Record<string, string> = {
