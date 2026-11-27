@@ -15,6 +15,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { TableRow } from "@/components/ui/table";
+import { malaysiaToday } from "@/lib/payments/payment-date";
 import { updateRoomField, updateRoomPaymentQr } from "./actions";
 
 export function PropertyInformationForm({
@@ -202,6 +203,9 @@ export function InlineRoomField({
   const [inputValue, setInputValue] = useState(String(value));
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  // Changing "deposit received" needs the bank-in date and a reason before it saves.
+  const [confirming, setConfirming] = useState(false);
+  const needsDate = field === "depositReceived";
   const balanceOwed =
     field === "depositReceived" && balanceTotal !== undefined
       ? Math.max(balanceTotal - (Number(inputValue) || 0), 0)
@@ -219,6 +223,7 @@ export function InlineRoomField({
     const result = await updateRoomField(formData);
     if (result.ok) {
       savedValue.current = String(formData.get("value") ?? "");
+      setConfirming(false);
       setStatus("saved");
       router.refresh();
       window.setTimeout(() => setStatus("idle"), 1600);
@@ -230,8 +235,19 @@ export function InlineRoomField({
 
   function submitIfChanged(event: FocusEvent<HTMLInputElement>) {
     if (event.currentTarget.value !== savedValue.current) {
+      if (needsDate) {
+        setConfirming(true);
+        return;
+      }
       formRef.current?.requestSubmit();
     }
+  }
+
+  function cancelDepositChange() {
+    setInputValue(savedValue.current);
+    setConfirming(false);
+    setStatus("idle");
+    setErrorMessage("");
   }
 
   if (!editable) {
@@ -295,8 +311,24 @@ export function InlineRoomField({
           {status === "saving" ? <><LoaderCircle className="h-3 w-3 animate-spin" /> Saving</> : null}
           {status === "saved" ? <><Check className="h-3 w-3 text-emerald-600" /> Saved</> : null}
           {status === "error" ? errorMessage : null}
-          {status === "idle" ? "Auto-saves" : null}
+          {status === "idle" ? (confirming ? "Enter the bank-in date and reason below" : needsDate ? "Asks for bank-in date" : "Auto-saves") : null}
         </span>
+        {confirming ? (
+          <div className="mt-1 w-56 space-y-2 rounded-md border border-[#d7dde5] bg-white p-2 text-xs shadow-sm">
+            <label className="block font-medium text-gray-700">
+              Bank-in date (from the slip)
+              <input className="mt-1 h-8 w-full rounded border border-[#d7dde5] px-1 text-sm" max={malaysiaToday()} min="2020-01-01" name="effectiveDate" required type="date" />
+            </label>
+            <label className="block font-medium text-gray-700">
+              Reason for change
+              <input className="mt-1 h-8 w-full rounded border border-[#d7dde5] px-1 text-sm" maxLength={200} name="reason" placeholder="e.g. tenant banked in on 3 Nov" required />
+            </label>
+            <div className="flex gap-2">
+              <Button disabled={status === "saving"} size="sm" type="submit">Save</Button>
+              <Button disabled={status === "saving"} onClick={cancelDepositChange} size="sm" type="button" variant="outline">Cancel</Button>
+            </div>
+          </div>
+        ) : null}
         {balanceOwed !== null && balanceOwed > 0.005 ? (
           <p className="mt-0.5 whitespace-nowrap text-xs font-semibold text-red-600">
             Owes RM {balanceOwed.toFixed(2)}

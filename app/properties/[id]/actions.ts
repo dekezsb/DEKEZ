@@ -1,5 +1,6 @@
 "use server";
 
+import { checkPaymentDate, paymentDateMessages } from "@/lib/payments/payment-date";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
@@ -872,6 +873,16 @@ export async function updateRoomField(formData: FormData) {
 
   if (field === "depositReceived") {
     const depositReceived = Math.max(0, numberValue(formData, "value"));
+    // The deposit is recorded on the bank-in date from the slip, never silently
+    // on today's date, and every correction needs a reason for the audit log.
+    const effectiveDate = checkPaymentDate(textValue(formData, "effectiveDate"));
+    if (!effectiveDate.ok) {
+      return { ok: false, error: paymentDateMessages[effectiveDate.error] };
+    }
+    const correctionReason = textValue(formData, "reason");
+    if (correctionReason.length < 3) {
+      return { ok: false, error: "Enter a reason for changing the deposit received (it is kept in the audit log)." };
+    }
 
     if (!tenancyId && tenantRecordId) {
       tenancyId =
@@ -909,7 +920,7 @@ export async function updateRoomField(formData: FormData) {
 
     const { data: existingDeposits, error: existingDepositsError } = await supabase
       .from("payments")
-      .select("id, amount, payment_method, reference_number, notes")
+      .select("id, amount, payment_date, payment_method, reference_number, notes")
       .eq("tenancy_id", paymentTenancy.id)
       .in("category", [
         "deposit",
@@ -1022,7 +1033,7 @@ export async function updateRoomField(formData: FormData) {
         payment_method: "manual_adjustment",
         reference_number: referenceNumber,
         status: "confirmed",
-        payment_date: today(),
+        payment_date: effectiveDate.date,
         notes: "Deposit received recorded from Property Details.",
         collected_by: user.id,
         recorded_by: user.id,
@@ -1057,6 +1068,11 @@ export async function updateRoomField(formData: FormData) {
         previous_manual_amount: existingManualAmount,
         new_manual_amount: requestedManualAmount,
         deposit_received_total: depositReceived,
+        effective_date: effectiveDate.date,
+        previous_effective_dates: manualDeposits.map((payment) => payment.payment_date ?? null),
+        reversed_payment_ids: manualDepositIds,
+        new_payment_reference: requestedManualAmount > 0.005 ? referenceNumber : null,
+        reason: correctionReason,
       },
     });
   }

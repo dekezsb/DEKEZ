@@ -887,6 +887,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     { key: "bank", label: "Bank Reconciliation", icon: Landmark },
     { key: "journal", label: "Journal Entries", icon: BookOpen },
     { key: "vouchers", label: "Vouchers (PV / RV / JV)", icon: ReceiptText, href: "/reports/vouchers" },
+    { key: "general-ledger", label: "General Ledger", icon: ReceiptText, href: "/reports/general-ledger" },
     { key: "ledger", label: "Chart of Accounts", icon: BookOpen },
   ];
   const statusClasses: Record<string, string> = {
