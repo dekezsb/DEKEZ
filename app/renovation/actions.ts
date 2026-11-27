@@ -1,4 +1,5 @@
 "use server";
+import { checkPaymentDate } from "@/lib/payments/payment-date";
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -132,7 +133,7 @@ export async function submitRenovationPayment(_previous: RenovationActionState, 
   const { db, company, user } = await renovationContext(true);
   const invoiceId = text(form, "invoice_id"), bankId = text(form, "bank_account_id"), reference = text(form, "reference_number");
   const amount = Number(text(form, "amount")), date = text(form, "payment_date"), file = form.get("proof");
-  if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || (reference && (reference.length < 3 || reference.length > 120 || !/[a-z0-9]{3}/i.test(reference.replace(/[^a-z0-9]/gi, ""))))) return { error: "Enter a valid amount, payment date and bank reference." };
+  if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001 || !checkPaymentDate(date).ok || (reference && (reference.length < 3 || reference.length > 120 || !/[a-z0-9]{3}/i.test(reference.replace(/[^a-z0-9]/gi, ""))))) return { error: "Enter a valid amount, bank reference and the bank-in date from the slip (not in the future)." };
   if (!(file instanceof File) || !file.size || file.size > 3 * 1024 * 1024) return { error: "Attach a JPG, PNG or PDF bank-in slip, maximum 3 MB." };
   const bytes = Buffer.from(await file.arrayBuffer());
   const mime = bytes.subarray(0, 5).toString() === "%PDF-" ? "application/pdf" : bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png" : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? "image/jpeg" : null;

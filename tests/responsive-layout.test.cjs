@@ -13,6 +13,12 @@ test('Claims approved batch loading and Rent Due Tracker retain reviewed non-lay
   const link='{canUploadSlip ? <Link href="/rent-due-tracker/reminder-followups" className="mt-3 inline-flex min-h-11 items-center rounded-lg border px-3 text-sm">Reminder follow-ups · phone / consent / payment review</Link> : null}';
   assert.equal(source.split(link).length,2,'exactly one approved worklist link');
   source=source.replace(/\r\n/g,'\n').replace(`          ${link}\n`,'');
+  // Bank-in date fix (feat/vouchers): knock-off date fields no longer prefill today,
+  // and date validation messages are shown. Strip only those reviewed edits.
+  const dateImport='import { paymentDateMessages } from "@/lib/payments/payment-date";\n';
+  assert.equal(source.split(dateImport).length,2,'bank-in date messages import');
+  assert.equal(source.split('paymentDateDefault=""').length,3,'two blank bank-in date defaults');
+  source=source.replace(dateImport,'').replace('  ...paymentDateMessages,\n','').replaceAll('paymentDateDefault=""','paymentDateDefault={today}');
  }
  assert.equal(crypto.createHash('sha256').update(withoutClasses(source)).digest('hex'),baseline[f],f);
  }
